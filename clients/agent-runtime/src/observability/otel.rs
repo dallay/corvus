@@ -1,4 +1,8 @@
-use super::traits::{Observer, ObserverEvent, ObserverMetric};
+use super::traits::{
+    budget_state_label, cost_override_scope_label, redact_optional_observer_payload,
+    usage_period_label, BudgetOverrideEvent, BudgetThresholdEvent, Observer, ObserverEvent,
+    ObserverMetric,
+};
 use opentelemetry::metrics::{Counter, Gauge, Histogram};
 use opentelemetry::trace::{Span, SpanKind, Status, Tracer};
 use opentelemetry::{global, KeyValue};
@@ -23,12 +27,87 @@ pub struct OtelObserver {
     channel_messages: Counter<u64>,
     heartbeat_ticks: Counter<u64>,
     errors: Counter<u64>,
+    budget_warnings: Counter<u64>,
+    budget_exceeded: Counter<u64>,
+    budget_overrides: Counter<u64>,
     request_latency: Histogram<f64>,
     tokens_used: Counter<u64>,
+    cost_usd_last: Gauge<f64>,
     active_sessions: Gauge<u64>,
     queue_depth: Gauge<u64>,
     image_ingress: Counter<u64>,
     audio_ingress: Counter<u64>,
+}
+
+fn budget_threshold_trace_fields(event: &BudgetThresholdEvent) -> Vec<(String, String)> {
+    let mut fields = vec![
+        (
+            "budget_state".to_string(),
+            budget_state_label(event.budget_state).to_string(),
+        ),
+        (
+            "period".to_string(),
+            usage_period_label(event.period).to_string(),
+        ),
+        (
+            "current_usd".to_string(),
+            format!("{:.6}", event.current_usd),
+        ),
+        (
+            "projected_usd".to_string(),
+            format!("{:.6}", event.projected_usd),
+        ),
+        ("limit_usd".to_string(), format!("{:.6}", event.limit_usd)),
+        (
+            "percent_used".to_string(),
+            format!("{:.2}", event.percent_used),
+        ),
+        ("session_id".to_string(), event.session_id.clone()),
+    ];
+    if let Some(surface) = event.surface.as_ref() {
+        fields.push(("surface".to_string(), surface.clone()));
+    }
+    fields
+}
+
+fn budget_override_trace_fields(event: &BudgetOverrideEvent) -> Vec<(String, String)> {
+    let mut fields = vec![
+        ("action".to_string(), event.action.as_str().to_string()),
+        (
+            "scope".to_string(),
+            cost_override_scope_label(event.scope).to_string(),
+        ),
+        ("actor".to_string(), event.redacted_actor()),
+        (
+            "previous_state".to_string(),
+            budget_state_label(event.previous_state).to_string(),
+        ),
+    ];
+
+    if let Some(reason) = event.redacted_reason() {
+        fields.push(("reason".to_string(), reason));
+    }
+    if let Some(period) = event.period {
+        fields.push(("period".to_string(), usage_period_label(period).to_string()));
+    }
+    if let Some(session_id) = event.session_id.as_ref() {
+        fields.push(("session_id".to_string(), session_id.clone()));
+    }
+    if let Some(override_id) = event.override_id.as_ref() {
+        fields.push(("override_id".to_string(), override_id.clone()));
+    }
+    if let Some(surface) = redact_optional_observer_payload(event.surface.as_deref()) {
+        fields.push(("surface".to_string(), surface));
+    }
+
+    fields
+}
+
+fn key_values_from_fields(fields: Vec<(String, String)>) -> Vec<KeyValue> {
+    fields
+        .into_iter()
+        .map(|(key, value)| KeyValue::new(key, value))
+        .collect()
 }
 
 impl OtelObserver {
@@ -137,9 +216,30 @@ impl OtelObserver {
             .with_unit("s")
             .build();
 
+        let budget_warnings = meter
+            .u64_counter("corvus.budget.warnings")
+            .with_description("Budget warning lifecycle events")
+            .build();
+
+        let budget_exceeded = meter
+            .u64_counter("corvus.budget.exceeded")
+            .with_description("Budget hard block lifecycle events")
+            .build();
+
+        let budget_overrides = meter
+            .u64_counter("corvus.budget.overrides")
+            .with_description("Budget override lifecycle events")
+            .build();
+
         let tokens_used = meter
             .u64_counter("corvus.tokens.used")
             .with_description("Total tokens consumed (monotonic)")
+            .build();
+
+        let cost_usd_last = meter
+            .f64_gauge("corvus.cost.usd")
+            .with_description("Latest observed request cost in USD")
+            .with_unit("usd")
             .build();
 
         let active_sessions = meter
@@ -174,8 +274,12 @@ impl OtelObserver {
             channel_messages,
             heartbeat_ticks,
             errors,
+            budget_warnings,
+            budget_exceeded,
+            budget_overrides,
             request_latency,
             tokens_used,
+            cost_usd_last,
             active_sessions,
             queue_depth,
             image_ingress,
@@ -206,6 +310,76 @@ impl Observer for OtelObserver {
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
             | ObserverEvent::MissionTerminated { .. } => {}
+            ObserverEvent::BudgetWarning(event) => {
+                let attrs = [
+                    KeyValue::new("period", usage_period_label(event.period)),
+                    KeyValue::new(
+                        "surface",
+                        event
+                            .surface
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                ];
+                self.budget_warnings.add(1, &attrs);
+
+                let mut span = tracer.build(
+                    opentelemetry::trace::SpanBuilder::from_name("budget.warning")
+                        .with_kind(SpanKind::Internal)
+                        .with_attributes(key_values_from_fields(budget_threshold_trace_fields(
+                            event,
+                        ))),
+                );
+                span.set_status(Status::Ok);
+                span.end();
+            }
+            ObserverEvent::BudgetExceeded(event) => {
+                let attrs = [
+                    KeyValue::new("period", usage_period_label(event.period)),
+                    KeyValue::new(
+                        "surface",
+                        event
+                            .surface
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                ];
+                self.budget_exceeded.add(1, &attrs);
+
+                let mut span = tracer.build(
+                    opentelemetry::trace::SpanBuilder::from_name("budget.exceeded")
+                        .with_kind(SpanKind::Internal)
+                        .with_attributes(key_values_from_fields(budget_threshold_trace_fields(
+                            event,
+                        ))),
+                );
+                span.set_status(Status::error("budget exceeded"));
+                span.end();
+            }
+            ObserverEvent::BudgetOverride(event) => {
+                let attrs = [
+                    KeyValue::new("action", event.action.as_str()),
+                    KeyValue::new("scope", cost_override_scope_label(event.scope)),
+                    KeyValue::new(
+                        "surface",
+                        event
+                            .surface
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                ];
+                self.budget_overrides.add(1, &attrs);
+
+                let mut span = tracer.build(
+                    opentelemetry::trace::SpanBuilder::from_name("budget.override")
+                        .with_kind(SpanKind::Internal)
+                        .with_attributes(key_values_from_fields(budget_override_trace_fields(
+                            event,
+                        ))),
+                );
+                span.set_status(Status::Ok);
+                span.end();
+            }
             ObserverEvent::AudioIngress(evt) => {
                 let reason_str = evt
                     .reason
@@ -302,6 +476,13 @@ impl Observer for OtelObserver {
                 }
                 if let Some(c) = cost_usd {
                     span.set_attribute(KeyValue::new("cost_usd", *c));
+                    self.cost_usd_last.record(
+                        *c,
+                        &[
+                            KeyValue::new("provider", provider.clone()),
+                            KeyValue::new("model", model.clone()),
+                        ],
+                    );
                 }
                 span.end();
 
@@ -449,6 +630,8 @@ impl Observer for OtelObserver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cost::{BudgetState, CostOverrideScope, UsagePeriod};
+    use crate::observability::BudgetOverrideAction;
     use std::time::Duration;
 
     // Note: OtelObserver::new() requires an OTLP endpoint.
@@ -606,5 +789,31 @@ mod tests {
             result.is_ok(),
             "observer creation must succeed even with unreachable endpoint"
         );
+    }
+
+    #[test]
+    fn budget_override_trace_fields_redact_sensitive_values() {
+        let event = BudgetOverrideEvent {
+            action: BudgetOverrideAction::Granted,
+            actor: "paired-admin-token".into(),
+            scope: CostOverrideScope::NextRequest,
+            reason: Some("token=super-secret".into()),
+            session_id: Some("sess-123".into()),
+            previous_state: BudgetState::Exceeded,
+            period: Some(UsagePeriod::Day),
+            override_id: Some("ovr-123".into()),
+            surface: Some("gateway_admin".into()),
+        };
+
+        let fields = budget_override_trace_fields(&event);
+        assert!(fields
+            .iter()
+            .any(|(key, value)| key == "actor" && value == "***REDACTED***"));
+        assert!(fields
+            .iter()
+            .any(|(key, value)| key == "reason" && value == "***REDACTED***"));
+        assert!(fields
+            .iter()
+            .all(|(_, value)| !value.contains("super-secret")));
     }
 }

@@ -1,4 +1,8 @@
-use super::traits::{redact_observer_payload, Observer, ObserverEvent, ObserverMetric};
+use super::traits::{
+    budget_state_label, cost_override_scope_label, redact_observer_payload,
+    redact_optional_observer_payload, usage_period_label, BudgetOverrideEvent, Observer,
+    ObserverEvent, ObserverMetric,
+};
 use std::any::Any;
 use tracing::info;
 
@@ -9,6 +13,27 @@ impl LogObserver {
     pub fn new() -> Self {
         Self
     }
+}
+
+fn format_budget_override_log_payload(event: &BudgetOverrideEvent) -> String {
+    format!(
+        "action={} scope={} actor={} reason={} previous_state={} period={} session_id={} override_id={} surface={}",
+        event.action.as_str(),
+        cost_override_scope_label(event.scope),
+        event.redacted_actor(),
+        event
+            .redacted_reason()
+            .unwrap_or_else(|| "none".to_string()),
+        budget_state_label(event.previous_state),
+        event
+            .period
+            .map(usage_period_label)
+            .unwrap_or("none"),
+        event.session_id.as_deref().unwrap_or("none"),
+        event.override_id.as_deref().unwrap_or("none"),
+        redact_optional_observer_payload(event.surface.as_deref())
+            .unwrap_or_else(|| "none".to_string()),
+    )
 }
 
 impl Observer for LogObserver {
@@ -73,6 +98,33 @@ impl Observer for LogObserver {
             }
             ObserverEvent::Error { component, message } => {
                 info!(component = %component, error = %message, "error");
+            }
+            ObserverEvent::BudgetWarning(event) => {
+                info!(
+                    period = usage_period_label(event.period),
+                    current_usd = event.current_usd,
+                    projected_usd = event.projected_usd,
+                    limit_usd = event.limit_usd,
+                    percent_used = event.percent_used,
+                    session_id = %event.session_id,
+                    surface = ?event.surface,
+                    "budget.warning"
+                );
+            }
+            ObserverEvent::BudgetExceeded(event) => {
+                info!(
+                    period = usage_period_label(event.period),
+                    current_usd = event.current_usd,
+                    projected_usd = event.projected_usd,
+                    limit_usd = event.limit_usd,
+                    percent_used = event.percent_used,
+                    session_id = %event.session_id,
+                    surface = ?event.surface,
+                    "budget.exceeded"
+                );
+            }
+            ObserverEvent::BudgetOverride(event) => {
+                info!(payload = %format_budget_override_log_payload(event), "budget.override");
             }
             ObserverEvent::LlmRequest {
                 provider,
@@ -238,6 +290,8 @@ impl Observer for LogObserver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cost::{BudgetState, CostOverrideScope, UsagePeriod};
+    use crate::observability::BudgetOverrideAction;
     use std::time::Duration;
 
     #[test]
@@ -508,5 +562,25 @@ mod tests {
             cost_usd: Some(f64::MAX),
         });
         obs.record_metric(&ObserverMetric::RequestLatency(Duration::MAX));
+    }
+
+    #[test]
+    fn budget_override_log_payload_redacts_sensitive_fields() {
+        let event = BudgetOverrideEvent {
+            action: BudgetOverrideAction::Granted,
+            actor: "paired-admin-token".into(),
+            scope: CostOverrideScope::NextRequest,
+            reason: Some("token=super-secret".into()),
+            session_id: Some("sess-123".into()),
+            previous_state: BudgetState::Exceeded,
+            period: Some(UsagePeriod::Day),
+            override_id: Some("ovr-123".into()),
+            surface: Some("gateway_admin".into()),
+        };
+
+        let payload = format_budget_override_log_payload(&event);
+        assert!(payload.contains("***REDACTED***"));
+        assert!(!payload.contains("paired-admin-token"));
+        assert!(!payload.contains("super-secret"));
     }
 }

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Token usage information from a single API call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,10 +63,12 @@ impl TokenUsage {
 
 /// Time period for cost aggregation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum UsagePeriod {
     Session,
     Day,
     Month,
+    Mission,
 }
 
 /// A single cost record for persistent storage.
@@ -91,26 +94,92 @@ impl CostRecord {
 }
 
 /// Budget enforcement result.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BudgetCheck {
     /// Within budget, request can proceed
     Allowed,
     /// Warning threshold exceeded but request can proceed
     Warning {
         current_usd: f64,
+        projected_usd: f64,
         limit_usd: f64,
+        percent_used: f64,
         period: UsagePeriod,
     },
     /// Budget exceeded, request blocked
     Exceeded {
         current_usd: f64,
+        projected_usd: f64,
         limit_usd: f64,
+        percent_used: f64,
         period: UsagePeriod,
     },
 }
 
+impl BudgetCheck {
+    pub fn state(&self) -> BudgetState {
+        match self {
+            Self::Allowed => BudgetState::Allowed,
+            Self::Warning { .. } => BudgetState::Warning,
+            Self::Exceeded { .. } => BudgetState::Exceeded,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BudgetState {
+    Allowed,
+    Warning,
+    Exceeded,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BudgetScopeStatus {
+    pub period: UsagePeriod,
+    pub state: BudgetState,
+    pub current_usd: f64,
+    pub limit_usd: f64,
+    pub percent_used: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MissionBudgetScope {
+    pub mission_id: String,
+    pub current_usd: f64,
+    pub limit_usd: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CostBudgetReservation {
+    pub id: String,
+    pub estimated_cost_usd: f64,
+    pub mission_id: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CostTrackerSnapshot {
+    pub session_id: String,
+    pub usage: CostSummary,
+    pub scope_statuses: Vec<BudgetScopeStatus>,
+    pub active_override: Option<CostOverrideRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BudgetEvaluation {
+    Proceed {
+        check: BudgetCheck,
+        override_applied: Option<CostOverrideRecord>,
+        reservation: Option<CostBudgetReservation>,
+    },
+    Blocked {
+        check: BudgetCheck,
+    },
+}
+
 /// Cost summary for reporting.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CostSummary {
     /// Total cost for the session
     pub session_cost_usd: f64,
@@ -123,11 +192,21 @@ pub struct CostSummary {
     /// Number of requests
     pub request_count: usize,
     /// Breakdown by model
-    pub by_model: std::collections::HashMap<String, ModelStats>,
+    pub by_model: HashMap<String, ModelStats>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CostGovernanceSummary {
+    pub session_id: String,
+    pub usage: CostSummary,
+    pub budget_state: BudgetState,
+    pub active_period: Option<UsagePeriod>,
+    pub scope_statuses: Vec<BudgetScopeStatus>,
+    pub active_override: Option<CostOverrideRecord>,
 }
 
 /// Statistics for a specific model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelStats {
     /// Model name
     pub model: String,
@@ -139,6 +218,104 @@ pub struct ModelStats {
     pub request_count: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CostHistoryPoint {
+    pub bucket: String,
+    pub cost_usd: f64,
+    pub tokens: u64,
+    pub requests: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CostHistoryTotals {
+    pub cost_usd: f64,
+    pub tokens: u64,
+    pub requests: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CostHistory {
+    pub period: UsagePeriod,
+    pub points: Vec<CostHistoryPoint>,
+    pub totals: CostHistoryTotals,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CostOverrideScope {
+    NextRequest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CostOverrideRequest {
+    pub actor: String,
+    pub scope: CostOverrideScope,
+    pub reason: Option<String>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CostOverrideRecord {
+    pub id: String,
+    pub actor: String,
+    pub scope: CostOverrideScope,
+    pub reason: Option<String>,
+    pub requested_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub session_id: Option<String>,
+    pub remaining_uses: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CostResetScope {
+    Session,
+    Day,
+    Month,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CostResetRequest {
+    pub scope: CostResetScope,
+    pub actor: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CostResetResult {
+    pub scope: CostResetScope,
+    pub removed_cost_usd: f64,
+    pub removed_requests: usize,
+    pub effective_at: chrono::DateTime<chrono::Utc>,
+    pub audit_event: CostAuditEvent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CostAuditKind {
+    OverrideGranted,
+    OverrideConsumed,
+    OverrideExpired,
+    ResetApplied,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CostAuditEvent {
+    pub id: String,
+    pub kind: CostAuditKind,
+    pub recorded_at: chrono::DateTime<chrono::Utc>,
+    pub actor: Option<String>,
+    pub reason: Option<String>,
+    pub period: Option<UsagePeriod>,
+    pub override_scope: Option<CostOverrideScope>,
+    pub reset_scope: Option<CostResetScope>,
+    pub override_id: Option<String>,
+    pub session_id: Option<String>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub removed_cost_usd: Option<f64>,
+    pub removed_requests: Option<usize>,
+}
+
 impl Default for CostSummary {
     fn default() -> Self {
         Self {
@@ -147,7 +324,7 @@ impl Default for CostSummary {
             monthly_cost_usd: 0.0,
             total_tokens: 0,
             request_count: 0,
-            by_model: std::collections::HashMap::new(),
+            by_model: HashMap::new(),
         }
     }
 }

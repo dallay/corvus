@@ -71,6 +71,7 @@ fn headers() -> HeaderMap {
 fn state_with_config(config: Config) -> AppState {
     AppState {
         config: Arc::new(Mutex::new(config)),
+        cost_tracker: None,
         provider: Arc::new(IntegrationProvider),
         model: "model".into(),
         temperature: 0.7,
@@ -167,6 +168,7 @@ async fn put_admin_config_updates_and_persists() {
         web_search: None,
         browser: None,
         memory: None,
+        cost: None,
     };
 
     let response =
@@ -207,6 +209,7 @@ async fn put_admin_config_rolls_back_on_save_failure() {
         web_search: None,
         browser: None,
         memory: None,
+        cost: None,
     };
 
     let before = state.config.lock().default_provider.clone();

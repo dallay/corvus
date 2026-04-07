@@ -13,8 +13,11 @@ pub use self::multi::MultiObserver;
 pub use noop::NoopObserver;
 pub use otel::OtelObserver;
 pub use prometheus::PrometheusObserver;
+#[allow(unused_imports)]
 pub use traits::{
-    redact_observer_payload, AudioIngressEvent, AudioIngressOutcome, AudioIngressReason,
+    budget_state_label, cost_override_scope_label, redact_observer_payload,
+    redact_optional_observer_payload, usage_period_label, AudioIngressEvent, AudioIngressOutcome,
+    AudioIngressReason, BudgetOverrideAction, BudgetOverrideEvent, BudgetThresholdEvent,
     ImageIngressEvent, ImageIngressOutcome, ImageIngressReason, Observer, ObserverEvent,
     ObserverMetric,
 };

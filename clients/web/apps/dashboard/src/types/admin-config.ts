@@ -162,10 +162,94 @@ export interface AdminChannelStatusView {
 
 export interface AdminCostView {
   enabled: boolean;
+  session_limit_usd: number;
   daily_limit_usd: number;
   monthly_limit_usd: number;
   warn_at_percent: number;
   allow_override: boolean;
+}
+
+export type AdminUsagePeriod = "session" | "day" | "month";
+export type AdminSummaryPeriod = AdminUsagePeriod | "mission";
+export type AdminBudgetState = "allowed" | "warning" | "exceeded";
+export type AdminCostOverrideScope = "next_request";
+export type AdminCostResetScope = "session" | "day" | "month";
+
+export interface AdminDeprecatedFieldView {
+  field: string;
+  replacement?: string | null;
+  message: string;
+}
+
+export interface AdminCostDeprecationsView {
+  items: AdminDeprecatedFieldView[];
+}
+
+export interface AdminCostSummaryView {
+  session_cost_usd: number;
+  daily_cost_usd: number;
+  monthly_cost_usd: number;
+  total_tokens: number;
+  request_count: number;
+  percent_used_session: number;
+  percent_used_daily: number;
+  percent_used_monthly: number;
+  budget_state: AdminBudgetState;
+  period?: AdminSummaryPeriod | null;
+}
+
+export interface AdminCostSummaryResponse {
+  summary: AdminCostSummaryView;
+  config: AdminCostView;
+}
+
+export interface AdminCostHistoryPointView {
+  bucket: string;
+  cost_usd: number;
+  tokens: number;
+  requests: number;
+}
+
+export interface AdminCostHistoryTotalsView {
+  cost_usd: number;
+  tokens: number;
+  requests: number;
+}
+
+export interface AdminCostHistoryView {
+  period: AdminUsagePeriod;
+  points: AdminCostHistoryPointView[];
+  totals: AdminCostHistoryTotalsView;
+}
+
+export interface AdminCostOverrideRecordView {
+  id: string;
+  actor: string;
+  scope: AdminCostOverrideScope;
+  reason?: string | null;
+  requested_at: string;
+  expires_at?: string | null;
+  session_id?: string | null;
+  remaining_uses: number;
+}
+
+export interface AdminCostResetAuditEventView {
+  id: string;
+  kind: string;
+  recorded_at: string;
+}
+
+export interface AdminCostResetResultView {
+  scope: AdminCostResetScope;
+  removed_cost_usd: number;
+  removed_requests: number;
+  effective_at: string;
+  audit_event: AdminCostResetAuditEventView;
+}
+
+export interface AdminCostHistoryParams {
+  period?: AdminUsagePeriod;
+  window?: number;
 }
 
 export interface AdminMcpView {
@@ -287,6 +371,7 @@ export interface AdminConfigView {
   tunnel?: AdminTunnelView;
   reliability?: AdminReliabilityView;
   heartbeat?: AdminHeartbeatView;
+  deprecations?: AdminCostDeprecationsView;
 }
 
 export interface AdminConfigResponse {

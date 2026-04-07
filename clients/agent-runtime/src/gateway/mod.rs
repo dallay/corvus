@@ -11,6 +11,7 @@ use crate::agent::dispatcher::{evaluate_tool_risk, DispatchAction};
 use crate::bootstrap;
 use crate::channels::{Channel, SendMessage, WhatsAppChannel};
 use crate::config::Config;
+use crate::cost::CostTracker;
 #[cfg(test)]
 use crate::gateway::utils::{
     blocked_http_onboarding_state, http_onboarding_state, HttpOnboardingState,
@@ -44,6 +45,7 @@ use tower_http::timeout::TimeoutLayer;
 use uuid::Uuid;
 
 pub mod admin;
+pub mod cost;
 pub mod sessions;
 pub mod utils;
 pub mod webhook_dispatch;
@@ -77,6 +79,8 @@ struct AdminConfigUpdateRequest {
     gateway: Option<AdminGatewayPatch>,
     #[serde(default)]
     webhook: Option<AdminWebhookPatch>,
+    #[serde(default)]
+    cost: Option<AdminCostPatch>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, Default)]
@@ -131,6 +135,12 @@ struct AdminAutonomyPatch {
     max_cost_per_day_cents: Option<u32>,
 }
 
+impl AdminAutonomyPatch {
+    fn normalized_max_actions_per_hour(&self) -> Option<u32> {
+        self.max_actions_per_hour.or(self.max_cost_per_day_cents)
+    }
+}
+
 #[derive(Debug, Clone, serde::Deserialize, Default)]
 struct AdminSchedulerPatch {
     #[serde(default)]
@@ -147,6 +157,22 @@ struct AdminWebhookPatch {
     port: Option<u16>,
     #[serde(default)]
     secret: Option<AdminSecretUpdate>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+struct AdminCostPatch {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    session_limit_usd: Option<f64>,
+    #[serde(default)]
+    daily_limit_usd: Option<f64>,
+    #[serde(default)]
+    monthly_limit_usd: Option<f64>,
+    #[serde(default)]
+    warn_at_percent: Option<u8>,
+    #[serde(default)]
+    allow_override: Option<bool>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -267,17 +293,21 @@ fn compare_autonomy_fields(
             fields,
         );
         compare_primitive(
-            aut.max_actions_per_hour,
+            aut.normalized_max_actions_per_hour(),
             cfg.autonomy.max_actions_per_hour,
             "autonomy.max_actions_per_hour",
             fields,
         );
-        compare_primitive(
-            aut.max_cost_per_day_cents,
-            cfg.autonomy.max_cost_per_day_cents,
-            "autonomy.max_cost_per_day_cents",
-            fields,
-        );
+        if aut.max_actions_per_hour.is_none() {
+            if let Some(max_cost_per_day_cents) = aut.max_cost_per_day_cents {
+                compare_primitive(
+                    Some(max_cost_per_day_cents),
+                    cfg.autonomy.max_actions_per_hour,
+                    "autonomy.max_cost_per_day_cents",
+                    fields,
+                );
+            }
+        }
     }
 }
 
@@ -756,6 +786,7 @@ fn log_webhook_terminal_outcome(session_id: &str, runtime_path: &str, outcome: &
 fn webhook_outcome_label(outcome: &webhook_dispatch::WebhookTerminalOutcome) -> &'static str {
     match outcome {
         webhook_dispatch::WebhookTerminalOutcome::Completed => "completed",
+        webhook_dispatch::WebhookTerminalOutcome::BudgetExceeded { .. } => "budget_exceeded",
         webhook_dispatch::WebhookTerminalOutcome::ApprovalRequired { .. } => "approval_required",
         webhook_dispatch::WebhookTerminalOutcome::Timeout => "timeout",
         webhook_dispatch::WebhookTerminalOutcome::Fallback => "fallback",
@@ -980,6 +1011,7 @@ fn normalize_max_keys(configured: usize, fallback: usize) -> usize {
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Mutex<Config>>,
+    pub cost_tracker: Option<Arc<CostTracker>>,
     pub provider: Arc<dyn Provider>,
     pub model: String,
     pub temperature: f64,
@@ -1043,6 +1075,11 @@ fn print_startup_banner(
     println!("  POST /webhook   — {{\"message\": \"your prompt\"}}");
     println!("  GET  /web/admin/config   — redacted admin config");
     println!("  PUT  /web/admin/config   — update admin config");
+    println!("  PATCH /web/admin/config  — patch admin config");
+    println!("  GET  /web/cost/summary   — runtime cost summary");
+    println!("  GET  /web/cost/history   — runtime cost history");
+    println!("  POST /web/admin/cost/reset — reset tracked costs");
+    println!("  POST /web/admin/cost/override — grant next-request override");
     println!("  GET  /web/admin/options  — admin options catalog");
     println!("  GET  /web/admin/channels  — channel configuration status");
     println!("  GET  /web/admin/scheduler — scheduler configuration status");
@@ -1129,6 +1166,10 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .unwrap_or_else(|| bootstrap::DEFAULT_MODEL.into());
     let temperature = config.default_temperature;
     let (mem, observer) = bootstrap::create_memory_and_observer(&config)?;
+    let cost_tracker = Some(Arc::new(CostTracker::new(
+        config.cost.clone(),
+        &config.workspace_dir,
+    )?));
     // Extract webhook secret for authentication
     let webhook_secret_hash: Option<Arc<str>> =
         config.channels_config.webhook.as_ref().and_then(|webhook| {
@@ -1206,6 +1247,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
 
     let state = AppState {
         config: config_state,
+        cost_tracker,
         provider,
         model,
         temperature,
@@ -1232,11 +1274,39 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/webhook", post(handle_webhook))
         .route(
             "/web/admin/config",
-            get(handle_admin_get_config).put(handle_admin_update_config_wrapper),
+            get(handle_admin_get_config)
+                .put(handle_admin_update_config_wrapper)
+                .patch(handle_admin_update_config_wrapper),
+        )
+        .route(
+            "/api/web/admin/config",
+            get(handle_admin_get_config)
+                .put(handle_admin_update_config_wrapper)
+                .patch(handle_admin_update_config_wrapper),
         )
         .route(
             "/web/admin/provider-pools",
             get(handle_admin_get_provider_pools).put(handle_admin_update_provider_pools_wrapper),
+        )
+        .route("/web/cost/summary", get(handle_cost_summary_wrapper))
+        .route("/api/web/cost/summary", get(handle_cost_summary_wrapper))
+        .route("/web/cost/history", get(handle_cost_history_wrapper))
+        .route("/api/web/cost/history", get(handle_cost_history_wrapper))
+        .route(
+            "/web/admin/cost/reset",
+            post(handle_admin_cost_reset_wrapper),
+        )
+        .route(
+            "/api/web/admin/cost/reset",
+            post(handle_admin_cost_reset_wrapper),
+        )
+        .route(
+            "/web/admin/cost/override",
+            post(handle_admin_cost_override_wrapper),
+        )
+        .route(
+            "/api/web/admin/cost/override",
+            post(handle_admin_cost_override_wrapper),
         )
         .route("/web/admin/options", get(handle_admin_options))
         .route("/web/admin/channels", get(handle_admin_channels))
@@ -1455,6 +1525,41 @@ async fn handle_admin_update_provider_pools_wrapper(
     admin::handle_admin_update_provider_pools(State(state), headers, body).await
 }
 
+#[allow(clippy::unused_async)]
+async fn handle_cost_summary_wrapper(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    cost::handle_cost_summary(State(state), headers).await
+}
+
+#[allow(clippy::unused_async)]
+async fn handle_cost_history_wrapper(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    query: Query<cost::CostHistoryQuery>,
+) -> impl IntoResponse {
+    cost::handle_cost_history(State(state), headers, query).await
+}
+
+#[allow(clippy::unused_async)]
+async fn handle_admin_cost_reset_wrapper(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Result<Json<cost::AdminCostResetRequest>, axum::extract::rejection::JsonRejection>,
+) -> impl IntoResponse {
+    cost::handle_admin_cost_reset(State(state), headers, body).await
+}
+
+#[allow(clippy::unused_async)]
+async fn handle_admin_cost_override_wrapper(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Result<Json<cost::AdminCostOverrideRequest>, axum::extract::rejection::JsonRejection>,
+) -> impl IntoResponse {
+    cost::handle_admin_cost_override(State(state), headers, body).await
+}
+
 /// Webhook request body
 #[derive(serde::Deserialize)]
 pub struct WebhookBody {
@@ -1641,6 +1746,23 @@ fn webhook_response_from_dispatch_result(
             }
             ((StatusCode::OK, Json(body)), true)
         }
+        webhook_dispatch::WebhookTerminalOutcome::BudgetExceeded {
+            current_usd,
+            limit_usd,
+            period,
+        } => {
+            let body = serde_json::json!({
+                "error": {
+                    "code": "budget_exceeded",
+                    "governance_domain": "token_spend",
+                    "period": period,
+                    "current_usd": current_usd,
+                    "limit_usd": limit_usd,
+                },
+                "session_id": result.session_id,
+            });
+            ((StatusCode::FORBIDDEN, Json(body)), false)
+        }
         webhook_dispatch::WebhookTerminalOutcome::ApprovalRequired { tool, reason } => {
             let body = serde_json::json!({
                 "error": {
@@ -1749,6 +1871,7 @@ async fn handle_webhook(
             Arc::clone(&state.provider),
             Arc::clone(&state.mem),
             Arc::clone(&state.observer),
+            state.cost_tracker.clone(),
             &state.model,
             webhook_dispatch::WebhookTurnRequest {
                 session_id: session_id.clone(),
@@ -1777,6 +1900,22 @@ async fn handle_webhook(
     }
 
     log_webhook_runtime_path(&session_id, false, "dispatcher_flag_disabled");
+
+    if config.cost.enabled {
+        let response = (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": {
+                    "code": "cost_governance_requires_dispatcher",
+                    "message": "Cost governance requires the webhook dispatcher path when cost.enabled=true",
+                }
+            })),
+        );
+        release_idempotency_key(&state, reserved_idempotency_key, false);
+        update_session_activity_if_persisted(&state, &session_id, token_hash.as_deref(), false)
+            .await;
+        return response;
+    }
 
     if !is_preview {
         if let Some((response, persist_idempotency)) =
@@ -1870,13 +2009,19 @@ async fn handle_chat_stream(
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
 
     // ── Process message via existing dispatch ────────────
-    let (response_text, is_error) = if dispatcher_enabled {
+    enum StreamProcessingOutcome {
+        Success(String),
+        Error(serde_json::Value),
+    }
+
+    let stream_outcome = if dispatcher_enabled {
         log_webhook_runtime_path(&session_id, true, "stream_dispatcher");
         let result = webhook_dispatch::execute(
             &config,
             Arc::clone(&state.provider),
             Arc::clone(&state.mem),
             Arc::clone(&state.observer),
+            state.cost_tracker.clone(),
             &state.model,
             webhook_dispatch::WebhookTurnRequest {
                 session_id: session_id.clone(),
@@ -1898,38 +2043,75 @@ async fn handle_chat_stream(
                     .response_text
                     .map(|t| scrub_sensitive_boundary_text(&t))
                     .unwrap_or_default();
-                (text, false)
+                StreamProcessingOutcome::Success(text)
             }
+            webhook_dispatch::WebhookTerminalOutcome::BudgetExceeded {
+                current_usd,
+                limit_usd,
+                period,
+            } => StreamProcessingOutcome::Error(serde_json::json!({
+                "code": "budget_exceeded",
+                "governance_domain": "token_spend",
+                "period": period,
+                "current_usd": current_usd,
+                "limit_usd": limit_usd,
+                "message": format!(
+                    "Budget exceeded: ${current_usd:.4} spent against ${limit_usd:.2} {period:?} limit"
+                ),
+            })),
             webhook_dispatch::WebhookTerminalOutcome::Error => {
-                ("LLM request failed".to_string(), true)
+                StreamProcessingOutcome::Error(serde_json::json!({
+                    "code": "processing_error",
+                    "message": "LLM request failed",
+                }))
             }
             webhook_dispatch::WebhookTerminalOutcome::Timeout => {
-                ("Request timed out".to_string(), true)
+                StreamProcessingOutcome::Error(serde_json::json!({
+                    "code": "timeout",
+                    "message": "Request timed out",
+                }))
             }
             webhook_dispatch::WebhookTerminalOutcome::ApprovalRequired { tool, reason } => {
-                let msg = format!("Approval required for tool `{tool}`: {reason}");
-                (msg, true)
+                StreamProcessingOutcome::Error(serde_json::json!({
+                    "code": "approval_required",
+                    "tool": tool,
+                    "reason": reason,
+                    "message": format!("Approval required for tool `{tool}`: {reason}"),
+                }))
             }
         }
     } else {
         log_webhook_runtime_path(&session_id, false, "stream_legacy");
-        if state.auto_save {
-            let key = webhook_memory_key();
-            let _ = state
-                .mem
-                .store(&key, &scrubbed_message, MemoryCategory::Conversation, None)
-                .await;
-        }
-        match state
-            .provider
-            .simple_chat(message, &state.model, state.temperature)
-            .await
-        {
-            Ok(response) => (scrub_sensitive_boundary_text(&response), false),
-            Err(e) => {
-                let sanitized = providers::sanitize_api_error(&e.to_string());
-                tracing::error!("Stream provider error: {sanitized}");
-                ("LLM request failed".to_string(), true)
+        if config.cost.enabled {
+            StreamProcessingOutcome::Error(serde_json::json!({
+                "code": "cost_governance_requires_dispatcher",
+                "message": "Cost governance requires the webhook dispatcher path when cost.enabled=true",
+            }))
+        } else {
+            if state.auto_save {
+                let key = webhook_memory_key();
+                let _ = state
+                    .mem
+                    .store(&key, &scrubbed_message, MemoryCategory::Conversation, None)
+                    .await;
+            }
+
+            match state
+                .provider
+                .simple_chat(message, &state.model, state.temperature)
+                .await
+            {
+                Ok(response) => {
+                    StreamProcessingOutcome::Success(scrub_sensitive_boundary_text(&response))
+                }
+                Err(e) => {
+                    let sanitized = providers::sanitize_api_error(&e.to_string());
+                    tracing::error!("Stream provider error: {sanitized}");
+                    StreamProcessingOutcome::Error(serde_json::json!({
+                        "code": "processing_error",
+                        "message": "LLM request failed",
+                    }))
+                }
             }
         }
     };
@@ -1947,16 +2129,11 @@ async fn handle_chat_stream(
     let message_id = Uuid::new_v4().to_string();
     let sid = session_id.clone();
 
-    let events: Vec<Result<Event, std::convert::Infallible>> = if is_error {
-        let error_data = serde_json::json!({
-            "code": "processing_error",
-            "message": response_text,
-        });
-        vec![Ok(Event::default()
+    let events: Vec<Result<Event, std::convert::Infallible>> = match stream_outcome {
+        StreamProcessingOutcome::Error(error_data) => vec![Ok(Event::default()
             .event("error")
-            .data(error_data.to_string()))]
-    } else {
-        vec![
+            .data(error_data.to_string()))],
+        StreamProcessingOutcome::Success(response_text) => vec![
             Ok(Event::default().event("chunk").data(&response_text)),
             Ok(Event::default().event("done").data(
                 serde_json::json!({
@@ -1965,7 +2142,7 @@ async fn handle_chat_stream(
                 })
                 .to_string(),
             )),
-        ]
+        ],
     };
 
     Ok(Sse::new(futures::stream::iter(events)))
@@ -2970,6 +3147,7 @@ mod tests {
     async fn metrics_endpoint_returns_hint_when_prometheus_is_disabled() {
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
+            cost_tracker: None,
             provider: Arc::new(MockProvider::default()),
             model: "test-model".into(),
             temperature: 0.0,
@@ -3014,6 +3192,7 @@ mod tests {
         let observer: Arc<dyn crate::observability::Observer> = prom;
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
+            cost_tracker: None,
             provider: Arc::new(MockProvider::default()),
             model: "test-model".into(),
             temperature: 0.0,
@@ -3672,6 +3851,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -3704,6 +3884,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -3746,6 +3927,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -3901,6 +4083,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -3950,6 +4133,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4001,6 +4185,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4042,6 +4227,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4090,6 +4276,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4151,6 +4338,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4174,9 +4362,73 @@ mod tests {
         assert_eq!(payload["config"]["channels"]["webhook"]["has_secret"], true);
         assert_eq!(payload["config"]["gateway"]["paired_tokens_count"], 2);
         assert_eq!(payload["config"]["runtime"]["kind"], "native");
+        assert!(payload["config"]["autonomy"]
+            .get("max_actions_per_hour")
+            .is_some());
+        assert!(payload["config"]["autonomy"]
+            .get("max_cost_per_day_cents")
+            .is_none());
         assert!(payload.to_string().contains("has_secret"));
         assert!(!payload.to_string().contains("top-secret"));
         assert!(!payload.to_string().contains("hash1"));
+    }
+
+    #[tokio::test]
+    async fn admin_config_response_reports_deprecated_action_rate_alias_metadata() {
+        let mut cfg = temp_config();
+        cfg.autonomy = toml::from_str(
+            r#"
+level = "supervised"
+workspace_only = true
+allowed_commands = ["git"]
+forbidden_paths = ["/etc"]
+max_cost_per_day_cents = 9
+require_approval_for_medium_risk = true
+block_high_risk_commands = true
+auto_approve = []
+always_ask = []
+"#,
+        )
+        .unwrap();
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(cfg)),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer zc_valid_token"),
+        );
+
+        let response = handle_admin_get_config(State(state), headers)
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(
+            payload["config"]["autonomy"]["deprecated_fields"],
+            serde_json::json!(["autonomy.max_cost_per_day_cents"])
+        );
     }
 
     #[tokio::test]
@@ -4198,6 +4450,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4234,6 +4487,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4267,6 +4521,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4301,6 +4556,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4343,6 +4599,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4403,6 +4660,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4458,6 +4716,137 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn admin_config_patch_updates_cost_fields_without_touching_autonomy() {
+        let mut cfg = temp_config();
+        cfg.cost.enabled = false;
+        cfg.cost.daily_limit_usd = 10.0;
+        cfg.cost.monthly_limit_usd = 100.0;
+        cfg.cost.warn_at_percent = 80;
+        cfg.cost.allow_override = false;
+        cfg.autonomy.max_actions_per_hour = 7;
+        cfg.save().unwrap();
+
+        let shared_cfg = Arc::new(Mutex::new(cfg));
+        let state = AppState {
+            config: shared_cfg.clone(),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer zc_valid_token"),
+        );
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://127.0.0.1:3000"),
+        );
+        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:3000"));
+
+        let payload = serde_json::json!({
+            "cost": {
+                "enabled": true,
+                "daily_limit_usd": 20.0,
+                "monthly_limit_usd": 250.0,
+                "warn_at_percent": 75,
+                "allow_override": true
+            }
+        });
+
+        let response = handle_admin_update_config_wrapper(
+            State(state),
+            headers,
+            Ok(Json(
+                serde_json::from_value::<admin::AdminConfigUpdateRequest>(payload).unwrap(),
+            )),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let current = shared_cfg.lock().clone();
+        assert!(current.cost.enabled);
+        assert_eq!(current.cost.daily_limit_usd, 20.0);
+        assert_eq!(current.cost.monthly_limit_usd, 250.0);
+        assert_eq!(current.cost.warn_at_percent, 75);
+        assert!(current.cost.allow_override);
+        assert_eq!(current.autonomy.max_actions_per_hour, 7);
+    }
+
+    #[tokio::test]
+    async fn admin_config_patch_accepts_deprecated_action_rate_alias() {
+        let cfg = temp_config();
+        cfg.save().unwrap();
+
+        let shared_cfg = Arc::new(Mutex::new(cfg));
+        let state = AppState {
+            config: shared_cfg.clone(),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer zc_valid_token"),
+        );
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://127.0.0.1:3000"),
+        );
+        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:3000"));
+
+        let payload = serde_json::json!({
+            "autonomy": {
+                "max_cost_per_day_cents": 11
+            }
+        });
+
+        let response = handle_admin_update_config_wrapper(
+            State(state),
+            headers,
+            Ok(Json(
+                serde_json::from_value::<admin::AdminConfigUpdateRequest>(payload).unwrap(),
+            )),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(shared_cfg.lock().autonomy.max_actions_per_hour, 11);
+    }
+
+    #[tokio::test]
     async fn admin_config_update_rejects_restart_required_security_changes() {
         let cfg = temp_config();
         cfg.save().unwrap();
@@ -4479,6 +4868,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4558,6 +4948,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4618,6 +5009,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4663,6 +5055,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4709,6 +5102,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4783,6 +5177,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4864,6 +5259,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -4921,6 +5317,7 @@ mod tests {
 
             let state = AppState {
                 config: Arc::new(Mutex::new(config)),
+                cost_tracker: None,
                 provider,
                 model: "test-model".into(),
                 temperature: 0.0,
@@ -5021,6 +5418,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5048,6 +5446,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn webhook_dispatcher_returns_machine_readable_budget_exceeded_payload() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("should not run".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+        config.cost.enabled = true;
+        config.cost.daily_limit_usd = 1.0;
+        config.cost.monthly_limit_usd = 10.0;
+        let tracker = Arc::new(
+            crate::cost::CostTracker::new(config.cost.clone(), &config.workspace_dir).unwrap(),
+        );
+        let mut usage = crate::cost::TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        usage.cost_usd = 1.1;
+        tracker.record_usage(usage).unwrap();
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: Some(tracker),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "hello".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(payload["error"]["code"], "budget_exceeded");
+        assert_eq!(payload["error"]["governance_domain"], "token_spend");
+        assert_eq!(payload["error"]["period"], "day");
+        assert_eq!(payload["error"]["current_usd"], 1.1);
+        assert_eq!(payload["error"]["limit_usd"], 1.0);
+    }
+
+    #[tokio::test]
     async fn webhook_dispatcher_returns_500_with_session_id_on_runtime_error() {
         let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
 
@@ -5072,6 +5535,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5120,6 +5584,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5138,6 +5603,108 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
         assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn webhook_rejects_legacy_path_when_cost_governance_is_enabled() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
+
+        let provider_impl = Arc::new(DispatchAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.cost.enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "hello blocked legacy".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn stream_legacy_path_returns_cost_governance_requires_dispatcher_error() {
+        use axum::extract::ConnectInfo;
+        use tower::ServiceExt;
+
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
+
+        let provider_impl = Arc::new(DispatchAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.cost.enabled = true;
+        let cost_tracker =
+            Arc::new(CostTracker::new(config.cost.clone(), &config.workspace_dir).unwrap());
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: Some(cost_tracker),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(r#"{"message":"hello"}"#))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: error"));
+        assert!(body_str.contains("\"code\":\"cost_governance_requires_dispatcher\""));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -5163,6 +5730,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5205,6 +5773,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5259,6 +5828,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5322,6 +5892,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5394,6 +5965,7 @@ mod tests {
             whatsapp_app_secret: Some(Arc::from("wa-secret")),
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5439,6 +6011,7 @@ mod tests {
             whatsapp_app_secret: Some(Arc::from("wa-secret")),
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5510,6 +6083,7 @@ mod tests {
             whatsapp_app_secret: Some(Arc::from("wa-secret")),
             channel_runtime_handle: Some(crate::channels::ChannelRuntimeHandle::new(tx)),
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5585,6 +6159,7 @@ mod tests {
             whatsapp_app_secret: Some(Arc::from("wa-secret")),
             channel_runtime_handle: Some(crate::channels::ChannelRuntimeHandle::new(tx)),
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5630,6 +6205,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5692,6 +6268,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5767,6 +6344,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5809,6 +6387,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5854,6 +6433,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -5900,6 +6480,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -6469,6 +7050,7 @@ mod tests {
         }
         AppState {
             config: Arc::new(Mutex::new(Config::default())),
+            cost_tracker: None,
             provider: Arc::new(MockProvider::default()),
             model: "test".into(),
             temperature: 0.0,
@@ -6493,6 +7075,12 @@ mod tests {
         Router::new()
             .route("/web/chat/audio", post(handle_chat_audio))
             .layer(DefaultBodyLimit::max(25 * 1024 * 1024))
+            .with_state(state)
+    }
+
+    fn build_stream_router(state: AppState) -> Router {
+        Router::new()
+            .route("/web/chat/stream", post(handle_chat_stream))
             .with_state(state)
     }
 
@@ -6901,6 +7489,7 @@ mod tests {
 
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
+            cost_tracker: None,
             provider: Arc::new(MockProvider::default()),
             model: "test".into(),
             temperature: 0.0,

@@ -1,5 +1,15 @@
 import { ref } from "vue";
 import type {
+  AdminConfigResponse,
+  AdminCostHistoryParams,
+  AdminCostHistoryView,
+  AdminCostOverrideRecordView,
+  AdminCostResetResultView,
+  AdminCostSummaryResponse,
+  AdminCostSummaryView,
+  AdminCostView,
+} from "@/types/admin-config";
+import type {
   AdminMemoryEntry,
   AdminMemoryListResponse,
   AdminMemoryStats,
@@ -33,6 +43,9 @@ export function useAdmin(
   const sessionDetail = ref<AdminSessionDetail | null>(null);
   const memoryEntries = ref<AdminMemoryEntry[]>([]);
   const memoryStats = ref<AdminMemoryStats | null>(null);
+  const costConfig = ref<AdminCostView | null>(null);
+  const costSummary = ref<AdminCostSummaryView | null>(null);
+  const costHistory = ref<AdminCostHistoryView | null>(null);
   // NOTE: Single shared loading ref — concurrent calls will overwrite each other's state.
   // Acceptable for this dashboard's sequential usage pattern.
   const loading = ref(false);
@@ -194,6 +207,145 @@ export function useAdmin(
     }
   }
 
+  async function fetchCostConfig(): Promise<AdminCostView | null> {
+    loading.value = true;
+    error.value = null;
+    try {
+      const url = buildUrl("/web/admin/config");
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30_000);
+      try {
+        const res = await fetch(url, { headers: authHeaders(), signal: controller.signal });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = (await res.json()) as AdminConfigResponse;
+        costConfig.value = data.config?.cost ?? null;
+        return costConfig.value;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e);
+      costConfig.value = null;
+      throw e;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function fetchCostSummary(): Promise<AdminCostSummaryResponse> {
+    loading.value = true;
+    error.value = null;
+    try {
+      const url = buildUrl("/web/cost/summary");
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30_000);
+      try {
+        const res = await fetch(url, { headers: authHeaders(), signal: controller.signal });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = (await res.json()) as AdminCostSummaryResponse;
+        costSummary.value = data.summary;
+        costConfig.value = data.config;
+        return data;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e);
+      costSummary.value = null;
+      throw e;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function fetchCostHistory(
+    params: AdminCostHistoryParams = {}
+  ): Promise<AdminCostHistoryView> {
+    loading.value = true;
+    error.value = null;
+    try {
+      const url = buildUrl("/web/cost/history", {
+        period: params.period,
+        window: params.window,
+      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30_000);
+      try {
+        const res = await fetch(url, { headers: authHeaders(), signal: controller.signal });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = (await res.json()) as AdminCostHistoryView;
+        costHistory.value = data;
+        return data;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e);
+      costHistory.value = null;
+      throw e;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function resetCost(scope: "session" | "day" | "month"): Promise<AdminCostResetResultView> {
+    loading.value = true;
+    error.value = null;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const url = buildUrl("/web/admin/cost/reset");
+      const res = await fetch(url, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ scope }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return (await res.json()) as AdminCostResetResultView;
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e);
+      throw e;
+    } finally {
+      clearTimeout(timeoutId);
+      loading.value = false;
+    }
+  }
+
+  async function grantCostOverride(): Promise<AdminCostOverrideRecordView> {
+    loading.value = true;
+    error.value = null;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const url = buildUrl("/web/admin/cost/override");
+      const res = await fetch(url, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ scope: "next_request" }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return (await res.json()) as AdminCostOverrideRecordView;
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e);
+      throw e;
+    } finally {
+      clearTimeout(timeoutId);
+      loading.value = false;
+    }
+  }
+
   async function deleteMemoryEntry(key: string): Promise<boolean> {
     loading.value = true;
     error.value = null;
@@ -233,6 +385,9 @@ export function useAdmin(
     sessionDetail,
     memoryEntries,
     memoryStats,
+    costConfig,
+    costSummary,
+    costHistory,
     loading,
     error,
     totalSessions,
@@ -241,6 +396,11 @@ export function useAdmin(
     fetchSessionDetail,
     fetchMemoryEntries,
     fetchMemoryStats,
+    fetchCostConfig,
+    fetchCostSummary,
+    fetchCostHistory,
+    resetCost,
+    grantCostOverride,
     deleteMemoryEntry,
     isSessionApiAvailable,
   };
