@@ -19,6 +19,9 @@
   },
   "dependencies": {
     "@corvus/shared": "workspace:*",
+    "@fontsource-variable/space-grotesk": "catalog:",
+    "@fontsource/doto": "catalog:",
+    "@fontsource/space-mono": "catalog:",
     "astro": "catalog:",
     "sharp": "catalog:"
   },

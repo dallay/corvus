@@ -1,27 +1,20 @@
-@import url("@corvus/shared/theme.css");
+/* ─────────────────────────────────────────────────────────────
+   Corvus Marketing — Nothing Design System
+   Dark-first, monochrome, typography-driven.
+   ───────────────────────────────────────────────────────────── */
+
+/* ── Tokens + Base ── */
+@import url("@corvus/shared/nothing-theme.css");
 @import url("@corvus/shared/base.css");
 
-:root {
-  --surface: rgb(10 15 25 / 84%);
-  --surface-strong: rgb(6 10 18 / 92%);
-  --surface-soft: rgb(16 24 39 / 78%);
-  --surface-highlight: rgb(56 189 248 / 10%);
-  --border: rgb(148 163 184 / 16%);
-  --border-strong: rgb(56 189 248 / 32%);
-  --text-soft: #cbd5e1;
-  --text-dim: #9aa7ba;
-  --accent: #38bdf8;
-  --accent-strong: #0ea5e9;
-  --accent-soft: rgb(56 189 248 / 16%);
-  --shadow: 0 24px 80px rgb(2 6 23 / 40%);
-}
+/* ── Fonts (self-hosted via @fontsource) ── */
+@import url("@fontsource-variable/space-grotesk");
+@import url("@fontsource/space-mono/400.css");
+@import url("@fontsource/space-mono/700.css");
+@import url("@fontsource/doto/400.css");
+@import url("@fontsource/doto/700.css");
 
-body {
-  background: var(--corvus-bg);
-  color: var(--corvus-text);
-  font-family: var(--corvus-font-sans);
-  line-height: 1.6;
-}
+/* ── Reset ── */
 
 h1,
 h2,
@@ -34,76 +27,95 @@ dt {
   margin: 0;
 }
 
+/* ── Body ── */
+
+body {
+  background: var(--corvus-color-bg-base);
+  color: var(--corvus-color-text-primary);
+  font-family: var(--corvus-typography-font-body);
+  line-height: 1.6;
+}
+
+/* ── Skip Link ── */
+
 .skip-link {
   position: absolute;
-  top: 1rem;
-  left: 1rem;
+  top: var(--corvus-spacing-md);
+  left: var(--corvus-spacing-md);
   z-index: 10;
-  padding: 0.75rem 1rem;
-  border-radius: 999px;
-  background: #fff;
-  color: #020617;
+  padding: var(--corvus-spacing-sm) var(--corvus-spacing-md);
+  border-radius: var(--corvus-radius-pill);
+  background: var(--corvus-color-text-display);
+  color: var(--corvus-color-bg-base);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: var(--corvus-typography-scale-caption-size);
   text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   transform: translateY(-140%);
-  transition: transform 160ms ease;
+  transition: transform var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
 }
 
 .skip-link:focus {
   transform: translateY(0);
 }
 
+/* ── Site Backdrop — Nothing dot-grid motif ── */
+
 .site-backdrop {
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background:
-    radial-gradient(circle at top left, rgb(56 189 248 / 18%), transparent 32%),
-    radial-gradient(circle at 85% 14%, rgb(14 165 233 / 12%), transparent 26%),
-    radial-gradient(circle at bottom center, rgb(99 102 241 / 12%), transparent 38%),
-    linear-gradient(180deg, rgb(255 255 255 / 2%), transparent 24%), var(--corvus-bg);
+  background: var(--corvus-color-bg-base);
 }
 
 .site-backdrop::after {
   content: "";
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgb(148 163 184 / 5%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(148 163 184 / 5%) 1px, transparent 1px);
-  background-size: 28px 28px;
-  mask-image: linear-gradient(180deg, rgb(0 0 0 / 80%), transparent 90%);
+  background-image: radial-gradient(
+    circle,
+    var(--corvus-color-border-default) 1px,
+    transparent 1px
+  );
+  background-size: 24px 24px;
+  mask-image: linear-gradient(180deg, rgb(0 0 0 / 30%), transparent 50%);
 }
+
+/* ── Shell Container ── */
 
 .shell {
   width: min(1120px, calc(100% - 2rem));
   margin: 0 auto;
 }
 
+/* ── Topbar ── */
+
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 1.25rem 0 1rem;
+  gap: var(--corvus-spacing-md);
+  padding: var(--corvus-spacing-lg) 0 var(--corvus-spacing-md);
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.7rem;
-  color: var(--corvus-text);
+  gap: var(--corvus-spacing-sm);
+  color: var(--corvus-color-text-display);
   text-decoration: none;
-  font-family: var(--corvus-font-mono);
-  font-size: 0.92rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-family: var(--corvus-typography-font-display);
+  font-size: 1.1rem;
+  font-weight: var(--corvus-typography-weight-bold);
+  letter-spacing: -0.03em;
+  text-transform: none;
 }
 
 .brand-mark {
-  width: 1.375rem;
-  height: 1.375rem;
+  width: 1.5rem;
+  height: 1.5rem;
 }
 
 .topbar-nav {
@@ -111,43 +123,43 @@ dt {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.5rem;
+  gap: var(--corvus-spacing-xs);
 }
 
 .topbar-nav > a {
-  padding: 0.6rem 0.9rem;
-  border-radius: 999px;
-  color: var(--text-dim);
+  padding: var(--corvus-spacing-sm) var(--corvus-spacing-md);
+  border-radius: var(--corvus-radius-pill);
+  color: var(--corvus-color-text-secondary);
   text-decoration: none;
-  font-family: var(--corvus-font-mono);
-  font-size: 0.82rem;
-  transition:
-    color 160ms ease,
-    background-color 160ms ease,
-    border-color 160ms ease,
-    transform 160ms ease;
+  font-family: var(--corvus-typography-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: color var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
 }
 
+/* ── Hero ── */
+
 .hero {
-  padding: 4.5rem 0 3.75rem;
+  padding: var(--corvus-spacing-4xl) 0 var(--corvus-spacing-3xl);
 }
 
 .hero-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
-  gap: 1.5rem;
+  gap: var(--corvus-spacing-lg);
   align-items: start;
 }
 
 .hero-copy {
-  padding: 1rem 0;
+  padding: var(--corvus-spacing-md) 0;
 }
 
 .eyebrow {
-  color: var(--accent);
-  font-family: var(--corvus-font-mono);
-  font-size: 0.74rem;
-  font-weight: 700;
+  color: var(--corvus-color-accent-default);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: var(--corvus-typography-scale-label-size);
+  font-weight: var(--corvus-typography-weight-bold);
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
@@ -155,45 +167,48 @@ dt {
 h1,
 h2,
 h3 {
-  font-family: var(--corvus-font-heading);
-  font-weight: 700;
-  line-height: 1.02;
+  font-family: var(--corvus-typography-font-body);
+  font-weight: var(--corvus-typography-weight-bold);
+  color: var(--corvus-color-text-display);
+  line-height: 1.05;
   letter-spacing: -0.03em;
 }
 
 .hero h1 {
   max-width: 11ch;
-  margin-top: 1rem;
+  margin-top: var(--corvus-spacing-md);
   font-size: clamp(3rem, 6vw, 5.2rem);
 }
 
 .subtitle {
   max-width: 56ch;
-  margin-top: 1.25rem;
-  color: var(--text-soft);
+  margin-top: var(--corvus-spacing-lg);
+  color: var(--corvus-color-text-secondary);
   font-size: clamp(1rem, 1.8vw, 1.15rem);
 }
 
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-top: 1.8rem;
+  gap: var(--corvus-spacing-sm);
+  margin-top: var(--corvus-spacing-xl);
 }
 
 .hero-note {
   max-width: 58ch;
-  margin-top: 1.25rem;
-  padding-left: 1rem;
-  border-left: 2px solid var(--border-strong);
-  color: var(--text-soft);
-  font-size: 0.95rem;
+  margin-top: var(--corvus-spacing-lg);
+  padding-left: var(--corvus-spacing-md);
+  border-left: 2px solid var(--corvus-color-accent-default);
+  color: var(--corvus-color-text-secondary);
+  font-size: var(--corvus-typography-scale-body-sm-size);
 }
 
 .hero-rail {
   display: grid;
-  gap: 1rem;
+  gap: var(--corvus-spacing-md);
 }
+
+/* ── Cards — shared flat surface treatment ── */
 
 .terminal-card,
 .install-card,
@@ -203,102 +218,88 @@ h3 {
 .faq-group,
 .cta-band,
 .stat-card {
-  border: 1px solid var(--border);
-  background: linear-gradient(180deg, rgb(15 23 42 / 84%), rgb(6 10 18 / 94%));
-  box-shadow: var(--shadow);
+  border: 1px solid var(--corvus-color-border-default);
+  background: var(--corvus-color-bg-surface);
 }
+
+/* ── Terminal Card ── */
 
 .terminal-card {
-  border-radius: 24px;
+  border-radius: var(--corvus-radius-card-lg);
   overflow: hidden;
-  position: relative;
-}
-
-.terminal-card::after {
-  content: "";
-  position: absolute;
-  inset: -30% auto auto -40%;
-  width: 55%;
-  height: 180%;
-  background: linear-gradient(90deg, transparent, rgb(125 211 252 / 12%), transparent);
-  transform: rotate(12deg);
-  pointer-events: none;
-  opacity: 0;
 }
 
 .terminal-head {
   display: grid;
   grid-template-columns: repeat(3, 0.75rem) 1fr auto;
-  gap: 0.5rem;
+  gap: var(--corvus-spacing-xs);
   align-items: center;
-  padding: 0.95rem 1.1rem;
-  border-bottom: 1px solid rgb(148 163 184 / 14%);
-  background: rgb(15 23 42 / 70%);
+  padding: var(--corvus-spacing-md) var(--corvus-spacing-md);
+  border-bottom: 1px solid var(--corvus-color-border-default);
+  background: var(--corvus-color-bg-raised);
 }
 
 .terminal-head span {
   width: 0.75rem;
   height: 0.75rem;
-  border-radius: 999px;
+  border-radius: var(--corvus-radius-pill);
 }
 
 .terminal-head span:nth-child(1) {
-  background: #fb7185;
+  background: var(--corvus-color-accent-default);
 }
 
 .terminal-head span:nth-child(2) {
-  background: #fbbf24;
+  background: var(--corvus-color-status-warning);
 }
 
 .terminal-head span:nth-child(3) {
-  background: #34d399;
+  background: var(--corvus-color-status-success);
 }
 
 .terminal-head p {
-  margin-left: 0.4rem;
-  color: var(--text-dim);
-  font-family: var(--corvus-font-mono);
-  font-size: 0.78rem;
+  margin-left: var(--corvus-spacing-xs);
+  color: var(--corvus-color-text-secondary);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: var(--corvus-typography-scale-caption-size);
 }
 
 .copy-button {
-  border: 1px solid rgb(56 189 248 / 24%);
-  border-radius: 999px;
-  background: rgb(8 47 73 / 92%);
-  color: #e0f2fe;
-  padding: 0.38rem 0.72rem;
-  font-family: var(--corvus-font-mono);
-  font-size: 0.74rem;
-  font-weight: 700;
+  border: 1px solid var(--corvus-color-border-visible);
+  border-radius: var(--corvus-radius-pill);
+  background: transparent;
+  color: var(--corvus-color-text-primary);
+  padding: var(--corvus-spacing-xs) var(--corvus-spacing-md);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: var(--corvus-typography-scale-label-size);
+  font-weight: var(--corvus-typography-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   cursor: pointer;
   transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
+    border-color var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default),
+    color var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
 }
 
 .copy-button:hover {
-  background: rgb(12 74 110 / 96%);
-  border-color: rgb(125 211 252 / 40%);
-  color: #f0f9ff;
-  transform: translateY(-1px);
+  border-color: var(--corvus-color-text-secondary);
+  color: var(--corvus-color-text-display);
 }
 
 .copy-button.is-copied {
-  background: rgb(6 78 59 / 92%);
-  border-color: rgb(52 211 153 / 40%);
-  color: #ecfdf5;
+  border-color: var(--corvus-color-status-success);
+  color: var(--corvus-color-status-success);
 }
 
 .command-block,
 .code-block {
   overflow-x: hidden;
-  padding: 1rem 1.1rem;
-  border-radius: 18px;
-  background: rgb(2 6 23 / 88%);
-  color: #d9f99d;
-  font-size: 0.9rem;
+  padding: var(--corvus-spacing-md);
+  border-radius: var(--corvus-radius-card);
+  background: var(--corvus-color-bg-base);
+  color: var(--corvus-color-text-primary);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: var(--corvus-typography-scale-body-sm-size);
   line-height: 1.7;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -311,127 +312,143 @@ h3 {
 }
 
 .terminal-card .command-block {
-  margin: 1.1rem;
+  margin: var(--corvus-spacing-md);
 }
 
 .terminal-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.9rem;
-  padding: 0 1.1rem 1rem;
+  gap: var(--corvus-spacing-md);
+  padding: 0 var(--corvus-spacing-md) var(--corvus-spacing-md);
 }
+
+/* ── Links (inline, terminal, faq, footer) ── */
 
 .terminal-actions a,
 .inline-link,
 .faq-list a,
 .footer-links a {
-  color: #7dd3fc;
+  color: var(--corvus-color-interactive-default);
   text-decoration: none;
-  font-family: var(--corvus-font-mono);
-  font-size: 0.82rem;
-  font-weight: 600;
+  font-family: var(--corvus-typography-font-mono);
+  font-size: var(--corvus-typography-scale-caption-size);
+  font-weight: var(--corvus-typography-weight-bold);
+  letter-spacing: 0.02em;
 }
 
 .terminal-actions a:hover,
 .inline-link:hover,
 .faq-list a:hover,
 .footer-links a:hover {
-  color: #bae6fd;
+  color: var(--corvus-color-text-display);
 }
+
+.topbar-nav > a:not(.btn):hover {
+  color: var(--corvus-color-text-display);
+}
+
+/* ── Pill Row ── */
 
 .pill-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
-  padding: 0 1.1rem 1.2rem;
+  gap: var(--corvus-spacing-xs);
+  padding: 0 var(--corvus-spacing-md) var(--corvus-spacing-md);
   list-style: none;
 }
 
 .pill-row li {
-  padding: 0.38rem 0.72rem;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--text-soft);
-  font-family: var(--corvus-font-mono);
-  font-size: 0.78rem;
+  padding: var(--corvus-spacing-xs) var(--corvus-spacing-sm);
+  border: 1px solid var(--corvus-color-border-visible);
+  border-radius: var(--corvus-radius-pill);
+  color: var(--corvus-color-text-secondary);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: var(--corvus-typography-scale-label-size);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
+
+/* ── Stats Grid ── */
 
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.85rem;
+  gap: var(--corvus-spacing-sm);
 }
 
 .stat-card {
-  border-radius: 20px;
-  padding: 1rem;
+  border-radius: var(--corvus-radius-card-lg);
+  padding: var(--corvus-spacing-md);
 }
 
 .stat-card dt {
-  color: var(--text-dim);
-  font-family: var(--corvus-font-mono);
-  font-size: 0.78rem;
+  color: var(--corvus-color-text-secondary);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: var(--corvus-typography-scale-label-size);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
 .stat-card dd {
-  margin-top: 0.45rem;
-  color: var(--corvus-text);
-  font-family: var(--corvus-font-mono);
-  font-size: 1.35rem;
-  font-weight: 700;
+  margin-top: var(--corvus-spacing-xs);
+  color: var(--corvus-color-text-display);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: var(--corvus-typography-scale-heading-size);
+  font-weight: var(--corvus-typography-weight-bold);
 }
+
+/* ── Buttons ── */
 
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 46px;
-  padding: 0.8rem 1.2rem;
+  min-height: 44px;
+  padding: var(--corvus-spacing-sm) var(--corvus-spacing-lg);
   border: 1px solid transparent;
-  border-radius: 999px;
-  font-family: var(--corvus-font-mono);
-  font-size: 0.84rem;
-  font-weight: 700;
+  border-radius: var(--corvus-radius-pill);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: 13px;
+  font-weight: var(--corvus-typography-weight-regular);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   text-decoration: none;
+  cursor: pointer;
   transition:
-    transform 160ms ease,
-    border-color 160ms ease,
-    background-color 160ms ease,
-    color 160ms ease,
-    box-shadow 160ms ease;
-}
-
-.btn:hover {
-  transform: translateY(-1px);
+    border-color var(--corvus-motion-duration-default) var(--corvus-motion-easing-default),
+    background-color var(--corvus-motion-duration-default) var(--corvus-motion-easing-default),
+    color var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #0369a1, #4338ca);
-  color: #f8fafc;
-  box-shadow: 0 12px 40px rgb(14 165 233 / 28%);
-  text-shadow: 0 1px 1px rgb(2 6 23 / 28%);
+  background: var(--corvus-color-text-display);
+  color: var(--corvus-color-bg-base);
+}
+
+.btn-primary:hover {
+  background: var(--corvus-color-text-primary);
 }
 
 .topbar-nav > a.btn-primary {
-  color: #f8fafc;
+  color: var(--corvus-color-bg-base);
 }
 
 .btn-ghost {
-  border-color: var(--border);
-  background: rgb(15 23 42 / 42%);
-  color: var(--text-soft);
+  border-color: var(--corvus-color-border-visible);
+  background: transparent;
+  color: var(--corvus-color-text-secondary);
 }
 
 .btn-ghost:hover {
-  border-color: var(--border-strong);
-  color: var(--corvus-text);
+  border-color: var(--corvus-color-text-secondary);
+  color: var(--corvus-color-text-display);
 }
+
+/* ── Sections ── */
 
 .section {
   position: relative;
-  padding: 4rem 0;
+  padding: var(--corvus-spacing-4xl) 0;
 }
 
 .section::before {
@@ -441,24 +458,26 @@ h3 {
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgb(56 189 248 / 30%), transparent);
+  background: var(--corvus-color-border-default);
 }
 
 .section-head {
-  margin-bottom: 1.8rem;
+  margin-bottom: var(--corvus-spacing-xl);
 }
 
 .section-head h2 {
   max-width: 16ch;
-  margin-top: 0.75rem;
+  margin-top: var(--corvus-spacing-sm);
   font-size: clamp(2rem, 3.4vw, 3rem);
 }
 
 .section-copy {
   max-width: 60ch;
-  margin-top: 0.9rem;
-  color: var(--text-soft);
+  margin-top: var(--corvus-spacing-md);
+  color: var(--corvus-color-text-secondary);
 }
+
+/* ── Grids ── */
 
 .install-grid,
 .feature-grid,
@@ -466,7 +485,7 @@ h3 {
 .docs-grid,
 .faq-grid {
   display: grid;
-  gap: 1rem;
+  gap: var(--corvus-spacing-md);
 }
 
 .install-grid {
@@ -486,21 +505,23 @@ h3 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+/* ── Cards ── */
+
 .install-card,
 .feature-card,
 .workflow-card,
 .docs-card,
 .faq-group {
-  border-radius: 24px;
-  padding: 1.4rem;
+  border-radius: var(--corvus-radius-card-lg);
+  padding: var(--corvus-spacing-lg);
 }
 
 .card-kicker,
 .step-number {
-  color: var(--accent);
-  font-family: var(--corvus-font-mono);
-  font-size: 0.78rem;
-  font-weight: 700;
+  color: var(--corvus-color-accent-default);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: var(--corvus-typography-scale-label-size);
+  font-weight: var(--corvus-typography-weight-bold);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -509,35 +530,37 @@ h3 {
 .feature-card p,
 .workflow-card p,
 .docs-card p {
-  margin-top: 0.7rem;
-  color: var(--text-soft);
+  margin-top: var(--corvus-spacing-sm);
+  color: var(--corvus-color-text-secondary);
 }
 
 .install-card {
   display: grid;
-  gap: 1rem;
+  gap: var(--corvus-spacing-md);
   align-content: start;
 }
 
 .command-list {
   display: grid;
-  gap: 0.75rem;
+  gap: var(--corvus-spacing-sm);
   padding: 0;
   list-style: none;
 }
 
 .command-list li {
-  padding: 0.9rem 1rem;
-  border-radius: 16px;
-  background: rgb(2 6 23 / 82%);
-  border: 1px solid rgb(148 163 184 / 12%);
+  padding: var(--corvus-spacing-sm) var(--corvus-spacing-md);
+  border-radius: var(--corvus-radius-card);
+  background: var(--corvus-color-bg-base);
+  border: 1px solid var(--corvus-color-border-default);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: var(--corvus-typography-scale-body-sm-size);
 }
 
 .feature-card h3,
 .workflow-card h3,
 .docs-card h3,
 .faq-group h3 {
-  font-size: 1.28rem;
+  font-size: var(--corvus-typography-scale-heading-size);
 }
 
 .workflow-card,
@@ -547,37 +570,38 @@ h3 {
 
 .workflow-card h3,
 .docs-card h3 {
-  margin-top: 0.7rem;
+  margin-top: var(--corvus-spacing-sm);
 }
 
+/* ── FAQ ── */
+
 .faq-group h3 {
-  margin-bottom: 1rem;
+  margin-bottom: var(--corvus-spacing-md);
 }
 
 .faq-list {
   display: grid;
-  gap: 0.75rem;
+  gap: var(--corvus-spacing-sm);
 }
 
 .faq-list details {
-  border: 1px solid rgb(148 163 184 / 14%);
-  border-radius: 18px;
-  background: rgb(2 6 23 / 40%);
+  border: 1px solid var(--corvus-color-border-default);
+  border-radius: var(--corvus-radius-card);
+  background: var(--corvus-color-bg-surface);
 }
 
 .faq-list details[open] {
-  background: rgb(14 165 233 / 8%);
-  border-color: rgb(56 189 248 / 28%);
+  border-color: var(--corvus-color-border-visible);
 }
 
 .faq-list summary {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 1rem 1.1rem;
-  color: var(--corvus-text);
+  gap: var(--corvus-spacing-sm);
+  padding: var(--corvus-spacing-md);
+  color: var(--corvus-color-text-primary);
   cursor: pointer;
-  font-weight: 600;
+  font-weight: var(--corvus-typography-weight-medium);
   list-style: none;
 }
 
@@ -592,34 +616,40 @@ h3 {
   justify-content: center;
   width: 1.4rem;
   height: 1.4rem;
-  border-radius: 999px;
-  background: rgb(56 189 248 / 12%);
-  color: var(--accent);
-  font-family: var(--corvus-font-mono);
-  font-weight: 700;
+  flex-shrink: 0;
+  border-radius: var(--corvus-radius-pill);
+  border: 1px solid var(--corvus-color-border-visible);
+  color: var(--corvus-color-text-secondary);
+  font-family: var(--corvus-typography-font-mono);
+  font-weight: var(--corvus-typography-weight-bold);
+  font-size: var(--corvus-typography-scale-body-sm-size);
 }
 
 .faq-list details[open] summary::before {
-  content: "-";
+  content: "−";
+  border-color: var(--corvus-color-accent-default);
+  color: var(--corvus-color-accent-default);
 }
 
 .faq-list details > :not(summary) {
-  padding: 0 1.1rem 1.1rem;
+  padding: 0 var(--corvus-spacing-md) var(--corvus-spacing-md);
 }
 
 .faq-list ul {
-  padding-left: 1.1rem;
-  color: var(--text-soft);
+  padding-left: var(--corvus-spacing-md);
+  color: var(--corvus-color-text-secondary);
 }
 
 .faq-list li + li {
-  margin-top: 0.55rem;
+  margin-top: var(--corvus-spacing-xs);
 }
+
+/* ── CTA Band ── */
 
 .cta-band {
   overflow: hidden;
-  border-radius: 32px;
-  padding: 2.4rem;
+  border-radius: var(--corvus-radius-card-lg);
+  padding: var(--corvus-spacing-2xl);
 }
 
 .cta-band h2 {
@@ -629,36 +659,37 @@ h3 {
 
 .cta-band p {
   max-width: 58ch;
-  margin-top: 0.9rem;
-  color: var(--text-soft);
+  margin-top: var(--corvus-spacing-md);
+  color: var(--corvus-color-text-secondary);
 }
+
+/* ── Footer ── */
 
 .footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
-  padding: 2rem 0 3rem;
-  color: var(--text-dim);
-  font-family: var(--corvus-font-mono);
-  font-size: 0.8rem;
+  gap: var(--corvus-spacing-md);
+  padding: var(--corvus-spacing-xl) 0 var(--corvus-spacing-3xl);
+  color: var(--corvus-color-text-secondary);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: var(--corvus-typography-scale-caption-size);
 }
 
 .footer-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: var(--corvus-spacing-md);
 }
 
-.topbar-nav > a:not(.btn):hover {
-  background: rgb(148 163 184 / 8%);
-  color: var(--corvus-text);
-}
+/* ── Focus ── */
 
 :focus-visible {
-  outline: 2px solid #fff;
+  outline: 2px solid var(--corvus-color-text-primary);
   outline-offset: 3px;
 }
+
+/* ── Motion — reduced-motion safe ── */
 
 @media (prefers-reduced-motion: no-preference) {
   .terminal-card,
@@ -669,22 +700,8 @@ h3 {
   .faq-group,
   .stat-card,
   .cta-band {
-    transition:
-      transform 180ms ease,
-      border-color 180ms ease,
-      background-color 180ms ease;
-  }
-
-  .terminal-card {
-    animation: terminal-float 5s ease-in-out infinite;
-  }
-
-  .terminal-card::after {
-    animation: terminal-sheen 5.5s ease-in-out infinite;
-  }
-
-  .copy-button.is-copied {
-    animation: copy-pop 320ms ease;
+    transition: border-color var(--corvus-motion-duration-default)
+      var(--corvus-motion-easing-default);
   }
 
   .install-card:hover,
@@ -695,41 +712,11 @@ h3 {
   .faq-group:hover,
   .stat-card:hover,
   .cta-band:hover {
-    transform: translateY(-2px);
-    border-color: rgb(56 189 248 / 32%);
-  }
-}
-
-@keyframes terminal-float {
-  0%,
-  100% {
-    translate: 0 0;
+    border-color: var(--corvus-color-border-visible);
   }
 
-  50% {
-    translate: 0 -4px;
-  }
-}
-
-@keyframes terminal-sheen {
-  0%,
-  20% {
-    opacity: 0;
-    transform: translateX(-20%) rotate(12deg);
-  }
-
-  40% {
-    opacity: 1;
-  }
-
-  60% {
-    opacity: 0;
-    transform: translateX(220%) rotate(12deg);
-  }
-
-  100% {
-    opacity: 0;
-    transform: translateX(220%) rotate(12deg);
+  .copy-button.is-copied {
+    animation: copy-pop 320ms ease;
   }
 }
 
@@ -746,6 +733,8 @@ h3 {
     transform: scale(1);
   }
 }
+
+/* ── Responsive: ≤ 960px ── */
 
 @media (width <= 960px) {
   .shell {
@@ -781,9 +770,11 @@ h3 {
   }
 }
 
+/* ── Responsive: ≤ 640px ── */
+
 @media (width <= 640px) {
   .hero {
-    padding-top: 3.25rem;
+    padding-top: var(--corvus-spacing-3xl);
   }
 
   .hero h1,
@@ -797,12 +788,12 @@ h3 {
   }
 
   .cta-band {
-    padding: 1.6rem;
+    padding: var(--corvus-spacing-lg);
   }
 
   .command-block,
   .code-block {
-    padding: 0.9rem 1rem;
-    font-size: 0.82rem;
+    padding: var(--corvus-spacing-sm) var(--corvus-spacing-md);
+    font-size: var(--corvus-typography-scale-caption-size);
   }
 }

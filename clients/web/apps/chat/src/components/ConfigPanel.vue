@@ -117,7 +117,7 @@ const { t } = useI18n();
 
     <div class="config-actions">
       <Button :disabled="props.loading" @click="emit('pair')">{{ t("auth.pair") }}</Button>
-      <Button :disabled="props.loading" variant="outline" @click="emit('connect')">
+      <Button :disabled="props.loading" variant="secondary" @click="emit('connect')">
         {{ t("auth.connect") }}
       </Button>
     </div>
@@ -134,10 +134,9 @@ const { t } = useI18n();
   display: grid;
   gap: 16px;
   border-radius: 20px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
+  border: 1px solid var(--corvus-color-border-default);
+  background: var(--corvus-color-bg-surface);
   padding: 24px;
-  box-shadow: 0 30px 60px -40px rgba(15, 23, 42, 0.8);
 }
 
 .config-header h2,
@@ -150,7 +149,7 @@ const { t } = useI18n();
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
 }
 
 .config-copy,
@@ -172,30 +171,30 @@ const { t } = useI18n();
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 14px;
+  border: 1px solid var(--corvus-color-border-default);
+  border-radius: var(--corvus-radius-card);
   padding: 14px;
-  background: color-mix(in srgb, var(--color-bg-secondary) 88%, transparent);
+  background: var(--corvus-color-bg-surface);
 }
 
 .onboarding-step[data-step-status="complete"] {
-  border-color: color-mix(in srgb, #22c55e 45%, var(--color-border));
+  border-color: var(--corvus-color-status-success);
 }
 
 .onboarding-step[data-step-status="current"] {
-  border-color: color-mix(in srgb, #3b82f6 45%, var(--color-border));
+  border-color: var(--corvus-color-interactive-default);
 }
 
 .onboarding-step[data-step-status="blocked"] {
-  border-color: color-mix(in srgb, #ef4444 45%, var(--color-border));
+  border-color: var(--corvus-color-status-error);
 }
 
 .step-badge {
   flex-shrink: 0;
   align-self: flex-start;
-  border-radius: 999px;
-  background: var(--color-bg-input);
-  color: var(--color-text-secondary);
+  border-radius: var(--corvus-radius-pill);
+  background: var(--corvus-color-bg-raised);
+  color: var(--corvus-color-text-secondary);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -204,7 +203,7 @@ const { t } = useI18n();
 }
 
 .banner {
-  border-radius: 14px;
+  border-radius: var(--corvus-radius-card);
   padding: 14px;
 }
 
@@ -213,13 +212,13 @@ const { t } = useI18n();
 }
 
 .banner-success {
-  border: 1px solid color-mix(in srgb, #22c55e 45%, var(--color-border));
-  background: color-mix(in srgb, #22c55e 10%, var(--color-bg-secondary));
+  border: 1px solid var(--corvus-color-status-success);
+  background: var(--corvus-color-bg-surface);
 }
 
 .banner-error {
-  border: 1px solid color-mix(in srgb, #ef4444 45%, var(--color-border));
-  background: color-mix(in srgb, #ef4444 10%, var(--color-bg-secondary));
+  border: 1px solid var(--corvus-color-status-error);
+  background: var(--corvus-color-bg-surface);
 }
 
 .field-grid {
@@ -235,7 +234,7 @@ const { t } = useI18n();
 
 .field span {
   font-size: 13px;
-  color: var(--color-text-secondary);
+  color: var(--corvus-color-text-secondary);
 }
 
 .config-actions {
@@ -245,11 +244,11 @@ const { t } = useI18n();
 }
 
 .status-ok {
-  color: #22c55e;
+  color: var(--corvus-color-status-success);
 }
 
 .status-error {
-  color: #ef4444;
+  color: var(--corvus-color-status-error);
 }
 
 @media (max-width: 767px) {

@@ -49,9 +49,9 @@ function handleReject(id: string): void {
 
 <style scoped>
 .tool-approval-card {
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, #f59e0b 45%, var(--color-border));
-  background: color-mix(in srgb, #f59e0b 8%, var(--color-bg-secondary));
+  border-radius: var(--corvus-radius-card-lg);
+  border: 1px solid var(--corvus-color-status-warning);
+  background: var(--corvus-color-bg-surface);
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -73,14 +73,14 @@ function handleReject(id: string): void {
 .tool-name {
   font-weight: 600;
   font-size: 14px;
-  color: var(--color-text-primary);
+  color: var(--corvus-color-text-primary);
 }
 
 .tool-reason {
   margin: 0;
   font-size: 14px;
   line-height: 1.5;
-  color: var(--color-text-secondary);
+  color: var(--corvus-color-text-secondary);
 }
 
 .tool-approval-actions {
@@ -91,32 +91,32 @@ function handleReject(id: string): void {
 .btn-approve,
 .btn-reject {
   padding: 6px 16px;
-  border-radius: 8px;
+  border-radius: var(--corvus-radius-input);
   font-size: 13px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: all 0.2s;
+  transition: all var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
 }
 
 .btn-approve {
-  background: color-mix(in srgb, #22c55e 20%, var(--color-bg-secondary));
-  color: #22c55e;
-  border-color: color-mix(in srgb, #22c55e 40%, var(--color-border));
+  background: transparent;
+  color: var(--corvus-color-status-success);
+  border-color: var(--corvus-color-status-success);
 }
 
 .btn-approve:hover {
-  background: color-mix(in srgb, #22c55e 30%, var(--color-bg-secondary));
+  background: var(--corvus-color-bg-raised);
 }
 
 .btn-reject {
-  background: color-mix(in srgb, #ef4444 20%, var(--color-bg-secondary));
-  color: #ef4444;
-  border-color: color-mix(in srgb, #ef4444 40%, var(--color-border));
+  background: transparent;
+  color: var(--corvus-color-status-error);
+  border-color: var(--corvus-color-status-error);
 }
 
 .btn-reject:hover {
-  background: color-mix(in srgb, #ef4444 30%, var(--color-bg-secondary));
+  background: var(--corvus-color-bg-raised);
 }
 </style>

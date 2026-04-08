@@ -1,0 +1,41 @@
+@import url("./nothing-theme.css");
+@import url("./base.css");
+
+/* Dual-theme application shell for Corvus Vue apps.
+   Sets body defaults from Nothing tokens. Both dark and light
+   modes are handled automatically via the token system —
+   no hardcoded color-scheme preference here. */
+
+html {
+  height: 100%;
+}
+
+body,
+#app {
+  min-height: 100dvh;
+}
+
+body {
+  font-family: var(--corvus-typography-font-body);
+  color: var(--corvus-color-text-primary);
+  background: var(--corvus-color-bg-base);
+}
+
+/* ── Scrollbar — Nothing style ── */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--corvus-color-border-visible);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--corvus-color-text-disabled);
+}

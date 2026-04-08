@@ -87,7 +87,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
 }
 
 .health-dot {
@@ -98,12 +98,10 @@ onUnmounted(() => {
 }
 
 .health-indicator.connected .health-dot {
-  background: #22c55e;
-  box-shadow: 0 0 6px rgb(34 197 94 / 40%);
+  background: var(--corvus-color-status-success);
 }
 
 .health-indicator.disconnected .health-dot {
-  background: #ef4444;
-  box-shadow: 0 0 6px rgb(239 68 68 / 40%);
+  background: var(--corvus-color-status-error);
 }
 </style>
