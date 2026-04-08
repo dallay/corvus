@@ -128,9 +128,8 @@ impl SlackChannel {
             .query(&params)
             .send()
             .await
-            .map_err(|e| {
-                tracing::warn!("Slack poll error: {}", self.sanitize_error(&e));
-                e
+            .inspect_err(|e| {
+                tracing::warn!("Slack poll error: {}", self.sanitize_error(e));
             })?;
 
         if !resp.status().is_success() {
