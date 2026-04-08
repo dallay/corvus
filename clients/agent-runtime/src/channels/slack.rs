@@ -1,6 +1,9 @@
 use super::media;
 use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use async_trait::async_trait;
+use std::time::Duration;
+
+const SLACK_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Slack channel — polls conversations.history via Web API
 pub struct SlackChannel {
@@ -126,7 +129,7 @@ impl SlackChannel {
             .send()
             .await
             .map_err(|e| {
-                tracing::warn!("Slack poll error: {e}");
+                tracing::warn!("Slack poll error: {}", self.sanitize_error(&e));
                 e
             })?;
 
@@ -224,10 +227,7 @@ impl SlackChannel {
         })?;
 
         if payload.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
-            let api_error = payload
-                .get("error")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("unknown_error");
+            let api_error = Self::slack_api_error(&payload);
             tracing::warn!("Slack file metadata API error: {api_error}");
             return Err(media::ImageRejectionReason::FetchFailed);
         }
@@ -250,22 +250,32 @@ impl SlackChannel {
         max_bytes: u64,
     ) -> Result<media::StagedImage, media::ImageRejectionReason> {
         let download_url = self.resolve_file_download_url(file_id).await?;
-        let response = self
-            .client
-            .get(&download_url)
-            .bearer_auth(&self.bot_token)
-            .send()
-            .await
-            .map_err(|err| {
-                tracing::warn!(
-                    "Slack file download request failed: {}",
-                    self.sanitize_error(&err)
-                );
-                media::ImageRejectionReason::FetchFailed
-            })?;
+        tokio::time::timeout(SLACK_DOWNLOAD_TIMEOUT, async {
+            let response = self
+                .client
+                .get(&download_url)
+                .bearer_auth(&self.bot_token)
+                .send()
+                .await
+                .map_err(|err| {
+                    tracing::warn!(
+                        "Slack file download request failed: {}",
+                        self.sanitize_error(&err)
+                    );
+                    media::ImageRejectionReason::FetchFailed
+                })?;
 
-        media::stream_validate_and_stage(response, declared_mime, "sl", &download_url, max_bytes)
-            .await
+            media::stream_validate_and_stage(response, declared_mime, "sl", &download_url, max_bytes)
+                .await
+        })
+        .await
+        .map_err(|_| {
+            tracing::warn!(
+                "Slack file download timed out after {}s",
+                SLACK_DOWNLOAD_TIMEOUT.as_secs()
+            );
+            media::ImageRejectionReason::FetchFailed
+        })?
     }
 
     /// Parse a single Slack message JSON value into a `ChannelMessage`.
