@@ -92,20 +92,14 @@ impl SlackChannel {
             ));
         }
 
-        let resp: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|err| {
-                tracing::warn!("Slack auth.test parse error: {err}");
-                anyhow::anyhow!("Slack auth.test parse error: {err}")
-            })?;
+        let resp: serde_json::Value = response.json().await.map_err(|err| {
+            tracing::warn!("Slack auth.test parse error: {err}");
+            anyhow::anyhow!("Slack auth.test parse error: {err}")
+        })?;
 
         if resp.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
             let api_error = Self::slack_api_error(&resp);
-            tracing::warn!(
-                "Slack auth.test API error: {}",
-                api_error
-            );
+            tracing::warn!("Slack auth.test API error: {}", api_error);
             return Err(anyhow::anyhow!("Slack auth.test failed: {api_error}"));
         }
 
@@ -698,18 +692,20 @@ mod tests {
         let ch = make_slack_channel();
         // String comparison: "100.0" <= "200.0" is true, so message is skipped
         let msg = slack_msg_json("U111", "old", "100.0");
-        assert!(ch
-            .parse_slack_message(&msg, "BOT", "200.0", "C12345")
-            .is_none());
+        assert!(
+            ch.parse_slack_message(&msg, "BOT", "200.0", "C12345")
+                .is_none()
+        );
     }
 
     #[test]
     fn parse_slack_message_skips_equal_timestamp() {
         let ch = make_slack_channel();
         let msg = slack_msg_json("U111", "dup", "100.0");
-        assert!(ch
-            .parse_slack_message(&msg, "BOT", "100.0", "C12345")
-            .is_none());
+        assert!(
+            ch.parse_slack_message(&msg, "BOT", "100.0", "C12345")
+                .is_none()
+        );
     }
 
     // ── Message ID edge cases ─────────────────────────────────────
@@ -795,7 +791,8 @@ mod tests {
                     );
                     let response = format!(
                         "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-                        body.len(), body
+                        body.len(),
+                        body
                     );
                     socket
                         .write_all(response.as_bytes())
@@ -857,7 +854,8 @@ mod tests {
 
             let response = format!(
                 "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-                body.len(), body
+                body.len(),
+                body
             );
             socket
                 .write_all(response.as_bytes())
@@ -894,24 +892,30 @@ mod tests {
         let requests = requests.lock().clone();
         assert_eq!(requests.len(), 2, "expected metadata + download requests");
         assert!(requests[0].starts_with("GET /api/files.info?file=F123 HTTP/1.1\r\n"));
-        assert!(requests[0]
-            .to_ascii_lowercase()
-            .contains("\r\nauthorization: bearer xoxb-super-secret\r\n"));
+        assert!(
+            requests[0]
+                .to_ascii_lowercase()
+                .contains("\r\nauthorization: bearer xoxb-super-secret\r\n")
+        );
         assert!(requests[1].starts_with("GET /download/photo.png HTTP/1.1\r\n"));
-        assert!(requests[1]
-            .to_ascii_lowercase()
-            .contains("\r\nauthorization: bearer xoxb-super-secret\r\n"));
+        assert!(
+            requests[1]
+                .to_ascii_lowercase()
+                .contains("\r\nauthorization: bearer xoxb-super-secret\r\n")
+        );
         assert_eq!(staged.mime_type, media::AllowedImageMime::Png);
         assert_eq!(staged.byte_len, png.len() as u64);
         assert_eq!(
             std::fs::read(&staged.temp_path).expect("staged file must exist"),
             png
         );
-        assert!(staged
-            .temp_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("corvus-sl-img-")));
+        assert!(
+            staged
+                .temp_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("corvus-sl-img-"))
+        );
 
         let temp_path = staged.temp_path.clone();
         staged.cleanup();
@@ -949,11 +953,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_bot_user_id_returns_error_when_user_id_is_missing() {
-        let (auth_url, _request, server) = spawn_mock_slack_json_api(
-            "auth.test",
-            r#"{"ok":true}"#.to_string(),
-        )
-        .await;
+        let (auth_url, _request, server) =
+            spawn_mock_slack_json_api("auth.test", r#"{"ok":true}"#.to_string()).await;
         let channel = SlackChannel::new_with_api_base_url(
             "xoxb-invalid".into(),
             None,
@@ -965,9 +966,7 @@ mod tests {
             .get_bot_user_id()
             .await
             .expect_err("auth.test should fail when user_id is missing");
-        assert!(error
-            .to_string()
-            .contains("missing valid user_id"));
+        assert!(error.to_string().contains("missing valid user_id"));
         server.await.expect("mock auth.test server should finish");
     }
 
@@ -997,8 +996,10 @@ mod tests {
             .expect("mock conversations.history server should finish");
 
         let request = request.lock().clone().expect("request should be captured");
-        assert!(request
-            .starts_with("GET /api/conversations.history?channel=C12345&limit=10 HTTP/1.1\r\n"));
+        assert!(
+            request
+                .starts_with("GET /api/conversations.history?channel=C12345&limit=10 HTTP/1.1\r\n")
+        );
     }
 
     #[tokio::test]
