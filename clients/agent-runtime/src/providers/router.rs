@@ -22,6 +22,10 @@ pub struct Route {
 pub struct RouterProvider {
     routes: HashMap<String, (usize, String)>, // hint → (provider_index, model)
     providers: Vec<(String, Box<dyn Provider>)>,
+    /// Reverse map built at construction: provider_index → sorted hint names.
+    /// Used during warmup to report which route hints are impacted when a
+    /// provider fails to initialise.
+    provider_hints: HashMap<usize, Vec<String>>,
     default_index: usize,
     default_model: String,
 }
@@ -62,9 +66,22 @@ impl RouterProvider {
             })
             .collect();
 
+        // Build reverse map: provider_index → sorted list of hint names.
+        let mut provider_hints: HashMap<usize, Vec<String>> = HashMap::new();
+        for (hint, (provider_idx, _)) in &resolved_routes {
+            provider_hints
+                .entry(*provider_idx)
+                .or_default()
+                .push(hint.clone());
+        }
+        for hints in provider_hints.values_mut() {
+            hints.sort_unstable();
+        }
+
         Self {
             routes: resolved_routes,
             providers,
+            provider_hints,
             default_index: 0,
             default_model,
         }
@@ -190,17 +207,9 @@ impl Provider for RouterProvider {
         for (i, (name, provider)) in self.providers.iter().enumerate() {
             tracing::info!(provider = name, "Warming up routed provider");
             if let Err(e) = provider.warmup().await {
-                let mut affected: Vec<&str> = self
-                    .routes
-                    .iter()
-                    .filter(|(_, (provider_idx, _))| *provider_idx == i)
-                    .map(|(hint, _)| hint.as_str())
-                    .collect();
-                affected.sort_unstable();
-                let affected_hints = if affected.is_empty() {
-                    "none".to_string()
-                } else {
-                    affected.join(", ")
+                let affected_hints = match self.provider_hints.get(&i) {
+                    Some(hints) if !hints.is_empty() => hints.join(", "),
+                    _ => "none".to_string(),
                 };
                 tracing::warn!(
                     provider = name,
