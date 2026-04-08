@@ -935,9 +935,8 @@ mod tests {
             .expect("mock conversations.history server should finish");
 
         let request = request.lock().clone().expect("request should be captured");
-        assert!(
-            request.starts_with("GET /api/conversations.history?channel=C12345&limit=10 HTTP/1.1\r\n")
-        );
+        assert!(request
+            .starts_with("GET /api/conversations.history?channel=C12345&limit=10 HTTP/1.1\r\n"));
     }
 
     #[tokio::test]
