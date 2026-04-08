@@ -68,12 +68,11 @@ impl SlackChannel {
             .bearer_auth(&self.bot_token)
             .send()
             .await
-            .map_err(|err| {
+            .inspect_err(|err| {
                 tracing::warn!(
                     "Slack auth.test request failed: {}",
-                    self.sanitize_error(&err)
+                    self.sanitize_error(err)
                 );
-                err
             })
             .ok()?;
 
