@@ -41,6 +41,9 @@ exclude = [
     '/guides/(gpg-setup|architecture|development|features|structure|getting-started|release|configuration)/$',
     # Root-relative diagram assets served from /public
     '^/guides/architecture/diagrams/.*',
+    # Internal CSS imports and Tailwind directives
+    '^@corvus/shared/.*',
+    '^tailwindcss$',
 ]
 
 # Exclude entire files or directories
