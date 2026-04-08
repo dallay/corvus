@@ -51,7 +51,8 @@ of `record_action()` in `file_read.rs` so pre-canonicalization rejections still 
 
 - GIVEN a workspace with a valid `src/` directory
 - WHEN `code_search` is invoked with `{ "pattern": "fn", "path": "src" }`
-- THEN the path MUST pass through `is_path_allowed`, `record_action`, `canonicalize`, and `is_resolved_path_allowed`
+- THEN the path MUST pass through `is_path_allowed`, `record_action`, `canonicalize`, and
+  `is_resolved_path_allowed`
 - AND if any check fails, the result MUST have `success: false`
 
 ### REQ-SAFE-003: Symlink Escape Prevention

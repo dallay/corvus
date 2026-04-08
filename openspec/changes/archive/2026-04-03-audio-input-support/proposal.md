@@ -26,6 +26,7 @@ infrastructure. This eliminates cloud STT services and mandates a local engine (
 ### In Scope
 
 **Phase 1 — Core + Telegram (this change)**:
+
 - `ContentPart::Audio` variant in the channel message enum
 - Audio media module: MIME sniffing (OGG/Opus, MP3, WAV, M4A), size/duration validation, staging
 - `Transcriber` trait as a new runtime extension point
@@ -41,6 +42,7 @@ infrastructure. This eliminates cloud STT services and mandates a local engine (
 - `corvus doctor` check for whisper.cpp binary and model availability
 
 **Phase 2 — HTTP Gateway + CLI (follow-up change)**:
+
 - `POST /web/chat/audio` multipart endpoint on the HTTP Gateway
 - CLI `/audio <path>` command for local file transcription
 - (Optional) whisper-rs embedded transcription behind `--features audio-transcription`
@@ -52,7 +54,8 @@ infrastructure. This eliminates cloud STT services and mandates a local engine (
 - Real-time / streaming transcription — batch file only
 - Speaker diarization or speaker identification
 - Audio sent as part of multi-media messages (audio + image in same turn)
-- Non-whisper transcription engines (Vosk, candle-whisper) — Transcriber trait allows future addition
+- Non-whisper transcription engines (Vosk, candle-whisper) — Transcriber trait allows future
+  addition
 - Transcription of video files
 - Cloud-based STT services (explicitly prohibited by NFR1)
 - WhatsApp, Discord, Slack audio — channels not yet scoped for audio
@@ -113,43 +116,43 @@ transcription_language = "es"    # primary language hint
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `src/channels/traits.rs` | Modified | Add `ContentPart::Audio` variant; add `has_audio_parts()`, `audio_parts()` helpers |
-| `src/channels/audio_media.rs` | **New** | `AllowedAudioMime`, `AudioRejectionReason`, `StagedAudio`, `AudioHistoryMeta`, MIME sniffing, validation |
-| `src/channels/mod.rs` | Modified | Add `gate_audio_config()`, `gate_and_stage_audio()`, `transcribe_audio()`, `inject_transcription()`, `StagedAudioGuard` |
-| `src/channels/telegram.rs` | Modified | Parse `message.voice` and `message.audio` in `build_telegram_content_parts()`; add `fetch_and_stage_audio()` |
-| `src/transcription/mod.rs` | **New** | Module exports |
-| `src/transcription/traits.rs` | **New** | `Transcriber` trait, `TranscriptionResult` struct |
-| `src/transcription/whisper_cli.rs` | **New** | whisper.cpp CLI wrapper (spawn process, parse output, error handling) |
-| `src/config/schema.rs` | Modified | Add `AudioConfig` struct, wire into main config |
-| `src/config/validation.rs` | Modified | Startup validation for `[audio]` section |
-| `src/observability/traits.rs` | Modified | Add `AudioIngressOutcome`, `AudioIngressReason`, `AudioIngressEvent`, `on_audio_ingress()` |
-| `src/observability/` impls | Modified | Implement `on_audio_ingress()` for existing observer implementations |
-| `src/lib.rs` or `src/main.rs` | Modified | Register `transcription` module, wire `Transcriber` into runtime |
-| `src/doctor.rs` (or equivalent) | Modified | Add whisper.cpp binary + model health checks |
-| Config TOML example/docs | Modified | Document `[audio]` section |
-| `openspec/specs/channel-image-ingestion/` | Reference only | Audio mirrors these patterns but does NOT modify image specs |
-| `openspec/specs/runtime-image-pipeline/` | Reference only | Audio mirrors pipeline architecture; no image spec changes |
+| Area                                      | Impact         | Description                                                                                                             |
+|-------------------------------------------|----------------|-------------------------------------------------------------------------------------------------------------------------|
+| `src/channels/traits.rs`                  | Modified       | Add `ContentPart::Audio` variant; add `has_audio_parts()`, `audio_parts()` helpers                                      |
+| `src/channels/audio_media.rs`             | **New**        | `AllowedAudioMime`, `AudioRejectionReason`, `StagedAudio`, `AudioHistoryMeta`, MIME sniffing, validation                |
+| `src/channels/mod.rs`                     | Modified       | Add `gate_audio_config()`, `gate_and_stage_audio()`, `transcribe_audio()`, `inject_transcription()`, `StagedAudioGuard` |
+| `src/channels/telegram.rs`                | Modified       | Parse `message.voice` and `message.audio` in `build_telegram_content_parts()`; add `fetch_and_stage_audio()`            |
+| `src/transcription/mod.rs`                | **New**        | Module exports                                                                                                          |
+| `src/transcription/traits.rs`             | **New**        | `Transcriber` trait, `TranscriptionResult` struct                                                                       |
+| `src/transcription/whisper_cli.rs`        | **New**        | whisper.cpp CLI wrapper (spawn process, parse output, error handling)                                                   |
+| `src/config/schema.rs`                    | Modified       | Add `AudioConfig` struct, wire into main config                                                                         |
+| `src/config/validation.rs`                | Modified       | Startup validation for `[audio]` section                                                                                |
+| `src/observability/traits.rs`             | Modified       | Add `AudioIngressOutcome`, `AudioIngressReason`, `AudioIngressEvent`, `on_audio_ingress()`                              |
+| `src/observability/` impls                | Modified       | Implement `on_audio_ingress()` for existing observer implementations                                                    |
+| `src/lib.rs` or `src/main.rs`             | Modified       | Register `transcription` module, wire `Transcriber` into runtime                                                        |
+| `src/doctor.rs` (or equivalent)           | Modified       | Add whisper.cpp binary + model health checks                                                                            |
+| Config TOML example/docs                  | Modified       | Document `[audio]` section                                                                                              |
+| `openspec/specs/channel-image-ingestion/` | Reference only | Audio mirrors these patterns but does NOT modify image specs                                                            |
+| `openspec/specs/runtime-image-pipeline/`  | Reference only | Audio mirrors pipeline architecture; no image spec changes                                                              |
 
 ### Phase 2 Additional Areas (follow-up change)
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `src/gateway/mod.rs` | Modified | New `POST /web/chat/audio` multipart endpoint |
-| `src/channels/cli.rs` | Modified | `/audio <path>` command handler |
+| Area                  | Impact   | Description                                   |
+|-----------------------|----------|-----------------------------------------------|
+| `src/gateway/mod.rs`  | Modified | New `POST /web/chat/audio` multipart endpoint |
+| `src/channels/cli.rs` | Modified | `/audio <path>` command handler               |
 
 ## Risks
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|------------|--------|------------|
-| **Model distribution complexity** — Whisper models are 150 MB–3 GB; operator must install separately | High | Medium | `corvus doctor` check; clear setup docs; default to `base` model (~150 MB); graceful error message when model missing |
-| **Memory footprint during inference** — Whisper base model uses ~500 MB RAM during transcription | Medium | Medium | Document minimum RAM requirements; recommend `base` model for constrained environments; transcription semaphore limits concurrent usage |
-| **Concurrent transcription CPU load** — Multiple simultaneous audio messages could overwhelm the system | Medium | High | Implement a `tokio::sync::Semaphore` with configurable concurrency limit (default: 1); queue excess requests; timeout after configurable duration |
-| **OGG/Opus duration detection** — Getting duration from OGG headers without a dependency is non-trivial | Medium | Low | Phase 1: trust Telegram's `duration` field for gating; whisper.cpp reports actual duration post-transcription; add `ogg` crate parsing in Phase 2 if needed |
-| **Format conversion dependency** — whisper.cpp natively handles WAV 16kHz mono; OGG/Opus may need conversion | Low | Medium | whisper.cpp recent versions handle OGG/Opus and MP3 natively; if conversion needed, require `ffmpeg` as optional external dependency with doctor check |
-| **whisper.cpp binary availability** — Operator must install whisper.cpp separately | Medium | Medium | Fail gracefully at runtime with user-friendly message; `corvus doctor` warns; document installation in setup guide |
-| **Transcription quality variance** — Noisy audio, accents, or mixed languages may produce poor transcriptions | Low | Low | whisper.cpp has good noise tolerance; `base` model handles Spanish well; future: expose confidence score and let operator configure rejection threshold |
+| Risk                                                                                                          | Likelihood | Impact | Mitigation                                                                                                                                                  |
+|---------------------------------------------------------------------------------------------------------------|------------|--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Model distribution complexity** — Whisper models are 150 MB–3 GB; operator must install separately          | High       | Medium | `corvus doctor` check; clear setup docs; default to `base` model (~150 MB); graceful error message when model missing                                       |
+| **Memory footprint during inference** — Whisper base model uses ~500 MB RAM during transcription              | Medium     | Medium | Document minimum RAM requirements; recommend `base` model for constrained environments; transcription semaphore limits concurrent usage                     |
+| **Concurrent transcription CPU load** — Multiple simultaneous audio messages could overwhelm the system       | Medium     | High   | Implement a `tokio::sync::Semaphore` with configurable concurrency limit (default: 1); queue excess requests; timeout after configurable duration           |
+| **OGG/Opus duration detection** — Getting duration from OGG headers without a dependency is non-trivial       | Medium     | Low    | Phase 1: trust Telegram's `duration` field for gating; whisper.cpp reports actual duration post-transcription; add `ogg` crate parsing in Phase 2 if needed |
+| **Format conversion dependency** — whisper.cpp natively handles WAV 16kHz mono; OGG/Opus may need conversion  | Low        | Medium | whisper.cpp recent versions handle OGG/Opus and MP3 natively; if conversion needed, require `ffmpeg` as optional external dependency with doctor check      |
+| **whisper.cpp binary availability** — Operator must install whisper.cpp separately                            | Medium     | Medium | Fail gracefully at runtime with user-friendly message; `corvus doctor` warns; document installation in setup guide                                          |
+| **Transcription quality variance** — Noisy audio, accents, or mixed languages may produce poor transcriptions | Low        | Low    | whisper.cpp has good noise tolerance; `base` model handles Spanish well; future: expose confidence score and let operator configure rejection threshold     |
 
 ## Rollback Plan
 
@@ -160,12 +163,12 @@ This change is **safely reversible** at multiple levels:
    required.
 
 2. **Feature branch revert**: The change is isolated to:
-   - New files (`audio_media.rs`, `src/transcription/`) — delete entirely
-   - New enum variant (`ContentPart::Audio`) — remove variant; any remaining match arms cause
-     compile errors (safe detection)
-   - New config section (`[audio]`) — ignored when struct is removed
-   - Modified files (`mod.rs`, `telegram.rs`, `traits.rs`) — revert additions only; no existing
-     behavior is modified
+    - New files (`audio_media.rs`, `src/transcription/`) — delete entirely
+    - New enum variant (`ContentPart::Audio`) — remove variant; any remaining match arms cause
+      compile errors (safe detection)
+    - New config section (`[audio]`) — ignored when struct is removed
+    - Modified files (`mod.rs`, `telegram.rs`, `traits.rs`) — revert additions only; no existing
+      behavior is modified
 
 3. **No schema migrations**: Audio metadata in conversation history uses the same extensible
    metadata pattern as images. Removing audio support doesn't corrupt existing conversations —
@@ -200,20 +203,26 @@ This change is **safely reversible** at multiple levels:
 
 ## Success Criteria
 
-- [ ] A Telegram user can send a voice note and receive an agent response based on the transcribed content
-- [ ] A Telegram user can send an audio file (MP3, WAV, M4A, OGG) and receive an agent response based on the transcribed content
+- [ ] A Telegram user can send a voice note and receive an agent response based on the transcribed
+  content
+- [ ] A Telegram user can send an audio file (MP3, WAV, M4A, OGG) and receive an agent response
+  based on the transcribed content
 - [ ] Audio transcription happens locally — no network calls to external services
 - [ ] Spanish voice notes are transcribed with usable accuracy (whisper `base` model)
-- [ ] `[audio]` config section controls enabled state, allowed channels, size/duration limits, model, and language
+- [ ] `[audio]` config section controls enabled state, allowed channels, size/duration limits,
+  model, and language
 - [ ] `audio.enabled = false` completely disables audio processing with a friendly user message
 - [ ] Audio messages on channels not in `audio.allowed_channels` are rejected with a clear message
 - [ ] Audio files exceeding 25 MB are rejected before full download when Content-Length is available
-- [ ] Audio files exceeding 10 minutes are rejected (via channel-declared duration or post-transcription check)
+- [ ] Audio files exceeding 10 minutes are rejected (via channel-declared duration or
+  post-transcription check)
 - [ ] Unsupported audio formats are rejected via magic-byte MIME sniffing
 - [ ] Corrupted audio files produce a clear error, not a crash
-- [ ] When whisper.cpp is not installed, audio messages get a friendly "not available" reply (not a panic)
+- [ ] When whisper.cpp is not installed, audio messages get a friendly "not available" reply (not a
+  panic)
 - [ ] `corvus doctor` reports whisper.cpp binary and model availability
-- [ ] `AudioIngressEvent` observability events are emitted for all audio ingestion attempts (admitted and rejected)
+- [ ] `AudioIngressEvent` observability events are emitted for all audio ingestion attempts (
+  admitted and rejected)
 - [ ] Audio history metadata (including transcription text) is stored in conversation history
 - [ ] Concurrent transcription is bounded by a semaphore (default: 1 concurrent transcription)
 - [ ] All staged audio temp files are cleaned up via RAII on all exit paths

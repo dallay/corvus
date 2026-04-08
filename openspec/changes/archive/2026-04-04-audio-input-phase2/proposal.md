@@ -22,27 +22,31 @@ method differs per channel. This makes Phase 2 an incremental extension, not a r
 
 ### In Scope
 
-1. **Shared staging utility** — Extract `stage_audio_from_bytes(bytes, metadata) -> Result<StagedAudio>` into `audio_media.rs` so gateway, CLI, and Telegram all share one validation + staging path (MIME sniffing, size check, SHA-256, temp file write).
+1. **Shared staging utility** — Extract
+   `stage_audio_from_bytes(bytes, metadata) -> Result<StagedAudio>` into `audio_media.rs` so
+   gateway, CLI, and Telegram all share one validation + staging path (MIME sniffing, size check,
+   SHA-256, temp file write).
 
 2. **HTTP Gateway endpoint** — `POST /web/chat/audio` accepting `multipart/form-data`:
-   - Fields: `audio` (file, required), `session_id` (text, optional), `language` (text, optional)
-   - Per-route body limit: 25 MiB (overriding the global 64KB `RequestBodyLimitLayer`)
-   - Per-route timeout: 180s (overriding the global 30s) to accommodate transcription
-   - Auth: same bearer token pairing as existing endpoints
-   - Response: SSE stream (same pattern as `/web/chat/stream`) with transcription + agent response
-   - Enable `axum/multipart` feature in Cargo.toml
+    - Fields: `audio` (file, required), `session_id` (text, optional), `language` (text, optional)
+    - Per-route body limit: 25 MiB (overriding the global 64KB `RequestBodyLimitLayer`)
+    - Per-route timeout: 180s (overriding the global 30s) to accommodate transcription
+    - Auth: same bearer token pairing as existing endpoints
+    - Response: SSE stream (same pattern as `/web/chat/stream`) with transcription + agent response
+    - Enable `axum/multipart` feature in Cargo.toml
 
 3. **CLI `/audio <path>` command**:
-   - Read local file from provided path
-   - Validate format (magic bytes), size, duration via shared staging utility
-   - Route through `process_channel_message()` (not the direct `Agent::turn()` bypass)
-   - Transcribe via `Transcriber`, inject text, continue through agent conversation
+    - Read local file from provided path
+    - Validate format (magic bytes), size, duration via shared staging utility
+    - Route through `process_channel_message()` (not the direct `Agent::turn()` bypass)
+    - Transcribe via `Transcriber`, inject text, continue through agent conversation
 
 4. **Config updates**:
-   - Recognize `"gateway"` and `"cli"` as valid `allowed_channels` values
-   - Update `allowed_channels` validation (currently warns on non-`"telegram"` names)
+    - Recognize `"gateway"` and `"cli"` as valid `allowed_channels` values
+    - Update `allowed_channels` validation (currently warns on non-`"telegram"` names)
 
-5. **`stage_channel_audio()` routing** — Add `"gateway"` and `"cli"` match arms (currently `_ => Ok(Vec::new())`)
+5. **`stage_channel_audio()` routing** — Add `"gateway"` and `"cli"` match arms (currently
+   `_ => Ok(Vec::new())`)
 
 ### Out of Scope
 
@@ -129,26 +133,26 @@ CLI calls it after file read.
 
 ## Affected Areas
 
-| File | Impact | Description |
-|------|--------|-------------|
-| `Cargo.toml` | Modified | Add `"multipart"` to axum features |
-| `src/channels/audio_media.rs` | Modified | Add `stage_audio_from_bytes()` shared utility |
-| `src/channels/mod.rs` | Modified | Add `"gateway"` and `"cli"` arms in `stage_channel_audio()` |
-| `src/gateway/mod.rs` | Modified | Add `POST /web/chat/audio` handler, nested router with body limit override, transcriber in AppState |
-| `src/channels/cli.rs` | Modified | Parse `/audio <path>`, read file, build Audio ChannelMessage |
-| `src/agent/agent.rs` | Modified | Route `/audio` CLI messages through `process_channel_message()` |
-| `src/config/schema.rs` | Modified | Document `"gateway"` and `"cli"` as valid `allowed_channels` |
-| `src/config/validation.rs` | Modified | Recognize `"gateway"` and `"cli"` in allowed_channels validation |
+| File                          | Impact   | Description                                                                                         |
+|-------------------------------|----------|-----------------------------------------------------------------------------------------------------|
+| `Cargo.toml`                  | Modified | Add `"multipart"` to axum features                                                                  |
+| `src/channels/audio_media.rs` | Modified | Add `stage_audio_from_bytes()` shared utility                                                       |
+| `src/channels/mod.rs`         | Modified | Add `"gateway"` and `"cli"` arms in `stage_channel_audio()`                                         |
+| `src/gateway/mod.rs`          | Modified | Add `POST /web/chat/audio` handler, nested router with body limit override, transcriber in AppState |
+| `src/channels/cli.rs`         | Modified | Parse `/audio <path>`, read file, build Audio ChannelMessage                                        |
+| `src/agent/agent.rs`          | Modified | Route `/audio` CLI messages through `process_channel_message()`                                     |
+| `src/config/schema.rs`        | Modified | Document `"gateway"` and `"cli"` as valid `allowed_channels`                                        |
+| `src/config/validation.rs`    | Modified | Recognize `"gateway"` and `"cli"` in allowed_channels validation                                    |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| `multer` crate adds binary size | Medium | Check delta; multer is ~50KB compiled; acceptable for file upload support |
-| Gateway timeout for long audio | High | Per-route timeout (180s) independent of global 30s; configurable via `transcription_timeout_secs` |
-| CLI pipeline bypass complexity | Medium | Route `/audio` through channel runtime; keep interactive text via `Agent::turn()` unchanged |
-| Concurrent multipart uploads exhaust memory | Low | Existing transcription semaphore limits concurrent processing; multipart streaming limits memory |
-| Body limit layer ordering | Medium | Test that nested router body limit overrides global; axum handles this correctly with merge |
+| Risk                                        | Likelihood | Mitigation                                                                                        |
+|---------------------------------------------|------------|---------------------------------------------------------------------------------------------------|
+| `multer` crate adds binary size             | Medium     | Check delta; multer is ~50KB compiled; acceptable for file upload support                         |
+| Gateway timeout for long audio              | High       | Per-route timeout (180s) independent of global 30s; configurable via `transcription_timeout_secs` |
+| CLI pipeline bypass complexity              | Medium     | Route `/audio` through channel runtime; keep interactive text via `Agent::turn()` unchanged       |
+| Concurrent multipart uploads exhaust memory | Low        | Existing transcription semaphore limits concurrent processing; multipart streaming limits memory  |
+| Body limit layer ordering                   | Medium     | Test that nested router body limit overrides global; axum handles this correctly with merge       |
 
 ## Rollback Plan
 

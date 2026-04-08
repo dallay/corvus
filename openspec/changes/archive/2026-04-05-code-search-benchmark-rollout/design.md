@@ -29,6 +29,7 @@ optimizations.
 Criterion microbench file as a lower-level performance harness.
 
 **Alternatives considered**:
+
 - Extend `clients/agent-runtime/benches/agent_benchmarks.rs` only.
 - Measure ad hoc shell and native commands manually and paste results into docs.
 
@@ -37,30 +38,35 @@ index-state control, correctness checks, and a docs-friendly summary. Criterion 
 loops, but awkward for “delete index → build index → search → compare → label plan mode” flows.
 Ad hoc measurements would not be reproducible enough for Issue #360.
 
-### Decision: Benchmark the real baseline as the `shell` tool executing grep through the native runtime
+### Decision: Benchmark the real baseline as the
+
+`shell` tool executing grep through the native runtime
 
 **Choice**: Treat the shell comparator as the current generic `shell` tool path, using `ShellTool`
 with `NativeRuntime`, which in turn executes commands through `sh -c`, and benchmark grep-based
 commands through that path.
 
 **Alternatives considered**:
+
 - Benchmark raw `grep` directly without the shell tool.
 - Compare only native `code_search` states and omit the shell baseline.
 
 **Rationale**: the rollout decision is about replacing or preferring the current agent workflow,
 not about comparing Rust code to a hypothetical external command. Using the actual shell-tool path
- preserves command-validation, shell startup, and runtime wrapping overhead that users experience
+preserves command-validation, shell startup, and runtime wrapping overhead that users experience
 today.
 
 ### Decision: Model native execution as explicit evidence states
 
 **Choice**: Report native results in three separate states:
+
 - **No index**: `state/code-search/index.db` absent; native search executes with fallback behavior.
 - **Cold build**: no reusable index exists, `refresh_or_rebuild()` is timed, then the first search
   is timed and reported as `build_ms`, `search_ms`, and `total_ms`.
 - **Warm index**: a compatible index already exists; search is timed without rebuild work.
 
 **Alternatives considered**:
+
 - Report a single “native” number.
 - Benchmark only warm-index performance.
 
@@ -76,6 +82,7 @@ line-oriented match model and require those benchmark cases to agree before docu
 preference claim.
 
 **Alternatives considered**:
+
 - Use timing only and assume correctness from existing tests.
 - Compare raw text output strings from shell and native tools.
 
@@ -90,6 +97,7 @@ broader regex semantics to the existing specs and tests.
 not let them affect rollout success criteria.
 
 **Alternatives considered**:
+
 - Fold regex-aware narrowing and related planner improvements into the rollout work.
 - Mention future ideas inline with the recommendation.
 
@@ -150,23 +158,23 @@ Runner -> Reporter: write measurement row with state, plan mode, parity, timings
 The benchmark matrix will cover two workspace environments:
 
 1. **Deterministic fixture workspace**
-   - generated during the run,
-   - tuned so benchmark cases have stable hit/no-hit characteristics,
-   - constrained so parity cases have at most one logical match per line.
+    - generated during the run,
+    - tuned so benchmark cases have stable hit/no-hit characteristics,
+    - constrained so parity cases have at most one logical match per line.
 
 2. **Repository snapshot workspace**
-   - the current checkout used for rollout measurement,
-   - recorded with commit SHA, file count, and benchmark date,
-   - used to make the recommendation relevant to real Corvus usage.
+    - the current checkout used for rollout measurement,
+    - recorded with commit SHA, file count, and benchmark date,
+    - used to make the recommendation relevant to real Corvus usage.
 
 Each benchmark case will run in these native states when applicable:
 
-| State | Preparation | What it represents |
-|------|-------------|--------------------|
-| `shell_baseline` | No native state prep; execute shell grep through `ShellTool` | Current generic search workflow |
-| `native_no_index` | Remove `state/code-search/index.db` before each measured run | Native search with no reusable index |
+| State               | Preparation                                                              | What it represents                                |
+|---------------------|--------------------------------------------------------------------------|---------------------------------------------------|
+| `shell_baseline`    | No native state prep; execute shell grep through `ShellTool`             | Current generic search workflow                   |
+| `native_no_index`   | Remove `state/code-search/index.db` before each measured run             | Native search with no reusable index              |
 | `native_cold_build` | Remove index, time `refresh_or_rebuild()`, then time first `code_search` | First-use cost when native indexing must be built |
-| `native_warm_index` | Build or refresh index once before measurement loop | Steady-state native reuse |
+| `native_warm_index` | Build or refresh index once before measurement loop                      | Steady-state native reuse                         |
 
 Regex scenarios will still be run in `native_cold_build` and `native_warm_index`, but the runner
 will label them as fallback cases because `plan_candidates()` returns
@@ -265,7 +273,8 @@ For each benchmark class, compare native median time to shell median time:
 
 - `SHOULD prefer native` when parity passes and native is a **Native win**, or when native is
   **Near parity** and the case benefits from structured output plus workspace-safe verification.
-- `MAY prefer native` when parity passes but the result depends on warm-index reuse and cold/no-index
+- `MAY prefer native` when parity passes but the result depends on warm-index reuse and
+  cold/no-index
   costs are materially worse.
 - `MAY keep shell` when parity passes but shell is a **Shell win**, especially for ephemeral,
   one-off, or regex-heavy fallback scenarios.
@@ -276,17 +285,17 @@ tradeoffs explicit.
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/examples/code_search_rollout_benchmark.rs` | Create | Dedicated rollout benchmark runner that prepares scenarios, executes shell/native states, records timings, labels plan mode, and checks parity. |
-| `clients/agent-runtime/benches/agent_benchmarks.rs` | Modify | Add a short note or companion entrypoint reference if needed so low-level microbenches and rollout benchmarks are clearly separated. |
-| `clients/agent-runtime/docs/design/code-search-tool.md` | Modify | Align the internal design doc with the implemented indexed-planning reality and point readers to the canonical rollout documentation for current behavior. |
-| `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/code-search.md` | Create | Canonical English documentation for current behavior, benchmark methodology, recorded results, rollout guidance, fallback reasons, and deferred optimizations. |
-| `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/core.md` | Modify | Add `code_search` to the core tools reference and link to the dedicated page. |
-| `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/index.mdx` | Modify | Link the dedicated `code_search` page from the tools index. |
-| `clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/tools/code-search.md` | Create | Spanish companion page with the same behavior limits, benchmark summary, rollout guidance, and deferred-work separation. |
-| `clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/tools/core.md` | Modify | Add the Spanish `code_search` reference and link to the dedicated page. |
-| `clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/tools/index.mdx` | Modify | Add the Spanish navigation link for the dedicated `code_search` page. |
+| File                                                                                   | Action | Description                                                                                                                                                    |
+|----------------------------------------------------------------------------------------|--------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/examples/code_search_rollout_benchmark.rs`                      | Create | Dedicated rollout benchmark runner that prepares scenarios, executes shell/native states, records timings, labels plan mode, and checks parity.                |
+| `clients/agent-runtime/benches/agent_benchmarks.rs`                                    | Modify | Add a short note or companion entrypoint reference if needed so low-level microbenches and rollout benchmarks are clearly separated.                           |
+| `clients/agent-runtime/docs/design/code-search-tool.md`                                | Modify | Align the internal design doc with the implemented indexed-planning reality and point readers to the canonical rollout documentation for current behavior.     |
+| `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/code-search.md`    | Create | Canonical English documentation for current behavior, benchmark methodology, recorded results, rollout guidance, fallback reasons, and deferred optimizations. |
+| `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/core.md`           | Modify | Add `code_search` to the core tools reference and link to the dedicated page.                                                                                  |
+| `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/index.mdx`         | Modify | Link the dedicated `code_search` page from the tools index.                                                                                                    |
+| `clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/tools/code-search.md` | Create | Spanish companion page with the same behavior limits, benchmark summary, rollout guidance, and deferred-work separation.                                       |
+| `clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/tools/core.md`        | Modify | Add the Spanish `code_search` reference and link to the dedicated page.                                                                                        |
+| `clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/tools/index.mdx`      | Modify | Add the Spanish navigation link for the dedicated `code_search` page.                                                                                          |
 
 ## Interfaces / Contracts
 
@@ -354,15 +363,15 @@ Shell command construction contract:
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|--------------|----------|
-| Unit | Shell command builder for literal/regex/path/include cases | Example-local tests that verify generated grep commands match the intended benchmark case shape. |
-| Unit | Plan-mode labeling | Tests that map `CandidateCoverage` + reason (`query_regex_not_supported`, `index_unavailable`, etc.) to the reported benchmark label. |
-| Unit | Canonical comparator | Feed shell lines and native structured matches into the comparator and verify pass/fail behavior, including duplicate-line rejection. |
-| Integration | Native state preparation | Run a temp-workspace case that proves `native_no_index`, `native_cold_build`, and `native_warm_index` produce the expected planner state transitions. |
-| Integration | Regex fallback labeling | Use a built index plus a regex case and verify the benchmark row is labeled `fallback_discovery_live_verification` with reason `query_regex_not_supported`. |
-| Integration | End-to-end benchmark row | Execute one small fixture case through both shell and native modes and assert parity plus non-empty measurement output. |
-| Docs | Recorded results consistency | Manual review during this change: benchmark tables in English and Spanish docs must describe the same measured recommendation and explicitly mark deferred items as non-v1. |
+| Layer       | What to Test                                               | Approach                                                                                                                                                                    |
+|-------------|------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Unit        | Shell command builder for literal/regex/path/include cases | Example-local tests that verify generated grep commands match the intended benchmark case shape.                                                                            |
+| Unit        | Plan-mode labeling                                         | Tests that map `CandidateCoverage` + reason (`query_regex_not_supported`, `index_unavailable`, etc.) to the reported benchmark label.                                       |
+| Unit        | Canonical comparator                                       | Feed shell lines and native structured matches into the comparator and verify pass/fail behavior, including duplicate-line rejection.                                       |
+| Integration | Native state preparation                                   | Run a temp-workspace case that proves `native_no_index`, `native_cold_build`, and `native_warm_index` produce the expected planner state transitions.                       |
+| Integration | Regex fallback labeling                                    | Use a built index plus a regex case and verify the benchmark row is labeled `fallback_discovery_live_verification` with reason `query_regex_not_supported`.                 |
+| Integration | End-to-end benchmark row                                   | Execute one small fixture case through both shell and native modes and assert parity plus non-empty measurement output.                                                     |
+| Docs        | Recorded results consistency                               | Manual review during this change: benchmark tables in English and Spanish docs must describe the same measured recommendation and explicitly mark deferred items as non-v1. |
 
 ## Migration / Rollout
 
@@ -386,7 +395,7 @@ The docs will explicitly separate:
 ## Open Questions
 
 - [ ] Confirm whether the rollout benchmark should check in a machine-readable artifact in addition
-      to the recorded markdown tables, or whether the docs page alone is the repository source of
-      truth for measured results.
+  to the recorded markdown tables, or whether the docs page alone is the repository source of
+  truth for measured results.
 - [ ] Confirm the exact benchmark sample counts for cold-build versus warm-index rows so runtime
-      cost stays practical in CI/local execution without weakening the evidence.
+  cost stays practical in CI/local execution without weakening the evidence.

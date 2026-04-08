@@ -2,24 +2,32 @@
 
 ## Technical Approach
 
-Implement a reusable workspace indexing capability under `clients/agent-runtime/src/search/` and keep
-`code_search` as the existing tool surface. The new module owns three concerns that are currently mixed
+Implement a reusable workspace indexing capability under `clients/agent-runtime/src/search/` and
+keep
+`code_search` as the existing tool surface. The new module owns three concerns that are currently
+mixed
 inside `code_search`: deterministic workspace discovery, trigram extraction, and SQLite-backed index
 lifecycle management.
 
-The design reuses the same safety model already enforced by `clients/agent-runtime/src/tools/code_search.rs`
-and `clients/agent-runtime/src/security/policy.rs`: relative path validation, canonicalized resolved-path
+The design reuses the same safety model already enforced by
+`clients/agent-runtime/src/tools/code_search.rs`
+and `clients/agent-runtime/src/security/policy.rs`: relative path validation, canonicalized
+resolved-path
 checks, `.gitignore`/standard ignore handling, hidden-directory skipping, symlink-escape rejection,
 large-file rejection, unreadable-path rejection, and binary-content rejection. v1 adds durable local
-storage at `workspace/state/code-search/index.db`, stores only workspace-relative file identities in file
-rows, incrementally refreshes changed/deleted entries when the on-disk index is still compatible, and
-uses full rebuilds with temp-DB + atomic rename only for missing, incompatible, or incomplete indexes.
+storage at `workspace/state/code-search/index.db`, stores only workspace-relative file identities in
+file
+rows, incrementally refreshes changed/deleted entries when the on-disk index is still compatible,
+and
+uses full rebuilds with temp-DB + atomic rename only for missing, incompatible, or incomplete
+indexes.
 
 ## Architecture Decisions
 
 ### Decision: Add a reusable `search` runtime module instead of tool-local indexing code
 
-**Choice**: Create a new top-level runtime module at `clients/agent-runtime/src/search/` and expose a
+**Choice**: Create a new top-level runtime module at `clients/agent-runtime/src/search/` and expose
+a
 small public API for discovery and index lifecycle operations.
 
 **Alternatives considered**:
@@ -28,9 +36,12 @@ small public API for discovery and index lifecycle operations.
 - Hide indexing under `memory/sqlite.rs`
 - Create a separate tool for indexing
 
-**Rationale**: The proposal is about a reusable runtime capability, not tool-only glue. Keeping index
-logic under `search/` lets `code_search` reuse the same deterministic discovery rules now while leaving a
-clean path for later query-serving integration without coupling persistence to a single tool or to memory
+**Rationale**: The proposal is about a reusable runtime capability, not tool-only glue. Keeping
+index
+logic under `search/` lets `code_search` reuse the same deterministic discovery rules now while
+leaving a
+clean path for later query-serving integration without coupling persistence to a single tool or to
+memory
 storage.
 
 ### Decision: Extract discovery rules from `code_search` into shared search discovery helpers
@@ -43,8 +54,10 @@ consume that shared discovery API for scan-time enumeration.
 - Duplicate the walk/filter logic in the new indexer
 - Keep `code_search` unchanged and reimplement equivalent rules in the indexer
 
-**Rationale**: Discovery drift is the highest correctness risk called out in the proposal. One shared
-implementation is the safest way to guarantee that scan-only search and indexed corpus builds accept and
+**Rationale**: Discovery drift is the highest correctness risk called out in the proposal. One
+shared
+implementation is the safest way to guarantee that scan-only search and indexed corpus builds accept
+and
 reject the same files.
 
 ### Decision: Use a dedicated SQLite index file at `workspace/state/code-search/index.db`
@@ -58,13 +71,16 @@ reject the same files.
 - Store JSON files or flat posting lists
 - Store the index outside the workspace state tree
 
-**Rationale**: A dedicated DB keeps code-search derived state isolated from memory data, aligns with the
-existing workspace-local persistence style, and allows transactional build/load/rebuild behavior without
+**Rationale**: A dedicated DB keeps code-search derived state isolated from memory data, aligns with
+the
+existing workspace-local persistence style, and allows transactional build/load/rebuild behavior
+without
 mixing unrelated schemas.
 
 ### Decision: Store file identity as workspace-relative paths only
 
-**Choice**: Persist file rows with normalized workspace-relative paths (`/` separators), never absolute
+**Choice**: Persist file rows with normalized workspace-relative paths (`/` separators), never
+absolute
 workspace paths.
 
 **Alternatives considered**:
@@ -72,8 +88,10 @@ workspace paths.
 - Persist canonical absolute paths
 - Persist both absolute and relative paths
 
-**Rationale**: This is a hard proposal requirement and avoids leaking host-specific paths into durable
-state. Relative keys also make the index more portable across workspace relocations when the corpus is
+**Rationale**: This is a hard proposal requirement and avoids leaking host-specific paths into
+durable
+state. Relative keys also make the index more portable across workspace relocations when the corpus
+is
 otherwise unchanged.
 
 ### Decision: Prefer strict UTF-8 admission for indexed corpus contents
@@ -86,14 +104,17 @@ lossy conversion.
 - Continue using `String::from_utf8_lossy` as in `code_search`
 - Index arbitrary bytes directly
 
-**Rationale**: The index becomes durable corpus state, so silent replacement characters would make the
-persisted corpus nondeterministic and harder to reason about. Strict exclusion is simpler, safer, and
+**Rationale**: The index becomes durable corpus state, so silent replacement characters would make
+the
+persisted corpus nondeterministic and harder to reason about. Strict exclusion is simpler, safer,
+and
 matches the exploration recommendation.
 
 ### Decision: Incrementally refresh compatible indexes; rebuild incompatible ones with temp DB + atomic swap
 
 **Choice**: Reuse a compatible `index.db` by refreshing only changed/deleted files in transactional
-updates. When the DB is missing, incompatible, corrupted, or marked incomplete, build into a temp DB in
+updates. When the DB is missing, incompatible, corrupted, or marked incomplete, build into a temp DB
+in
 the same directory and atomically rename it over `index.db`.
 
 **Alternatives considered**:
@@ -103,7 +124,8 @@ the same directory and atomically rename it over `index.db`.
 - Write postings to sidecar files
 
 **Rationale**: Acceptance requires enough metadata to detect when entries need rebuild or refresh. A
-small, transactional in-place refresh keeps unchanged rows reusable and still remains maintainable for
+small, transactional in-place refresh keeps unchanged rows reusable and still remains maintainable
+for
 v1. Atomic temp-DB swap is still the safest path for forced rebuilds because it preserves the last
 known-good index on failure.
 
@@ -111,23 +133,23 @@ known-good index on failure.
 
 ### New module layout
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/search/mod.rs` | Create | Public exports for search discovery and index lifecycle APIs. |
-| `clients/agent-runtime/src/search/discovery.rs` | Create | Shared workspace walk/filter pipeline extracted from `code_search`. |
-| `clients/agent-runtime/src/search/trigram.rs` | Create | Trigram extraction helpers and deterministic normalization rules. |
-| `clients/agent-runtime/src/search/index.rs` | Create | Public `WorkspaceTrigramIndex` orchestration API (`open`, `build`, `load`, `refresh_or_rebuild`). |
-| `clients/agent-runtime/src/search/sqlite.rs` | Create | SQLite schema creation, metadata reads/writes, bulk insert, temp-DB swap. |
-| `clients/agent-runtime/src/search/tests.rs` or inline `#[cfg(test)]` blocks | Create | Shared unit/integration tests for discovery and index lifecycle. |
+| File                                                                        | Action | Description                                                                                       |
+|-----------------------------------------------------------------------------|--------|---------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/search/mod.rs`                                   | Create | Public exports for search discovery and index lifecycle APIs.                                     |
+| `clients/agent-runtime/src/search/discovery.rs`                             | Create | Shared workspace walk/filter pipeline extracted from `code_search`.                               |
+| `clients/agent-runtime/src/search/trigram.rs`                               | Create | Trigram extraction helpers and deterministic normalization rules.                                 |
+| `clients/agent-runtime/src/search/index.rs`                                 | Create | Public `WorkspaceTrigramIndex` orchestration API (`open`, `build`, `load`, `refresh_or_rebuild`). |
+| `clients/agent-runtime/src/search/sqlite.rs`                                | Create | SQLite schema creation, metadata reads/writes, bulk insert, temp-DB swap.                         |
+| `clients/agent-runtime/src/search/tests.rs` or inline `#[cfg(test)]` blocks | Create | Shared unit/integration tests for discovery and index lifecycle.                                  |
 
 ### Existing files likely modified
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/lib.rs` | Modify | Export the new `search` module. |
-| `clients/agent-runtime/src/tools/code_search.rs` | Modify | Replace tool-local filesystem enumeration with shared discovery helpers. |
-| `clients/agent-runtime/src/tools/mod.rs` | Modify | Only if shared exports or construction wiring are needed by runtime tests. |
-| `clients/agent-runtime/Cargo.toml` | Modify (only if needed) | Prefer no new dependency; use existing `rusqlite`, `ignore`, `regex`, `sha2`. |
+| File                                             | Action                  | Description                                                                   |
+|--------------------------------------------------|-------------------------|-------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/lib.rs`               | Modify                  | Export the new `search` module.                                               |
+| `clients/agent-runtime/src/tools/code_search.rs` | Modify                  | Replace tool-local filesystem enumeration with shared discovery helpers.      |
+| `clients/agent-runtime/src/tools/mod.rs`         | Modify                  | Only if shared exports or construction wiring are needed by runtime tests.    |
+| `clients/agent-runtime/Cargo.toml`               | Modify (only if needed) | Prefer no new dependency; use existing `rusqlite`, `ignore`, `regex`, `sha2`. |
 
 ## Data Model / SQLite Schema
 
@@ -178,7 +200,8 @@ CREATE INDEX idx_files_relative_path ON files(relative_path);
 Notes:
 
 - `relative_path` is always workspace-relative and normalized with `/` separators.
-- `content_sha256` is derived from admitted file bytes; it supports deterministic inspection and future
+- `content_sha256` is derived from admitted file bytes; it supports deterministic inspection and
+  future
   incremental refresh without storing contents.
 - `modified_unix_ms` and `size_bytes` are refresh hints, not security checks.
 
@@ -199,7 +222,8 @@ Notes:
 
 - `trigram` is stored as a 3-byte blob derived from sliding windows over the file's raw UTF-8 bytes.
 - v1 stores per-file occurrence counts, not positions. Positions/snippets are deferred.
-- A normalized `trigrams` lookup table is intentionally skipped in v1 to keep writes simpler and reduce
+- A normalized `trigrams` lookup table is intentionally skipped in v1 to keep writes simpler and
+  reduce
   schema surface.
 
 ### Trigram extraction rules
@@ -277,17 +301,17 @@ The discovery pipeline is shared between scan-only search and index builds.
    standard filters, `.gitignore`, global gitignore, parent ignores, hidden-directory skipping,
    `follow_links(false)`.
 5. For each file candidate:
-   - canonicalize the entry path;
-   - reject unresolved or escaping paths;
-   - read metadata and reject unreadable entries;
-   - reject non-files and files larger than `MAX_FILE_SIZE_BYTES`;
-   - read bytes and reject unreadable files;
-   - reject binary files using the same null-byte sample heuristic;
-   - reject non-UTF-8 payloads in v1;
-   - compute normalized workspace-relative path.
+    - canonicalize the entry path;
+    - reject unresolved or escaping paths;
+    - read metadata and reject unreadable entries;
+    - reject non-files and files larger than `MAX_FILE_SIZE_BYTES`;
+    - read bytes and reject unreadable files;
+    - reject binary files using the same null-byte sample heuristic;
+    - reject non-UTF-8 payloads in v1;
+    - compute normalized workspace-relative path.
 6. Yield `DiscoveredFile + admitted bytes` to either:
-   - `code_search` for brute-force regex scanning, or
-   - the index builder for trigram extraction and persistence.
+    - `code_search` for brute-force regex scanning, or
+    - the index builder for trigram extraction and persistence.
 
 This keeps one deterministic source of truth for workspace corpus admission.
 
@@ -358,12 +382,14 @@ The refresh decision reads `metadata` and compares:
 ### Workspace fingerprint
 
 `workspace_fingerprint` is a stable digest of the canonical workspace root identity plus the current
-indexing scope/version inputs. It is used for stale detection only and MUST NOT persist the raw absolute
+indexing scope/version inputs. It is used for stale detection only and MUST NOT persist the raw
+absolute
 workspace path.
 
 ### Refresh triggers
 
-Refresh the existing compatible DB when metadata/schema are valid but one or more admitted files have:
+Refresh the existing compatible DB when metadata/schema are valid but one or more admitted files
+have:
 
 - a new relative path not present in `files`,
 - changed `size_bytes`, `modified_unix_ms`, or `content_sha256`,
@@ -390,7 +416,8 @@ Rebuild if any of the following are true:
    cache/temp settings following existing sqlite patterns).
 4. Create schema and write `metadata(build_state=building, ...)`.
 5. Run shared discovery over the workspace root.
-6. For each admitted file, insert the `files` row and bulk insert its aggregated trigram postings inside
+6. For each admitted file, insert the `files` row and bulk insert its aggregated trigram postings
+   inside
    a transaction.
 7. Finalize metadata (`built_at`, `build_state=ready`) and commit.
 8. Sync/close the temp DB and atomically rename it to `index.db`.
@@ -402,7 +429,8 @@ Rebuild if any of the following are true:
 1. Open the existing compatible `index.db`.
 2. Run shared discovery over the workspace root.
 3. Compare discovered file metadata against persisted `files` rows.
-4. Insert rows/postings for new files, replace rows/postings for changed files, and delete rows/postings
+4. Insert rows/postings for new files, replace rows/postings for changed files, and delete
+   rows/postings
    for files no longer present in the admitted corpus.
 5. Commit the refresh transaction and update metadata such as `built_at` as needed.
 
@@ -427,9 +455,12 @@ No reader should ever observe a partially written published DB.
 
 ### Concurrent writers
 
-If multiple rebuild attempts happen concurrently, v1 SHOULD fail one builder fast with a lock file or
-best-effort exclusive create in `workspace/state/code-search/` rather than racing two swaps. The exact
-mechanism can be a simple local build lock file because incremental multi-writer coordination is out of
+If multiple rebuild attempts happen concurrently, v1 SHOULD fail one builder fast with a lock file
+or
+best-effort exclusive create in `workspace/state/code-search/` rather than racing two swaps. The
+exact
+mechanism can be a simple local build lock file because incremental multi-writer coordination is out
+of
 scope.
 
 ## Safety Model Alignment
@@ -438,11 +469,15 @@ The index MUST NOT expand filesystem reach beyond the current runtime policy.
 
 - Relative scopes are validated with `SecurityPolicy::is_path_allowed`.
 - Resolved paths are checked with `SecurityPolicy::is_resolved_path_allowed` after canonicalization.
-- Symlink escapes are excluded because resolved paths must remain under the canonical workspace root.
-- `.gitignore` and standard hidden/ignored directory rules stay aligned with `code_search` by sharing
+- Symlink escapes are excluded because resolved paths must remain under the canonical workspace
+  root.
+- `.gitignore` and standard hidden/ignored directory rules stay aligned with `code_search` by
+  sharing
   the same `WalkBuilder` configuration.
-- Unreadable files, unreadable metadata, oversized files, and binary files are skipped deterministically.
-- Indexed rows persist only relative file identifiers; absolute paths stay in transient runtime memory
+- Unreadable files, unreadable metadata, oversized files, and binary files are skipped
+  deterministically.
+- Indexed rows persist only relative file identifiers; absolute paths stay in transient runtime
+  memory
   only long enough to validate and read files.
 
 ## What Is Deferred From v1
@@ -460,21 +495,22 @@ The following are explicitly deferred to keep the first index layer small and re
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|--------------|----------|
-| Unit | Discovery parity with `code_search` defaults | Factor shared discovery tests from existing `code_search` cases: ignored files, hidden dirs, large files, binary files, symlink escapes, unreadable files, scoped subdirectories. |
-| Unit | Strict UTF-8 admission | Temp files with invalid UTF-8 bytes must be skipped by indexing even if they are not binary by null-byte heuristic. |
-| Unit | Relative path persistence | Inspect SQLite rows directly and assert `files.relative_path` never contains absolute workspace prefixes. |
-| Unit | Trigram extraction determinism | Known byte sequences should generate stable posting counts and zero-posting behavior for files shorter than 3 bytes. |
-| Integration | Build path | Create a temp workspace, build `index.db`, then verify metadata, file count, posting count, and build state. |
-| Integration | Load existing vs rebuild decision | Seed compatible and stale DB fixtures and assert `refresh_or_rebuild` chooses the correct path. |
-| Integration | Atomic rebuild safety | Start with a good index, inject a failing rebuild, and verify the original `index.db` remains readable. |
-| Integration | Concurrency guard | Simulate two builders and assert one gets a deterministic busy/fail-fast result without corrupting the published DB. |
-| Regression | Discovery alignment between scan and index | For the same temp workspace, compare files accepted by `code_search` shared discovery and the index build input set. |
+| Layer       | What to Test                                 | Approach                                                                                                                                                                          |
+|-------------|----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Unit        | Discovery parity with `code_search` defaults | Factor shared discovery tests from existing `code_search` cases: ignored files, hidden dirs, large files, binary files, symlink escapes, unreadable files, scoped subdirectories. |
+| Unit        | Strict UTF-8 admission                       | Temp files with invalid UTF-8 bytes must be skipped by indexing even if they are not binary by null-byte heuristic.                                                               |
+| Unit        | Relative path persistence                    | Inspect SQLite rows directly and assert `files.relative_path` never contains absolute workspace prefixes.                                                                         |
+| Unit        | Trigram extraction determinism               | Known byte sequences should generate stable posting counts and zero-posting behavior for files shorter than 3 bytes.                                                              |
+| Integration | Build path                                   | Create a temp workspace, build `index.db`, then verify metadata, file count, posting count, and build state.                                                                      |
+| Integration | Load existing vs rebuild decision            | Seed compatible and stale DB fixtures and assert `refresh_or_rebuild` chooses the correct path.                                                                                   |
+| Integration | Atomic rebuild safety                        | Start with a good index, inject a failing rebuild, and verify the original `index.db` remains readable.                                                                           |
+| Integration | Concurrency guard                            | Simulate two builders and assert one gets a deterministic busy/fail-fast result without corrupting the published DB.                                                              |
+| Regression  | Discovery alignment between scan and index   | For the same temp workspace, compare files accepted by `code_search` shared discovery and the index build input set.                                                              |
 
 ## Migration / Rollout
 
-No external migration is required. This is new derived workspace state under `workspace/state/code-search/`.
+No external migration is required. This is new derived workspace state under
+`workspace/state/code-search/`.
 
 Rollout sequence:
 
@@ -485,10 +521,13 @@ Rollout sequence:
 
 ## Open Questions
 
-- [ ] Should the workspace fingerprint include a cheap workspace marker beyond canonical root identity
-      (for example repo root metadata) to better detect moved/copied workspaces without storing raw
-      absolute paths?
-- [ ] Should v1 publish a lightweight health/status API for the index builder now, or wait until query
-      integration needs it?
-- [ ] Is a dedicated build lock file sufficient, or does the team want a stricter SQLite/open-file lock
-      contract for cross-process coordination in v1?
+- [ ] Should the workspace fingerprint include a cheap workspace marker beyond canonical root
+  identity
+  (for example repo root metadata) to better detect moved/copied workspaces without storing raw
+  absolute paths?
+- [ ] Should v1 publish a lightweight health/status API for the index builder now, or wait until
+  query
+  integration needs it?
+- [ ] Is a dedicated build lock file sufficient, or does the team want a stricter SQLite/open-file
+  lock
+  contract for cross-process coordination in v1?
