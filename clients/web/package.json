@@ -40,9 +40,5 @@
   "engines": {
     "node": ">=22.0.0",
     "pnpm": ">=10.28.0"
-  },
-  "dependencies": {
-    "@fontsource/inter": "^5.2.8",
-    "@fontsource/jetbrains-mono": "^5.2.8"
   }
 }

@@ -24,35 +24,33 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
+/* ── Nothing Design System — Input ── */
 .form-input {
   display: flex;
-  height: 42px;
+  height: 44px;
   width: 100%;
-  border-radius: 12px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-input);
-  padding: 0 14px;
-  font-size: 14px;
-  font-family: inherit;
-  color: var(--color-text-primary);
-  transition: all 0.2s;
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid var(--corvus-color-border-visible);
+  background: transparent;
+  padding: 0 var(--corvus-spacing-sm);
+  font-size: var(--corvus-typography-scale-body-sm-size);
+  font-family: var(--corvus-typography-font-mono);
+  color: var(--corvus-color-text-primary);
+  transition: border-color var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
   outline: none;
 }
 
 .form-input::placeholder {
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
 }
 
 .form-input:focus {
-  border-color: var(--color-border-accent);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15); /* Tailwind emerald fallback, gets overridden when css var exists */
-  background: var(--color-bg-secondary);
+  border-bottom-color: var(--corvus-color-text-primary);
 }
 
-@supports (box-shadow: 0 0 0 3px var(--color-accent-glow)) {
-  .form-input:focus {
-    box-shadow: 0 0 0 3px var(--color-accent-glow);
-  }
+.form-input[aria-invalid="true"] {
+  border-bottom-color: var(--corvus-color-accent-default);
 }
 
 .form-input:disabled {

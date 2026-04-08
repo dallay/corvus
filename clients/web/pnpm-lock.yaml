@@ -15,6 +15,15 @@ catalogs:
     '@biomejs/biome':
       specifier: 2.4.9
       version: 2.4.9
+    '@fontsource-variable/space-grotesk':
+      specifier: 5.2.8
+      version: 5.2.8
+    '@fontsource/doto':
+      specifier: 5.2.8
+      version: 5.2.8
+    '@fontsource/space-mono':
+      specifier: 5.2.8
+      version: 5.2.8
     '@playwright/test':
       specifier: 1.59.1
       version: 1.59.1
@@ -94,13 +103,6 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      '@fontsource/inter':
-        specifier: ^5.2.8
-        version: 5.2.8
-      '@fontsource/jetbrains-mono':
-        specifier: ^5.2.8
-        version: 5.2.8
     devDependencies:
       '@biomejs/biome':
         specifier: 'catalog:'
@@ -129,18 +131,15 @@ importers:
       '@corvus/ui':
         specifier: workspace:*
         version: link:../../packages/ui
-      '@fontsource-variable/inter':
-        specifier: 5.2.8
+      '@fontsource-variable/space-grotesk':
+        specifier: 'catalog:'
         version: 5.2.8
-      '@fontsource-variable/manrope':
-        specifier: 5.2.8
+      '@fontsource/doto':
+        specifier: 'catalog:'
         version: 5.2.8
-      '@fontsource/jetbrains-mono':
-        specifier: 5.2.8
+      '@fontsource/space-mono':
+        specifier: 'catalog:'
         version: 5.2.8
-      '@fontsource/syne':
-        specifier: 5.2.7
-        version: 5.2.7
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -217,18 +216,15 @@ importers:
       '@corvus/ui':
         specifier: workspace:*
         version: link:../../packages/ui
-      '@fontsource-variable/inter':
-        specifier: 5.2.8
+      '@fontsource-variable/space-grotesk':
+        specifier: 'catalog:'
         version: 5.2.8
-      '@fontsource-variable/manrope':
-        specifier: 5.2.8
+      '@fontsource/doto':
+        specifier: 'catalog:'
         version: 5.2.8
-      '@fontsource/jetbrains-mono':
-        specifier: 5.2.8
+      '@fontsource/space-mono':
+        specifier: 'catalog:'
         version: 5.2.8
-      '@fontsource/syne':
-        specifier: 5.2.7
-        version: 5.2.7
       vue:
         specifier: 'catalog:'
         version: 3.5.31(typescript@5.9.3)
@@ -299,6 +295,15 @@ importers:
       '@corvus/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@fontsource-variable/space-grotesk':
+        specifier: 'catalog:'
+        version: 5.2.8
+      '@fontsource/doto':
+        specifier: 'catalog:'
+        version: 5.2.8
+      '@fontsource/space-mono':
+        specifier: 'catalog:'
+        version: 5.2.8
       astro:
         specifier: 'catalog:'
         version: 6.0.8(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.32.0)(rollup@4.60.1)(typescript@5.9.3)(yaml@2.8.3)
@@ -327,6 +332,15 @@ importers:
       '@corvus/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@fontsource-variable/space-grotesk':
+        specifier: 'catalog:'
+        version: 5.2.8
+      '@fontsource/doto':
+        specifier: 'catalog:'
+        version: 5.2.8
+      '@fontsource/space-mono':
+        specifier: 'catalog:'
+        version: 5.2.8
       astro:
         specifier: 'catalog:'
         version: 6.0.8(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.32.0)(rollup@4.60.1)(typescript@5.9.3)(yaml@2.8.3)
@@ -1076,20 +1090,14 @@ packages:
   '@expressive-code/plugin-text-markers@0.41.7':
     resolution: {integrity: sha512-Ewpwuc5t6eFdZmWlFyeuy3e1PTQC0jFvw2Q+2bpcWXbOZhPLsT7+h8lsSIJxb5mS7wZko7cKyQ2RLYDyK6Fpmw==}
 
-  '@fontsource-variable/inter@5.2.8':
-    resolution: {integrity: sha512-kOfP2D+ykbcX/P3IFnokOhVRNoTozo5/JxhAIVYLpea/UBmCQ/YWPBfWIDuBImXX/15KH+eKh4xpEUyS2sQQGQ==}
+  '@fontsource-variable/space-grotesk@5.2.8':
+    resolution: {integrity: sha512-ei9jNXzZVgBGEBVfHZqPe6F9ZxpPUG8kJYrtlLsivlWJZLCfrfSxcayjnMYAmslEGvvfjth7qybl7PNNqE8ZHw==}
 
-  '@fontsource-variable/manrope@5.2.8':
-    resolution: {integrity: sha512-nc9lOuCRz73UHnovDE2bwXUdghE2SEOc7Aii0qGe3CLyE03W1a7VnY5Z6euRiapiKbCkGS+eXbY3s/kvWeGeSw==}
+  '@fontsource/doto@5.2.8':
+    resolution: {integrity: sha512-WB2SAuvOzIQFZ4xEDE/Bg3dW02ReDEdHY86lHSY2bhnCzsBV9nv8WXLPqjoPAD17LluJRL180bh433Bly58+7g==}
 
-  '@fontsource/inter@5.2.8':
-    resolution: {integrity: sha512-P6r5WnJoKiNVV+zvW2xM13gNdFhAEpQ9dQJHt3naLvfg+LkF2ldgSLiF4T41lf1SQCM9QmkqPTn4TH568IRagg==}
-
-  '@fontsource/jetbrains-mono@5.2.8':
-    resolution: {integrity: sha512-6w8/SG4kqvIMu7xd7wt6x3idn1Qux3p9N62s6G3rfldOUYHpWcc2FKrqf+Vo44jRvqWj2oAtTHrZXEP23oSKwQ==}
-
-  '@fontsource/syne@5.2.7':
-    resolution: {integrity: sha512-OgWgLPSbieiSfdFXgMs0l/rspIFzVoDZxw8wKj15n39epRqO5+Uv36c0MXNDcw2GuK/TIBgpC9G8VAgs+bVm7A==}
+  '@fontsource/space-mono@5.2.8':
+    resolution: {integrity: sha512-25X0fg1+kxxLes9/c6AozhrrAuBW1uLaOL584IRg4DZxVxNOMzcS3mHS1UtmsyTwtU2HpiIt9Kv23Q+7xQO+hg==}
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -4502,15 +4510,11 @@ snapshots:
     dependencies:
       '@expressive-code/core': 0.41.7
 
-  '@fontsource-variable/inter@5.2.8': {}
+  '@fontsource-variable/space-grotesk@5.2.8': {}
 
-  '@fontsource-variable/manrope@5.2.8': {}
+  '@fontsource/doto@5.2.8': {}
 
-  '@fontsource/inter@5.2.8': {}
-
-  '@fontsource/jetbrains-mono@5.2.8': {}
-
-  '@fontsource/syne@5.2.7': {}
+  '@fontsource/space-mono@5.2.8': {}
 
   '@img/colour@1.1.0': {}
 

@@ -1,5 +1,6 @@
-@import url("@corvus/shared/app-shell.css");
+@import url("@corvus/shared/nothing-shell.css");
 @import url("tailwindcss");
+@import url("@corvus/shared/tailwind-bridge.css");
 
 /* ── Animations ─────────────────────────────────────────────── */
 
@@ -12,19 +13,6 @@
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes pulse-glow {
-  0%,
-  100% {
-    box-shadow: 0 0 12px var(--color-accent-glow);
-  }
-
-  50% {
-    box-shadow:
-      0 0 24px var(--color-accent-glow),
-      0 0 48px var(--corvus-accent-glow-subtle, rgb(129 140 248 / 10%));
   }
 }
 
@@ -46,8 +34,4 @@
 
 .animate-slide-up {
   animation: slide-up 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
 }

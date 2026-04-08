@@ -265,7 +265,7 @@ watch(
         <div class="action-row">
           <Button
             v-if="showOverrideAction"
-            variant="outline"
+            variant="secondary"
             size="sm"
             :disabled="actionPending"
             data-testid="cost-action-override"
@@ -275,7 +275,7 @@ watch(
           </Button>
           <Button
             v-if="showResetAction"
-            variant="outline"
+            variant="secondary"
             size="sm"
             :disabled="actionPending"
             data-testid="cost-action-reset-session"
@@ -316,9 +316,9 @@ watch(
 .history-panel,
 .actions-panel,
 .state-banner {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--corvus-color-border-default);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-bg-secondary) 82%, transparent);
+  background: var(--corvus-color-bg-surface);
 }
 
 .status-item {
@@ -336,11 +336,11 @@ watch(
 }
 
 .configured {
-  background: #22c55e;
+  background: var(--corvus-color-status-success);
 }
 
 .not-configured {
-  background: #9ca3af;
+  background: var(--corvus-color-text-disabled);
 }
 
 .status-label,
@@ -351,7 +351,7 @@ watch(
 .history-total,
 .state-period {
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--corvus-color-text-secondary);
 }
 
 .status-label {
@@ -384,15 +384,15 @@ watch(
 }
 
 .state-banner--allowed {
-  border-color: color-mix(in srgb, #22c55e 40%, var(--color-border));
+  border-color: var(--corvus-color-status-success);
 }
 
 .state-banner--warning {
-  border-color: color-mix(in srgb, #f59e0b 50%, var(--color-border));
+  border-color: var(--corvus-color-status-warning);
 }
 
 .state-banner--exceeded {
-  border-color: color-mix(in srgb, #ef4444 55%, var(--color-border));
+  border-color: var(--corvus-color-status-error);
 }
 
 .metric-grid {
@@ -420,7 +420,7 @@ watch(
   overflow: hidden;
   height: 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-bg-primary) 65%, var(--color-border));
+  background: var(--corvus-color-bg-raised);
 }
 
 .progress-bar span,
@@ -428,7 +428,7 @@ watch(
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--color-accent);
+  background: var(--corvus-color-accent-default);
 }
 
 .history-list {

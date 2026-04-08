@@ -1,201 +1,166 @@
 /* ─────────────────────────────────────────────
-   Corvus — Custom Starlight Theme
-   Modern dark design with gradient accents
+   Corvus — Nothing Design System for Starlight
+   Flat surfaces, border separation, typography hierarchy.
+   No shadows, no gradients, no blur, no glow.
    ───────────────────────────────────────────── */
+
+/* ── Font Loading — self-hosted via @fontsource ── */
+@import url("@fontsource-variable/space-grotesk");
+@import url("@fontsource/space-mono/400.css");
+@import url("@fontsource/space-mono/700.css");
+@import url("@fontsource/doto/400.css");
+@import url("@fontsource/doto/700.css");
 
 /* ── Shared Brand Tokens ── */
 @import url("@corvus/shared/base.css");
-@import url("@corvus/shared/theme.css");
+@import url("@corvus/shared/nothing-theme.css");
 
-/* ── Root Theme Tokens ── */
+/* ─────────────────────────────────────────────
+   Starlight Token Mapping
+   Maps --corvus-* tokens to --sl-* tokens.
+   ───────────────────────────────────────────── */
+
+/* ── Shared (theme-independent) ── */
 :root {
-  /* Primary palette — teal to indigo gradient */
-  --sl-color-accent-low: #0d2847;
-  --sl-color-accent: #38bdf8;
-  --sl-color-accent-high: #bae6fd;
-
-  /* Typography */
-  --sl-font: var(
-    --corvus-font-sans,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif
-  );
-  --sl-font-mono: var(
-    --corvus-font-mono,
-    ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    "Liberation Mono",
-    Menlo,
-    monospace
-  );
-
-  /* Sizing */
+  --sl-font: var(--corvus-typography-font-body);
+  --sl-font-mono: var(--corvus-typography-font-mono);
   --sl-content-width: 75rem;
   --sl-text-h1: clamp(2rem, 4vw, 3rem);
   --sl-text-h2: clamp(1.5rem, 3vw, 2rem);
   --sl-text-h3: clamp(1.15rem, 2vw, 1.5rem);
-
-  /* Custom tokens */
-  --gradient-brand: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
-  --gradient-brand-subtle: linear-gradient(
-    135deg,
-    rgb(56 189 248 / 15%) 0%,
-    rgb(129 140 248 / 15%) 50%,
-    rgb(192 132 252 / 15%) 100%
-  );
-  --gradient-hero: linear-gradient(160deg, #0c1222 0%, #0f172a 40%, #1a1044 100%);
-  --glass-bg: rgb(15 23 42 / 60%);
-  --glass-border: rgb(56 189 248 / 12%);
-  --glass-shadow: 0 8px 32px rgb(0 0 0 / 30%);
-  --card-glow: 0 0 40px rgb(56 189 248 / 6%);
 }
 
-/* Dark theme overrides */
+/* ── Dark Theme (Starlight default) ── */
 :root[data-theme="dark"] {
-  --sl-color-bg: #0a0f1e;
-  --sl-color-bg-nav: rgb(10 15 30 / 85%);
-  --sl-color-bg-sidebar: rgb(10 15 30 / 95%);
-  --sl-color-hairline-shade: rgb(56 189 248 / 8%);
-  --sl-color-hairline-light: rgb(56 189 248 / 5%);
-  --sl-color-white: #f1f5f9;
-  --sl-color-gray-1: #cbd5e1;
-  --sl-color-gray-2: #94a3b8;
-  --sl-color-gray-3: #64748b;
-  --sl-color-gray-4: #334155;
-  --sl-color-gray-5: #1e293b;
-  --sl-color-gray-6: #0f172a;
-  --sl-color-black: #020617;
+  --sl-color-bg: var(--corvus-color-bg-base);
+  --sl-color-bg-nav: rgb(0 0 0 / 85%);
+  --sl-color-bg-sidebar: rgb(0 0 0 / 95%);
+  --sl-color-bg-inline-code: var(--corvus-color-bg-raised);
+  --sl-color-hairline-shade: var(--corvus-color-border-default);
+  --sl-color-hairline-light: rgb(34 34 34 / 50%);
+  --sl-color-white: var(--corvus-color-text-display);
+  --sl-color-gray-1: var(--corvus-color-text-primary);
+  --sl-color-gray-2: var(--corvus-color-text-secondary);
+  --sl-color-gray-3: var(--corvus-color-text-disabled);
+  --sl-color-gray-4: var(--corvus-color-border-visible);
+  --sl-color-gray-5: var(--corvus-color-bg-raised);
+  --sl-color-gray-6: var(--corvus-color-bg-surface);
+  --sl-color-black: var(--corvus-color-bg-base);
+  --sl-color-accent-low: rgb(215 25 33 / 15%);
+  --sl-color-accent: var(--corvus-color-text-primary);
+  --sl-color-accent-high: var(--corvus-color-text-display);
+  --sl-color-text: var(--corvus-color-text-primary);
+  --sl-color-text-accent: var(--corvus-color-text-display);
 }
 
-/* Light theme polished overrides */
+/* ── Light Theme ── */
 :root[data-theme="light"] {
-  --sl-color-accent-low: #e0f2fe;
-  --sl-color-accent: #0284c7;
-  --sl-color-accent-high: #0c4a6e;
-  --sl-color-bg: #f8fafc;
-  --sl-color-bg-nav: rgb(248 250 252 / 90%);
-  --sl-color-bg-sidebar: rgb(248 250 252 / 98%);
-  --gradient-brand: linear-gradient(135deg, #0284c7 0%, #6366f1 50%, #9333ea 100%);
-  --gradient-brand-subtle: linear-gradient(
-    135deg,
-    rgb(2 132 199 / 8%) 0%,
-    rgb(99 102 241 / 8%) 50%,
-    rgb(147 51 234 / 8%) 100%
-  );
-  --gradient-hero: linear-gradient(160deg, #f0f9ff 0%, #f8fafc 40%, #f5f3ff 100%);
-  --glass-bg: rgb(248 250 252 / 70%);
-  --glass-border: rgb(2 132 199 / 12%);
-  --glass-shadow: 0 8px 32px rgb(0 0 0 / 6%);
-  --card-glow: 0 0 40px rgb(2 132 199 / 4%);
+  --sl-color-bg: var(--corvus-color-bg-base);
+  --sl-color-bg-nav: rgb(245 245 245 / 90%);
+  --sl-color-bg-sidebar: rgb(245 245 245 / 95%);
+  --sl-color-bg-inline-code: var(--corvus-color-bg-raised);
+  --sl-color-hairline-shade: var(--corvus-color-border-default);
+  --sl-color-hairline-light: rgb(232 232 232 / 50%);
+  --sl-color-white: var(--corvus-color-text-display);
+  --sl-color-gray-1: var(--corvus-color-text-primary);
+  --sl-color-gray-2: var(--corvus-color-text-secondary);
+  --sl-color-gray-3: var(--corvus-color-text-disabled);
+  --sl-color-gray-4: var(--corvus-color-border-visible);
+  --sl-color-gray-5: var(--corvus-color-bg-raised);
+  --sl-color-gray-6: var(--corvus-color-bg-surface);
+  --sl-color-black: var(--corvus-color-bg-base);
+  --sl-color-accent-low: rgb(215 25 33 / 10%);
+  --sl-color-accent: var(--corvus-color-text-primary);
+  --sl-color-accent-high: var(--corvus-color-text-display);
+  --sl-color-text: var(--corvus-color-text-primary);
+  --sl-color-text-accent: var(--corvus-color-text-display);
 }
 
-/* ── Global Resets & Enhancements ── */
+/* ─────────────────────────────────────────────
+   Global Resets & Typography
+   ───────────────────────────────────────────── */
+
 body {
   letter-spacing: -0.01em;
 }
 
-/* ── Header / Navbar ── */
+/* ─────────────────────────────────────────────
+   Header / Navbar
+   Flat surface with bottom border — no blur.
+   ───────────────────────────────────────────── */
+
 header.header {
-  backdrop-filter: blur(16px) saturate(180%);
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--sl-color-hairline-shade);
 }
 
-/* ── Site Title Enhancement ── */
+header.header .header {
+  min-height: 4rem;
+}
+
+/* ── Site Title ── */
 .site-title {
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.03em;
+  font-family: var(--corvus-typography-font-display);
+  gap: 0.75rem;
 }
 
-[data-theme="dark"] .site-title {
-  background: var(--gradient-brand);
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+.site-title img {
+  width: 28px;
+  height: 28px;
 }
 
-/* ── Sidebar ── */
-nav.sidebar {
-  backdrop-filter: blur(12px);
+:root[data-theme="light"] .site-title img:first-of-type {
+  display: none;
 }
+
+:root[data-theme="light"] .site-title img:last-of-type {
+  display: block;
+}
+
+:root[data-theme="dark"] .site-title img:first-of-type {
+  display: block;
+}
+
+:root[data-theme="dark"] .site-title img:last-of-type {
+  display: none;
+}
+
+/* ─────────────────────────────────────────────
+   Sidebar
+   Clean borders, no blur.
+   ───────────────────────────────────────────── */
 
 nav.sidebar a[aria-current="page"] {
-  background: var(--gradient-brand-subtle);
   border-left: 3px solid var(--sl-color-accent);
   font-weight: 600;
 }
 
-/* ── Hero Section ── */
+/* ─────────────────────────────────────────────
+   Hero Section
+   Flat background, border separation.
+   ───────────────────────────────────────────── */
+
 .hero {
-  background: var(--gradient-hero);
-  padding: 6rem 3rem;
+  background: var(--sl-color-bg);
+  padding: 5rem 3rem;
   position: relative;
   overflow: hidden;
-  border-radius: 24px;
+  border-radius: var(--corvus-radius-card-lg);
   margin-top: 1rem;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--sl-color-hairline-shade);
 }
 
 .hero > .sl-flex {
   gap: 2rem;
 }
 
-.hero::before {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: -20%;
-  width: 80%;
-  height: 200%;
-  background: radial-gradient(ellipse, rgb(56 189 248 / 8%) 0%, transparent 70%);
-  pointer-events: none;
-  animation: hero-glow 8s ease-in-out infinite alternate;
-}
-
-.hero::after {
-  content: "";
-  position: absolute;
-  bottom: -30%;
-  right: -10%;
-  width: 60%;
-  height: 150%;
-  background: radial-gradient(ellipse, rgb(192 132 252 / 6%) 0%, transparent 70%);
-  pointer-events: none;
-  animation: hero-glow 10s ease-in-out infinite alternate-reverse;
-}
-
-@keyframes hero-glow {
-  0% {
-    opacity: 0.5;
-    transform: translate(0, 0) scale(1);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translate(3%, -2%) scale(1.05);
-  }
-}
-
 .hero h1 {
-  font-family: var(
-    --corvus-font-heading,
-    "Syne",
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Roboto,
-    "Helvetica Neue",
-    Arial,
-    sans-serif
-  );
-  font-weight: 800;
+  font-family: var(--corvus-typography-font-display);
+  font-weight: 700;
   letter-spacing: -0.04em;
   line-height: 1.1;
-  position: relative;
-  z-index: 1;
+  color: var(--sl-color-white);
 }
 
 .hero .tagline {
@@ -203,18 +168,11 @@ nav.sidebar a[aria-current="page"] {
   line-height: 1.7;
   max-width: 42rem;
   margin-top: 1.5rem;
-  position: relative;
-  z-index: 1;
+  color: var(--sl-color-gray-2);
 }
 
-[data-theme="dark"] .hero .tagline {
-  color: #94a3b8;
-}
-
-/* Hero Action Buttons */
+/* ── Hero Action Buttons ── */
 .hero .action {
-  position: relative;
-  z-index: 1;
   margin-top: 2.5rem;
   display: flex;
   gap: 1.5rem;
@@ -222,129 +180,91 @@ nav.sidebar a[aria-current="page"] {
 }
 
 .hero a.primary {
-  background: var(--gradient-brand);
+  background: var(--sl-color-white);
+  color: var(--sl-color-black);
   border: none;
   padding: 0.75rem 2rem;
-  border-radius: 12px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow:
-    0 4px 20px rgb(56 189 248 / 25%),
-    inset 0 1px 0 rgb(255 255 255 / 10%);
+  border-radius: var(--corvus-radius-pill);
+  font-family: var(--corvus-typography-font-mono);
+  font-weight: 400;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: opacity var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
 }
 
 .hero a.primary:hover {
-  transform: translateY(-2px);
-  box-shadow:
-    0 8px 30px rgb(56 189 248 / 35%),
-    inset 0 1px 0 rgb(255 255 255 / 15%);
+  opacity: 0.85;
 }
 
 .hero a.minimal {
-  border: 1.5px solid var(--glass-border);
+  border: 1px solid var(--sl-color-hairline-shade);
   padding: 0.75rem 2rem;
-  border-radius: 12px;
-  font-weight: 500;
-  backdrop-filter: blur(8px);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-[data-theme="dark"] .hero a.minimal {
-  color: #cbd5e1;
+  border-radius: var(--corvus-radius-pill);
+  font-family: var(--corvus-typography-font-mono);
+  font-weight: 400;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-1);
+  transition: border-color var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
 }
 
 .hero a.minimal:hover {
-  border-color: var(--sl-color-accent);
-  background: rgb(56 189 248 / 8%);
-  transform: translateY(-2px);
+  border-color: var(--sl-color-gray-2);
 }
 
-/* ── Card Grid — Glassmorphism ── */
+/* ─────────────────────────────────────────────
+   Card Grid
+   Flat cards, border only — no glass, no glow.
+   ───────────────────────────────────────────── */
+
 .sl-card-grid {
   gap: 1.5rem;
 }
 
 .card {
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
+  background: var(--sl-color-gray-6);
+  border: 1px solid var(--sl-color-hairline-shade);
+  border-radius: var(--corvus-radius-card-lg);
   padding: 1.75rem;
-  backdrop-filter: blur(12px);
-  box-shadow: var(--glass-shadow), var(--card-glow);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-.card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--gradient-brand-subtle);
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  pointer-events: none;
-  border-radius: 16px;
+  transition: border-color var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
 }
 
 .card:hover {
-  transform: translateY(-4px);
-  border-color: rgb(56 189 248 / 25%);
-  box-shadow:
-    0 12px 40px rgb(0 0 0 / 35%),
-    0 0 60px rgb(56 189 248 / 8%);
-}
-
-.card:hover::before {
-  opacity: 1;
+  border-color: var(--sl-color-gray-4);
 }
 
 .card .card-title {
   font-weight: 700;
   letter-spacing: -0.02em;
-}
-
-[data-theme="dark"] .card .card-title {
-  color: #f1f5f9;
+  color: var(--sl-color-white);
 }
 
 .card .card-icon {
-  background: var(--gradient-brand-subtle);
-  border-radius: 10px;
+  border-radius: var(--corvus-radius-technical);
   padding: 0.5rem;
 }
 
-[data-theme="dark"] .card .card-icon svg {
-  color: var(--sl-color-accent);
-}
+/* ─────────────────────────────────────────────
+   Content Area Headings
+   Nothing typography — display font, clean separation.
+   ───────────────────────────────────────────── */
 
-/* ── Content Area Headings ── */
 .sl-markdown-content h1,
 .sl-markdown-content h2,
 .sl-markdown-content h3,
 .sl-markdown-content h4 {
-  font-family: var(
-    --corvus-font-heading,
-    "Syne",
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Roboto,
-    "Helvetica Neue",
-    Arial,
-    sans-serif
-  );
+  font-family: var(--corvus-typography-font-body);
 }
 
 .sl-markdown-content h2 {
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.03em;
   margin-top: 3rem;
   margin-bottom: 2.5rem;
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--sl-color-hairline-shade);
 }
 
 .features-section h2 {
@@ -352,69 +272,69 @@ nav.sidebar a[aria-current="page"] {
   margin-bottom: 2.5rem;
 }
 
-[data-theme="dark"] .sl-markdown-content h2 {
-  background: linear-gradient(90deg, #f1f5f9, #94a3b8);
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  border-image: var(--gradient-brand) 1;
-}
+/* ─────────────────────────────────────────────
+   Inline Code
+   Flat background, subtle border — no gradient.
+   ───────────────────────────────────────────── */
 
-[data-theme="dark"] .hero h1 {
-  background: linear-gradient(135deg, #fff 0%, #e2e8f0 40%, #38bdf8 100%);
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* ── Inline Code ── */
 .sl-markdown-content :not(pre) > code {
-  background: var(--gradient-brand-subtle);
-  border: 1px solid var(--glass-border);
-  border-radius: 6px;
+  background: var(--sl-color-bg-inline-code);
+  border: 1px solid var(--sl-color-hairline-shade);
+  border-radius: var(--corvus-radius-technical);
   padding: 0.15em 0.4em;
   font-size: 0.88em;
 }
 
-/* ── Code Blocks ── */
+/* ─────────────────────────────────────────────
+   Code Blocks
+   Clean border, no shadow.
+   ───────────────────────────────────────────── */
+
 .expressive-code {
-  border-radius: 14px;
+  border-radius: var(--corvus-radius-card);
   overflow: hidden;
 }
 
 .expressive-code .frame {
-  border: 1px solid var(--glass-border);
-  border-radius: 14px;
-  box-shadow: var(--glass-shadow);
+  border: 1px solid var(--sl-color-hairline-shade);
+  border-radius: var(--corvus-radius-card);
 }
 
-/* ── Smooth Transitions ── */
+/* ─────────────────────────────────────────────
+   Smooth Transitions
+   ───────────────────────────────────────────── */
 
-/* Applies broadly to common elements; third-party components may inherit these transitions. */
-
-/* Components can override or opt out via their own transition rules. */
 a,
 button,
 input,
 summary {
-  transition-property: color, background-color, border-color, opacity, box-shadow;
-  transition-duration: 0.2s;
-  transition-timing-function: ease;
+  transition-property: color, background-color, border-color, opacity;
+  transition-duration: var(--corvus-motion-duration-default);
+  transition-timing-function: var(--corvus-motion-easing-default);
 }
 
-/* ── Table of Contents ── */
+/* ─────────────────────────────────────────────
+   Table of Contents
+   ───────────────────────────────────────────── */
+
 starlight-toc a {
-  transition: all 0.2s ease;
+  transition: color var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
 }
 
 starlight-toc a[aria-current="true"] {
   font-weight: 600;
 }
 
-/* ── Links ── */
+/* ─────────────────────────────────────────────
+   Links
+   Underline on hover — no gradient underline.
+   ───────────────────────────────────────────── */
+
 .sl-markdown-content a {
   text-decoration: none;
   font-weight: 500;
   position: relative;
-  transition: color 0.2s ease;
+  transition: color var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
 }
 
 .sl-markdown-content a::after {
@@ -423,37 +343,44 @@ starlight-toc a[aria-current="true"] {
   bottom: -2px;
   left: 0;
   width: 0;
-  height: 2px;
-  background: var(--gradient-brand);
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  height: 1px;
+  background: currentcolor;
+  transition: width var(--corvus-motion-duration-slow) var(--corvus-motion-easing-default);
 }
 
 .sl-markdown-content a:hover::after {
   width: 100%;
 }
 
-/* ── Pagination Buttons ── */
+/* ─────────────────────────────────────────────
+   Pagination Buttons
+   Flat with border — no blur, no shadow.
+   ───────────────────────────────────────────── */
+
 .pagination-links a {
-  border-radius: 14px;
-  border: 1px solid var(--glass-border);
-  backdrop-filter: blur(8px);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: var(--corvus-radius-card);
+  border: 1px solid var(--sl-color-hairline-shade);
+  transition: border-color var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
 }
 
 .pagination-links a:hover {
-  border-color: var(--sl-color-accent);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgb(0 0 0 / 20%);
+  border-color: var(--sl-color-gray-4);
 }
 
-/* ── Asides / Callouts ── */
+/* ─────────────────────────────────────────────
+   Asides / Callouts
+   Clean border — no blur.
+   ───────────────────────────────────────────── */
+
 .starlight-aside {
-  border-radius: 14px;
+  border-radius: var(--corvus-radius-card);
   border-left-width: 4px;
-  backdrop-filter: blur(8px);
 }
 
-/* ── Scrollbar (dark) ── */
+/* ─────────────────────────────────────────────
+   Scrollbar (dark)
+   ───────────────────────────────────────────── */
+
 [data-theme="dark"] ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -465,47 +392,62 @@ starlight-toc a[aria-current="true"] {
 
 [data-theme="dark"] ::-webkit-scrollbar-thumb {
   background: var(--sl-color-gray-4);
-  border-radius: 99px;
+  border-radius: var(--corvus-radius-pill);
 }
 
 [data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
   background: var(--sl-color-gray-3);
 }
 
-/* ── Search Dialog Enhancement ── */
+/* ─────────────────────────────────────────────
+   Search Dialog
+   Flat surface — no blur, no glass.
+   ───────────────────────────────────────────── */
+
 dialog {
-  border-radius: 18px;
-  border: 1px solid var(--glass-border);
-  backdrop-filter: blur(24px);
+  border-radius: var(--corvus-radius-card-lg);
+  border: 1px solid var(--sl-color-hairline-shade);
 }
 
 [data-theme="dark"] dialog {
-  background: rgb(15 23 42 / 95%);
+  background: var(--corvus-color-bg-surface);
 }
 
-/* ── Splash page content width ── */
+/* ─────────────────────────────────────────────
+   Splash Page Layout
+   ───────────────────────────────────────────── */
+
 [data-page-type="splash"] .sl-container {
   max-width: var(--sl-content-width);
 }
 
-/* ── Custom Feature Section below hero ── */
+/* ── Feature Section ── */
 .features-section {
   padding: 4rem 0;
 }
 
-/* ── Footer Enhancements ── */
+/* ─────────────────────────────────────────────
+   Footer
+   ───────────────────────────────────────────── */
+
 footer {
-  border-top: 1px solid var(--glass-border);
+  border-top: 1px solid var(--sl-color-hairline-shade);
 }
 
-/* ── Focus Styles ── */
+/* ─────────────────────────────────────────────
+   Focus Styles
+   ───────────────────────────────────────────── */
+
 :focus-visible {
-  outline: 2px solid var(--sl-color-accent);
-  outline-offset: 3px;
-  border-radius: 4px;
+  outline: 2px solid var(--corvus-color-text-primary);
+  outline-offset: 2px;
+  border-radius: var(--corvus-radius-technical);
 }
 
-/* ── Responsive Touch-ups ── */
+/* ─────────────────────────────────────────────
+   Responsive
+   ───────────────────────────────────────────── */
+
 @media (width <= 50rem) {
   .hero {
     padding: 2.5rem 0;
@@ -516,42 +458,40 @@ footer {
   }
 }
 
-/* ── View Transitions ── */
+/* ─────────────────────────────────────────────
+   View Transitions
+   ───────────────────────────────────────────── */
+
 @media (prefers-reduced-motion: no-preference) {
   @view-transition {
     navigation: auto;
   }
 
-  /* Main content slide + fade */
   ::view-transition-old(root) {
-    animation: vt-fade-out 0.25s cubic-bezier(0.4, 0, 0.2, 1) both;
+    animation: vt-fade-out 0.25s var(--corvus-motion-easing-default) both;
   }
 
   ::view-transition-new(root) {
-    animation: vt-fade-in 0.3s cubic-bezier(0.4, 0, 0.2, 1) both;
+    animation: vt-fade-in 0.3s var(--corvus-motion-easing-default) both;
   }
 
   @keyframes vt-fade-out {
     from {
       opacity: 1;
-      filter: blur(0);
     }
 
     to {
       opacity: 0;
-      filter: blur(2px);
     }
   }
 
   @keyframes vt-fade-in {
     from {
       opacity: 0;
-      filter: blur(2px);
     }
 
     to {
       opacity: 1;
-      filter: blur(0);
     }
   }
 }
@@ -560,14 +500,9 @@ footer {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms;
-    animation-iteration-count: 1;
-    transition-duration: 0.01ms;
-    scroll-behavior: auto;
-  }
-
-  .hero::before,
-  .hero::after {
-    animation: none;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
