@@ -10,6 +10,45 @@ docType: reference
 
 These tools enable the agent to perform repository management, schedule future actions, and notify the user.
 
+## `delegate`
+
+Delegates a subtask to a specialized agent.
+
+- **Security Tier:** Action-Bearing (Risk-bearing).
+- **Execution Modes:**
+  - **OneShot:** A single LLM call to a sub-agent.
+  - **Session:** Launches a bounded child agent with a full tool loop (Code Session).
+- **Depth Limit:** Enforces a maximum recursion depth to prevent infinite delegation loops.
+
+### Parameters
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `agent` | `string` | **Required.** Name of the configured sub-agent (e.g., `researcher`, `coder`). |
+| `prompt` | `string` | **Required.** The task or prompt to send to the sub-agent. |
+| `context` | `string` | Optional context to prepend to the task. |
+
+---
+
+## `composio`
+
+Executes actions on 1000+ managed apps via the Composio platform.
+
+- **Security Tier:** Action-Bearing (Risk-bearing).
+- **Integrations:** Gmail, Notion, GitHub, Slack, Linear, and more.
+- **Requirements:** Requires `COMPOSIO_API_KEY` in the workspace environment.
+
+### Parameters
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `action` | `string` | **Required.** Operation to perform: `list`, `execute`, or `connect`. |
+| `app` | `string` | App/Toolkit slug (e.g., `gmail`). |
+| `tool_slug` | `string` | The specific tool identifier to execute. |
+| `params` | `object` | JSON parameters for the action. |
+
+---
+
 ## `git_operations`
 
 A structured interface for common Git tasks.
@@ -28,19 +67,30 @@ A structured interface for common Git tasks.
 
 ---
 
-## `cron_add` / `schedule`
+## `cron_*` / `schedule`
 
-Tools for managing autonomous, time-based execution.
+Tools for managing autonomous, time-based execution. Corvus provides both a set of granular `cron_*` tools and a unified `schedule` tool.
 
 - **Security Tier:** Action-Bearing (Risk-bearing).
-- **Capability:** Allows the agent to schedule itself (Agent Job) or a shell script (Shell Job) to run in the future.
+- **Job Types:**
+  - **Agent Job:** The agent runs itself with a specific prompt.
+  - **Shell Job:** Executes a shell command.
 - **Schedules:**
   - `cron`: Recurring tasks (e.g., `0 9 * * *`).
   - `at`: One-shot tasks at a specific RFC3339 timestamp.
   - `every`: Fixed intervals in milliseconds.
 
-### `schedule` Actions
-`create`, `list`, `get`, `cancel`, `pause`, `resume`.
+### Tools
+
+| Tool | Description |
+| :--- | :--- |
+| `cron_add` | Create a new scheduled job. |
+| `cron_list` | List all configured cron jobs. |
+| `cron_remove` | Delete a cron job by ID. |
+| `cron_run` | Force-run a job immediately. |
+| `cron_runs` | View recent run history for a job. |
+| `cron_update` | Patch an existing job's schedule or configuration. |
+| `schedule` | Unified tool for `create`, `list`, `get`, `cancel`, `pause`, and `resume`. |
 
 ---
 

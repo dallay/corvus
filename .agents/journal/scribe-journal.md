@@ -28,3 +28,18 @@
 **Notes:**
 - Confirmed strict 1:1 parity between `en/` and `es/` directories.
 - Technical details like `mcp.<server>.<tool>` naming convention and `agent-browser` requirements are now documented.
+
+## 2025-05-22 - Automation and Hardware Tools Reference - Completed
+
+**Verification:** Audited `clients/agent-runtime/src/tools/` and `clients/agent-runtime/src/peripherals/` to verify parameters and security tiers for all mission-critical tools. Confirmed `delegate` execution modes (OneShot/Session) and verified the full set of `cron_*` tools.
+**Changes:**
+- Updated `automation.md` (EN/ES) to include `delegate`, `composio`, and complete `cron_*`/`schedule` reference.
+- Created `hardware.md` (EN/ES) documenting board discovery (`hardware_board_info`), memory operations (`hardware_memory_map`, `hardware_memory_read`), and peripheral control (`gpio_read`, `gpio_write`, `arduino_upload`).
+- Updated `index.mdx` (EN/ES) to include Hardware category and update tool counts/examples.
+**Validation:**
+- Ran `pnpm --dir clients/web --filter @corvus/locales test` (Passed).
+- Ran `./gradlew :web:docsCheck` (Passed: Astro check, Biome lint, Metadata validation).
+**Notes:**
+- Maintained strict 1:1 parity between English and Spanish.
+- Confirmed that `gpio_read`/`gpio_write` are available on both RPi (native) and Uno Q (bridge).
+- Documented `arduino_upload` requirements (`arduino-cli`).
