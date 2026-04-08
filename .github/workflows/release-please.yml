@@ -20,14 +20,29 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      release_created: ${{ steps.release-please.outputs.releases_created || steps.release-please.outputs.release_created || 'false' }}
+      tag_name: ${{ steps.release-please.outputs.tag_name }}
+      release_id: ${{ steps.resolve-release-id.outputs.release_id }}
     steps:
       - name: 🤖 Run release-please
         id: release-please
         uses: googleapis/release-please-action@c3fc4de07084f75a2b61a5b933069bda6edf3d5c # v4.4.0
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          token: ${{ github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: 🧾 Resolve GitHub Release id
+        if: ${{ steps.release-please.outputs.releases_created == 'true' || steps.release-please.outputs.release_created == 'true' }}
+        id: resolve-release-id
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id')"
+          echo "release_id=${release_id}" >> "$GITHUB_OUTPUT"
 
       - name: 📥 Checkout release metadata
         if: ${{ always() }}
@@ -80,3 +95,19 @@ jobs:
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write("\n".join(lines) + "\n")
           PY
+
+  publish-release:
+    needs: release-please
+    if: >-
+      needs.release-please.outputs.release_created == 'true' &&
+      needs.release-please.outputs.tag_name != '' &&
+      needs.release-please.outputs.release_id != ''
+    uses: ./.github/workflows/_publish.yml
+    permissions:
+      contents: write
+      packages: write
+    with:
+      release: true
+      release_tag: ${{ needs.release-please.outputs.tag_name }}
+      release_id: ${{ needs.release-please.outputs.release_id }}
+    secrets: inherit
