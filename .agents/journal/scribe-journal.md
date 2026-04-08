@@ -37,7 +37,7 @@
 - Created `hardware.md` (EN/ES) documenting board discovery (`hardware_board_info`), memory operations (`hardware_memory_map`, `hardware_memory_read`), and peripheral control (`gpio_read`, `gpio_write`, `arduino_upload`).
 - Updated `index.mdx` (EN/ES) to include Hardware category and update tool counts/examples.
 **Validation:**
-- Ran `python3 /home/jules/self_created_tools/check_parity.py` (Passed).
+- Ran `pnpm --dir clients/web --filter @corvus/locales test` (Passed).
 - Ran `./gradlew :web:docsCheck` (Passed: Astro check, Biome lint, Metadata validation).
 **Notes:**
 - Maintained strict 1:1 parity between English and Spanish.

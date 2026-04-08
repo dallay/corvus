@@ -30,7 +30,7 @@ Returns flash and RAM address ranges for connected boards. Uses `probe-rs` for l
 - **Security Tier:** Read-Only (Safe).
 
 ### `hardware_memory_read`
-Reads actual memory or register values from a connected target (e.g., STM32) via USB.
+Reads actual memory or register values from supported Nucleo boards via USB. Supported boards: `nucleo-f401re`, `nucleo-f411re`.
 - **Security Tier:** Read-Only (Safe).
 - **Requirements:** Requires the `probe` feature and a supported debugger connection.
 - **Parameters:** `address` (hex), `length` (bytes), `board`.

@@ -32,7 +32,7 @@ Delegates a subtask to a specialized agent.
 
 ## `composio`
 
-Execute actions on 1000+ managed apps via the Composio platform.
+Executes actions on 1000+ managed apps via the Composio platform.
 
 - **Security Tier:** Action-Bearing (Risk-bearing).
 - **Integrations:** Gmail, Notion, GitHub, Slack, Linear, and more.
