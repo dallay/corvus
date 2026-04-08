@@ -7,9 +7,12 @@ on:
       release:
         type: boolean
         required: true
-      changelog:
-        type: boolean
-        default: false
+      release_tag:
+        type: string
+        required: false
+      release_id:
+        type: string
+        required: false
     secrets:
       SIGNING_IN_MEMORY_KEY:
         required: false
@@ -31,7 +34,9 @@ on:
 jobs:
   publish:
     outputs:
-      changelog: ${{ steps.changelog.outputs.changelog }}
+      release_tag: ${{ steps.release-context.outputs.release_tag }}
+      release_version: ${{ steps.release-context.outputs.release_version }}
+      release_id: ${{ steps.release-context.outputs.release_id }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
@@ -90,33 +95,61 @@ jobs:
       - name: 🔧 Show Gradle version
         run: ./gradlew --version
 
-      - name: 🌿 Build Changelog
-        if: ${{ inputs.changelog }}
-        id: changelog
-        uses: mikepenz/release-changelog-builder-action@439f79b5b5428107c7688c1d2b0e8bacc9b8792c # v6.0.1
-        with:
-          configuration: ".github/config/changelog.json"
-          commitMode: true
-          ignorePreReleases: ${{ !contains(github.ref, '-') }}
+      - name: 🧭 Resolve stable release context
+        if: ${{ inputs.release }}
+        id: release-context
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 📄 Summary Changelog
-        if: ${{ steps.changelog.outputs.changelog }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_ID: ${{ inputs.release_id }}
         run: |
-          {
-            echo "<details>"
-            echo "<summary>📜 Release Changelog</summary>"
-            echo
-            printf "%s\n" "${{ steps.changelog.outputs.changelog }}"
-            echo "</details>"
-          } >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+
+          if [[ -z "$RELEASE_TAG" || -z "$RELEASE_ID" ]]; then
+            echo "Stable publishes require release_tag and release_id inputs"
+            exit 1
+          fi
+
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG"
+            exit 1
+          fi
+
+          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
+          RELEASE_JSON="$release_json" RELEASE_TAG="$RELEASE_TAG" python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import sys
+
+          release = json.loads(os.environ["RELEASE_JSON"])
+          expected_tag = os.environ["RELEASE_TAG"]
+
+          if release.get("tag_name") != expected_tag:
+              print(
+                  f"Release id {release.get('id')} points to {release.get('tag_name')} instead of {expected_tag}",
+                  file=sys.stderr,
+              )
+              raise SystemExit(1)
+          if release.get("draft"):
+              print("Stable publish does not accept draft releases", file=sys.stderr)
+              raise SystemExit(1)
+          if release.get("prerelease"):
+              print("Stable publish does not accept prereleases", file=sys.stderr)
+              raise SystemExit(1)
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"release_tag={expected_tag}\n")
+              handle.write(f"release_version={expected_tag.removeprefix('v')}\n")
+              handle.write(f"release_id={release['id']}\n")
+          PY
 
       - name: 🔎 Validate release version consistency
         if: ${{ inputs.release }}
         id: stable-version-check
         env:
-          TAG_VERSION: ${{ github.ref_name }}
+          TAG_VERSION: ${{ steps.release-context.outputs.release_tag }}
         run: |
           set -euo pipefail
 
@@ -277,17 +310,18 @@ jobs:
           CARGO_OUTCOME: ${{ steps.publish-cargo.outcome }}
         run: |
           {
-            echo "## Release publish summary"
-            echo
-            echo "- Incoming tag: `${{ github.ref_name }}`"
-            echo "- Stable version checks: ${VERSION_CHECK_OUTCOME}"
-            echo "- Optional credential check: ${CREDENTIALS_OUTCOME}"
-            echo "- Maven/Gradle publish step: ${MAVEN_OUTCOME}"
-            echo "- Rust publish step: ${CARGO_OUTCOME}"
-            echo "- npm stable contract: `@dallay/corvus`, `corvus-darwin-x64`, `corvus-darwin-arm64`, `corvus-linux-x64`, `corvus-linux-arm64`, `corvus-windows-x64`"
-            echo "- Excluded by policy: corvus-cli is internal/private; Windows ARM64 is intentionally unsupported for stable npm publication"
-            echo "- GitHub Release ownership: `_publish.yml` creates or updates the GitHub Release after artifact publication completes"
-          } >> "$GITHUB_STEP_SUMMARY"
+             echo "## Release publish summary"
+             echo
+             echo "- Incoming tag: ${{ steps.release-context.outputs.release_tag }}"
+             echo "- Existing GitHub Release asset upload target: ${{ steps.release-context.outputs.release_id }}"
+             echo "- Stable version checks: ${VERSION_CHECK_OUTCOME}"
+             echo "- Optional credential check: ${CREDENTIALS_OUTCOME}"
+             echo "- Maven/Gradle publish step: ${MAVEN_OUTCOME}"
+             echo "- Rust publish step: ${CARGO_OUTCOME}"
+             echo "- npm stable contract: @dallay/corvus, corvus-darwin-x64, corvus-darwin-arm64, corvus-linux-x64, corvus-linux-arm64, corvus-windows-x64"
+             echo "- Excluded by policy: corvus-cli is internal/private; Windows ARM64 is intentionally unsupported for stable npm publication"
+             echo "- GitHub Release ownership: release-please owns the canonical GitHub Release and canonical stable release notes; _publish.yml only publishes artifacts/assets"
+           } >> "$GITHUB_STEP_SUMMARY"
 
   build-native-binaries:
     if: ${{ inputs.release }}
@@ -352,9 +386,9 @@ jobs:
             docker.io/${{ secrets.DOCKERHUB_USERNAME }}/corvus
             ghcr.io/${{ github.repository_owner }}/corvus
           tags: |
-            type=semver,pattern={{version}},value=${{ github.ref_name }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ github.ref_name }}
-            type=semver,pattern={{major}},value=${{ github.ref_name }}
+            type=semver,pattern={{version}},value=${{ needs.publish.outputs.release_tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.publish.outputs.release_tag }}
+            type=semver,pattern={{major}},value=${{ needs.publish.outputs.release_tag }}
             type=raw,value=latest
 
       - name: 🐳 Build and push Docker image (prebuilt binaries)
@@ -422,9 +456,9 @@ jobs:
             docker.io/${{ secrets.DOCKERHUB_USERNAME }}/cerebro
             ghcr.io/${{ github.repository_owner }}/cerebro
           tags: |
-            type=semver,pattern={{version}},value=${{ github.ref_name }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ github.ref_name }}
-            type=semver,pattern={{major}},value=${{ github.ref_name }}
+            type=semver,pattern={{version}},value=${{ needs.publish.outputs.release_tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.publish.outputs.release_tag }}
+            type=semver,pattern={{major}},value=${{ needs.publish.outputs.release_tag }}
             type=raw,value=latest
 
       - name: 🐳 Build and push Cerebro Docker image
@@ -549,7 +583,7 @@ jobs:
           {
             echo "## npm platform publish summary"
             echo
-            echo "- Package: `@dallay/${{ matrix.pkg }}`"
+            echo "- Package: @dallay/${{ matrix.pkg }}"
             echo "- Outcome: ${PLATFORM_PUBLISH_OUTCOME}"
             echo "- Stable publish matrix excludes corvus-cli because it is internal/private."
             echo "- Windows ARM64 is intentionally unsupported and not part of the stable npm publish matrix."
@@ -601,7 +635,7 @@ jobs:
           {
             echo "## npm base publish summary"
             echo
-            echo "- Package: `@dallay/corvus`"
+            echo "- Package: @dallay/corvus"
             echo "- Outcome: ${BASE_PUBLISH_OUTCOME}"
             echo "- Stable optionalDependencies only reference shipped platforms."
             echo "- Windows ARM64 is intentionally unsupported and excluded from stable npm publication."
@@ -645,27 +679,27 @@ jobs:
             cd "$GITHUB_WORKSPACE"
           done
 
-      - name: 🚀 Create GitHub Release
-        id: create-github-release
-        uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
-        with:
-          body: ${{ needs.publish.outputs.changelog }}
-          generate_release_notes: true
-          files: |
-            dist/corvus/corvus-*
-            dist/cerebro/cerebro-*
+      - name: 🚀 Upload assets to existing GitHub Release
+        id: upload-release-assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.publish.outputs.release_tag }}
+          RELEASE_ID: ${{ needs.publish.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          echo "Uploading assets to existing GitHub Release ${RELEASE_ID} (${RELEASE_TAG})"
+          gh release upload "$RELEASE_TAG" dist/corvus/corvus-* dist/cerebro/cerebro-* --clobber
 
       - name: 📄 Summarize GitHub Release publication
         if: ${{ always() }}
         env:
-          RELEASE_ASSETS_OUTCOME: ${{ steps.create-github-release.outcome }}
+          RELEASE_ASSETS_OUTCOME: ${{ steps.upload-release-assets.outcome }}
         run: |
           {
             echo "## GitHub Release publication"
             echo
-            echo "- Outcome: ${RELEASE_ASSETS_OUTCOME}"
-            echo "- Canonical public release record: GitHub Release for `${{ github.ref_name }}`"
-            echo "- Notes source: changelog builder output plus generated GitHub release notes"
-          } >> "$GITHUB_STEP_SUMMARY"
+             echo "- Outcome: ${RELEASE_ASSETS_OUTCOME}"
+             echo "- Canonical public release record: existing GitHub Release for ${{ needs.publish.outputs.release_tag }}"
+             echo "- Existing GitHub Release asset upload: gh release upload --clobber"
+             echo "- Notes source: release-please owns canonical stable release notes; _publish.yml must not replace them"
+           } >> "$GITHUB_STEP_SUMMARY"

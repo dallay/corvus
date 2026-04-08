@@ -34,7 +34,7 @@ and maintenance, but should not block normal development.
 - `.github/workflows/security.yml` (`Security Audit`)
   - Purpose: dependency advisories (`cargo audit`) and policy/license checks (`cargo deny`)
 - `.github/workflows/release.yml` (`Release`)
-  - Purpose: build tagged release artifacts and publish GitHub releases
+  - Purpose: build stable artifacts after the canonical GitHub Release is published
 
 ### Optional Repository Automation
 
@@ -51,7 +51,13 @@ and maintenance, but should not block normal development.
 
 - `CI`: push to `main`/`develop`, PRs to `main`
 - `Docker`: push to `main`, tag push (`v*`), PRs touching docker/workflow files, manual dispatch
-- `Release`: tag push (`v*`)
+- `Release`: `release.published` after `release-please` creates the canonical GitHub Release
+
+## Stable Release Governance Note
+
+- `release-please` owns the stable release PR, canonical `vX.Y.Z` tag, canonical GitHub Release, and release notes.
+- `publish-release.yml` and `_publish.yml` start from `release.published` and attach artifacts to the existing GitHub Release.
+- This keeps `release-please` as the only canonical release-note authority while still letting asset publication run after the release exists.
 - `Security Audit`: push to `main`, PRs to `main`, weekly schedule
 - `Workflow Sanity`: PR/push when `.github/workflows/**`, `.github/*.yml`, or `.github/*.yaml`
   change

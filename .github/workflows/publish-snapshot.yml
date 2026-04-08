@@ -18,5 +18,4 @@ jobs:
     with:
       # Snapshot runs only cover the Gradle/Maven channel.
       release: false
-      changelog: false
     secrets: inherit
