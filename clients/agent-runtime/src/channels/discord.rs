@@ -558,7 +558,11 @@ mod tests {
     async fn spawn_mock_cdn(
         body: Vec<u8>,
         content_type: &'static str,
-    ) -> (String, Arc<Mutex<Option<String>>>, tokio::task::JoinHandle<()>) {
+    ) -> (
+        String,
+        Arc<Mutex<Option<String>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("mock CDN listener should bind");
@@ -578,7 +582,8 @@ mod tests {
                 .read(&mut request_buf)
                 .await
                 .expect("mock CDN should read request bytes");
-            *captured_request_clone.lock() = Some(String::from_utf8_lossy(&request_buf[..read]).into_owned());
+            *captured_request_clone.lock() =
+                Some(String::from_utf8_lossy(&request_buf[..read]).into_owned());
 
             let headers = format!(
                 "HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
@@ -594,7 +599,11 @@ mod tests {
                 .expect("mock CDN should write response body");
         });
 
-        (format!("http://{addr}/attachment.png"), captured_request, handle)
+        (
+            format!("http://{addr}/attachment.png"),
+            captured_request,
+            handle,
+        )
     }
 
     #[test]
@@ -1007,7 +1016,8 @@ mod tests {
         let mut png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
         png.extend_from_slice(&[7_u8; 32]);
         let (url, captured_request, server) = spawn_mock_cdn(png.clone(), "image/png").await;
-        let channel = DiscordChannel::new("super-secret-bot-token".into(), None, vec![], false, false);
+        let channel =
+            DiscordChannel::new("super-secret-bot-token".into(), None, vec![], false, false);
 
         let staged = channel
             .fetch_and_stage_image(&url, Some("image/png"), media::MAX_IMAGE_BYTES)
@@ -1029,14 +1039,15 @@ mod tests {
         assert_eq!(staged.mime_type, media::AllowedImageMime::Png);
         assert_eq!(staged.byte_len, png.len() as u64);
         assert_eq!(staged.channel_origin, "dc");
-        assert!(
-            staged
-                .temp_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("corvus-dc-img-"))
+        assert!(staged
+            .temp_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("corvus-dc-img-")));
+        assert_eq!(
+            std::fs::read(&staged.temp_path).expect("staged file must be readable"),
+            png
         );
-        assert_eq!(std::fs::read(&staged.temp_path).expect("staged file must be readable"), png);
 
         staged.cleanup();
     }
