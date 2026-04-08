@@ -11,6 +11,21 @@ function readText(path) {
   return fs.readFileSync(path, "utf8");
 }
 
+function assertIncludesAll(text, patterns, label) {
+  for (const pattern of patterns) {
+    assert.match(text, pattern, `${label} is missing ${pattern}`);
+  }
+}
+
+const contractDocs = [
+  ".github/workflows/README.md",
+  "clients/web/apps/docs/src/content/docs/guides/release.md",
+  "clients/web/apps/docs/src/content/docs/es/guides/release.md",
+  "clients/web/apps/docs/src/content/docs/clients/agent-runtime/ci-map.md",
+  "clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/ci-map.md",
+  "CHANGELOG.md",
+];
+
 test("release-please fan-out only includes shipped stable artifacts", () => {
   const config = readJson("release-please-config.json");
   const extraFiles = config.packages["."]["extra-files"];
@@ -23,6 +38,8 @@ test("release-please fan-out only includes shipped stable artifacts", () => {
     .map((entry) => entry.jsonpath);
 
   assert.equal(config["bootstrap-sha"], undefined);
+  assert.equal(config["skip-github-release"], undefined);
+  assert.equal(config["skip-changelog"], undefined);
   assert.ok(!filePaths.includes("clients/web/**/package.json"));
   assert.ok(!filePaths.includes("clients/agent-runtime/npm/**/package.json"));
   assert.ok(!filePaths.includes("clients/agent-runtime/npm/corvus-cli/package.json"));
@@ -64,34 +81,67 @@ test("runtime npm metadata only advertises supported shipped platforms", () => {
   ]);
 });
 
-test("release workflows document canonical ownership and diagnostics", () => {
+test("release workflows encode release-please-owned stable governance", () => {
   const releasePlease = readText(".github/workflows/release-please.yml");
   const publishRelease = readText(".github/workflows/publish-release.yml");
   const publishSnapshot = readText(".github/workflows/publish-snapshot.yml");
   const publishWorkflow = readText(".github/workflows/_publish.yml");
 
-  assert.match(releasePlease, /id: release-please/);
-  assert.match(releasePlease, /Checkout release metadata/);
-  assert.match(releasePlease, /GITHUB_STEP_SUMMARY/);
-  assert.match(releasePlease, /manifest-file: \.release-please-manifest\.json/);
-  assert.match(releasePlease, /release-please action outputs/i);
+  assertIncludesAll(
+    releasePlease,
+    [
+      /id: release-please/,
+      /manifest-file: \.release-please-manifest\.json/,
+      /release-please action outputs/i,
+      /canonical GitHub Release/i,
+      /release PR\/tag\/GitHub Release path/i,
+    ],
+    "release-please workflow",
+  );
 
-  assert.match(publishRelease, /Canonical stable release handoff/);
-  assert.match(publishRelease, /release: true/);
-  assert.match(publishRelease, /changelog: true/);
+  assertIncludesAll(
+    publishRelease,
+    [
+      /on:\s*release:\s*types:\s*- published/s,
+      /Canonical stable release handoff/i,
+      /release: true/,
+      /release_tag: \$\{\{ github\.event\.release\.tag_name \}\}/,
+      /release_id: \$\{\{ github\.event\.release\.id \}\}/,
+      /attach artifacts to the existing canonical GitHub Release/i,
+    ],
+    "publish-release workflow",
+  );
+  assert.doesNotMatch(publishRelease, /push:\s*tags:/s);
+  assert.doesNotMatch(publishRelease, /changelog:\s*true/);
 
-  assert.match(publishSnapshot, /Snapshots stay outside stable GitHub Release ownership/);
-  assert.match(publishSnapshot, /release: false/);
-  assert.match(publishSnapshot, /changelog: false/);
+  assertIncludesAll(
+    publishSnapshot,
+    [
+      /Snapshots stay outside stable GitHub Release ownership/,
+      /release: false/,
+    ],
+    "publish-snapshot workflow",
+  );
+  assert.doesNotMatch(publishSnapshot, /changelog:/);
 
-  assert.doesNotMatch(publishWorkflow, /clients\/web\/apps\/\*\/package\.json/);
-  assert.match(publishWorkflow, /version\.txt/);
-  assert.match(publishWorkflow, /corvus-windows-x64\/package\.json/);
-  assert.match(publishWorkflow, /gradle\/build-logic publishToMavenCentral/);
-  assert.doesNotMatch(publishWorkflow, /\.\/gradlew publishToMavenCentral/);
-  assert.match(publishWorkflow, /corvus-cli is internal\/private/);
-  assert.match(publishWorkflow, /Windows ARM64 is intentionally unsupported/);
-  assert.match(publishWorkflow, /Release publish summary/);
+  assertIncludesAll(
+    publishWorkflow,
+    [
+      /release_tag:/,
+      /release_id:/,
+      /release_version/,
+      /gh release upload/,
+      /release-please owns canonical stable release notes/i,
+      /Existing GitHub Release asset upload/i,
+      /corvus-cli is internal\/private/,
+      /Windows ARM64 is intentionally unsupported/,
+    ],
+    "_publish workflow",
+  );
+  assert.doesNotMatch(publishWorkflow, /release-changelog-builder-action/);
+  assert.doesNotMatch(publishWorkflow, /softprops\/action-gh-release/);
+  assert.doesNotMatch(publishWorkflow, /\.github\/config\/changelog\.json/);
+  assert.doesNotMatch(publishWorkflow, /inputs\.changelog/);
 });
 
 test("cargo publish contract keeps local cerebro path and release version aligned", () => {
@@ -112,25 +162,76 @@ test("rust lockfiles stay valid for --locked release commands", () => {
   }
 });
 
-test("release docs and changelog point to GitHub Releases as canonical notes", () => {
-  const docsEn = readText("clients/web/apps/docs/src/content/docs/guides/release.md");
-  const docsEs = readText("clients/web/apps/docs/src/content/docs/es/guides/release.md");
-  const workflowsReadme = readText(".github/workflows/README.md");
-  const changelog = readText("CHANGELOG.md");
+test("release docs, changelog, and CI maps describe one stable contract", () => {
+  const docsByPath = Object.fromEntries(contractDocs.map((path) => [path, readText(path)]));
 
-  for (const doc of [docsEn, docsEs, workflowsReadme]) {
-    assert.match(doc, /GitHub Release/);
-    assert.match(doc, /release-please/i);
-    assert.match(doc, /corvus-cli/);
-    assert.match(doc, /Windows ARM64/);
+  for (const [path, doc] of Object.entries(docsByPath)) {
+    assertIncludesAll(
+      doc,
+      [/release-please/i, /GitHub Release/i, /release\.published/i],
+      path,
+    );
+    assert.doesNotMatch(
+      doc,
+      /_publish\.yml.*(creates|owns).*(GitHub Release|release notes)/i,
+      `${path} still grants _publish ownership of canonical release notes`,
+    );
   }
 
-  assert.match(docsEn, /private web packages are excluded/i);
-  assert.match(docsEn, /manual recovery/i);
-  assert.match(docsEn, /through a pull request/i);
-  assert.match(docsEs, /paquetes web privados están excluidos/i);
-  assert.match(docsEs, /recuperación manual/i);
-  assert.match(docsEs, /por pull request/i);
-  assert.match(changelog, /GitHub Releases/);
+  const docsEn = docsByPath["clients/web/apps/docs/src/content/docs/guides/release.md"];
+  const docsEs = docsByPath["clients/web/apps/docs/src/content/docs/es/guides/release.md"];
+  const workflowsReadme = docsByPath[".github/workflows/README.md"];
+  const changelog = docsByPath["CHANGELOG.md"];
+
+  assertIncludesAll(
+    docsEn,
+    [
+      /private web packages are excluded/i,
+      /manual recovery/i,
+      /through a pull request/i,
+      /attach assets to the existing GitHub Release/i,
+    ],
+    "English release runbook",
+  );
+  assertIncludesAll(
+    docsEs,
+    [
+      /paquetes web privados están excluidos/i,
+      /recuperación manual/i,
+      /por pull request/i,
+      /adjuntar assets al GitHub Release existente/i,
+    ],
+    "Spanish release runbook",
+  );
+  assertIncludesAll(
+    workflowsReadme,
+    [
+      /release-please .*canonical.*GitHub Release/i,
+      /publish-release\.yml.*release\.published/i,
+      /_publish\.yml.*attach artifacts/i,
+    ],
+    "workflow README",
+  );
+  assertIncludesAll(
+    changelog,
+    [
+      /GitHub Releases/,
+      /release-please/,
+      /release\.published/,
+    ],
+    "CHANGELOG.md",
+  );
+  for (const path of [
+    ".github/workflows/README.md",
+    "clients/web/apps/docs/src/content/docs/guides/release.md",
+    "clients/web/apps/docs/src/content/docs/es/guides/release.md",
+    "CHANGELOG.md",
+  ]) {
+    assert.doesNotMatch(
+      docsByPath[path],
+      /tag push/i,
+      `${path} still describes tag-push stable publication`,
+    );
+  }
   assert.doesNotMatch(changelog, /## \[Unreleased\]/);
 });

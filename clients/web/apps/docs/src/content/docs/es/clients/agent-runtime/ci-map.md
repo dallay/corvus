@@ -34,7 +34,7 @@ Los checks merge-blocking deben mantenerse pequeños y deterministas. Los checks
 - `.github/workflows/security.yml` (`Security Audit`)
   - Propósito: Avisos de dependencias (`cargo audit`) y checks de política/licencia (`cargo deny`)
 - `.github/workflows/release.yml` (`Release`)
-  - Propósito: Build de artifacts etiquetados y publicación de GitHub releases
+  - Propósito: Build de artefactos estables después de que se publique el GitHub Release canónico
 
 ### Automatización Opcional del Repositorio
 
@@ -52,7 +52,13 @@ Los checks merge-blocking deben mantenerse pequeños y deterministas. Los checks
 
 - `CI`: push a `main`/`develop`, PRs a `main`
 - `Docker`: push a `main`, tag push (`v*`), PRs que tocan archivos docker/workflow, dispatch manual
-- `Release`: tag push (`v*`)
+- `Release`: `release.published` después de que `release-please` cree el GitHub Release canónico
+
+## Nota de Gobernanza de Release Estable
+
+- `release-please` es dueño del PR estable de release, del tag canónico `vX.Y.Z`, del GitHub Release canónico y de las notas de release.
+- `publish-release.yml` y `_publish.yml` arrancan desde `release.published` y adjuntan artefactos al GitHub Release existente.
+- Esto mantiene a `release-please` como la única autoridad canónica de notas de release mientras la publicación de assets ocurre después de que el release ya existe.
 - `Security Audit`: push a `main`, PRs a `main`, schedule semanal
 - `Workflow Sanity`: PR/push cuando cambian `.github/workflows/**`, `.github/*.yml`, o
   `.github/*.yaml`

@@ -10,8 +10,8 @@ docType: runbook
 
 Este runbook define el contrato canónico de release de Corvus.
 
-- `release-please.yml` es dueño del PR repo-wide de release y del tag canónico `vX.Y.Z`.
-- `publish-release.yml` y `_publish.yml` son dueños de la publicación de artefactos y del GitHub Release final.
+- `release-please.yml` es dueño del PR repo-wide de release, del tag canónico `vX.Y.Z`, del GitHub Release canónico y de las notas canónicas del release estable.
+- `publish-release.yml` y `_publish.yml` solo son dueños de la publicación de artefactos después de que `release-please` publique el GitHub Release.
 - GitHub Releases es la fuente canónica de notas de release estables.
 - `publish-snapshot.yml` es una ruta solo de snapshots para Gradle/Maven y no es dueña de notas de release estables.
 
@@ -21,7 +21,7 @@ Antes de publicar, confirma:
 
 1. **Acceso al repositorio**
    - Eres maintainer de `dallay/corvus`.
-   - `RELEASE_PLEASE_TOKEN` está configurado para que release-please pueda abrir PRs y crear tags canónicos.
+   - `RELEASE_PLEASE_TOKEN` está configurado para que release-please pueda abrir PRs y crear tags canónicos más el GitHub Release canónico.
 2. **Credenciales de release para Gradle/Maven**
    - `SIGNING_IN_MEMORY_KEY`
    - `SIGNING_IN_MEMORY_KEY_PASSWORD`
@@ -65,11 +65,11 @@ La automatización estable valida y publica solo artefactos enviados:
 2. `release-please.yml` abre o actualiza un único PR repo-wide de release.
 3. Revisa el diff del PR. Solo los artefactos estables enviados deben recibir bump de versión.
 4. Mergea el PR de release.
-5. release-please crea el tag canónico `vX.Y.Z`.
-6. `publish-release.yml` corre desde ese tag y llama a `_publish.yml`.
-7. `_publish.yml` valida versiones de artefactos enviados, publica artefactos y crea o actualiza el GitHub Release.
+5. release-please crea el tag canónico `vX.Y.Z` y el GitHub Release canónico.
+6. `publish-release.yml` corre desde `release.published` y pasa el contexto explícito `release_tag` / `release_id` hacia `_publish.yml`.
+7. `_publish.yml` valida versiones de artefactos enviados, publica artefactos y adjunta assets al GitHub Release existente.
 
-El GitHub Release es el registro público canónico del release. El `CHANGELOG.md` raíz es solo un apuntador.
+El GitHub Release creado por `release-please` es el registro público canónico del release. El `CHANGELOG.md` raíz es solo un apuntador.
 
 ### Regla de gobernanza
 
@@ -102,11 +102,13 @@ Revisa el summary del workflow para ver:
 Revisa el summary del workflow para ver:
 
 - tag recibido
+- id del GitHub Release existente / destino de upload de assets
 - tabla de validación de versiones de artefactos enviados
 - advertencias de credenciales opcionales
 - resultado por superficie de publicación
 - notas de política npm que confirman que `corvus-cli` es interno/privado y que Windows ARM64 no tiene soporte
-- resultado de publicación del GitHub Release
+- resultado del upload de assets al GitHub Release
+- confirmación de que release-please es dueño de las notas canónicas del release estable
 
 ## Recuperación Manual de Baseline
 
@@ -118,7 +120,7 @@ Usa este procedimiento cuando haya drift entre el manifiesto, los tags o GitHub 
 2. Verifica el SHA del commit de release previsto.
 3. Verifica si el tag canónico `vX.Y.Z` ya existe.
 4. Verifica si el GitHub Release ya existe.
-5. Si el commit de release y los archivos de versión están correctos pero falta el tag o el release, repón ese tag faltante y vuelve a correr la publicación estable como una recuperación manual.
+5. Si el commit de release y los archivos de versión están correctos pero falta el tag o el release, restablece primero la autoridad del GitHub Release canónico y vuelve a correr la publicación estable desde `release.published` como recuperación manual.
 6. Si la evidencia entra en conflicto, detente y elige una nueva baseline hacia adelante en vez de reescribir historia.
 
 ## Solución de Problemas
@@ -131,19 +133,27 @@ Usa este procedimiento cuando haya drift entre el manifiesto, los tags o GitHub 
 
 ### Se mergeó el PR pero no arrancó la publicación estable
 
-- Confirma que existe el tag canónico `vX.Y.Z`.
-- Confirma que release-please creó el tag con los permisos esperados.
+- Confirma que existe el GitHub Release canónico y que fue publicado.
+- Confirma que release-please creó el release con el token y permisos esperados.
+- Confirma que el trigger de `publish-release.yml` vio `release.published` para el mismo tag `vX.Y.Z`.
 
 ### Falló la publicación estable
 
 - Revisa la tabla de validación de versiones en `_publish.yml`.
+- Revisa el contexto de release id / tag que `publish-release.yml` pasó hacia `_publish.yml`.
 - Revisa advertencias de credenciales para Maven, Cargo, npm y Docker.
 - Repara hacia adelante desde la etapa que falló. No cortes un tag competidor con la misma versión.
 
 ### Faltó el GitHub Release después de publicar artefactos
 
-- Reejecuta o repara la parte de GitHub Release en `_publish.yml`.
+- Repara primero el GitHub Release de `release-please`, porque `_publish.yml` solo adjunta assets al release existente.
+- Vuelve a correr el handoff estable desde `release.published` después de que el release canónico exista otra vez.
 - No trates `CHANGELOG.md` como fuente de verdad.
+
+### Hay drift entre notas del release y assets publicados
+
+- Trata a `release-please` como la única autoridad canónica de notas de release.
+- `_publish.yml` puede adjuntar assets al GitHub Release existente, pero no debe reemplazar el cuerpo canónico de notas.
 
 ## Referencias Canónicas
 

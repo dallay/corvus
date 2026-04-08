@@ -11,9 +11,9 @@ This directory contains all GitHub Actions workflows for the Corvus monorepo. Wo
 | **CI/CD**       | `deploy-docs.yml`                    | Deploy documentation to GitHub Pages        | Push docs to `main`, Release published  |
 | **Security**    | `codeql-analysis.yml`                | Security scanning with CodeQL               | Push to main/minor, daily schedule      |
 | **Security**    | `snyk-security.yml`                  | Snyk SAST/SCA/Container/IaC scans           | Push/PR to main/minor, manual           |
-| **Publishing**  | `publish-release.yml`                | Publish stable artifacts and GitHub Release | Canonical tag push `v*.*.*`             |
+| **Publishing**  | `publish-release.yml`                | Attach stable artifacts to canonical GitHub Release | `release.published`                |
 | **Publishing**  | `publish-snapshot.yml`               | Publish Gradle/Maven snapshots only         | Manual, daily schedule                  |
-| **Publishing**  | `release-please.yml`                 | Create repo-wide release PRs and tags       | Push to `main`, manual                  |
+| **Publishing**  | `release-please.yml`                 | Create repo-wide release PRs, tags, and canonical GitHub Releases | Push to `main`, manual |
 | **Publishing**  | `_publish.yml`                       | Reusable publish workflow                   | Called by other workflows               |
 | **Automation**  | `auto-fix-lockfile.yml`              | Auto-update lockfiles                       | Daily schedule, manual                  |
 | **Automation**  | `fix-renovate.yml`                   | Fix lockfiles for Renovate PRs              | Comment `/fix-lock` on PR               |
@@ -177,24 +177,30 @@ Code Scanning.
 
 ## 📦 Publishing Workflows
 
+release-please is the canonical owner of the stable GitHub Release and release notes.
+_publish.yml exists to attach artifacts to that existing release after `release.published`.
+
 ### `publish-release.yml` - Release Publishing
 
-**Purpose**: Publishes stable artifacts after the canonical `vX.Y.Z` tag exists, then creates the
-canonical GitHub Release.
+**Purpose**: Publishes stable artifacts after `release-please` publishes the canonical GitHub
+Release, then attaches assets to that existing release.
 
 **Triggers**:
 
-- Tag push matching `v[0-9]+.[0-9]+.[0-9]+` (e.g., `v1.2.3`)
+- `release.published` for the canonical stable GitHub Release
 
 **What it does**:
-Calls the reusable `_publish.yml` workflow with:
+Calls the reusable `_publish.yml` workflow with explicit release context:
 
-- `release: true` - Creates GitHub release
-- `changelog: true` - Generates changelog
+- `release: true` - Enables stable publication mode
+- `release_tag` - Canonical `vX.Y.Z` tag from the GitHub Release event
+- `release_id` - Existing GitHub Release identifier used for asset upload
 
 **Stable contract**:
 
-- The tag must come from `release-please.yml`.
+- `release-please.yml` is the canonical owner of the stable release PR, tag, GitHub Release, and release notes.
+- `publish-release.yml` starts only after `release-please` publishes that GitHub Release.
+- `_publish.yml` attaches artifacts to the existing GitHub Release and must not replace canonical release notes.
 - Stable version checks only cover shipped artifacts.
 - Private web packages are excluded from stable version churn.
 - `corvus-cli` is internal/private and is not a stable publish target.
@@ -203,7 +209,7 @@ Calls the reusable `_publish.yml` workflow with:
 **Restrictions**:
 
 - Only runs on `dallay/corvus` repository
-- Requires tag starting with `v`
+- Requires a published, non-draft, non-prerelease GitHub Release with a `vX.Y.Z` tag
 
 ---
 
@@ -219,14 +225,14 @@ Calls the reusable `_publish.yml` workflow with:
 **What it does**:
 Calls the reusable `_publish.yml` workflow with:
 
-- `release: false` - No GitHub release created
-- `changelog: false` - No changelog generated
+- `release: false` - No stable GitHub Release context is required
 
 **Snapshot contract**:
 
 - Snapshot publishing does not create the canonical stable tag.
 - Snapshot publishing does not own GitHub Release creation.
 - Snapshot publishing does not own stable release notes.
+- Snapshot publishing does not participate in the `release.published` stable handoff.
 
 **Restrictions**:
 
@@ -236,8 +242,8 @@ Calls the reusable `_publish.yml` workflow with:
 
 ### `release-please.yml` - Release PR Automation
 
-**Purpose**: Opens or updates the single repo-wide stable release PR and creates the canonical
-release tag from `main`.
+**Purpose**: Opens or updates the single repo-wide stable release PR from `main` and owns the
+canonical stable tag, GitHub Release, and release notes.
 
 **Triggers**:
 
@@ -250,7 +256,9 @@ release tag from `main`.
 - Creates/updates a release PR with shipped-artifact version bumps
 - Checks out repository metadata before writing the workflow summary so diagnostics do not fail on missing manifest files
 - Writes diagnostics to the workflow summary, including manifest baseline and action outputs
-- On merge, creates the canonical `vX.Y.Z` tag that triggers `publish-release.yml`
+- On merge, creates the canonical `vX.Y.Z` tag and canonical GitHub Release
+- Publishes the canonical release notes that downstream workflows treat as the single source of truth
+- Hands off stable artifact publication through `release.published`
 
 **Governance note**:
 
@@ -272,8 +280,9 @@ release tag from `main`.
 **Inputs**:
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `release` | boolean | required | Whether to create GitHub release |
-| `changelog` | boolean | false | Whether to generate changelog |
+| `release` | boolean | required | Whether the workflow is in stable release mode |
+| `release_tag` | string | empty | Canonical stable tag to validate and publish against |
+| `release_id` | string | empty | Existing GitHub Release id for asset upload |
 
 **Secrets Required**:
 
@@ -289,20 +298,20 @@ release tag from `main`.
 **What it does**:
 
 1. 📦 Sets up build environment
-2. 🌿 Generates changelog (if enabled) using `release-changelog-builder-action`
+2. 🧭 Validates explicit stable release context (`release_tag`, `release_id`) against the existing GitHub Release
 3. 👻 Publishes to Maven Central using Gradle
 4. 🦀 Publishes Rust crate to crates.io (release only)
 5. 📦 Publishes shipped runtime npm packages to npm (release only)
 6. 🐳 Builds and publishes multi-arch runtime Docker image to Docker Hub + GHCR (release only)
 7. 📊 Builds and publishes multi-arch dashboard Docker image to Docker Hub + GHCR (release only)
-8. 🚀 Creates GitHub release (if enabled)
+8. 🚀 Attaches assets to the existing canonical GitHub Release
 
 **Key Points**:
 
 - ⚠️ Warning: Do not use never-expiring User Token for Maven Central
-- Uses commit-based changelog generation
-- Changelog config: `.github/config/changelog.json`
-- The GitHub Release is the canonical public release record
+- `release-please` owns the canonical public GitHub Release and canonical stable release notes
+- `_publish.yml` only uploads assets with `gh release upload --clobber`
+- Stable publication fans out from `release.published`
 - Stable npm publishing excludes `corvus-cli` because it is internal/private
 - Windows ARM64 is intentionally unsupported for stable npm publication
 

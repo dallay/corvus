@@ -59,6 +59,8 @@ jobs:
           lines = [
               "## release-please action outputs",
               "",
+              "- Canonical release PR/tag/GitHub Release path: `release-please` from merges to `main`",
+              "- Canonical GitHub Release notes owner: `release-please`",
               f"- Manifest baseline: `{manifest_version}`",
               f"- Candidate version output: `{version}`",
               f"- Tag output: `{tag_name}`",
