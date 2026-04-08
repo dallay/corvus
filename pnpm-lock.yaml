@@ -329,8 +329,8 @@ importers:
         specifier: 'catalog:'
         version: 5.9.3
       vite:
-        specifier: 7.3.1
-        version: 7.3.1(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.8.3)
+        specifier: 6.4.2
+        version: 6.4.2(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.8.3)
 
   clients/web/apps/marketing:
     dependencies:
@@ -351,8 +351,8 @@ importers:
         specifier: 'catalog:'
         version: 5.9.3
       vite:
-        specifier: 7.3.1
-        version: 7.3.1(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.8.3)
+        specifier: 6.4.2
+        version: 6.4.2(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.8.3)
 
   clients/web/packages/locales:
     devDependencies:
