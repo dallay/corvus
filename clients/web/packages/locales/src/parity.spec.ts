@@ -2,6 +2,52 @@ import { describe, expect, it } from "vitest";
 import en from "./en.json";
 import es from "./es.json";
 
+const requiredSessionAndMemoryKeys = [
+  "chat.newChat",
+  "session.history",
+  "session.justNow",
+  "session.minutesAgo",
+  "session.hoursAgo",
+  "session.daysAgo",
+  "session.messageCount",
+  "session.sidebarLabel",
+  "session.expand",
+  "session.collapse",
+  "session.noHistory",
+  "memory.statsLoading",
+  "memory.statTotalEntries",
+  "memory.statTotalSessions",
+  "memory.statActiveSessions",
+  "memory.statBackend",
+  "memory.cerebroConfigured",
+  "memory.cerebroNotConfigured",
+  "memory.statCerebro",
+  "memory.statByCategory",
+  "memory.loading",
+  "memory.empty",
+  "memory.colKey",
+  "memory.colCategory",
+  "memory.colTimestamp",
+  "memory.colSessionId",
+  "memory.colContent",
+  "memory.colActions",
+  "memory.delete",
+  "memory.confirmDelete",
+  "memory.confirmDeletePrompt",
+  "memory.confirmYes",
+  "memory.confirmNo",
+  "memory.filterCategory",
+  "memory.filterAll",
+  "memory.filterSessionId",
+  "memory.sessionIdPlaceholder",
+  "memory.filterSearch",
+  "memory.searchPlaceholder",
+  "pagination.prev",
+  "pagination.page",
+  "pagination.total",
+  "pagination.next",
+] as const;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -73,6 +119,13 @@ describe("Locale Parity Guard", () => {
 
         expect(esPlaceholders, `Placeholder mismatch for key: ${key}`).toEqual(enPlaceholders);
       }
+    }
+  });
+
+  it("includes required session sidebar and memory locale keys", () => {
+    for (const key of requiredSessionAndMemoryKeys) {
+      expect(flattenedEn, `Missing English locale key: ${key}`).toHaveProperty(key);
+      expect(flattenedEs, `Missing Spanish locale key: ${key}`).toHaveProperty(key);
     }
   });
 

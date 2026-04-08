@@ -3049,6 +3049,7 @@ mod tests {
                 allowed_channels: vec![channel.to_string()],
                 vision_model_hint: Some("vision".into()),
                 max_image_bytes: None,
+                ..Default::default()
             },
             model_routes: vec![crate::config::ModelRouteConfig {
                 hint: "vision".into(),
