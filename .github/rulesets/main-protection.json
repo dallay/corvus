@@ -8,7 +8,9 @@
   "conditions": {
     "ref_name": {
       "exclude": [],
-      "include": ["~DEFAULT_BRANCH"]
+      "include": [
+        "~DEFAULT_BRANCH"
+      ]
     }
   },
   "rules": [
@@ -21,7 +23,11 @@
         "require_code_owner_review": false,
         "require_last_push_approval": false,
         "required_review_thread_resolution": false,
-        "allowed_merge_methods": ["merge", "squash", "rebase"]
+        "allowed_merge_methods": [
+          "merge",
+          "squash",
+          "rebase"
+        ]
       }
     },
     {
@@ -60,6 +66,11 @@
       "actor_id": 5,
       "actor_type": "RepositoryRole",
       "bypass_mode": "pull_request"
+    },
+    {
+      "actor_id": 915548,
+      "actor_type": "Integration",
+      "bypass_mode": "always"
     }
   ]
 }
