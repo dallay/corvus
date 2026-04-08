@@ -12,6 +12,7 @@ Phase 1 delivered the full audio pipeline (gate → stage → transcribe → inj
 byte acquisition — only the "how do we get bytes?" step differs per channel.
 
 Phase 2 extends audio to two new entry points:
+
 1. **HTTP Gateway**: `POST /web/chat/audio` multipart endpoint with per-route body limit override
 2. **CLI**: `/audio <path>` slash command reading local files
 
@@ -125,6 +126,7 @@ sequenceDiagram
 **Choice**: Return SSE stream (same pattern as `/web/chat/stream`), not a JSON response.
 
 **Alternatives considered**:
+
 1. JSON response — simpler, but blocks the client for the full transcription + agent duration
 2. SSE with separate transcription event — adds a pre-response event with transcription metadata
 
@@ -135,6 +137,7 @@ needs minimal changes. A leading `transcription` SSE event carries the transcrip
 before the agent response events begin, giving the client immediate feedback.
 
 SSE event sequence:
+
 ```
 event: transcription
 data: {"text":"transcribed text","language":"es","duration_secs":12.5}
@@ -152,12 +155,14 @@ data: {"session_id":"..."}
 via `ChannelRuntimeHandle` into `process_channel_message()`.
 
 **Alternatives considered**:
+
 - **Option A (pre-pipeline)**: CLI handler does staging+transcription locally, sends only text
   through `Agent::turn()`. Simpler but bypasses the pipeline and duplicates transcription logic.
 - **Option B (full pipeline, chosen)**: CLI builds an Audio message and routes through the
   channel runtime. The existing audio pipeline (gate, stage, transcribe, inject) handles everything.
 
 **Rationale**: Option A seems simpler but has critical problems:
+
 1. Duplicates the transcription→inject→observability logic that already exists in the pipeline
 2. Bypasses `process_channel_message()` observability (audio ingress events, metrics)
 3. The semaphore for concurrent transcription lives in the `Transcriber`, not the CLI handler —
@@ -169,7 +174,8 @@ The CLI just needs a reference to it. This requires a small change: `CliChannel:
 accept a `ChannelRuntimeHandle` for `/audio` messages instead of using the raw `mpsc::Sender`
 for text messages. However, since `ChannelRuntimeHandle` wraps an `mpsc::Sender<ChannelMessage>`,
 the simplest approach is to use the same `tx` sender that `listen()` already receives — audio
-messages go through the same channel as text messages, both processed by `process_channel_message()`.
+messages go through the same channel as text messages, both processed by
+`process_channel_message()`.
 
 **Key insight**: Regular text messages from CLI currently bypass `process_channel_message()` via
 `Agent::run_interactive()` → `self.turn()` (line 1597, agent.rs). But the `/audio` command in
@@ -182,6 +188,7 @@ direct path — **no change to the text flow**.
 **Choice**: Axum nested router with `DefaultBodyLimit::max(25 * 1024 * 1024)` for the audio route.
 
 **Alternatives considered**:
+
 1. Per-handler body limit via `axum::extract::DefaultBodyLimit` as layer on individual route
 2. Increase global body limit to 25 MiB (weakens security for all routes)
 3. Manually check Content-Length in handler (doesn't protect against slow-drip attacks)
@@ -214,7 +221,8 @@ The `merge()` must happen before `.layer(RequestBodyLimitLayer)` so the audio ro
 
 **Choice**: `async fn stage_audio_from_bytes()`.
 
-**Alternatives considered**: Sync function (all operations are fast in-memory except temp file write).
+**Alternatives considered**: Sync function (all operations are fast in-memory except temp file
+write).
 
 **Rationale**: The function writes to a temp file via `tokio::fs::write()`. While MIME sniffing,
 size validation, and SHA-256 hashing are CPU-bound and fast (sub-millisecond for 25 MiB), the
@@ -227,6 +235,7 @@ consistent and avoids `spawn_blocking` indirection.
 **Choice**: `tokio::time::timeout()` in the handler with `transcription_timeout_secs + 60s`.
 
 **Alternatives considered**:
+
 1. Rely on global 30s `TimeoutLayer` — too short for transcription
 2. Remove global timeout and let each handler manage its own — weakens protection for other routes
 3. Per-route `TimeoutLayer` via nested router — adds complexity for little benefit
@@ -398,11 +407,11 @@ async fn handle_chat_audio(
 
 **Multipart fields**:
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `audio` | file | Yes | Audio file (OGG, MP3, WAV, M4A) |
-| `session_id` | text | No | Session identifier (auto-generated if absent) |
-| `language` | text | No | Language hint override (e.g. "en", "es") |
+| Field        | Type | Required | Description                                   |
+|--------------|------|----------|-----------------------------------------------|
+| `audio`      | file | Yes      | Audio file (OGG, MP3, WAV, M4A)               |
+| `session_id` | text | No       | Session identifier (auto-generated if absent) |
+| `language`   | text | No       | Language hint override (e.g. "en", "es")      |
 
 ### AppState Changes
 
@@ -418,20 +427,21 @@ pub struct AppState {
 
 ### Error Mapping: `AudioRejectionReason` → HTTP Status
 
-| Rejection Reason | HTTP Status | Error Code |
-|-----------------|-------------|------------|
-| `Disabled` | 422 Unprocessable Entity | `audio_disabled` |
-| `ChannelNotAllowed` | 422 Unprocessable Entity | `audio_channel_not_allowed` |
-| `MimeRejected` | 422 Unprocessable Entity | `audio_format_unsupported` |
-| `Oversize` | 413 Payload Too Large | `audio_too_large` |
-| `TooLong` | 422 Unprocessable Entity | `audio_too_long` |
-| `TranscriberUnavailable` | 503 Service Unavailable | `transcriber_unavailable` |
-| `TranscriptionFailed` | 500 Internal Server Error | `transcription_failed` |
-| `NoSpeechDetected` | 422 Unprocessable Entity | `no_speech_detected` |
-| `FetchFailed` | 500 Internal Server Error | `audio_processing_failed` |
-| `SystemError` | 500 Internal Server Error | `system_error` |
+| Rejection Reason         | HTTP Status               | Error Code                  |
+|--------------------------|---------------------------|-----------------------------|
+| `Disabled`               | 422 Unprocessable Entity  | `audio_disabled`            |
+| `ChannelNotAllowed`      | 422 Unprocessable Entity  | `audio_channel_not_allowed` |
+| `MimeRejected`           | 422 Unprocessable Entity  | `audio_format_unsupported`  |
+| `Oversize`               | 413 Payload Too Large     | `audio_too_large`           |
+| `TooLong`                | 422 Unprocessable Entity  | `audio_too_long`            |
+| `TranscriberUnavailable` | 503 Service Unavailable   | `transcriber_unavailable`   |
+| `TranscriptionFailed`    | 500 Internal Server Error | `transcription_failed`      |
+| `NoSpeechDetected`       | 422 Unprocessable Entity  | `no_speech_detected`        |
+| `FetchFailed`            | 500 Internal Server Error | `audio_processing_failed`   |
+| `SystemError`            | 500 Internal Server Error | `system_error`              |
 
 Error response body:
+
 ```json
 {
   "error": "audio_format_unsupported",
@@ -462,11 +472,13 @@ struct AudioTranscriptionEvent {
 ```
 
 Path expansion:
+
 - `~` → home directory
 - Relative paths resolved against CWD
 - Absolute paths used as-is
 
 User feedback printed to stdout:
+
 ```
 [Transcribing audio: recording.ogg (245 KB)...]
 [Transcription (12.5s, es)]: "Buenos días, quiero preguntar sobre..."
@@ -487,44 +499,44 @@ forward compatibility for future channels.
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `Cargo.toml` | Modify | Add `"multipart"` to axum features list |
-| `src/channels/audio_media.rs` | Modify | Add `stage_audio_from_bytes()` shared utility function |
-| `src/channels/mod.rs` | Modify | Add `"gateway"` and `"cli"` match arms in `stage_channel_audio()`; handle pre-staged audio path convention |
-| `src/channels/cli.rs` | Modify | Parse `/audio <path>` command; read file; validate format; build `ChannelMessage` with `ContentPart::Audio`; pre-stage via `stage_audio_from_bytes()` |
-| `src/channels/telegram.rs` | Modify | Refactor `fetch_and_stage_audio()` to call `stage_audio_from_bytes()` after download (lines 1831-1882 replaced) |
-| `src/gateway/mod.rs` | Modify | Add `handle_chat_audio()` handler; create nested `audio_router` with 25 MiB body limit and elevated timeout; merge into main router; add `transcriber` and `audio_config` to `AppState`; add error mapping for `AudioRejectionReason` → HTTP status |
-| `src/config/schema.rs` | Modify | Rename `PHASE1_VALID_AUDIO_CHANNELS` → `VALID_AUDIO_CHANNELS`; add `"gateway"` and `"cli"` to list |
-| `src/agent/agent.rs` | Modify | In `run_interactive()`, pass `ChannelRuntimeHandle` reference to CLI for `/audio` messages (or accept that `/audio` in `listen()` already sends through the `tx` channel which feeds the runtime) |
+| File                          | Action | Description                                                                                                                                                                                                                                         |
+|-------------------------------|--------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Cargo.toml`                  | Modify | Add `"multipart"` to axum features list                                                                                                                                                                                                             |
+| `src/channels/audio_media.rs` | Modify | Add `stage_audio_from_bytes()` shared utility function                                                                                                                                                                                              |
+| `src/channels/mod.rs`         | Modify | Add `"gateway"` and `"cli"` match arms in `stage_channel_audio()`; handle pre-staged audio path convention                                                                                                                                          |
+| `src/channels/cli.rs`         | Modify | Parse `/audio <path>` command; read file; validate format; build `ChannelMessage` with `ContentPart::Audio`; pre-stage via `stage_audio_from_bytes()`                                                                                               |
+| `src/channels/telegram.rs`    | Modify | Refactor `fetch_and_stage_audio()` to call `stage_audio_from_bytes()` after download (lines 1831-1882 replaced)                                                                                                                                     |
+| `src/gateway/mod.rs`          | Modify | Add `handle_chat_audio()` handler; create nested `audio_router` with 25 MiB body limit and elevated timeout; merge into main router; add `transcriber` and `audio_config` to `AppState`; add error mapping for `AudioRejectionReason` → HTTP status |
+| `src/config/schema.rs`        | Modify | Rename `PHASE1_VALID_AUDIO_CHANNELS` → `VALID_AUDIO_CHANNELS`; add `"gateway"` and `"cli"` to list                                                                                                                                                  |
+| `src/agent/agent.rs`          | Modify | In `run_interactive()`, pass `ChannelRuntimeHandle` reference to CLI for `/audio` messages (or accept that `/audio` in `listen()` already sends through the `tx` channel which feeds the runtime)                                                   |
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | `stage_audio_from_bytes()` — happy path all 4 formats | Call with real magic bytes, verify `StagedAudio` fields, temp file exists |
-| Unit | `stage_audio_from_bytes()` — MIME rejection | Call with garbage bytes, expect `MimeRejected` |
-| Unit | `stage_audio_from_bytes()` — size rejection | Call with bytes exceeding `max_audio_bytes`, expect `Oversize` |
-| Unit | `stage_audio_from_bytes()` — duration rejection | Call with `declared_duration_secs` exceeding limit, expect `TooLong` |
-| Unit | `stage_audio_from_bytes()` — temp file naming | Verify prefix matches `corvus-{abbrev}-aud-` pattern |
-| Unit | CLI `/audio` path parsing | Test `~` expansion, relative paths, quoted paths, missing path |
-| Unit | CLI `/audio` non-existent file | Verify error message printed, no crash |
-| Unit | CLI `/audio` unsupported format | Verify MIME rejection printed, no crash |
-| Unit | Error mapping `AudioRejectionReason` → HTTP status | Assert each variant maps to correct status code |
-| Unit | SSE `AudioTranscriptionEvent` serialization | Verify JSON structure matches contract |
-| Integration | Gateway endpoint happy path | `axum::test` with mock transcriber returning known text; verify SSE events |
-| Integration | Gateway endpoint — auth required | Send without bearer token, expect 401 |
-| Integration | Gateway endpoint — audio disabled | Set `audio.enabled = false`, expect 422 |
-| Integration | Gateway endpoint — channel not allowed | Set `allowed_channels = ["telegram"]` (no "gateway"), expect 422 |
-| Integration | Gateway body limit — 25 MiB accepted | Upload 20 MiB file, expect success |
-| Integration | Gateway body limit — 30 MiB rejected | Upload 30 MiB file, expect 413 |
-| Integration | Gateway timeout | Mock transcriber that sleeps beyond timeout, expect timeout error |
-| Integration | Telegram refactor — staging still works | Existing Telegram audio tests pass after refactor to use `stage_audio_from_bytes()` |
-| Integration | CLI `/audio` → full pipeline | Mock transcriber + capture agent output, verify transcription injected |
-| Integration | Transcription semaphore across channels | Concurrent gateway + CLI audio, verify semaphore limits total concurrency |
-| Integration | Observability events from gateway | Capture `AudioIngressEvent` via test observer, verify channel = "gateway" |
-| Integration | Observability events from CLI | Capture `AudioIngressEvent` via test observer, verify channel = "cli" |
-| Integration | Config validation accepts new channels | `validate_audio_config()` with `["telegram", "gateway", "cli"]` — no warning |
+| Layer       | What to Test                                          | Approach                                                                            |
+|-------------|-------------------------------------------------------|-------------------------------------------------------------------------------------|
+| Unit        | `stage_audio_from_bytes()` — happy path all 4 formats | Call with real magic bytes, verify `StagedAudio` fields, temp file exists           |
+| Unit        | `stage_audio_from_bytes()` — MIME rejection           | Call with garbage bytes, expect `MimeRejected`                                      |
+| Unit        | `stage_audio_from_bytes()` — size rejection           | Call with bytes exceeding `max_audio_bytes`, expect `Oversize`                      |
+| Unit        | `stage_audio_from_bytes()` — duration rejection       | Call with `declared_duration_secs` exceeding limit, expect `TooLong`                |
+| Unit        | `stage_audio_from_bytes()` — temp file naming         | Verify prefix matches `corvus-{abbrev}-aud-` pattern                                |
+| Unit        | CLI `/audio` path parsing                             | Test `~` expansion, relative paths, quoted paths, missing path                      |
+| Unit        | CLI `/audio` non-existent file                        | Verify error message printed, no crash                                              |
+| Unit        | CLI `/audio` unsupported format                       | Verify MIME rejection printed, no crash                                             |
+| Unit        | Error mapping `AudioRejectionReason` → HTTP status    | Assert each variant maps to correct status code                                     |
+| Unit        | SSE `AudioTranscriptionEvent` serialization           | Verify JSON structure matches contract                                              |
+| Integration | Gateway endpoint happy path                           | `axum::test` with mock transcriber returning known text; verify SSE events          |
+| Integration | Gateway endpoint — auth required                      | Send without bearer token, expect 401                                               |
+| Integration | Gateway endpoint — audio disabled                     | Set `audio.enabled = false`, expect 422                                             |
+| Integration | Gateway endpoint — channel not allowed                | Set `allowed_channels = ["telegram"]` (no "gateway"), expect 422                    |
+| Integration | Gateway body limit — 25 MiB accepted                  | Upload 20 MiB file, expect success                                                  |
+| Integration | Gateway body limit — 30 MiB rejected                  | Upload 30 MiB file, expect 413                                                      |
+| Integration | Gateway timeout                                       | Mock transcriber that sleeps beyond timeout, expect timeout error                   |
+| Integration | Telegram refactor — staging still works               | Existing Telegram audio tests pass after refactor to use `stage_audio_from_bytes()` |
+| Integration | CLI `/audio` → full pipeline                          | Mock transcriber + capture agent output, verify transcription injected              |
+| Integration | Transcription semaphore across channels               | Concurrent gateway + CLI audio, verify semaphore limits total concurrency           |
+| Integration | Observability events from gateway                     | Capture `AudioIngressEvent` via test observer, verify channel = "gateway"           |
+| Integration | Observability events from CLI                         | Capture `AudioIngressEvent` via test observer, verify channel = "cli"               |
+| Integration | Config validation accepts new channels                | `validate_audio_config()` with `["telegram", "gateway", "cli"]` — no warning        |
 
 ## Migration / Rollout
 
@@ -544,7 +556,8 @@ only new dependency and is acceptable for file upload support.
 ## Open Questions
 
 - [x] SSE vs JSON for gateway audio → **SSE** (decided, matches existing `/web/chat/stream`)
-- [x] CLI pipeline routing: Option A (pre-pipeline) vs Option B (full pipeline) → **Option B** (decided)
+- [x] CLI pipeline routing: Option A (pre-pipeline) vs Option B (full pipeline) → **Option B** (
+  decided)
 - [x] Nested router vs per-handler body limit → **Nested router** (decided)
 - [x] `stage_audio_from_bytes()` async vs sync → **Async** (decided, temp file write is I/O)
 - [ ] Should the gateway audio endpoint support chunked/resumable uploads for very large files?

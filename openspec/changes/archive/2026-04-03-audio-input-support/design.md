@@ -67,13 +67,13 @@ sequenceDiagram
 
 ### How Audio Diverges from the Image Pipeline
 
-| Aspect | Image Pipeline | Audio Pipeline |
-|--------|---------------|----------------|
-| Provider interaction | `ChatRequest { images: &[StagedImage] }` | No provider field — transcribed text injected as normal message |
-| Processing stage | Stage → provider dispatch | Stage → **local transcription** → text injection |
-| Route resolution | Requires `vision_model_hint` route | No route needed — transcription is pre-provider |
-| Config section | `[multimodal]` | `[audio]` (separate — different concerns) |
-| History metadata | `ImageHistoryMeta` (description populated post-response) | `AudioHistoryMeta` (transcription stored at ingestion) |
+| Aspect               | Image Pipeline                                           | Audio Pipeline                                                  |
+|----------------------|----------------------------------------------------------|-----------------------------------------------------------------|
+| Provider interaction | `ChatRequest { images: &[StagedImage] }`                 | No provider field — transcribed text injected as normal message |
+| Processing stage     | Stage → provider dispatch                                | Stage → **local transcription** → text injection                |
+| Route resolution     | Requires `vision_model_hint` route                       | No route needed — transcription is pre-provider                 |
+| Config section       | `[multimodal]`                                           | `[audio]` (separate — different concerns)                       |
+| History metadata     | `ImageHistoryMeta` (description populated post-response) | `AudioHistoryMeta` (transcription stored at ingestion)          |
 
 ### Integration with `process_channel_message()`
 
@@ -115,7 +115,8 @@ final text (including transcription) to retrieve relevant context.
 `audio_enabled`, `audio_allowed_channels`, `max_audio_bytes`).
 
 **Rationale**: Audio and image configs have fundamentally different concerns. Images need
-`vision_model_hint` for provider routing; audio needs `transcription_model`, `transcription_language`,
+`vision_model_hint` for provider routing; audio needs `transcription_model`,
+`transcription_language`,
 and `max_audio_duration_secs`. Combining them would create a bloated struct where half the fields
 are irrelevant per modality. An operator might enable images but not audio, or vice versa.
 Separate sections make independent toggling clean and self-documenting in TOML:
@@ -136,7 +137,9 @@ transcription_model = "base"
 **Choice**: whisper.cpp CLI wrapper (spawn external process).
 
 **Alternatives considered**:
-1. `whisper-rs` (Rust bindings to whisper.cpp C library) — adds ~5–10 MB binary, C/C++ build complexity
+
+1. `whisper-rs` (Rust bindings to whisper.cpp C library) — adds ~5–10 MB binary, C/C++ build
+   complexity
 2. `candle-whisper` (pure Rust) — experimental, slower, no GGML optimization
 
 **Rationale**: The robot-kit crate (`crates/robot-kit/src/listen.rs`, line 85) already uses this
@@ -154,7 +157,9 @@ provider `ChatRequest` struct is NOT modified.
 providers handle audio natively (like images).
 
 **Rationale**:
-1. **NFR1 (privacy)**: All transcription must be local. Passing audio to providers would violate this.
+
+1. **NFR1 (privacy)**: All transcription must be local. Passing audio to providers would violate
+   this.
 2. **Provider compatibility**: Most LLM providers don't accept audio input. Transcribing first makes
    audio work with every existing provider.
 3. **Simplicity**: No provider trait changes. The transcribed text flows through the existing text
@@ -166,6 +171,7 @@ providers handle audio natively (like images).
 **Choice**: `tokio::sync::Semaphore` with configurable permit count (default: 1).
 
 **Alternatives considered**:
+
 1. Unbounded — risk CPU overload with concurrent whisper processes
 2. Dedicated task queue with worker pool — over-engineered for Phase 1
 3. Mutex (one-at-a-time only) — too rigid, can't configure higher concurrency
@@ -180,7 +186,8 @@ scaling.
 
 **Choice**: New `src/channels/audio_media.rs` file.
 
-**Alternatives considered**: Adding audio types and functions to the existing `media.rs` (851 lines).
+**Alternatives considered**: Adding audio types and functions to the existing `media.rs` (851
+lines).
 
 **Rationale**: `media.rs` is already 851 lines focused entirely on image concerns. Adding audio
 types (5 new structs/enums + validation functions + tests) would push it past 1200+ lines and mix
@@ -599,15 +606,18 @@ fn resolve_model_path(model_name: &str) -> PathBuf {
 
 **Error handling**:
 
-| Error Condition | Detection | Result |
-|----------------|-----------|--------|
-| Binary not found | `Command::new()` returns `io::ErrorKind::NotFound` | `anyhow!("whisper-cli binary not found at '{path}'")` |
-| Model not found | `model_path.exists()` check before spawn | `anyhow!("Whisper model not found at '{path}'")` |
-| Process crash | Non-zero exit code | `anyhow!("whisper-cli exited with code {code}: {stderr}")` |
-| Timeout | `tokio::time::timeout` wrapping `wait_with_output` | `anyhow!("Transcription timed out after {n}s")` |
-| No speech | Empty or whitespace-only output text | Return `AudioRejectionReason::NoSpeechDetected` |
+| Error Condition  | Detection                                          | Result                                                     |
+|------------------|----------------------------------------------------|------------------------------------------------------------|
+| Binary not found | `Command::new()` returns `io::ErrorKind::NotFound` | `anyhow!("whisper-cli binary not found at '{path}'")`      |
+| Model not found  | `model_path.exists()` check before spawn           | `anyhow!("Whisper model not found at '{path}'")`           |
+| Process crash    | Non-zero exit code                                 | `anyhow!("whisper-cli exited with code {code}: {stderr}")` |
+| Timeout          | `tokio::time::timeout` wrapping `wait_with_output` | `anyhow!("Transcription timed out after {n}s")`            |
+| No speech        | Empty or whitespace-only output text               | Return `AudioRejectionReason::NoSpeechDetected`            |
 
-**Concurrency semaphore**: Constructed at runtime initialization from `AudioConfig::max_concurrent_transcriptions`. Stored in `WhisperCliTranscriber`. The semaphore permit is acquired in `transcribe()` and released automatically when the permit guard is dropped (even on error/panic).
+**Concurrency semaphore**: Constructed at runtime initialization from
+`AudioConfig::max_concurrent_transcriptions`. Stored in `WhisperCliTranscriber`. The semaphore
+permit is acquired in `transcribe()` and released automatically when the permit guard is dropped (
+even on error/panic).
 
 ## Audio Pipeline Stages (in `process_channel_message`)
 
@@ -809,17 +819,17 @@ pub audio: AudioConfig,
 
 ### Default Values
 
-| Field | Default | Rationale |
-|-------|---------|-----------|
-| `enabled` | `false` | Deny-by-default, matches multimodal pattern |
-| `allowed_channels` | `[]` | Explicit allowlist, no implicit channels |
-| `max_audio_bytes` | 26,214,400 (25 MiB) | Telegram max file size is 20 MB; 25 MiB gives headroom |
-| `max_audio_duration_secs` | 600 (10 min) | Reasonable limit for voice messages |
-| `transcription_model` | `"base"` | ~150 MB, good speed/quality balance for Spanish |
-| `transcription_language` | `"es"` | Primary use case language |
-| `whisper_binary` | `"whisper-cli"` | Standard whisper.cpp binary name |
-| `max_concurrent_transcriptions` | 1 | Conservative; prevents CPU overload |
-| `transcription_timeout_secs` | 120 | 2 minutes; whisper base processes 10 min audio in ~30s |
+| Field                           | Default             | Rationale                                              |
+|---------------------------------|---------------------|--------------------------------------------------------|
+| `enabled`                       | `false`             | Deny-by-default, matches multimodal pattern            |
+| `allowed_channels`              | `[]`                | Explicit allowlist, no implicit channels               |
+| `max_audio_bytes`               | 26,214,400 (25 MiB) | Telegram max file size is 20 MB; 25 MiB gives headroom |
+| `max_audio_duration_secs`       | 600 (10 min)        | Reasonable limit for voice messages                    |
+| `transcription_model`           | `"base"`            | ~150 MB, good speed/quality balance for Spanish        |
+| `transcription_language`        | `"es"`              | Primary use case language                              |
+| `whisper_binary`                | `"whisper-cli"`     | Standard whisper.cpp binary name                       |
+| `max_concurrent_transcriptions` | 1                   | Conservative; prevents CPU overload                    |
+| `transcription_timeout_secs`    | 120                 | 2 minutes; whisper base processes 10 min audio in ~30s |
 
 ### `corvus doctor` Checks
 
@@ -852,19 +862,19 @@ fn check_audio_config(config: &AudioConfig) -> Vec<DoctorWarning> {
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `src/channels/traits.rs` | Modify | Add `ContentPart::Audio` variant; add `has_audio_parts()`, `audio_parts()` helpers; update `text_projection()` for Audio captions |
-| `src/channels/audio_media.rs` | **Create** | `AllowedAudioMime`, `AudioRejectionReason`, `StagedAudio`, `AudioHistoryMeta`, `validate_audio_mime()`, `validate_audio_size()`, `stream_validate_and_stage_audio()` |
-| `src/channels/mod.rs` | Modify | Add `pub mod audio_media`; add `StagedAudioGuard`; add `gate_audio_config()`, `gate_and_stage_audio()`, `transcribe_audio()`, `inject_transcription()`; wire into `process_channel_message()` |
-| `src/channels/telegram.rs` | Modify | Parse `message.voice` and `message.audio` in `build_telegram_content_parts()`; add `fetch_and_stage_audio()` method |
-| `src/transcription/mod.rs` | **Create** | Module exports (`pub mod traits; pub mod whisper_cli;`) |
-| `src/transcription/traits.rs` | **Create** | `Transcriber` trait, `TranscriptionResult` struct |
-| `src/transcription/whisper_cli.rs` | **Create** | `WhisperCliTranscriber` struct, `Transcriber` impl, model path resolution, process spawning, output parsing |
-| `src/config/schema.rs` | Modify | Add `AudioConfig` struct with defaults; add `pub audio: AudioConfig` to `Config` |
-| `src/config/validation.rs` | Modify | Add startup validation for `[audio]` section (valid channel names, sane limits) |
-| `src/observability/traits.rs` | Modify | Add `AudioIngressOutcome`, `AudioIngressReason`, `AudioIngressEvent`, `ObserverEvent::AudioIngress`, `on_audio_ingress()` |
-| `src/lib.rs` | Modify | Add `pub mod transcription;` (line ~65, after `pub mod tools;`) |
+| File                               | Action     | Description                                                                                                                                                                                   |
+|------------------------------------|------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `src/channels/traits.rs`           | Modify     | Add `ContentPart::Audio` variant; add `has_audio_parts()`, `audio_parts()` helpers; update `text_projection()` for Audio captions                                                             |
+| `src/channels/audio_media.rs`      | **Create** | `AllowedAudioMime`, `AudioRejectionReason`, `StagedAudio`, `AudioHistoryMeta`, `validate_audio_mime()`, `validate_audio_size()`, `stream_validate_and_stage_audio()`                          |
+| `src/channels/mod.rs`              | Modify     | Add `pub mod audio_media`; add `StagedAudioGuard`; add `gate_audio_config()`, `gate_and_stage_audio()`, `transcribe_audio()`, `inject_transcription()`; wire into `process_channel_message()` |
+| `src/channels/telegram.rs`         | Modify     | Parse `message.voice` and `message.audio` in `build_telegram_content_parts()`; add `fetch_and_stage_audio()` method                                                                           |
+| `src/transcription/mod.rs`         | **Create** | Module exports (`pub mod traits; pub mod whisper_cli;`)                                                                                                                                       |
+| `src/transcription/traits.rs`      | **Create** | `Transcriber` trait, `TranscriptionResult` struct                                                                                                                                             |
+| `src/transcription/whisper_cli.rs` | **Create** | `WhisperCliTranscriber` struct, `Transcriber` impl, model path resolution, process spawning, output parsing                                                                                   |
+| `src/config/schema.rs`             | Modify     | Add `AudioConfig` struct with defaults; add `pub audio: AudioConfig` to `Config`                                                                                                              |
+| `src/config/validation.rs`         | Modify     | Add startup validation for `[audio]` section (valid channel names, sane limits)                                                                                                               |
+| `src/observability/traits.rs`      | Modify     | Add `AudioIngressOutcome`, `AudioIngressReason`, `AudioIngressEvent`, `ObserverEvent::AudioIngress`, `on_audio_ingress()`                                                                     |
+| `src/lib.rs`                       | Modify     | Add `pub mod transcription;` (line ~65, after `pub mod tools;`)                                                                                                                               |
 
 ## Interfaces / Contracts
 
@@ -913,24 +923,24 @@ transcription_timeout_secs = 120   # u64, default 120
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | `AllowedAudioMime::from_mime_str()` round-trip | Direct assertion tests in `audio_media.rs` |
-| Unit | `validate_audio_mime()` magic byte sniffing (OGG, MP3, WAV, M4A) | Test with real magic bytes and garbage bytes |
-| Unit | `validate_audio_size()` boundary cases | Same pattern as `validate_size()` tests in `media.rs` |
-| Unit | `AudioRejectionReason` Display impl | String equality checks for all variants |
-| Unit | `AudioHistoryMeta::to_context_string()` | Formatting assertions |
-| Unit | `ContentPart::Audio` in `text_projection()` | Caption inclusion, empty handling |
-| Unit | `has_audio_parts()` / `audio_parts()` helpers | Same pattern as image helper tests in `traits.rs` |
-| Unit | `build_telegram_content_parts()` with voice JSON | Mock Telegram voice message JSON |
-| Unit | `build_telegram_content_parts()` with audio JSON | Mock Telegram audio message JSON |
-| Unit | `WhisperCliTranscriber` output parsing | Mock whisper output text file |
-| Unit | `AudioConfig` default values | Serde deserialization of empty `[audio]` section |
-| Integration | `gate_audio_config()` enabled/disabled/channel filtering | With mock context |
-| Integration | Full Telegram voice note → transcription → text injection | With mock whisper binary (shell script returning known text) |
-| Integration | Semaphore concurrency limiting | Spawn multiple transcribe calls, verify serial execution |
-| Integration | RAII cleanup (`StagedAudioGuard`) | Verify temp files deleted on drop |
-| Integration | Observability events emitted correctly | Capture events via test observer |
+| Layer       | What to Test                                                     | Approach                                                     |
+|-------------|------------------------------------------------------------------|--------------------------------------------------------------|
+| Unit        | `AllowedAudioMime::from_mime_str()` round-trip                   | Direct assertion tests in `audio_media.rs`                   |
+| Unit        | `validate_audio_mime()` magic byte sniffing (OGG, MP3, WAV, M4A) | Test with real magic bytes and garbage bytes                 |
+| Unit        | `validate_audio_size()` boundary cases                           | Same pattern as `validate_size()` tests in `media.rs`        |
+| Unit        | `AudioRejectionReason` Display impl                              | String equality checks for all variants                      |
+| Unit        | `AudioHistoryMeta::to_context_string()`                          | Formatting assertions                                        |
+| Unit        | `ContentPart::Audio` in `text_projection()`                      | Caption inclusion, empty handling                            |
+| Unit        | `has_audio_parts()` / `audio_parts()` helpers                    | Same pattern as image helper tests in `traits.rs`            |
+| Unit        | `build_telegram_content_parts()` with voice JSON                 | Mock Telegram voice message JSON                             |
+| Unit        | `build_telegram_content_parts()` with audio JSON                 | Mock Telegram audio message JSON                             |
+| Unit        | `WhisperCliTranscriber` output parsing                           | Mock whisper output text file                                |
+| Unit        | `AudioConfig` default values                                     | Serde deserialization of empty `[audio]` section             |
+| Integration | `gate_audio_config()` enabled/disabled/channel filtering         | With mock context                                            |
+| Integration | Full Telegram voice note → transcription → text injection        | With mock whisper binary (shell script returning known text) |
+| Integration | Semaphore concurrency limiting                                   | Spawn multiple transcribe calls, verify serial execution     |
+| Integration | RAII cleanup (`StagedAudioGuard`)                                | Verify temp files deleted on drop                            |
+| Integration | Observability events emitted correctly                           | Capture events via test observer                             |
 
 ## Migration / Rollout
 
@@ -968,9 +978,14 @@ src/
 ## Open Questions
 
 - [x] Audio config: separate `[audio]` or under `[multimodal]`? → **Separate `[audio]`** (decided)
-- [x] Transcriber location: `src/transcription/` or `src/providers/`? → **`src/transcription/`** (decided)
+- [x] Transcriber location: `src/transcription/` or `src/providers/`? → **`src/transcription/`** (
+  decided)
 - [x] Transcription timing: sync or async? → **Synchronous within message processing** (decided)
-- [ ] Should `whisper-cli` be the default binary name or `whisper` or `main` (whisper.cpp build output varies by platform)?
-  Recommendation: default to `whisper-cli` which is the standard name in recent whisper.cpp releases; allow override via config.
-- [ ] Should audio transcription text be prefixed with `[Voice message]:` or `[Audio transcription]:` in the injected text?
-  Recommendation: `[Voice message transcription]:` for voice notes, `[Audio transcription]:` for uploaded audio files — distinguishes the origin for the agent.
+- [ ] Should `whisper-cli` be the default binary name or `whisper` or `main` (whisper.cpp build
+  output varies by platform)?
+  Recommendation: default to `whisper-cli` which is the standard name in recent whisper.cpp
+  releases; allow override via config.
+- [ ] Should audio transcription text be prefixed with `[Voice message]:` or
+  `[Audio transcription]:` in the injected text?
+  Recommendation: `[Voice message transcription]:` for voice notes, `[Audio transcription]:` for
+  uploaded audio files — distinguishes the origin for the agent.

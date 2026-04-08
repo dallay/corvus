@@ -24,6 +24,7 @@ runtime-backed facade, but a truthful end-to-end mobile smoke run still cannot b
 -
 
 `clients/composeApp/src/androidMain/kotlin/com/profiletailors/corvus/runtime/PlatformRuntimeDependencies.android.kt:16-22`
+
 - real launch uses `AndroidRuntimeBridge(...)` when `initialBridgeSnapshot` is null
 
 #### iOS
@@ -33,6 +34,7 @@ runtime-backed facade, but a truthful end-to-end mobile smoke run still cannot b
 -
 
 `clients/composeApp/src/iosMain/kotlin/com/profiletailors/corvus/runtime/PlatformRuntimeDependencies.ios.kt:13-16`
+
 - real launch constructs `IosRuntimeBridge(...)` when not in preview mode
 
 This clears the earlier preview-wiring blocker, but it does **not** make the milestone smoke
@@ -68,11 +70,13 @@ Relevant code:
 -
 
 `clients/composeApp/src/androidMain/kotlin/com/profiletailors/corvus/runtime/AndroidRuntimeBridge.kt:7-12`
+
 - bridge expects an executable path and invokes it with `ProcessBuilder`
 
 -
 
 `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/runtime/PackagedRuntimeExecutable.kt:3-10`
+
 - runtime selection prefers `libcorvus.so` when present
 
 **Result:** Android does not yet provide a real mobile runtime artifact that can satisfy link ->
@@ -132,18 +136,21 @@ Evidence:
 -
 
 `clients/composeApp/src/iosMain/kotlin/com/profiletailors/corvus/runtime/IosRuntimeBridge.kt:23-29`
+
 - installer API exists: `installIosRuntimeCompanionClient(...)`
 
 - repository search finds no call sites for `installIosRuntimeCompanionClient(...)`
 -
 
 `clients/composeApp/src/iosMain/kotlin/com/profiletailors/corvus/runtime/PlatformRuntimeDependencies.ios.kt:7,14-16`
+
 - runtime creation falls back to `MissingInfrastructureIosRuntimeCompanionClient()` when no
-client is installed
+  client is installed
 
 -
 
 `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/runtime/IosRuntimeCompanionDiagnostics.kt:3-13`
+
 - diagnostics explicitly state:
 - `no companion IPC transport client exists in this repository`
 - `no embedded Rust FFI bridge exists in this repository`

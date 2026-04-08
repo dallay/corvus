@@ -28,15 +28,19 @@ pub enum ContentPart {
 }
 ```
 
-`ChannelMessage` carries `parts: Vec<ContentPart>` as the canonical multimodal payload. Helper methods exist: `text_projection()`, `has_image_parts()`, `image_parts()`. These are image-specific and will need audio counterparts.
+`ChannelMessage` carries `parts: Vec<ContentPart>` as the canonical multimodal payload. Helper
+methods exist: `text_projection()`, `has_image_parts()`, `image_parts()`. These are image-specific
+and will need audio counterparts.
 
-**Key insight**: Audio needs a new `ContentPart::Audio { .. }` variant. Unlike `Image`, audio will NOT be forwarded to the provider — it's transcribed to text pre-loop.
+**Key insight**: Audio needs a new `ContentPart::Audio { .. }` variant. Unlike `Image`, audio will
+NOT be forwarded to the provider — it's transcribed to text pre-loop.
 
 ### 1.2 Media Module (Shared Validation)
 
 **File**: `src/channels/media.rs` (851 lines)
 
 Contains the image pipeline infrastructure:
+
 - `AllowedImageMime` — enum for MIME validation via magic-byte sniffing
 - `ImageRejectionReason` — 10-variant error enum with `thiserror`
 - `StagedImage` — validated image ready for provider dispatch, with RAII cleanup
@@ -45,7 +49,9 @@ Contains the image pipeline infrastructure:
 - `validate_size()` — byte limit validation
 - `stream_validate_and_stage()` — shared HTTP response → staged file pipeline
 
-**Reuse opportunity**: The `stream_validate_and_stage()` pattern is directly applicable for audio. We need an `AllowedAudioMime`, `AudioRejectionReason`, `StagedAudio`, and `AudioHistoryMeta` following the same patterns.
+**Reuse opportunity**: The `stream_validate_and_stage()` pattern is directly applicable for audio.
+We need an `AllowedAudioMime`, `AudioRejectionReason`, `StagedAudio`, and `AudioHistoryMeta`
+following the same patterns.
 
 ### 1.3 StagedImageGuard (RAII Cleanup)
 
@@ -83,6 +89,7 @@ Channel.listen() → parse message → build ContentPart::Image
 ```
 
 **Critical difference for audio**: Audio does NOT go to the provider. The pipeline must:
+
 1. Parse `ContentPart::Audio` from channel
 2. Gate audio config (enabled, allowed channels)
 3. Fetch + stage audio file
@@ -103,19 +110,22 @@ pub struct ChatRequest<'a> {
 }
 ```
 
-Audio does NOT need a field here — transcription happens before provider dispatch. The transcribed text is injected as a normal user message.
+Audio does NOT need a field here — transcription happens before provider dispatch. The transcribed
+text is injected as a normal user message.
 
 ### 1.6 Observability Pattern
 
 **File**: `src/observability/traits.rs`
 
 Image ingress has a full observability contract:
+
 - `ImageIngressOutcome` (Admitted, Rejected, ProviderSent, ProviderError)
 - `ImageIngressReason` (Disabled, ChannelNotAllowed, MimeRejected, Oversize, etc.)
 - `ImageIngressEvent` struct
 - `Observer::on_image_ingress()` method
 
-We need an equivalent `AudioIngressOutcome`, `AudioIngressReason`, `AudioIngressEvent`, and `Observer::on_audio_ingress()`.
+We need an equivalent `AudioIngressOutcome`, `AudioIngressReason`, `AudioIngressEvent`, and
+`Observer::on_audio_ingress()`.
 
 ### 1.7 Config Structure
 
@@ -131,6 +141,7 @@ pub struct MultimodalConfig {
 ```
 
 Audio needs a separate config section (e.g., `AudioConfig` or extending `MultimodalConfig`):
+
 - `audio_enabled: bool`
 - `audio_allowed_channels: Vec<String>`
 - `max_audio_bytes: Option<u64>` (default 25 MiB)
@@ -144,29 +155,29 @@ Audio needs a separate config section (e.g., `AudioConfig` or extending `Multimo
 
 ### What Can Be Reused
 
-| Component | Reuse Level | Notes |
-|-----------|------------|-------|
-| `ContentPart` enum | Extend | Add `Audio` variant |
-| `ChannelMessage` helpers | Mirror | Add `has_audio_parts()`, `audio_parts()` |
-| `media.rs` validation pattern | Mirror | New `AllowedAudioMime`, `validate_audio_mime()` |
-| `stream_validate_and_stage()` | Fork/adapt | Audio needs duration check, different MIME sniffing |
-| `StagedImageGuard` RAII | Mirror | `StagedAudioGuard` |
-| Config gating pattern | Mirror | `gate_audio_config()` |
-| Observability events | Mirror | `AudioIngressEvent` |
-| Telegram `getFile` download | Reuse directly | Same API for voice/audio files |
-| History metadata pattern | Mirror | `AudioHistoryMeta` |
+| Component                     | Reuse Level    | Notes                                               |
+|-------------------------------|----------------|-----------------------------------------------------|
+| `ContentPart` enum            | Extend         | Add `Audio` variant                                 |
+| `ChannelMessage` helpers      | Mirror         | Add `has_audio_parts()`, `audio_parts()`            |
+| `media.rs` validation pattern | Mirror         | New `AllowedAudioMime`, `validate_audio_mime()`     |
+| `stream_validate_and_stage()` | Fork/adapt     | Audio needs duration check, different MIME sniffing |
+| `StagedImageGuard` RAII       | Mirror         | `StagedAudioGuard`                                  |
+| Config gating pattern         | Mirror         | `gate_audio_config()`                               |
+| Observability events          | Mirror         | `AudioIngressEvent`                                 |
+| Telegram `getFile` download   | Reuse directly | Same API for voice/audio files                      |
+| History metadata pattern      | Mirror         | `AudioHistoryMeta`                                  |
 
 ### What Needs New Work
 
-| Component | Reason |
-|-----------|--------|
-| `Transcriber` trait | New extension point for STT engines |
-| Audio MIME sniffing | Different magic bytes (OGG, MP3, WAV, M4A) |
-| Duration validation | Images don't have duration; audio needs ffprobe or header parsing |
-| Transcription pipeline stage | New: between staging and agent loop |
-| Audio-to-text injection | New: replace Audio part with Text part containing transcription |
-| Whisper.cpp integration | New Rust binding or CLI wrapper |
-| Model management | Download, cache, and locate whisper models |
+| Component                    | Reason                                                            |
+|------------------------------|-------------------------------------------------------------------|
+| `Transcriber` trait          | New extension point for STT engines                               |
+| Audio MIME sniffing          | Different magic bytes (OGG, MP3, WAV, M4A)                        |
+| Duration validation          | Images don't have duration; audio needs ffprobe or header parsing |
+| Transcription pipeline stage | New: between staging and agent loop                               |
+| Audio-to-text injection      | New: replace Audio part with Text part containing transcription   |
+| Whisper.cpp integration      | New Rust binding or CLI wrapper                                   |
+| Model management             | Download, cache, and locate whisper models                        |
 
 ---
 
@@ -177,32 +188,42 @@ Audio needs a separate config section (e.g., `AudioConfig` or extending `Multimo
 **File**: `src/channels/telegram.rs` (3241 lines)
 
 **Current state**:
+
 - `build_telegram_content_parts()` (line 21) parses `photo` and `document` (image MIME only)
-- Voice notes (`voice` field) and audio files (`audio` field) are **completely ignored** — messages with only voice/audio return empty parts → `parse_update_message()` returns `None` (line 886–888)
+- Voice notes (`voice` field) and audio files (`audio` field) are **completely ignored** — messages
+  with only voice/audio return empty parts → `parse_update_message()` returns `None` (line 886–888)
 - Telegram already has `send_voice()` and `send_audio()` for outbound (lines 1255–1338)
-- `fetch_and_stage_image()` (line 1566) uses `getFile` → download URL → stream validate — **this pattern works for audio too**, just different MIME validation
+- `fetch_and_stage_image()` (line 1566) uses `getFile` → download URL → stream validate — **this
+  pattern works for audio too**, just different MIME validation
 - `TelegramAttachmentKind` enum (line 177) already has `Audio` and `Voice` variants
 
 **What needs to change**:
-- Add voice/audio parsing to `build_telegram_content_parts()`: check `message.voice` and `message.audio` fields
+
+- Add voice/audio parsing to `build_telegram_content_parts()`: check `message.voice` and
+  `message.audio` fields
 - Telegram voice notes are always OGG/Opus; audio files have `mime_type` field
 - Add `fetch_and_stage_audio()` method (similar to `fetch_and_stage_image()`)
 
 **Telegram API reference**:
-- Voice note: `{ "voice": { "file_id": "...", "file_unique_id": "...", "duration": 5, "mime_type": "audio/ogg", "file_size": 12345 } }`
-- Audio file: `{ "audio": { "file_id": "...", "duration": 120, "mime_type": "audio/mpeg", "file_size": 500000, "title": "...", "performer": "..." } }`
+
+- Voice note:
+  `{ "voice": { "file_id": "...", "file_unique_id": "...", "duration": 5, "mime_type": "audio/ogg", "file_size": 12345 } }`
+- Audio file:
+  `{ "audio": { "file_id": "...", "duration": 120, "mime_type": "audio/mpeg", "file_size": 500000, "title": "...", "performer": "..." } }`
 
 ### 3.2 HTTP Gateway
 
 **File**: `src/gateway/mod.rs` (6016 lines)
 
 **Current state**:
+
 - `POST /web/chat/stream` accepts JSON body (`WebhookJsonBody`) with a `message` string field
 - No multipart support — all payloads are JSON
 - The gateway dispatches via `webhook_dispatch::execute()` which takes a text message
 - Body limit is 64KB (line 7) — far too small for audio
 
 **What needs to change**:
+
 - Add a new endpoint: `POST /web/chat/audio` accepting `multipart/form-data`
 - Fields: `audio` (file), `session_id` (optional), `language` (optional)
 - Increase body limit for this endpoint only (25 MiB)
@@ -214,10 +235,12 @@ Audio needs a separate config section (e.g., `AudioConfig` or extending `Multimo
 **File**: `src/channels/cli.rs` (136 lines)
 
 **Current state**:
+
 - Reads lines from stdin, creates text-only `ChannelMessage`
 - No file path handling at all
 
 **What needs to change**:
+
 - Detect a special prefix (e.g., `/audio <path>` or `@audio:<path>`)
 - Read the local file, validate format/size/duration
 - Stage as `StagedAudio`, transcribe, inject text
@@ -229,32 +252,37 @@ Audio needs a separate config section (e.g., `AudioConfig` or extending `Multimo
 
 ### NFR1: No External Third-Party Services
 
-All processing MUST be local. This eliminates cloud APIs (OpenAI Whisper API, Google STT, AWS Transcribe).
+All processing MUST be local. This eliminates cloud APIs (OpenAI Whisper API, Google STT, AWS
+Transcribe).
 
 ### Candidates
 
-| Engine | Type | Spanish Quality | Binary Size Impact | Memory | Startup | Maturity |
-|--------|------|----------------|-------------------|--------|---------|----------|
-| **whisper.cpp (CLI)** | External binary | Excellent (multilingual) | None (separate binary) | 500MB–1.5GB (model) | Fast (pre-loaded) | Very mature |
-| **whisper-rs** | Rust bindings to whisper.cpp | Excellent | +5–10MB (C lib) | 500MB–1.5GB (model) | ~2s model load | Mature |
-| **candle-whisper** | Pure Rust via candle ML | Good | +15–20MB | 500MB–1.5GB (model) | Slower (no GGML optimization) | Experimental |
-| **vosk-rs** | Rust bindings to Vosk | Good for Spanish | +20MB (C++ lib) | 50–300MB (model) | Fast | Mature |
+| Engine                | Type                         | Spanish Quality          | Binary Size Impact     | Memory              | Startup                       | Maturity     |
+|-----------------------|------------------------------|--------------------------|------------------------|---------------------|-------------------------------|--------------|
+| **whisper.cpp (CLI)** | External binary              | Excellent (multilingual) | None (separate binary) | 500MB–1.5GB (model) | Fast (pre-loaded)             | Very mature  |
+| **whisper-rs**        | Rust bindings to whisper.cpp | Excellent                | +5–10MB (C lib)        | 500MB–1.5GB (model) | ~2s model load                | Mature       |
+| **candle-whisper**    | Pure Rust via candle ML      | Good                     | +15–20MB               | 500MB–1.5GB (model) | Slower (no GGML optimization) | Experimental |
+| **vosk-rs**           | Rust bindings to Vosk        | Good for Spanish         | +20MB (C++ lib)        | 50–300MB (model)    | Fast                          | Mature       |
 
 ### Recommendation: whisper.cpp CLI (Phase 1) → whisper-rs (Phase 2)
 
 **Phase 1 — whisper.cpp CLI wrapper** (like robot-kit already does):
-- The robot-kit crate (`crates/robot-kit/src/listen.rs`, line 70) already uses whisper.cpp as an external binary
+
+- The robot-kit crate (`crates/robot-kit/src/listen.rs`, line 70) already uses whisper.cpp as an
+  external binary
 - Zero additional Rust dependencies — no binary size impact
 - Operator installs whisper.cpp + model separately (documented in setup)
 - Proven pattern already in the codebase
 - Best Spanish quality via multilingual models
 
 **Phase 2 — whisper-rs integration** (optional future):
+
 - Embed whisper.cpp as a Rust library for zero external dependencies
 - Feature-gated (`--features audio-transcription`) to avoid binary bloat for users who don't need it
 - Adds ~5–10MB to binary but removes external dependency
 
 **Model strategy**:
+
 - Default model: `base` (~150MB, good speed/quality for Spanish)
 - Models stored in `~/.corvus/models/whisper/`
 - `corvus doctor` checks for model availability
@@ -354,7 +382,8 @@ pub struct AudioHistoryMeta {
 
 ### 5.4 Pipeline Insertion Point
 
-In `process_channel_message()` (`src/channels/mod.rs`, line 604), audio processing inserts **between** `extract_user_text()` and `enrich_with_memory()`:
+In `process_channel_message()` (`src/channels/mod.rs`, line 604), audio processing inserts **between
+** `extract_user_text()` and `enrich_with_memory()`:
 
 ```text
 extract_user_text()
@@ -386,34 +415,45 @@ src/
 
 ### Risks
 
-1. **Binary size (Medium)**: whisper-rs would add ~5–10MB. Mitigated by using CLI wrapper in Phase 1 and feature-gating in Phase 2.
+1. **Binary size (Medium)**: whisper-rs would add ~5–10MB. Mitigated by using CLI wrapper in Phase 1
+   and feature-gating in Phase 2.
 
-2. **Model distribution (Medium)**: Whisper models are 150MB–3GB. Operator must download separately. Need clear `corvus doctor` check and setup docs.
+2. **Model distribution (Medium)**: Whisper models are 150MB–3GB. Operator must download separately.
+   Need clear `corvus doctor` check and setup docs.
 
-3. **Memory footprint (Medium)**: Whisper model inference uses 500MB–1.5GB RAM. On constrained devices (Raspberry Pi), this could be an issue. Consider model size recommendations per platform.
+3. **Memory footprint (Medium)**: Whisper model inference uses 500MB–1.5GB RAM. On constrained
+   devices (Raspberry Pi), this could be an issue. Consider model size recommendations per platform.
 
-4. **OGG/Opus duration parsing (Low)**: Getting duration from OGG headers is non-trivial without a dependency. Options: (a) trust Telegram's `duration` field, (b) let whisper.cpp report it, (c) add an `ogg` crate.
+4. **OGG/Opus duration parsing (Low)**: Getting duration from OGG headers is non-trivial without a
+   dependency. Options: (a) trust Telegram's `duration` field, (b) let whisper.cpp report it, (c)
+   add an `ogg` crate.
 
-5. **Concurrent transcription (Medium)**: Whisper is CPU-intensive. Multiple simultaneous audio messages could overwhelm the system. Need a transcription semaphore or queue.
+5. **Concurrent transcription (Medium)**: Whisper is CPU-intensive. Multiple simultaneous audio
+   messages could overwhelm the system. Need a transcription semaphore or queue.
 
-6. **Audio format conversion (Low)**: whisper.cpp natively supports WAV 16kHz mono. OGG/Opus and M4A may need conversion. `ffmpeg` or `sox` could be required as an external dependency.
+6. **Audio format conversion (Low)**: whisper.cpp natively supports WAV 16kHz mono. OGG/Opus and M4A
+   may need conversion. `ffmpeg` or `sox` could be required as an external dependency.
 
 ### Open Questions
 
 1. **Should audio config be a separate TOML section or nested under `[multimodal]`?**
-   - Recommendation: Separate `[audio]` section — audio has different concerns (transcription model, language, duration limits) vs images (vision route, provider routing).
+    - Recommendation: Separate `[audio]` section — audio has different concerns (transcription
+      model, language, duration limits) vs images (vision route, provider routing).
 
 2. **Should the Transcriber trait live under `src/transcription/` or `src/providers/`?**
-   - Recommendation: New `src/transcription/` module — it's not a provider (doesn't do LLM inference), it's a preprocessing stage.
+    - Recommendation: New `src/transcription/` module — it's not a provider (doesn't do LLM
+      inference), it's a preprocessing stage.
 
 3. **What's the error UX for "whisper not installed"?**
-   - Recommendation: `corvus doctor` warns. At runtime, audio messages get a friendly "Audio transcription is not available on this agent. Please send text instead." reply.
+    - Recommendation: `corvus doctor` warns. At runtime, audio messages get a friendly "Audio
+      transcription is not available on this agent. Please send text instead." reply.
 
 4. **Should transcription be synchronous (block the message) or async (reply when ready)?**
-   - Recommendation: Synchronous within the message processing timeout (300s). Transcription of a 10-min audio takes ~30s on decent hardware with base model.
+    - Recommendation: Synchronous within the message processing timeout (300s). Transcription of a
+      10-min audio takes ~30s on decent hardware with base model.
 
 5. **Should we support audio in the config `allowed_channels` separately from images?**
-   - Yes. An operator might enable image input for Telegram but not audio (or vice versa).
+    - Yes. An operator might enable image input for Telegram but not audio (or vice versa).
 
 ---
 
@@ -422,15 +462,16 @@ src/
 ### Approach: Incremental Extension of Existing Multimodal Pipeline
 
 1. **Add `ContentPart::Audio` variant** — extends the existing enum, follows the image precedent
-2. **Create `src/channels/audio_media.rs`** — audio-specific validation, MIME sniffing, staging (mirrors `media.rs`)
+2. **Create `src/channels/audio_media.rs`** — audio-specific validation, MIME sniffing, staging (
+   mirrors `media.rs`)
 3. **Create `src/transcription/` module** — `Transcriber` trait + whisper.cpp CLI implementation
-4. **Extend Telegram channel** — parse `voice` and `audio` fields in `build_telegram_content_parts()`
+4. **Extend Telegram channel** — parse `voice` and `audio` fields in
+   `build_telegram_content_parts()`
 5. **Add audio pipeline stages in `mod.rs`** — gate, stage, transcribe, inject text
 6. **Add `[audio]` config section** — separate from multimodal image config
 7. **Add audio observability** — `AudioIngressEvent`, `on_audio_ingress()`
 8. **HTTP Gateway** — new `POST /web/chat/audio` multipart endpoint
 9. **CLI** — `/audio <path>` command for local file transcription
-
 
 ### Phase 1 Scope (MVP)
 
@@ -440,14 +481,12 @@ src/
 - Audio observability events
 - 6 error types from PRD
 
-
 ### Phase 2 (Follow-up)
 
 - HTTP Gateway multipart endpoint
 - CLI `/audio` command
 - whisper-rs embedded (feature-gated)
 - Model auto-download
-
 
 ### Effort Estimate
 
@@ -458,6 +497,9 @@ src/
 
 ## Ready for Proposal
 
-**Yes** — the codebase investigation is complete. The image multimodal pipeline provides a clear precedent for all audio pipeline components. The transcription engine choice (whisper.cpp CLI) is proven in the robot-kit crate. All extension points are identified with exact file paths and line numbers.
+**Yes** — the codebase investigation is complete. The image multimodal pipeline provides a clear
+precedent for all audio pipeline components. The transcription engine choice (whisper.cpp CLI) is
+proven in the robot-kit crate. All extension points are identified with exact file paths and line
+numbers.
 
 The orchestrator should proceed to `sdd-propose` to formalize scope, approach, and rollback plan.

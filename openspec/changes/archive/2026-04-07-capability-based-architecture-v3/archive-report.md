@@ -6,11 +6,14 @@
 
 ## Specs Synced
 
-- `openspec/specs/capability-architecture/spec.md` — created from the verified change-scoped capability architecture spec as the new canonical source of truth.
+- `openspec/specs/capability-architecture/spec.md` — created from the verified change-scoped
+  capability architecture spec as the new canonical source of truth.
 
 ## Canonical Promotion Decision
 
-Canonical promotion is now complete during archive. This is the correct final source-of-truth action because:
+Canonical promotion is now complete during archive. This is the correct final source-of-truth action
+because:
+
 - verify passed with no critical issues,
 - the change delivers a standalone architecture contract spec,
 - and promotion at archive preserves the M1 intent without implying pre-verify runtime adoption.

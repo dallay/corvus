@@ -2,69 +2,96 @@
 
 ## Technical Approach
 
-This M1 change defines a capability-descriptor architecture layer **without** changing the current Rust runtime behavior. The design introduces a contract model that sits **alongside** the existing trait-based runtime seams (`Provider`, `Tool`, `Channel`, `Memory`, `Observer`, `RuntimeAdapter`) rather than replacing them.
+This M1 change defines a capability-descriptor architecture layer **without** changing the current
+Rust runtime behavior. The design introduces a contract model that sits **alongside** the existing
+trait-based runtime seams (`Provider`, `Tool`, `Channel`, `Memory`, `Observer`, `RuntimeAdapter`)
+rather than replacing them.
 
 The immediate goal is to separate:
-- **descriptor concerns**: identity, family, dependency intent, lifecycle intent, security intent, compatibility intent
-- **implementation concerns**: actual Rust traits, factories, bootstrap wiring, dispatcher behavior, channel loops, and gateway execution
+
+- **descriptor concerns**: identity, family, dependency intent, lifecycle intent, security intent,
+  compatibility intent
+- **implementation concerns**: actual Rust traits, factories, bootstrap wiring, dispatcher behavior,
+  channel loops, and gateway execution
 
 This maps directly to the proposal and spec:
+
 - the runtime remains bootstrap/factory/dispatcher-driven in M1,
 - capability descriptors become the future contract source of truth,
-- and later phases adopt the contract in controlled steps: registration first, resolution second, execution third.
+- and later phases adopt the contract in controlled steps: registration first, resolution second,
+  execution third.
 
 ## Architecture Decisions
 
 ### Decision: Descriptors are contracts, not runtime implementations
 
-**Choice**: Model capabilities as metadata-bearing contract descriptors that reference or describe existing runtime implementations, but do not replace those implementations in M1.
+**Choice**: Model capabilities as metadata-bearing contract descriptors that reference or describe
+existing runtime implementations, but do not replace those implementations in M1.
 
 **Alternatives considered**:
+
 - Treat existing trait objects as the capability model directly.
 - Introduce a new runtime abstraction layer and immediately route execution through it.
 
-**Rationale**: The current runtime is already trait-driven, but the coupling problem is not missing indirection; it is missing a shared contract model. Making descriptors the contract layer avoids fake progress while preserving existing runtime stability.
+**Rationale**: The current runtime is already trait-driven, but the coupling problem is not missing
+indirection; it is missing a shared contract model. Making descriptors the contract layer avoids
+fake progress while preserving existing runtime stability.
 
 ### Decision: Preserve family boundaries explicitly
 
-**Choice**: Keep provider, tool, channel, memory, observer, runtime, and security-policy-related concerns as separate capability families under one shared descriptor schema.
+**Choice**: Keep provider, tool, channel, memory, observer, runtime, and security-policy-related
+concerns as separate capability families under one shared descriptor schema.
 
 **Alternatives considered**:
+
 - Define one generic `Capability` type with minimal specialization.
 - Restrict v3 to tools only.
 
-**Rationale**: One generic type would erase meaningful differences in lifecycle, security, and execution semantics. Tools-only would be too narrow for the stated v3 architecture goal. Family boundaries preserve clarity while still allowing a shared contract.
+**Rationale**: One generic type would erase meaningful differences in lifecycle, security, and
+execution semantics. Tools-only would be too narrow for the stated v3 architecture goal. Family
+boundaries preserve clarity while still allowing a shared contract.
 
 ### Decision: Keep M1 behaviorally inert
 
-**Choice**: M1 produces only artifacts (`proposal.md`, spec, `design.md`) and does not require registry behavior, dependency resolution, or execution changes.
+**Choice**: M1 produces only artifacts (`proposal.md`, spec, `design.md`) and does not require
+registry behavior, dependency resolution, or execution changes.
 
 **Alternatives considered**:
+
 - Add a prototype registry during M1.
 - Start migrating bootstrap/factories immediately.
 
-**Rationale**: The exploration showed strong coupling in `bootstrap/mod.rs`, `agent/agent.rs`, `channels/mod.rs`, and `gateway/mod.rs`. Changing execution before settling the contract would increase migration and security risk.
+**Rationale**: The exploration showed strong coupling in `bootstrap/mod.rs`, `agent/agent.rs`,
+`channels/mod.rs`, and `gateway/mod.rs`. Changing execution before settling the contract would
+increase migration and security risk.
 
 ### Decision: Use descriptive registration as the first implementation seam
 
-**Choice**: M2 should wrap capability-like surfaces first, especially native tools plus MCP tools/resources/prompts, before any broader runtime inversion.
+**Choice**: M2 should wrap capability-like surfaces first, especially native tools plus MCP
+tools/resources/prompts, before any broader runtime inversion.
 
 **Alternatives considered**:
+
 - Start with providers first.
 - Start with channels first.
 - Start with all families in one registry pass.
 
-**Rationale**: `ToolSpec`, MCP namespacing, and existing discovery/merge patterns are already close to a descriptor model. That makes tools the lowest-risk proving ground for the registry.
+**Rationale**: `ToolSpec`, MCP namespacing, and existing discovery/merge patterns are already close
+to a descriptor model. That makes tools the lowest-risk proving ground for the registry.
 
 ### Decision: Security semantics remain attached to capability identity
 
-**Choice**: Descriptor design carries explicit security metadata so current approval and policy behavior remains keyed to stable, namespaced identity.
+**Choice**: Descriptor design carries explicit security metadata so current approval and policy
+behavior remains keyed to stable, namespaced identity.
 
 **Alternatives considered**:
+
 - Infer security policy from family only.
 - Push approval semantics entirely into later runtime code.
 
-**Rationale**: Current enforcement is identity-sensitive (`agent/dispatcher.rs`, `security/policy.rs`) and already uses namespaces such as `mcp.<server>...`. Losing stable identity would weaken policy and auditability.
+**Rationale**: Current enforcement is identity-sensitive (`agent/dispatcher.rs`,
+`security/policy.rs`) and already uses namespaces such as `mcp.<server>...`. Losing stable identity
+would weaken policy and auditability.
 
 ## Data Flow
 
@@ -150,24 +177,26 @@ M4 Execution Adoption -> Agent/Channels/Gateway: preserve canonical behavior and
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `openspec/changes/capability-based-architecture-v3/design.md` | Create | Technical design for the M1 capability architecture contract. |
-| `openspec/changes/capability-based-architecture-v3/specs/capability-architecture/spec.md` | Referenced | Normative spec defining the capability contract boundaries. |
-| `openspec/changes/capability-based-architecture-v3/proposal.md` | Referenced | Scope, intent, rollout boundaries, and risk framing for M1. |
-| `openspec/changes/capability-based-architecture-v3/exploration.md` | Referenced | Evidence for current coupling and migration hotspots. |
-| `clients/agent-runtime/src/bootstrap/mod.rs` | No change in M1 / Planned future touchpoint | Current composition root that later phases will adapt carefully. |
-| `clients/agent-runtime/src/tools/mod.rs` | No change in M1 / Planned future touchpoint | Strongest initial seam for descriptive registration in M2. |
-| `clients/agent-runtime/src/agent/dispatcher.rs` | No change in M1 / Planned future touchpoint | Current approval boundary that descriptors must preserve. |
-| `clients/agent-runtime/src/security/policy.rs` | No change in M1 / Planned future touchpoint | Namespace- and source-kind-based policy model to preserve. |
-| `clients/agent-runtime/src/channels/mod.rs` | No change in M1 / Planned future touchpoint | Static channel registry and separate loop that must remain parity-safe. |
-| `clients/agent-runtime/src/gateway/webhook_dispatch.rs` | No change in M1 / Planned future touchpoint | Canonical gateway path whose semantics must remain aligned with agent/channels. |
+| File                                                                                      | Action                                      | Description                                                                     |
+|-------------------------------------------------------------------------------------------|---------------------------------------------|---------------------------------------------------------------------------------|
+| `openspec/changes/capability-based-architecture-v3/design.md`                             | Create                                      | Technical design for the M1 capability architecture contract.                   |
+| `openspec/changes/capability-based-architecture-v3/specs/capability-architecture/spec.md` | Referenced                                  | Normative spec defining the capability contract boundaries.                     |
+| `openspec/changes/capability-based-architecture-v3/proposal.md`                           | Referenced                                  | Scope, intent, rollout boundaries, and risk framing for M1.                     |
+| `openspec/changes/capability-based-architecture-v3/exploration.md`                        | Referenced                                  | Evidence for current coupling and migration hotspots.                           |
+| `clients/agent-runtime/src/bootstrap/mod.rs`                                              | No change in M1 / Planned future touchpoint | Current composition root that later phases will adapt carefully.                |
+| `clients/agent-runtime/src/tools/mod.rs`                                                  | No change in M1 / Planned future touchpoint | Strongest initial seam for descriptive registration in M2.                      |
+| `clients/agent-runtime/src/agent/dispatcher.rs`                                           | No change in M1 / Planned future touchpoint | Current approval boundary that descriptors must preserve.                       |
+| `clients/agent-runtime/src/security/policy.rs`                                            | No change in M1 / Planned future touchpoint | Namespace- and source-kind-based policy model to preserve.                      |
+| `clients/agent-runtime/src/channels/mod.rs`                                               | No change in M1 / Planned future touchpoint | Static channel registry and separate loop that must remain parity-safe.         |
+| `clients/agent-runtime/src/gateway/webhook_dispatch.rs`                                   | No change in M1 / Planned future touchpoint | Canonical gateway path whose semantics must remain aligned with agent/channels. |
 
 ## Interfaces / Contracts
 
 ### Shared descriptor schema
 
-This is a recommended contract shape for later implementation. Fields marked **M1-required** are required by the design/spec contract; fields marked **future-facing** are allowed now so later phases do not need to redesign the schema.
+This is a recommended contract shape for later implementation. Fields marked **M1-required** are
+required by the design/spec contract; fields marked **future-facing** are allowed now so later
+phases do not need to redesign the schema.
 
 ```rust
 struct CapabilityDescriptor {
@@ -359,6 +388,7 @@ registration_metadata: {}
 ### Required vs future-facing fields
 
 **Required in M1 contract**
+
 - `id`
 - `namespace`
 - `version`
@@ -371,6 +401,7 @@ registration_metadata: {}
 - `compatibility`
 
 **Future-facing in M1**
+
 - `implementation_ref`
 - `family_metadata`
 - `registration_metadata`
@@ -385,22 +416,27 @@ The rule is simple: M1 defines the shape and meaning, not the runtime mechanics.
 ### Representation
 
 Dependencies are represented as two explicit lists:
+
 - `required[]`
 - `optional[]`
 
-This keeps the model deterministic and easy to validate. A single list with flags was considered, but separate lists are less error-prone in both human review and later machine validation.
+This keeps the model deterministic and easy to validate. A single list with flags was considered,
+but separate lists are less error-prone in both human review and later machine validation.
 
 ### Compatibility handling
 
 Compatibility is split across two layers:
+
 1. **Dependency-local constraints** — what a dependency expects from the target descriptor.
-2. **Descriptor-wide compatibility metadata** — broader assumptions such as supported runtime contracts or parity scope.
+2. **Descriptor-wide compatibility metadata** — broader assumptions such as supported runtime
+   contracts or parity scope.
 
 This separation prevents dependency edges from becoming overloaded with unrelated runtime metadata.
 
 ### Deterministic validation model for M3
 
 M3 should validate in this order:
+
 1. **Schema completeness** — all required fields present.
 2. **Identity validity** — namespace/id/version shape valid.
 3. **Family/kind validity** — valid combinations only.
@@ -411,6 +447,7 @@ M3 should validate in this order:
 8. **Cycle and ambiguity checks** — only where applicable to the family model.
 
 Determinism rules:
+
 - identical descriptor sets MUST yield identical validation results,
 - results MUST NOT depend on registration order,
 - ambiguous references MUST be rejected, not guessed,
@@ -421,6 +458,7 @@ Determinism rules:
 ### Coexistence model
 
 Current architecture remains the runtime truth:
+
 - `bootstrap::BootstrapContext` still creates runtime, memory, observer, security, and tool lists.
 - `tools::all_tools_with_runtime()` still produces `Vec<Box<dyn Tool>>`.
 - `agent/dispatcher.rs` still evaluates risk from stable tool identities.
@@ -431,14 +469,16 @@ Capability descriptors coexist as **non-executing metadata artifacts** in M1.
 ### What should be adapted first later
 
 1. **Tool-like capabilities**
-   - Best first fit because `ToolSpec` already exists.
-   - MCP already proves namespacing, discovery, collision handling, and partial-failure isolation.
+    - Best first fit because `ToolSpec` already exists.
+    - MCP already proves namespacing, discovery, collision handling, and partial-failure isolation.
 2. **Provider-like descriptors**
-   - Good second step because `ProviderCapabilities` already expresses explicit feature declarations.
+    - Good second step because `ProviderCapabilities` already expresses explicit feature
+      declarations.
 3. **Memory/observer/runtime descriptors**
-   - Good later for completeness, but not first because they do not yet resemble a shared registry shape as directly as tools do.
+    - Good later for completeness, but not first because they do not yet resemble a shared registry
+      shape as directly as tools do.
 4. **Channel descriptors**
-   - Later than tools/providers because channels include transport/runtime parity risk.
+    - Later than tools/providers because channels include transport/runtime parity risk.
 
 ### What should explicitly NOT be adapted first
 
@@ -452,6 +492,7 @@ Capability descriptors coexist as **non-executing metadata artifacts** in M1.
 ### Rollback philosophy
 
 Every later phase must be reversible to the previous compatibility baseline:
+
 - **M2 rollback**: remove descriptor registration while keeping factories/tool assembly intact.
 - **M3 rollback**: disable dependency validation/resolution without removing descriptors.
 - **M4 rollback**: return execution selection to legacy bootstrap/factory/dispatcher wiring.
@@ -459,28 +500,33 @@ Every later phase must be reversible to the previous compatibility baseline:
 
 For M1 specifically: no migration required, because runtime behavior does not change.
 
-Canonical promotion decision for M1: no `openspec/specs/capability-architecture/spec.md` file is required before verify. The approved change-scoped spec under `openspec/changes/capability-based-architecture-v3/specs/` remains authoritative for M1, and any main-spec promotion is deferred to archive after verification.
+Canonical promotion decision for M1: no `openspec/specs/capability-architecture/spec.md` file is
+required before verify. The approved change-scoped spec under
+`openspec/changes/capability-based-architecture-v3/specs/` remains authoritative for M1, and any
+main-spec promotion is deferred to archive after verification.
 
 ## Security Model Mapping
 
 ### Current security anchors in the runtime
 
 The current runtime ties approval and policy to stable identity:
+
 - `agent/dispatcher.rs` classifies tool risk using tool names and `source_kind_for_tool()`.
-- `security/policy.rs` distinguishes `Native`, `Mcp`, `McpResource`, and `McpPrompt` using namespaced identity.
+- `security/policy.rs` distinguishes `Native`, `Mcp`, `McpResource`, and `McpPrompt` using
+  namespaced identity.
 - MCP specs already require canonical namespacing and deny/approval semantics.
 
 ### Descriptor mapping
 
 Descriptor security metadata should map current behavior like this:
 
-| Current concept | Descriptor field | Why |
-|---|---|---|
-| tool/provider/channel identity | `id`, `namespace`, `security.audit_namespace` | preserves stable policy and audit reference |
-| source kind (`Native`, `Mcp`, etc.) | `security.source_classification` | preserves current classification intent |
-| approval requirement semantics | `security.approval_behavior` | makes approval intent explicit without weakening enforcement |
-| policy boundary ownership | `security.policy_scope` | prevents family confusion |
-| risk surface | `security.risk_tags` | future-friendly without replacing real policy |
+| Current concept                     | Descriptor field                              | Why                                                          |
+|-------------------------------------|-----------------------------------------------|--------------------------------------------------------------|
+| tool/provider/channel identity      | `id`, `namespace`, `security.audit_namespace` | preserves stable policy and audit reference                  |
+| source kind (`Native`, `Mcp`, etc.) | `security.source_classification`              | preserves current classification intent                      |
+| approval requirement semantics      | `security.approval_behavior`                  | makes approval intent explicit without weakening enforcement |
+| policy boundary ownership           | `security.policy_scope`                       | prevents family confusion                                    |
+| risk surface                        | `security.risk_tags`                          | future-friendly without replacing real policy                |
 
 ### Guardrails to avoid weakening security
 
@@ -493,18 +539,19 @@ Descriptor security metadata should map current behavior like this:
 ### Security-specific design principle
 
 **Descriptors may explain why a capability is risky; they do not get to decide that risk alone.**
-The dispatcher/security boundary remains authoritative until a later phase explicitly and safely rebinds that authority.
+The dispatcher/security boundary remains authoritative until a later phase explicitly and safely
+rebinds that authority.
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Spec contract | Descriptor taxonomy, required fields, migration constraints, anti-pattern guardrails | Review against scenarios in `specs/capability-architecture/spec.md` |
-| Design consistency | Alignment between proposal, spec, and runtime hotspots | Cross-check design decisions against `exploration.md`, `proposal.md`, and referenced runtime files |
-| Future M2 unit tests | Descriptor normalization/registration for native tools and MCP capabilities | Add pure data-model tests and deterministic merge tests |
-| Future M3 integration tests | Dependency validation, uniqueness, compatibility, deterministic outcomes | Fixture-based descriptor-set validation tests |
-| Future M4 integration tests | Parity across agent/channels/gateway after execution adoption | Canonical behavior parity tests referencing existing agent-loop requirements |
-| Future M5 rollout tests | Docs, migration guides, expanded family adoption | End-to-end verification plus documentation checks |
+| Layer                       | What to Test                                                                         | Approach                                                                                           |
+|-----------------------------|--------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
+| Spec contract               | Descriptor taxonomy, required fields, migration constraints, anti-pattern guardrails | Review against scenarios in `specs/capability-architecture/spec.md`                                |
+| Design consistency          | Alignment between proposal, spec, and runtime hotspots                               | Cross-check design decisions against `exploration.md`, `proposal.md`, and referenced runtime files |
+| Future M2 unit tests        | Descriptor normalization/registration for native tools and MCP capabilities          | Add pure data-model tests and deterministic merge tests                                            |
+| Future M3 integration tests | Dependency validation, uniqueness, compatibility, deterministic outcomes             | Fixture-based descriptor-set validation tests                                                      |
+| Future M4 integration tests | Parity across agent/channels/gateway after execution adoption                        | Canonical behavior parity tests referencing existing agent-loop requirements                       |
+| Future M5 rollout tests     | Docs, migration guides, expanded family adoption                                     | End-to-end verification plus documentation checks                                                  |
 
 ## Implementation Roadmap Design
 
@@ -513,12 +560,14 @@ The dispatcher/security boundary remains authoritative until a later phase expli
 **Goal**: Introduce a non-invasive registry of descriptors.
 
 **Scope**:
+
 - register native tools and MCP-discovered capabilities descriptively,
 - preserve existing `Vec<Box<dyn Tool>>` execution path,
 - do not add dependency resolution,
 - do not change dispatcher execution.
 
 **Primary touchpoints**:
+
 - `clients/agent-runtime/src/tools/mod.rs`
 - `clients/agent-runtime/src/tools/mcp/mod.rs`
 - likely new descriptor/registry module under `clients/agent-runtime/src/`
@@ -528,12 +577,14 @@ The dispatcher/security boundary remains authoritative until a later phase expli
 **Goal**: Validate descriptor sets deterministically.
 
 **Scope**:
+
 - parse and validate dependency edges,
 - enforce identity uniqueness and compatibility constraints,
 - produce deterministic validation results,
 - still avoid major execution-path rewiring.
 
 **Primary touchpoints**:
+
 - new validation/resolution modules,
 - bootstrap preflight validation seam,
 - test fixtures for descriptor graphs.
@@ -543,12 +594,14 @@ The dispatcher/security boundary remains authoritative until a later phase expli
 **Goal**: Introduce controlled execution binding through descriptor-backed composition.
 
 **Scope**:
+
 - start with tool-like execution selection only,
 - preserve current approval semantics,
 - preserve agent/channel/gateway parity,
 - avoid broad channel/bootstrap inversion in one pass.
 
 **Primary touchpoints**:
+
 - `clients/agent-runtime/src/agent/agent.rs`
 - `clients/agent-runtime/src/agent/dispatcher.rs`
 - selective bootstrap composition seams
@@ -558,6 +611,7 @@ The dispatcher/security boundary remains authoritative until a later phase expli
 **Goal**: Prove and document the architecture under real usage.
 
 **Scope**:
+
 - integration tests for parity and safety,
 - operator/developer docs,
 - selective expansion to additional capability families,
@@ -565,7 +619,12 @@ The dispatcher/security boundary remains authoritative until a later phase expli
 
 ## Open Questions
 
-- [ ] Should security-policy-related capabilities be modeled as a first-class family descriptor or as mandatory metadata attached to executable families first, with a separate family added later only if needed?
-- [ ] Should `observer` and `memory` remain purely descriptive in early adoption, even if they eventually participate in composition-time validation?
-- [ ] What is the minimum version-constraint grammar needed in M3 before it becomes over-engineered for the actual adoption plan?
-- [ ] Should `implementation_ref` remain an opaque string/path in early phases or become a typed internal reference once registry code exists?
+- [ ] Should security-policy-related capabilities be modeled as a first-class family descriptor or
+  as mandatory metadata attached to executable families first, with a separate family added later
+  only if needed?
+- [ ] Should `observer` and `memory` remain purely descriptive in early adoption, even if they
+  eventually participate in composition-time validation?
+- [ ] What is the minimum version-constraint grammar needed in M3 before it becomes over-engineered
+  for the actual adoption plan?
+- [ ] Should `implementation_ref` remain an opaque string/path in early phases or become a typed
+  internal reference once registry code exists?

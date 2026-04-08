@@ -54,7 +54,8 @@ The system MUST govern token spend using four explicit budget scopes: `session`,
 
 The system MUST distinguish warning semantics from hard-block semantics for token-spend budgets.
 
-- A warning MUST occur when spend reaches or exceeds the configured warning threshold for a scope but
+- A warning MUST occur when spend reaches or exceeds the configured warning threshold for a scope
+  but
   has not yet exceeded the hard limit for that same scope.
 - A hard block MUST occur when a scope's hard limit is exceeded or would be exceeded by the next
   metered model call.
@@ -155,7 +156,8 @@ The system MUST keep token-spend governance separate from action-rate governance
   controls as token-spend budgets.
 - A request MAY be denied by either governance domain, but the denial reason MUST identify the
   governing domain.
-- Legacy names that imply token spend for action-rate controls MUST be removed or clearly deprecated.
+- Legacy names that imply token spend for action-rate controls MUST be removed or clearly
+  deprecated.
 
 #### Scenario: Action-rate denial is not reported as token budget exhaustion
 
