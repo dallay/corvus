@@ -41,17 +41,18 @@ channel message contains audio (voice note or audio file), the channel layer MUS
 
 The `ContentPart::Audio` variant MUST carry the following fields:
 
-| Field                    | Type             | Required | Description                                    |
-|--------------------------|------------------|----------|------------------------------------------------|
-| `channel_handle`         | `String`         | Yes      | Channel-specific media identifier              |
-| `source_channel`         | `String`         | Yes      | Channel name (e.g., "telegram")                |
-| `declared_mime`          | `Option<String>` | No       | MIME type declared by the channel               |
-| `caption_text`           | `Option<String>` | No       | Accompanying text/caption from the user         |
-| `file_name`              | `Option<String>` | No       | Original file name (audio files only)           |
-| `declared_bytes`         | `Option<u64>`    | No       | File size declared by the channel               |
-| `declared_duration_secs` | `Option<u64>`    | No       | Duration in seconds declared by the channel     |
+| Field                    | Type             | Required | Description                                 |
+|--------------------------|------------------|----------|---------------------------------------------|
+| `channel_handle`         | `String`         | Yes      | Channel-specific media identifier           |
+| `source_channel`         | `String`         | Yes      | Channel name (e.g., "telegram")             |
+| `declared_mime`          | `Option<String>` | No       | MIME type declared by the channel           |
+| `caption_text`           | `Option<String>` | No       | Accompanying text/caption from the user     |
+| `file_name`              | `Option<String>` | No       | Original file name (audio files only)       |
+| `declared_bytes`         | `Option<u64>`    | No       | File size declared by the channel           |
+| `declared_duration_secs` | `Option<u64>`    | No       | Duration in seconds declared by the channel |
 
 The runtime MUST also provide helper methods on `ChannelMessage`:
+
 - `has_audio_parts()` — returns `true` if any part is `ContentPart::Audio`
 - `audio_parts()` — returns an iterator over `ContentPart::Audio` parts
 
@@ -125,7 +126,8 @@ appropriate `AudioRejectionReason` and emit an `AudioIngressEvent`.
 - AND step 4 (validate) confirms OGG/Opus magic bytes and size/duration within limits
 - AND step 5 (stage) writes to temp file and creates `StagedAudioGuard`
 - AND step 6 (transcribe) produces `TranscriptionResult { text: "¿Qué tiempo hace hoy?", .. }`
-- AND step 7 (inject) replaces the Audio part with `ContentPart::Text { text: "¿Qué tiempo hace hoy?" }`
+- AND step 7 (inject) replaces the Audio part with
+  `ContentPart::Text { text: "¿Qué tiempo hace hoy?" }`
 - AND the provider receives only text (no audio reference)
 - AND an `AudioIngressEvent` with outcome `Admitted` is emitted
 - AND the temp file is cleaned up after the turn completes
@@ -154,12 +156,12 @@ strict precedence over any declared MIME type from the channel.
 
 The following formats MUST be accepted:
 
-| Format   | Magic Bytes                              | MIME             | Extension |
-|----------|------------------------------------------|------------------|-----------|
-| OGG/Opus | `4F 67 67 53` ("OggS")                   | audio/ogg        | .ogg      |
-| MP3      | `FF FB`, `FF F3`, `FF F2`, or `49 44 33` | audio/mpeg       | .mp3      |
-| WAV      | `52 49 46 46....57 41 56 45` (RIFF+WAVE) | audio/wav        | .wav      |
-| M4A/AAC  | `....66 74 79 70` (ftyp at offset 4)     | audio/mp4        | .m4a      |
+| Format   | Magic Bytes                              | MIME       | Extension |
+|----------|------------------------------------------|------------|-----------|
+| OGG/Opus | `4F 67 67 53` ("OggS")                   | audio/ogg  | .ogg      |
+| MP3      | `FF FB`, `FF F3`, `FF F2`, or `49 44 33` | audio/mpeg | .mp3      |
+| WAV      | `52 49 46 46....57 41 56 45` (RIFF+WAVE) | audio/wav  | .wav      |
+| M4A/AAC  | `....66 74 79 70` (ftyp at offset 4)     | audio/mp4  | .m4a      |
 
 All other audio formats MUST be rejected with `AudioRejectionReason::MimeRejected`.
 
@@ -221,6 +223,7 @@ for pre-fetch gating. If the channel does not provide duration, duration validat
 to post-transcription (whisper.cpp reports actual duration).
 
 Config validation for size/duration limits (see REQ-7):
+
 - `max_audio_bytes` MUST be > 0 and MUST NOT exceed 100 MiB (hardcoded ceiling)
 - `max_audio_duration_secs` MUST be > 0 and MUST NOT exceed 3600 (1 hour, hardcoded ceiling)
 - Invalid values MUST cause a startup validation error
@@ -291,19 +294,20 @@ Config validation for size/duration limits (see REQ-7):
 Validated audio bytes MUST be written to a temp file as a `StagedAudio` struct with the following
 fields:
 
-| Field            | Type              | Description                              |
-|------------------|-------------------|------------------------------------------|
-| `sha256`         | `String`          | SHA-256 hash of the raw audio bytes      |
-| `mime_type`      | `AllowedAudioMime`| Validated MIME type from sniffing         |
-| `byte_len`       | `u64`             | Total byte size of the staged file       |
-| `duration_secs`  | `Option<f64>`     | Duration if known (channel or post-transcription) |
-| `temp_path`      | `PathBuf`         | Path to the temp file on disk            |
-| `channel_origin` | `String`          | Channel name that sourced the audio      |
+| Field            | Type               | Description                                       |
+|------------------|--------------------|---------------------------------------------------|
+| `sha256`         | `String`           | SHA-256 hash of the raw audio bytes               |
+| `mime_type`      | `AllowedAudioMime` | Validated MIME type from sniffing                 |
+| `byte_len`       | `u64`              | Total byte size of the staged file                |
+| `duration_secs`  | `Option<f64>`      | Duration if known (channel or post-transcription) |
+| `temp_path`      | `PathBuf`          | Path to the temp file on disk                     |
+| `channel_origin` | `String`           | Channel name that sourced the audio               |
 
 Temp file naming MUST follow the pattern:
 `corvus-{channel_abbrev}-aud-{sha256_prefix_16}.{ext}`
 
 Staged files MUST be cleaned up via `StagedAudioGuard` RAII semantics:
+
 - The guard's `Drop` implementation MUST call `StagedAudio::cleanup()` for each staged audio
 - Cleanup MUST be best-effort (log warning on failure, do not panic)
 - Cleanup MUST occur on all exit paths: success, error, timeout, transcription failure, early return
@@ -348,14 +352,15 @@ trait Transcriber: Send + Sync {
 
 `TranscriptionResult` MUST contain:
 
-| Field           | Type             | Description                                  |
-|-----------------|------------------|----------------------------------------------|
-| `text`          | `String`         | The transcribed text                         |
-| `language`      | `Option<String>` | Detected or configured language              |
+| Field           | Type             | Description                                                        |
+|-----------------|------------------|--------------------------------------------------------------------|
+| `text`          | `String`         | The transcribed text                                               |
+| `language`      | `Option<String>` | Detected or configured language                                    |
 | `duration_secs` | `Option<f64>`    | Actual audio duration as reported by engine (None if not reported) |
-| `confidence`    | `Option<f64>`    | Confidence score if available (0.0–1.0)      |
+| `confidence`    | `Option<f64>`    | Confidence score if available (0.0–1.0)                            |
 
 The Phase 1 implementation MUST be a whisper.cpp CLI wrapper that:
+
 - Spawns `whisper-cli` (or configured binary path) as an external process
 - Passes the staged audio file path and configured model/language
 - Parses stdout for transcription text
@@ -366,6 +371,7 @@ Transcription MUST be bounded by a concurrency semaphore (REQ-12) and MUST compl
 turn's overall timeout budget.
 
 The `Transcriber::health_check()` method MUST verify:
+
 - The whisper binary is accessible and executable
 - The configured model file exists at the expected path
 
@@ -503,15 +509,15 @@ message.
 
 The runtime MUST store audio metadata in conversation history as `AudioHistoryMeta`:
 
-| Field            | Type             | Description                              |
-|------------------|------------------|------------------------------------------|
-| `mime`           | `String`         | Validated MIME type string               |
-| `sha256`         | `String`         | SHA-256 hash of the audio bytes          |
-| `byte_len`       | `u64`            | File size in bytes                       |
-| `duration_secs`  | `Option<f64>`    | Audio duration                           |
-| `channel_origin` | `String`         | Source channel name                      |
-| `transcription`  | `String`         | The transcribed text                     |
-| `caption`        | `Option<String>` | Original caption if provided             |
+| Field            | Type             | Description                     |
+|------------------|------------------|---------------------------------|
+| `mime`           | `String`         | Validated MIME type string      |
+| `sha256`         | `String`         | SHA-256 hash of the audio bytes |
+| `byte_len`       | `u64`            | File size in bytes              |
+| `duration_secs`  | `Option<f64>`    | Audio duration                  |
+| `channel_origin` | `String`         | Source channel name             |
+| `transcription`  | `String`         | The transcribed text            |
+| `caption`        | `Option<String>` | Original caption if provided    |
 
 The history representation MUST NOT store raw audio bytes. Audio bytes are ephemeral (temp file,
 cleaned up after transcription).
@@ -570,18 +576,20 @@ audio output (text-to-speech is out of scope).
 
 The Telegram channel MUST parse the following message types as `ContentPart::Audio`:
 
-| Telegram Field    | Audio Type  | Expected MIME  | Duration Source        |
-|-------------------|-------------|----------------|------------------------|
-| `message.voice`   | Voice note  | `audio/ogg`    | `voice.duration`       |
-| `message.audio`   | Audio file  | Varies         | `audio.duration`       |
+| Telegram Field  | Audio Type | Expected MIME | Duration Source  |
+|-----------------|------------|---------------|------------------|
+| `message.voice` | Voice note | `audio/ogg`   | `voice.duration` |
+| `message.audio` | Audio file | Varies        | `audio.duration` |
 
 For `message.voice`:
+
 - `channel_handle` MUST be `voice.file_id`
 - `declared_mime` SHOULD be `Some("audio/ogg")` (Telegram voice notes are always OGG/Opus)
 - `declared_duration_secs` MUST be `Some(voice.duration)`
 - `declared_bytes` SHOULD be `voice.file_size` when available
 
 For `message.audio`:
+
 - `channel_handle` MUST be `audio.file_id`
 - `declared_mime` SHOULD be `audio.mime_type` when available
 - `declared_duration_secs` MUST be `Some(audio.duration)`
@@ -629,24 +637,25 @@ Authentication credentials MUST NOT appear in error messages or logs.
 The runtime MUST use the following rejection reasons as a stable contract. Each rejection reason
 MUST map to exactly one user-facing message and one observability event.
 
-| Rejection Reason        | User-Facing Message                                                                  | Emitted When                                              |
-|-------------------------|--------------------------------------------------------------------------------------|-----------------------------------------------------------|
-| `Disabled`              | "Audio input is currently disabled."                                                 | `audio.enabled` is `false`                                |
-| `ChannelNotAllowed`     | "Audio input is not enabled for this channel."                                       | Channel not in `audio.allowed_channels`                   |
-| `FetchFailed`           | "I couldn't download that audio safely. Please try again."                           | Channel fetch fails (network, auth, timeout)              |
-| `MimeRejected`          | "That audio format is not supported. Supported formats: OGG, MP3, WAV, M4A."        | Magic-byte sniffing does not match allowed formats        |
-| `Oversize`              | "That audio file is too large to process. Maximum size: 25 MB."                      | Audio bytes exceed effective size limit                   |
-| `TooLong`               | "That audio is too long to process. Maximum duration: 10 minutes."                   | Duration exceeds effective duration limit                 |
-| `Corrupted`             | "That audio file appears to be corrupted and cannot be processed."                   | Transcription engine cannot decode the audio              |
-| `TranscriptionFailed`   | "Audio transcription failed. Please try again or send text instead."                 | Transcriber returns error (process crash, timeout, etc.)  |
-| `NoSpeechDetected`      | "No speech was detected in that audio. Please try again with a clearer recording."   | Transcription produces empty/whitespace-only text         |
-| `TranscriberUnavailable`| "Audio transcription is not available on this agent. Please send text instead."      | No healthy Transcriber is registered or health check fails|
-| `SystemError`           | "An internal error occurred while processing audio. Please try again."               | Unexpected internal error (e.g., temp file I/O failure, semaphore poisoning) |
+| Rejection Reason         | User-Facing Message                                                                | Emitted When                                                                 |
+|--------------------------|------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
+| `Disabled`               | "Audio input is currently disabled."                                               | `audio.enabled` is `false`                                                   |
+| `ChannelNotAllowed`      | "Audio input is not enabled for this channel."                                     | Channel not in `audio.allowed_channels`                                      |
+| `FetchFailed`            | "I couldn't download that audio safely. Please try again."                         | Channel fetch fails (network, auth, timeout)                                 |
+| `MimeRejected`           | "That audio format is not supported. Supported formats: OGG, MP3, WAV, M4A."       | Magic-byte sniffing does not match allowed formats                           |
+| `Oversize`               | "That audio file is too large to process. Maximum size: 25 MB."                    | Audio bytes exceed effective size limit                                      |
+| `TooLong`                | "That audio is too long to process. Maximum duration: 10 minutes."                 | Duration exceeds effective duration limit                                    |
+| `Corrupted`              | "That audio file appears to be corrupted and cannot be processed."                 | Transcription engine cannot decode the audio                                 |
+| `TranscriptionFailed`    | "Audio transcription failed. Please try again or send text instead."               | Transcriber returns error (process crash, timeout, etc.)                     |
+| `NoSpeechDetected`       | "No speech was detected in that audio. Please try again with a clearer recording." | Transcription produces empty/whitespace-only text                            |
+| `TranscriberUnavailable` | "Audio transcription is not available on this agent. Please send text instead."    | No healthy Transcriber is registered or health check fails                   |
+| `SystemError`            | "An internal error occurred while processing audio. Please try again."             | Unexpected internal error (e.g., temp file I/O failure, semaphore poisoning) |
 
 This taxonomy (11 variants) MUST be exhaustive for Phase 1. Every audio rejection MUST map to
 exactly one of these reasons.
 
 All rejection reasons MUST:
+
 - Be variants of `AudioRejectionReason` enum
 - Implement `Display` producing a stable snake_case identifier (e.g., `disabled`, `mime_rejected`)
 - Emit an `AudioIngressEvent` with outcome `Rejected` and the corresponding reason
@@ -744,17 +753,18 @@ Every audio ingestion attempt MUST emit an `AudioIngressEvent` via the observer 
 
 The `AudioIngressEvent` MUST contain:
 
-| Field           | Type                   | Description                                    |
-|-----------------|------------------------|------------------------------------------------|
-| `channel`       | `String`               | Source channel name                            |
-| `outcome`       | `AudioIngressOutcome`  | Admitted, Rejected                             |
-| `reason`        | `Option<AudioIngressReason>` | Rejection reason (if rejected)           |
-| `mime_type`     | `Option<String>`       | Detected MIME type (if validation reached)     |
-| `byte_len`      | `Option<u64>`          | File size (if known)                           |
-| `duration_secs` | `Option<f64>`          | Duration (if known)                            |
-| `transcription_duration_ms` | `Option<u64>` | Wall-clock time for transcription (if completed) |
+| Field                       | Type                         | Description                                      |
+|-----------------------------|------------------------------|--------------------------------------------------|
+| `channel`                   | `String`                     | Source channel name                              |
+| `outcome`                   | `AudioIngressOutcome`        | Admitted, Rejected                               |
+| `reason`                    | `Option<AudioIngressReason>` | Rejection reason (if rejected)                   |
+| `mime_type`                 | `Option<String>`             | Detected MIME type (if validation reached)       |
+| `byte_len`                  | `Option<u64>`                | File size (if known)                             |
+| `duration_secs`             | `Option<f64>`                | Duration (if known)                              |
+| `transcription_duration_ms` | `Option<u64>`                | Wall-clock time for transcription (if completed) |
 
 `AudioIngressOutcome` MUST have at least these variants:
+
 - `Admitted` — audio was transcribed and injected into the agent flow
 - `Rejected` — audio was rejected at any pipeline step
 
@@ -837,6 +847,7 @@ If any step of the audio pipeline fails, the runtime MUST:
 3. Continue accepting messages on the same session
 
 The audio pipeline MUST NOT panic or crash on any input, including:
+
 - Zero-byte audio files
 - Extremely large files (rejected by size limit)
 - Files with valid headers but corrupted content
@@ -889,10 +900,10 @@ Specifically:
 
 `corvus doctor` MUST include audio-related health checks when `[audio]` is enabled:
 
-| Check                | Pass Condition                                        | Fail Message                                           |
-|----------------------|-------------------------------------------------------|--------------------------------------------------------|
-| Whisper binary       | Binary exists and is executable at configured path     | "whisper binary not found at {path}"                   |
-| Whisper model        | Model file exists at `~/.corvus/models/whisper/{model}.bin` | "whisper model '{model}' not found"              |
+| Check          | Pass Condition                                              | Fail Message                         |
+|----------------|-------------------------------------------------------------|--------------------------------------|
+| Whisper binary | Binary exists and is executable at configured path          | "whisper binary not found at {path}" |
+| Whisper model  | Model file exists at `~/.corvus/models/whisper/{model}.bin` | "whisper model '{model}' not found"  |
 
 When `[audio]` is disabled, these checks SHOULD be skipped (or marked as "skipped — audio
 disabled").

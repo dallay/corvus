@@ -15,13 +15,13 @@ The recently completed `productize-model-routing` change (DALLAY-173, GitHub #26
 
 ### Evidence
 
-| #271 Question | Delivered Artifact | Coverage |
-|---|---|---|
-| Where should routing/classification be documented? | EN guide: `clients/web/apps/docs/src/content/docs/guides/model-routing.md` / ES guide: `es/guides/model-routing.md` | ✅ Full |
-| What examples should be considered canonical? | 4 examples: fast/reasoning split, code-specialized, vision route, multi-provider with classification | ✅ Full |
-| What diagnostics should operators rely on? | 4 `corvus doctor` warnings implemented with tests in `doctor/mod.rs` (orphaned hint, zero rules, zero routes, never-matching rule) | ✅ Full |
-| How should fallback behavior be explained? | Hint flow diagram (text-based), troubleshooting table (6 symptoms), formal spec in `openspec/specs/model-routing/spec.md` | ✅ Full |
-| What guardrails reduce misconfiguration risk? | Doctor warnings (non-blocking), unknown-hint WARN log, failed-provider route-impact WARN log, operator checklist | ✅ Full |
+| #271 Question                                      | Delivered Artifact                                                                                                                 | Coverage |
+|----------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|----------|
+| Where should routing/classification be documented? | EN guide: `clients/web/apps/docs/src/content/docs/guides/model-routing.md` / ES guide: `es/guides/model-routing.md`                | ✅ Full   |
+| What examples should be considered canonical?      | 4 examples: fast/reasoning split, code-specialized, vision route, multi-provider with classification                               | ✅ Full   |
+| What diagnostics should operators rely on?         | 4 `corvus doctor` warnings implemented with tests in `doctor/mod.rs` (orphaned hint, zero rules, zero routes, never-matching rule) | ✅ Full   |
+| How should fallback behavior be explained?         | Hint flow diagram (text-based), troubleshooting table (6 symptoms), formal spec in `openspec/specs/model-routing/spec.md`          | ✅ Full   |
+| What guardrails reduce misconfiguration risk?      | Doctor warnings (non-blocking), unknown-hint WARN log, failed-provider route-impact WARN log, operator checklist                   | ✅ Full   |
 
 ### Acceptance Criteria Check
 
@@ -142,11 +142,11 @@ This is significant engineering effort with security implications. Not justified
 
 ### Approaches
 
-| Approach | Description | Pros | Cons | Effort |
-|---|---|---|---|---|
-| **A. Close as decided** | Document decisions in #270, close issue. No code. | Zero risk, unblocks roadmap | Doesn't future-proof anything | Low |
-| **B. Add embedding route schema only** | Add `[[embedding_routes]]` to config schema + doctor checks, but no runtime behavior change yet | Reserves config surface, validates early | Premature if no demand | Medium |
-| **C. Full embedding routing + managed updates** | Implement embedding routes AND admin API for route management | Closes all gaps at once | High risk, large scope, security surface expansion | High |
+| Approach                                        | Description                                                                                     | Pros                                     | Cons                                               | Effort |
+|-------------------------------------------------|-------------------------------------------------------------------------------------------------|------------------------------------------|----------------------------------------------------|--------|
+| **A. Close as decided**                         | Document decisions in #270, close issue. No code.                                               | Zero risk, unblocks roadmap              | Doesn't future-proof anything                      | Low    |
+| **B. Add embedding route schema only**          | Add `[[embedding_routes]]` to config schema + doctor checks, but no runtime behavior change yet | Reserves config surface, validates early | Premature if no demand                             | Medium |
+| **C. Full embedding routing + managed updates** | Implement embedding routes AND admin API for route management                                   | Closes all gaps at once                  | High risk, large scope, security surface expansion | High   |
 
 ---
 
@@ -156,12 +156,12 @@ This is significant engineering effort with security implications. Not justified
    `productize-model-routing`.
 
 2. **Close DALLAY-174 (#270)** with a decision comment documenting:
-   - Embedding routes: **not needed for v1.0.0**. Revisit when multi-embedding-model
-     workloads emerge.
-   - Managed route updates: **not needed for v1.0.0**. Config-file-driven routing is
-     sufficient and safer.
-   - Both capabilities are explicitly deferred, not rejected. Follow-up issues can be
-     created when demand materializes.
+    - Embedding routes: **not needed for v1.0.0**. Revisit when multi-embedding-model
+      workloads emerge.
+    - Managed route updates: **not needed for v1.0.0**. Config-file-driven routing is
+      sufficient and safer.
+    - Both capabilities are explicitly deferred, not rejected. Follow-up issues can be
+      created when demand materializes.
 
 3. **No proposal phase needed** — this is a planning/decision issue, not an implementation
    change.

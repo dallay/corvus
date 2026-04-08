@@ -123,10 +123,10 @@ The HTTP Gateway MUST expose a `POST /web/chat/audio` endpoint accepting
 
 #### Multipart Fields
 
-| Field        | Type | Required | Description                                   |
-|--------------|------|----------|-----------------------------------------------|
-| `audio`      | file | Yes      | The audio file to transcribe                  |
-| `session_id` | text | No       | Session identifier for conversation continuity|
+| Field        | Type | Required | Description                                    |
+|--------------|------|----------|------------------------------------------------|
+| `audio`      | file | Yes      | The audio file to transcribe                   |
+| `session_id` | text | No       | Session identifier for conversation continuity |
 | `language`   | text | No       | Language hint override for transcription       |
 
 #### Request Constraints
@@ -161,14 +161,14 @@ The handler MUST:
 
 #### Error Responses
 
-| HTTP Status | Condition                                                    |
-|-------------|--------------------------------------------------------------|
+| HTTP Status | Condition                                                                                |
+|-------------|------------------------------------------------------------------------------------------|
 | 400         | Missing `audio` field, unsupported format (`MimeRejected`), corrupted file (`Corrupted`) |
-| 403         | Audio disabled globally OR `"gateway"` not in `allowed_channels` |
-| 413         | File exceeds body limit or `max_audio_bytes` (`Oversize`)    |
-| 422         | No speech detected (`NoSpeechDetected`), transcription failed (`TranscriptionFailed`) |
-| 500         | System error (`SystemError`)                                 |
-| 503         | Transcriber unavailable (`TranscriberUnavailable`)           |
+| 403         | Audio disabled globally OR `"gateway"` not in `allowed_channels`                         |
+| 413         | File exceeds body limit or `max_audio_bytes` (`Oversize`)                                |
+| 422         | No speech detected (`NoSpeechDetected`), transcription failed (`TranscriptionFailed`)    |
+| 500         | System error (`SystemError`)                                                             |
+| 503         | Transcriber unavailable (`TranscriberUnavailable`)                                       |
 
 Error response bodies MUST be JSON with at minimum an `error` field containing a
 machine-readable code and a `message` field containing the user-facing message from REQ-11.
@@ -308,18 +308,18 @@ The CLI MUST:
 
 #### Error Messages
 
-| Condition              | Error Message                                                   |
-|------------------------|-----------------------------------------------------------------|
-| File not found         | `"File not found: {path}"`                                      |
-| File not readable      | `"Cannot read file: {path}"`                                    |
-| Unsupported format     | Same `MimeRejected` message as other channels (REQ-11)          |
-| File too large         | Same `Oversize` message as other channels (REQ-11)              |
-| Transcription failed   | Same `TranscriptionFailed` message as other channels (REQ-11)   |
-| No speech detected     | Same `NoSpeechDetected` message as other channels (REQ-11)      |
-| Audio disabled         | `"Audio input is currently disabled."`                          |
-| CLI not allowed        | `"Audio input is not enabled for CLI."`                         |
-| Transcriber unavailable| Same `TranscriberUnavailable` message as other channels (REQ-11)|
-| No path argument       | `"Usage: /audio <file-path>"`                                   |
+| Condition               | Error Message                                                    |
+|-------------------------|------------------------------------------------------------------|
+| File not found          | `"File not found: {path}"`                                       |
+| File not readable       | `"Cannot read file: {path}"`                                     |
+| Unsupported format      | Same `MimeRejected` message as other channels (REQ-11)           |
+| File too large          | Same `Oversize` message as other channels (REQ-11)               |
+| Transcription failed    | Same `TranscriptionFailed` message as other channels (REQ-11)    |
+| No speech detected      | Same `NoSpeechDetected` message as other channels (REQ-11)       |
+| Audio disabled          | `"Audio input is currently disabled."`                           |
+| CLI not allowed         | `"Audio input is not enabled for CLI."`                          |
+| Transcriber unavailable | Same `TranscriberUnavailable` message as other channels (REQ-11) |
+| No path argument        | `"Usage: /audio <file-path>"`                                    |
 
 #### Scenario: Valid OGG file transcribed and processed
 
@@ -402,6 +402,7 @@ The CLI MUST:
 #### Route Registration
 
 When `audio.allowed_channels` includes `"gateway"`:
+
 - The HTTP Gateway MUST register the `POST /web/chat/audio` route as active
 - The gateway `AppState` MUST carry a reference to the runtime's `Transcriber`
   (`Option<Arc<dyn Transcriber>>`)
@@ -409,6 +410,7 @@ When `audio.allowed_channels` includes `"gateway"`:
   `max_audio_duration_secs`, `transcription_timeout_secs`) as other channels
 
 When `audio.allowed_channels` does NOT include `"gateway"`:
+
 - The `POST /web/chat/audio` route SHOULD still be registered but MUST return HTTP 403 with
   an error message indicating audio is not enabled
 - This allows clients to detect the endpoint exists but is disabled (rather than receiving 404)
@@ -480,48 +482,48 @@ REQ-13) is sufficient for Phase 2 channels.
 - GIVEN a valid audio file is uploaded via `POST /web/chat/audio` and transcribed successfully
 - WHEN the transcription is complete
 - THEN an `AudioIngressEvent` MUST be emitted with:
-  - `channel: "gateway"`
-  - `outcome: Admitted`
-  - `mime_type: Some({detected MIME})`
-  - `byte_len: Some({file size})`
-  - `transcription_duration_ms: Some({wall-clock ms})`
+    - `channel: "gateway"`
+    - `outcome: Admitted`
+    - `mime_type: Some({detected MIME})`
+    - `byte_len: Some({file size})`
+    - `transcription_duration_ms: Some({wall-clock ms})`
 
 #### Scenario: Gateway rejected event
 
 - GIVEN a FLAC file is uploaded via `POST /web/chat/audio`
 - WHEN MIME validation rejects it
 - THEN an `AudioIngressEvent` MUST be emitted with:
-  - `channel: "gateway"`
-  - `outcome: Rejected`
-  - `reason: Some(MimeRejected)`
+    - `channel: "gateway"`
+    - `outcome: Rejected`
+    - `reason: Some(MimeRejected)`
 
 #### Scenario: CLI admitted event
 
 - GIVEN a valid OGG file is processed via `/audio ~/recording.ogg`
 - WHEN the transcription completes successfully
 - THEN an `AudioIngressEvent` MUST be emitted with:
-  - `channel: "cli"`
-  - `outcome: Admitted`
-  - `transcription_duration_ms: Some({wall-clock ms})`
+    - `channel: "cli"`
+    - `outcome: Admitted`
+    - `transcription_duration_ms: Some({wall-clock ms})`
 
 #### Scenario: CLI rejected event — file too large
 
 - GIVEN a user types `/audio ~/huge-recording.ogg` and the file exceeds `max_audio_bytes`
 - WHEN size validation rejects it
 - THEN an `AudioIngressEvent` MUST be emitted with:
-  - `channel: "cli"`
-  - `outcome: Rejected`
-  - `reason: Some(Oversize)`
-  - `byte_len: Some({file size})`
+    - `channel: "cli"`
+    - `outcome: Rejected`
+    - `reason: Some(Oversize)`
+    - `byte_len: Some({file size})`
 
 #### Scenario: CLI rejected event — audio disabled
 
 - GIVEN `audio.enabled` is `false`
 - WHEN a user types `/audio ~/recording.ogg`
 - THEN an `AudioIngressEvent` MUST be emitted with:
-  - `channel: "cli"`
-  - `outcome: Rejected`
-  - `reason: Some(Disabled)`
+    - `channel: "cli"`
+    - `outcome: Rejected`
+    - `reason: Some(Disabled)`
 
 ---
 
@@ -581,11 +583,11 @@ Non-`"telegram"` names produced a startup warning.)
 The `audio.allowed_channels` field MUST now recognize the following as valid channel names
 without producing startup warnings:
 
-| Channel Name | Phase | Description                              |
-|--------------|-------|------------------------------------------|
-| `"telegram"` | 1     | Telegram Bot API channel                 |
-| `"gateway"`  | 2     | HTTP Gateway multipart upload endpoint   |
-| `"cli"`      | 2     | CLI `/audio` slash command               |
+| Channel Name | Phase | Description                            |
+|--------------|-------|----------------------------------------|
+| `"telegram"` | 1     | Telegram Bot API channel               |
+| `"gateway"`  | 2     | HTTP Gateway multipart upload endpoint |
+| `"cli"`      | 2     | CLI `/audio` slash command             |
 
 Any channel name not in the above list SHOULD produce a startup warning (unchanged behavior
 for truly unknown channels).

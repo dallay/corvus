@@ -1,6 +1,6 @@
 change: 2026-04-06-cost-governance-productization
 current_phase: verify
-completed: [explore, propose, spec, design, tasks, apply, verify]
+completed: [ explore, propose, spec, design, tasks, apply, verify ]
 next: archive
 updated: 2026-04-06
 notes: |

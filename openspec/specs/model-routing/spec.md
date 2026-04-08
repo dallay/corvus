@@ -235,9 +235,9 @@ requirement adds observability only.
 #### Scenario: Failed provider init logs affected routes
 
 - GIVEN a configuration with model routes:
-  - `hint = "fast"`, `provider = "ollama"`
-  - `hint = "reasoning"`, `provider = "ollama"`
-  - `hint = "code"`, `provider = "openai"`
+    - `hint = "fast"`, `provider = "ollama"`
+    - `hint = "reasoning"`, `provider = "ollama"`
+    - `hint = "code"`, `provider = "openai"`
 - AND the `"ollama"` provider fails to initialize
 - WHEN `create_routed_provider()` runs
 - THEN the system MUST log a warning at `WARN` level
@@ -320,8 +320,8 @@ The formal spec MUST define the classification contract:
 #### Scenario: Priority ordering determines evaluation order
 
 - GIVEN two rules:
-  - Rule A: `hint = "code"`, `priority = 10`, `keywords = ["debug"]`
-  - Rule B: `hint = "reasoning"`, `priority = 20`, `keywords = ["debug"]`
+    - Rule A: `hint = "code"`, `priority = 10`, `keywords = ["debug"]`
+    - Rule B: `hint = "reasoning"`, `priority = 20`, `keywords = ["debug"]`
 - WHEN a user sends `"help me debug this"`
 - THEN classification MUST return hint `"reasoning"` (Rule B, higher priority)
 - AND Rule A MUST NOT be evaluated after Rule B matches
@@ -371,7 +371,8 @@ The formal spec MUST define fallback behavior:
 - GIVEN routes for `["fast", "reasoning"]`
 - WHEN classification returns hint `"code"` (no matching route)
 - THEN the system MUST use the default provider and model
-- AND the raw selector (e.g. `"hint:code"`) MUST be preserved and passed downstream as the model string
+- AND the raw selector (e.g. `"hint:code"`) MUST be preserved and passed downstream as the model
+  string
 - AND a warning MUST be logged naming the unknown hint and the fallback model
 
 #### Scenario: No classification match uses default model silently
