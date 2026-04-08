@@ -3406,7 +3406,7 @@ fn setup_slack_channel(config: &mut ChannelsConfig) -> bool {
         style("— talk to Corvus from Slack").dim()
     );
     print_bullet("1. Go to https://api.slack.com/apps → Create New App");
-    print_bullet("2. Add Bot Token Scopes: chat:write, channels:history");
+    print_bullet("2. Add Bot Token Scopes: chat:write, channels:history, files:read");
     print_bullet("3. Install to workspace and copy the Bot Token");
     println!();
 

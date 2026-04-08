@@ -246,6 +246,8 @@ Recommended low-friction setup (secure + fast):
 - **Telegram:** allowlist your own `@username` (without `@`) and/or your numeric Telegram user ID.
 - **Discord:** allowlist your own Discord user ID.
 - **Slack:** allowlist your own Slack member ID (usually starts with `U`).
+- **Slack OAuth scopes:** add `chat:write`, `channels:history`, and `files:read` if you want
+  inbound image/file ingestion to work.
 - Use `"*"` only for temporary open testing.
 
 If you're not sure which identity to use:
