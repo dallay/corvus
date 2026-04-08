@@ -35,56 +35,28 @@ const modelName = "Corvus Agent";
 const { t } = useI18n();
 
 const showConfig = ref(false);
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const sidebarCollapsed = ref(true);
 const prompt = ref("");
 const chatContainer = ref<HTMLDivElement | null>(null);
 const gateway = useGateway(t);
-const {
-  baseUrl,
-  pairingCode,
-  bearerToken,
-  webhookSecret,
-  loading: gatewayLoading,
-  statusMessage: gatewayStatusMessage,
-  errorMessage: gatewayErrorMessage,
-  onboardingState,
-  onboardingSteps,
-  isGatewayReady,
-  normalizeBaseUrl,
-  createIdempotencyKey,
-  pairGateway,
-  connectGateway,
-} = gateway;
-
 const chat = useChat(t, gateway);
-const {
-  currentSessionId,
-  statusMessage: chatStatusMessage,
-  errorMessage: chatErrorMessage,
-  sending,
-  isSessionReady,
-  canResumeSession,
-  sessionList,
-  startSession,
-  clearSession,
-  sendMessage: sendChatMessage,
-  streamMessage,
-  switchSession,
-  stopSessionPolling,
-} = chat;
 
 let messageIdCounter = 1;
 
 const messages = ref<Message[]>([]);
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const canSend = computed(
-  () => prompt.value.trim().length > 0 && isSessionReady.value && !sending.value
+  () => prompt.value.trim().length > 0 && chat.isSessionReady.value && !chat.sending.value
 );
-const showOnboardingGate = computed(() => !isSessionReady.value);
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const showOnboardingGate = computed(() => !chat.isSessionReady.value);
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const combinedErrorMessage = computed(() => {
-  const gw = gatewayErrorMessage.value;
-  const ch = chatErrorMessage.value;
+  const gw = gateway.errorMessage.value;
+  const ch = chat.errorMessage.value;
   if (gw && ch) return `${gw} — ${ch}`;
   return ch || gw || "";
 });
@@ -126,7 +98,7 @@ function updateAssistantMessage(messageId: number, content: string, status?: Mes
 }
 
 async function beginSession(preferResume: boolean): Promise<void> {
-  const started = startSession(preferResume);
+  const started = chat.startSession(preferResume);
   if (!started) {
     return;
   }
@@ -139,34 +111,39 @@ async function beginSession(preferResume: boolean): Promise<void> {
   scrollChatToBottom();
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function startNewSession(): Promise<void> {
-  clearSession();
+  chat.clearSession();
   await beginSession(false);
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function resumeSession(): Promise<void> {
   await beginSession(true);
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function handleSidebarNewChat(): Promise<void> {
   persistMessages();
-  clearSession();
+  chat.clearSession();
   await beginSession(false);
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleSwitchSession(targetSessionId: string): void {
   persistMessages();
-  switchSession(targetSessionId);
+  chat.switchSession(targetSessionId);
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function sendMessage(): Promise<void> {
   const text = prompt.value.trim();
-  if (!text || !isSessionReady.value) {
+  if (!text || !chat.isSessionReady.value) {
     return;
   }
 
   const normalizedText = text.slice(0, MAX_PROMPT_LENGTH);
-  const requestId = createIdempotencyKey();
+  const requestId = gateway.createIdempotencyKey();
   messages.value.push({
     id: nextMessageId(),
     role: "user",
@@ -180,7 +157,7 @@ async function sendMessage(): Promise<void> {
     content: t("chat.processing", {
       text: normalizedText,
       modelName,
-      gateway: normalizeBaseUrl(),
+      gateway: gateway.normalizeBaseUrl(),
     }),
   });
 
@@ -192,7 +169,7 @@ async function sendMessage(): Promise<void> {
     // Try streaming first
     let streamBuffer = "";
     updateAssistantMessage(assistantMessageId, "", "streaming");
-    await streamMessage(
+    await chat.streamMessage(
       normalizedText,
       (chunk) => {
         streamBuffer += chunk;
@@ -217,11 +194,11 @@ async function sendMessage(): Promise<void> {
         t("chat.processing", {
           text: normalizedText,
           modelName,
-          gateway: normalizeBaseUrl(),
+          gateway: gateway.normalizeBaseUrl(),
         }),
         undefined
       );
-      const result = await sendChatMessage(normalizedText, requestId);
+      const result = await chat.sendMessage(normalizedText, requestId);
       if (result.type === "approval_required") {
         updateAssistantMessage(assistantMessageId, t("chat.toolApprovalTitle"));
         messages.value.push({
@@ -247,7 +224,7 @@ async function sendMessage(): Promise<void> {
 }
 
 watch(
-  () => isSessionReady.value,
+  () => chat.isSessionReady.value,
   (ready) => {
     if (!ready) {
       prompt.value = "";
@@ -256,11 +233,11 @@ watch(
 );
 
 function messagesStorageKey(): string {
-  return `corvus-chat-messages-${currentSessionId.value}`;
+  return `corvus-chat-messages-${chat.currentSessionId.value}`;
 }
 
 function persistMessages(): void {
-  if (!currentSessionId.value) return;
+  if (!chat.currentSessionId.value) return;
   try {
     const serializable = messages.value.map((m) => ({
       id: m.id,
@@ -278,7 +255,7 @@ function persistMessages(): void {
 }
 
 function restoreMessages(): void {
-  if (!currentSessionId.value) return;
+  if (!chat.currentSessionId.value) return;
   try {
     const raw = sessionStorage.getItem(messagesStorageKey());
     if (!raw) {
@@ -323,6 +300,7 @@ function restoreMessages(): void {
   }
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleApprove(approvalId: string): void {
   // Phase 5B stub: full round-trip will be wired in a follow-up.
   const idx = messages.value.findIndex((m) => m.approvalId === approvalId);
@@ -337,6 +315,7 @@ function handleApprove(approvalId: string): void {
   }
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleReject(approvalId: string): void {
   // Phase 5B stub: full round-trip will be wired in a follow-up.
   const idx = messages.value.findIndex((m) => m.approvalId === approvalId);
@@ -363,19 +342,19 @@ watch(
 );
 
 watch(
-  () => currentSessionId.value,
+  () => chat.currentSessionId.value,
   (sessionId) => {
     if (sessionId) restoreMessages();
   }
 );
 
 onMounted(() => {
-  if (currentSessionId.value) restoreMessages();
+  if (chat.currentSessionId.value) restoreMessages();
 });
 
 onUnmounted(() => {
   prompt.value = "";
-  stopSessionPolling();
+  chat.stopSessionPolling();
 });
 </script>
 
@@ -467,112 +446,114 @@ onUnmounted(() => {
 
       <div v-if="showConfig" class="config-wrapper">
         <ConfigPanel
-          :base-url="baseUrl"
-          :pairing-code="pairingCode"
-          :bearer-token="bearerToken"
-          :webhook-secret="webhookSecret"
-          :loading="gatewayLoading"
-          :status-message="gatewayStatusMessage"
+          :base-url="gateway.baseUrl.value"
+          :pairing-code="gateway.pairingCode.value"
+          :bearer-token="gateway.bearerToken.value"
+          :webhook-secret="gateway.webhookSecret.value"
+          :loading="gateway.loading.value"
+          :status-message="gateway.statusMessage.value"
           :error-message="combinedErrorMessage"
-          :onboarding-state="onboardingState"
-          :onboarding-steps="onboardingSteps"
-          @update:base-url="baseUrl = $event"
-          @update:pairing-code="pairingCode = $event"
-          @update:bearer-token="bearerToken = $event"
-          @update:webhook-secret="webhookSecret = $event"
-          @pair="pairGateway"
-          @connect="connectGateway"
+          :onboarding-state="gateway.onboardingState.value"
+          :onboarding-steps="gateway.onboardingSteps.value"
+          @update:base-url="gateway.baseUrl.value = $event"
+          @update:pairing-code="gateway.pairingCode.value = $event"
+          @update:bearer-token="gateway.bearerToken.value = $event"
+          @update:webhook-secret="gateway.webhookSecret.value = $event"
+          @pair="gateway.pairGateway"
+          @connect="gateway.connectGateway"
         />
       </div>
 
       <template v-else-if="showOnboardingGate">
         <section class="gate-card">
-          <div class="hero-content animate-slide-up">
-            <div class="hero-icon">
-              <img src="/favicon-light.svg" alt="Corvus" width="32" height="32" />
-            </div>
-            <p class="hero-kicker">{{ t("sections.auth") }}</p>
-            <h2 class="hero-title">{{ t("chatOnboarding.ready.title") }}</h2>
-            <p class="hero-subtitle">{{ t("chatOnboarding.intro") }}</p>
-          </div>
-
-          <ol class="gate-steps" aria-label="Web chat onboarding steps">
-            <li
-              v-for="step in onboardingSteps"
-              :key="step.key"
-              class="gate-step"
-              :data-step-status="step.status"
-            >
-              <div>
-                <h3>{{ t(step.titleKey) }}</h3>
-                <p>{{ t(step.descriptionKey) }}</p>
+          <div class="gate-layout animate-slide-up">
+            <div class="gate-panel gate-panel--primary">
+              <div class="hero-content">
+                <div class="hero-icon">
+                  <img src="/favicon-light.svg" alt="Corvus" width="32" height="32" />
+                </div>
+                <p class="hero-kicker">{{ t("sections.auth") }}</p>
+                <h2 class="hero-title">{{ t("chatOnboarding.ready.title") }}</h2>
+                <p class="hero-subtitle">{{ t("chatOnboarding.intro") }}</p>
               </div>
-              <span class="step-badge">{{ t(`onboarding.stepStatus.${step.status}`) }}</span>
-            </li>
-          </ol>
 
-          <div
-            v-if="onboardingState.state === 'blocked' && onboardingState.recoveryKind"
-            class="gate-banner gate-banner-error"
-            role="alert"
-          >
-            <p class="banner-title">
-              {{ t(`chatOnboarding.recovery.${onboardingState.recoveryKind}.title`) }}
-            </p>
-            <p>
-              {{ t(`chatOnboarding.recovery.${onboardingState.recoveryKind}.description`) }}
-            </p>
+              <div
+                v-if="gateway.onboardingState.value.state === 'blocked' && gateway.onboardingState.value.recoveryKind"
+                class="gate-banner gate-banner-error"
+                role="alert"
+              >
+                <p class="banner-title">
+                  {{ t(`chatOnboarding.recovery.${gateway.onboardingState.value.recoveryKind}.title`) }}
+                </p>
+                <p>
+                  {{ t(`chatOnboarding.recovery.${gateway.onboardingState.value.recoveryKind}.description`) }}
+                </p>
+              </div>
+
+              <div v-else-if="gateway.isGatewayReady.value" class="gate-banner gate-banner-success">
+                <p class="banner-title">{{ t("chatOnboarding.session.title") }}</p>
+                <p>{{ t("chatOnboarding.session.description") }}</p>
+              </div>
+
+              <div class="gate-actions">
+                <Button @click="showConfig = true">{{ t("app.config") }}</Button>
+                <Button
+                  v-if="gateway.isGatewayReady.value"
+                  variant="secondary"
+                  @click="startNewSession"
+                >
+                  {{ t("chat.startSession") }}
+                </Button>
+                <Button
+                  v-if="gateway.isGatewayReady.value"
+                  variant="secondary"
+                  :disabled="!chat.canResumeSession.value"
+                  @click="resumeSession"
+                >
+                  {{ t("chat.resumeSession") }}
+                </Button>
+              </div>
+
+              <div class="gate-status-stack">
+                <p v-if="chat.statusMessage.value" class="gate-status gate-status-ok">
+                  {{ chat.statusMessage.value }}
+                </p>
+                <p v-if="chat.errorMessage.value" class="gate-status gate-status-error">
+                  {{ chat.errorMessage.value }}
+                </p>
+              </div>
+            </div>
+
+            <div class="gate-panel gate-panel--steps">
+              <div class="gate-steps-header">
+                <p class="gate-steps-label">{{ t("chatOnboarding.ready.title") }}</p>
+                <p class="gate-steps-copy">{{ t("chatOnboarding.session.description") }}</p>
+              </div>
+
+              <ol class="gate-steps" aria-label="Web chat onboarding steps">
+                <li
+                  v-for="step in gateway.onboardingSteps.value"
+                  :key="step.key"
+                  class="gate-step"
+                  :data-step-status="step.status"
+                >
+                  <div class="gate-step-copy">
+                    <h3>{{ t(step.titleKey) }}</h3>
+                    <p>{{ t(step.descriptionKey) }}</p>
+                  </div>
+                  <span class="step-badge">{{ t(`onboarding.stepStatus.${step.status}`) }}</span>
+                </li>
+              </ol>
+            </div>
           </div>
-
-          <div v-else-if="isGatewayReady" class="gate-banner gate-banner-success">
-            <p class="banner-title">{{ t("chatOnboarding.session.title") }}</p>
-            <p>{{ t("chatOnboarding.session.description") }}</p>
-          </div>
-
-          <div class="gate-actions">
-            <Button @click="showConfig = true">{{ t("app.config") }}</Button>
-            <Button
-<<<<<<< HEAD
-              v-if="gateway.isGatewayReady.value"
-              variant="secondary"
-=======
-              v-if="isGatewayReady"
-              variant="outline"
->>>>>>> origin/main
-              @click="startNewSession"
-            >
-              {{ t("chat.startSession") }}
-            </Button>
-            <Button
-<<<<<<< HEAD
-              v-if="gateway.isGatewayReady.value"
-              variant="secondary"
-              :disabled="!chat.canResumeSession.value"
-=======
-              v-if="isGatewayReady"
-              variant="outline"
-              :disabled="!canResumeSession"
->>>>>>> origin/main
-              @click="resumeSession"
-            >
-              {{ t("chat.resumeSession") }}
-            </Button>
-          </div>
-
-          <p v-if="chatStatusMessage" class="gate-status gate-status-ok">
-            {{ chatStatusMessage }}
-          </p>
-          <p v-if="chatErrorMessage" class="gate-status gate-status-error">
-            {{ chatErrorMessage }}
-          </p>
         </section>
       </template>
 
       <template v-else>
         <div class="chat-with-sidebar">
           <SessionSidebar
-            :sessions="sessionList"
-            :current-session-id="currentSessionId"
+            :sessions="chat.sessionList.value"
+            :current-session-id="chat.currentSessionId.value"
             :collapsed="sidebarCollapsed"
             @switch-session="handleSwitchSession"
             @new-chat="handleSidebarNewChat"
@@ -603,11 +584,11 @@ onUnmounted(() => {
             <div class="chat-toolbar">
               <div class="chat-toolbar-left">
                 <p class="session-pill">
-                  {{ t("chat.sessionActive", { sessionId: currentSessionId }) }}
+                  {{ t("chat.sessionActive", { sessionId: chat.currentSessionId.value }) }}
                 </p>
                 <HealthIndicator
-                  :gateway-url="normalizeBaseUrl()"
-                  :bearer-token="bearerToken"
+                  :gateway-url="gateway.normalizeBaseUrl()"
+                  :bearer-token="gateway.bearerToken.value"
                 />
               </div>
               <Button variant="secondary" @click="startNewSession">{{ t("chat.newSession") }}</Button>
@@ -651,10 +632,10 @@ onUnmounted(() => {
 
 .sidebar {
   display: none;
-  width: 260px;
+  width: 248px;
   flex-direction: column;
   border-right: 1px solid var(--corvus-color-border-default);
-  background: var(--corvus-color-bg-surface);
+  background: var(--corvus-color-bg-base);
 }
 
 @media (min-width: 768px) {
@@ -667,19 +648,19 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 20px;
+  padding: 18px;
   border-bottom: 1px solid var(--corvus-color-border-default);
 }
 
 .sidebar-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--corvus-color-text-primary);
   margin: 0;
 }
 
 .sidebar-subtitle {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--corvus-color-text-disabled);
   margin: 0;
 }
@@ -717,9 +698,9 @@ onUnmounted(() => {
   width: 100%;
   align-items: center;
   gap: 12px;
-  border-radius: var(--corvus-radius-card);
+  border-radius: var(--corvus-radius-input);
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--corvus-color-text-secondary);
   background: transparent;
   border: 1px solid transparent;
@@ -730,7 +711,7 @@ onUnmounted(() => {
 
 .nav-item:hover {
   color: var(--corvus-color-text-primary);
-  background: var(--corvus-color-bg-raised);
+  background: var(--corvus-color-bg-surface);
 }
 
 .nav-item--active {
@@ -807,18 +788,47 @@ onUnmounted(() => {
 }
 
 .gate-card {
-  width: min(760px, 100%);
+  width: min(1120px, 100%);
+  align-items: stretch;
+}
+
+.gate-layout {
+  display: grid;
+  width: 100%;
+  gap: 32px;
+}
+
+@media (min-width: 960px) {
+  .gate-layout {
+    grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
+    align-items: start;
+  }
+}
+
+.gate-panel {
+  display: flex;
   flex-direction: column;
-  gap: 18px;
+}
+
+.gate-panel--primary {
+  gap: 28px;
+}
+
+.gate-panel--steps {
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--corvus-color-border-default);
+  border-radius: var(--corvus-radius-card);
+  background: var(--corvus-color-bg-surface);
 }
 
 .hero-content {
-  width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  text-align: center;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+  max-width: 640px;
 }
 
 .hero-icon {
@@ -833,24 +843,49 @@ onUnmounted(() => {
 
 .hero-kicker {
   margin: 0;
-  font-size: 12px;
+  font-family: var(--corvus-typography-font-mono);
+  font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--corvus-color-text-disabled);
+  color: var(--corvus-color-text-secondary);
 }
 
 .hero-title {
   margin: 0;
-  font-size: 28px;
-  font-weight: 700;
+  font-size: clamp(40px, 6vw, 64px);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  font-weight: 600;
   color: var(--corvus-color-text-display);
 }
 
 .hero-subtitle {
-  max-width: 580px;
+  max-width: 560px;
   margin: 0;
-  color: var(--corvus-color-text-disabled);
-  line-height: 1.6;
+  color: var(--corvus-color-text-secondary);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.gate-steps-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gate-steps-label {
+  margin: 0;
+  font-family: var(--corvus-typography-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--corvus-color-text-secondary);
+}
+
+.gate-steps-copy {
+  margin: 0;
+  color: var(--corvus-color-text-primary);
+  line-height: 1.5;
 }
 
 .gate-steps {
@@ -865,11 +900,16 @@ onUnmounted(() => {
 .gate-step {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  border-radius: var(--corvus-radius-card-lg);
+  align-items: flex-start;
+  gap: 16px;
+  border-radius: var(--corvus-radius-card);
   border: 1px solid var(--corvus-color-border-default);
-  background: var(--corvus-color-bg-surface);
-  padding: 16px;
+  background: transparent;
+  padding: 18px 16px;
+}
+
+.gate-step-copy {
+  min-width: 0;
 }
 
 .gate-step h3,
@@ -884,6 +924,7 @@ onUnmounted(() => {
 .gate-step p {
   margin-top: 6px;
   color: var(--corvus-color-text-secondary);
+  line-height: 1.55;
 }
 
 .gate-step[data-step-status="complete"] {
@@ -892,6 +933,7 @@ onUnmounted(() => {
 
 .gate-step[data-step-status="current"] {
   border-color: var(--corvus-color-interactive-default);
+  background: var(--corvus-color-bg-surface);
 }
 
 .gate-step[data-step-status="blocked"] {
@@ -900,20 +942,24 @@ onUnmounted(() => {
 
 .step-badge {
   flex-shrink: 0;
-  border-radius: var(--corvus-radius-pill);
-  padding: 4px 10px;
+  min-width: 88px;
+  border-radius: 999px;
+  padding: 6px 10px;
   font-size: 11px;
-  font-weight: 600;
+  font-family: var(--corvus-typography-font-mono);
+  font-weight: 400;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
+  text-align: center;
   background: var(--corvus-color-bg-raised);
   color: var(--corvus-color-text-secondary);
 }
 
 .gate-banner {
   width: 100%;
-  border-radius: var(--corvus-radius-card-lg);
-  padding: 16px;
+  border-radius: var(--corvus-radius-card);
+  padding: 16px 18px;
+  background: var(--corvus-color-bg-surface);
 }
 
 .gate-banner p:last-child {
@@ -932,9 +978,19 @@ onUnmounted(() => {
 
 .gate-actions {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
+}
+
+.gate-actions :deep(.btn) {
+  min-width: 168px;
+}
+
+.gate-status-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .gate-status-ok {
@@ -1080,6 +1136,11 @@ onUnmounted(() => {
   background: var(--corvus-color-text-primary);
 }
 
+.send-btn:focus-visible:not(:disabled) {
+  outline: 2px solid var(--corvus-color-text-primary);
+  outline-offset: 2px;
+}
+
 .send-btn:active:not(:disabled) {
   transform: scale(0.95);
 }
@@ -1097,10 +1158,24 @@ onUnmounted(() => {
 }
 
 @media (max-width: 767px) {
+  .gate-layout,
   .gate-step,
   .chat-toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .gate-panel--steps {
+    padding: 16px;
+  }
+
+  .hero-title {
+    font-size: 40px;
+  }
+
+  .step-badge {
+    min-width: 0;
+    align-self: flex-start;
   }
 }
 </style>

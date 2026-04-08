@@ -93,11 +93,37 @@ header.header {
   border-bottom: 1px solid var(--sl-color-hairline-shade);
 }
 
+header.header .header {
+  min-height: 4rem;
+}
+
 /* ── Site Title ── */
 .site-title {
   font-weight: 700;
   letter-spacing: -0.03em;
   font-family: var(--corvus-typography-font-display);
+  gap: 0.75rem;
+}
+
+.site-title img {
+  width: 28px;
+  height: 28px;
+}
+
+:root[data-theme="light"] .site-title img:first-of-type {
+  display: none;
+}
+
+:root[data-theme="light"] .site-title img:last-of-type {
+  display: block;
+}
+
+:root[data-theme="dark"] .site-title img:first-of-type {
+  display: block;
+}
+
+:root[data-theme="dark"] .site-title img:last-of-type {
+  display: none;
 }
 
 /* ─────────────────────────────────────────────
@@ -117,7 +143,7 @@ nav.sidebar a[aria-current="page"] {
 
 .hero {
   background: var(--sl-color-bg);
-  padding: 6rem 3rem;
+  padding: 5rem 3rem;
   position: relative;
   overflow: hidden;
   border-radius: var(--corvus-radius-card-lg);
@@ -474,16 +500,9 @@ footer {
   *,
   *::before,
   *::after {
-    /* biome-ignore lint/complexity/noImportantStyles: required to guarantee reduced-motion override */
     animation-duration: 0.01ms !important;
-
-    /* biome-ignore lint/complexity/noImportantStyles: required to guarantee reduced-motion override */
     animation-iteration-count: 1 !important;
-
-    /* biome-ignore lint/complexity/noImportantStyles: required to guarantee reduced-motion override */
     transition-duration: 0.01ms !important;
-
-    /* biome-ignore lint/complexity/noImportantStyles: required to guarantee reduced-motion override */
     scroll-behavior: auto !important;
   }
 }

@@ -59,28 +59,7 @@ import type { AdminSessionView } from "@/types/admin-sessions";
 
 const { t } = useI18n();
 
-const {
-  baseUrl,
-  pairingCode,
-  bearerToken,
-  loading,
-  statusMessage,
-  errorMessage,
-  form,
-  canSave,
-  sectionSaving,
-  memoryBackendOptions,
-  observabilityBackendOptions,
-  runtimeKindOptions,
-  autonomyLevelOptions,
-  quickPairState,
-  onboardingState,
-  onboardingSteps,
-  isOperatorReady,
-  pairGateway,
-  connectGateway,
-  saveSection,
-} = useConfig(t);
+const config = useConfig(t);
 
 type DashboardPage = "config" | "sessions" | "memory";
 const currentPage = ref<DashboardPage>("config");
@@ -102,7 +81,7 @@ const memorySearchFilter = ref<string | undefined>(undefined);
 // Gateway URL builder and auth headers for useAdmin composable
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function adminGatewayUrl(path: string): string {
-  const base = trimTrailingSlashes(baseUrl.value.trim()) || "/api";
+  const base = trimTrailingSlashes(config.baseUrl.value.trim()) || "/api";
   if (base.startsWith("/")) {
     return new URL(`${base}${path}`, globalThis.location.origin).toString();
   }
@@ -113,8 +92,8 @@ function adminGatewayUrl(path: string): string {
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function adminAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (bearerToken.value.trim()) {
-    headers.Authorization = `Bearer ${bearerToken.value.trim()}`;
+  if (config.bearerToken.value.trim()) {
+    headers.Authorization = `Bearer ${config.bearerToken.value.trim()}`;
   }
   return headers;
 }
@@ -142,7 +121,7 @@ function onViewSessionMemory(sessionId: string) {
           <p>{{ t("app.subtitle") }}</p>
         </div>
       </div>
-      <nav v-if="isOperatorReady" class="nav-tabs" role="tablist" aria-label="Dashboard navigation">
+      <nav v-if="config.isOperatorReady.value" class="nav-tabs" role="tablist" aria-label="Dashboard navigation">
         <button
           role="tab"
           class="nav-tab"
@@ -179,7 +158,7 @@ function onViewSessionMemory(sessionId: string) {
       <p class="helper onboarding-intro">{{ t("onboarding.intro") }}</p>
       <ol class="onboarding-steps" aria-label="Dashboard onboarding steps">
         <li
-          v-for="step in onboardingSteps"
+          v-for="step in config.onboardingSteps.value"
           :key="step.key"
           class="onboarding-step"
           :data-step-status="step.status"
@@ -194,7 +173,7 @@ function onViewSessionMemory(sessionId: string) {
         </li>
       </ol>
       <output
-        v-if="isOperatorReady"
+        v-if="config.isOperatorReady.value"
         class="onboarding-banner onboarding-banner-ready"
         aria-live="polite"
       >
@@ -203,42 +182,42 @@ function onViewSessionMemory(sessionId: string) {
       </output>
       <div
         v-else-if="
-          onboardingState.state === 'blocked' && onboardingState.recoveryKind
+          config.onboardingState.value.state === 'blocked' && config.onboardingState.value.recoveryKind
         "
         class="onboarding-banner onboarding-banner-blocked"
         role="alert"
         aria-live="assertive"
       >
         <p class="banner-title">
-          {{ t(`onboarding.recovery.${onboardingState.recoveryKind}.title`) }}
+          {{ t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.title`) }}
         </p>
-        <p>{{ t(`onboarding.recovery.${onboardingState.recoveryKind}.description`) }}</p>
+        <p>{{ t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.description`) }}</p>
       </div>
-      <output v-if="quickPairState === 'validating' || quickPairState === 'pairing'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
+      <output v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
         <span>{{ t("auth.quickPairValidating") }}</span>
       </output>
-      <output v-else-if="quickPairState === 'connecting'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
+      <output v-else-if="config.quickPairState.value === 'connecting'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
         <span>{{ t("auth.quickPairConnecting") }}</span>
       </output>
       <div v-else>
-        <p v-if="quickPairState === 'failed'" class="error" role="alert" aria-live="assertive" aria-atomic="true">{{ t("auth.quickPairFailed") }}</p>
+        <p v-if="config.quickPairState.value === 'failed'" class="error" role="alert" aria-live="assertive" aria-atomic="true">{{ t("auth.quickPairFailed") }}</p>
         <div class="grid">
           <label>
             <span>{{ t("auth.baseUrl") }}</span>
-            <Input v-model="baseUrl" :placeholder="t('form.baseUrlPlaceholder')" />
+            <Input v-model="config.baseUrl.value" :placeholder="t('form.baseUrlPlaceholder')" />
           </label>
           <label>
             <span>{{ t("auth.pairingCode") }}</span>
-            <Input v-model="pairingCode" type="password" />
+            <Input v-model="config.pairingCode.value" type="password" />
           </label>
           <label>
             <span>{{ t("auth.bearerToken") }}</span>
-            <Input v-model="bearerToken" type="password" />
+            <Input v-model="config.bearerToken.value" type="password" />
           </label>
         </div>
         <div class="actions">
-          <Button :disabled="loading" @click="pairGateway">{{ t("auth.pair") }}</Button>
-          <Button :disabled="loading" variant="secondary" @click="connectGateway">
+          <Button :disabled="config.loading.value" @click="config.pairGateway">{{ t("auth.pair") }}</Button>
+          <Button :disabled="config.loading.value" variant="secondary" @click="config.connectGateway">
             {{ t("auth.connect") }}
           </Button>
         </div>
@@ -247,152 +226,167 @@ function onViewSessionMemory(sessionId: string) {
 
     <!-- Config page (existing content) -->
     <template v-if="currentPage === 'config'">
-      <GeneralSettings
-        :model-value="form"
-        :memory-backend-options="memoryBackendOptions"
-        :disabled="!canSave"
-        :saving="sectionSaving.general"
-        @update:model-value="Object.assign(form, $event)"
-        @save="saveSection('general')"
-      />
+      <section v-if="config.isOperatorReady.value" class="overview-section">
+        <div class="section-intro">
+          <p class="section-kicker">Operational overview</p>
+          <h2>Current system state</h2>
+          <p class="helper section-copy">
+            Review runtime, scheduler, gateway, and reliability signals before changing configuration.
+          </p>
+        </div>
+        <div class="overview-grid">
+          <SchedulerStatus
+            :gateway-url="config.baseUrl.value"
+            :bearer-token="config.bearerToken.value"
+          />
 
-      <SecuritySettings
-        :model-value="form"
-        :autonomy-level-options="autonomyLevelOptions"
-        :disabled="!canSave"
-        :saving="sectionSaving.security"
-        @update:model-value="Object.assign(form, $event)"
-        @save="saveSection('security')"
-      />
+          <CostOverview
+            :gateway-url="config.baseUrl.value"
+            :bearer-token="config.bearerToken.value"
+          />
 
-      <ObservabilitySettings
-        :model-value="form"
-        :observability-backend-options="observabilityBackendOptions"
-        :disabled="!canSave"
-        :saving="sectionSaving.observability"
-        @update:model-value="Object.assign(form, $event)"
-        @save="saveSection('observability')"
-      />
+          <TunnelOverview
+            :gateway-url="config.baseUrl.value"
+            :bearer-token="config.bearerToken.value"
+          />
 
-      <RuntimeSettings
-        :model-value="form"
-        :runtime-kind-options="runtimeKindOptions"
-        :disabled="!canSave"
-        :saving="sectionSaving.runtime"
-        @update:model-value="Object.assign(form, $event)"
-        @save="saveSection('runtime')"
-      />
+          <ReliabilityOverview
+            :gateway-url="config.baseUrl.value"
+            :bearer-token="config.bearerToken.value"
+          />
 
-      <SchedulerSettings
-        :model-value="form"
-        :disabled="!canSave"
-        :saving="sectionSaving.scheduler"
-        @update:model-value="Object.assign(form, $event)"
-        @save="saveSection('scheduler')"
-      />
+          <HeartbeatOverview
+            :gateway-url="config.baseUrl.value"
+            :bearer-token="config.bearerToken.value"
+          />
 
-      <GatewaySettings
-        :model-value="form"
-        :disabled="!canSave"
-        :saving="sectionSaving.gateway"
-        @update:model-value="Object.assign(form, $event)"
-        @save="saveSection('gateway')"
-      />
+          <McpOverview
+            :gateway-url="config.baseUrl.value"
+            :bearer-token="config.bearerToken.value"
+          />
 
-      <WebhookSettings
-        :model-value="form"
-        :disabled="!canSave"
-        :saving="sectionSaving.webhook"
-        @update:model-value="Object.assign(form, $event)"
-        @save="saveSection('webhook')"
-      />
+          <ChannelsOverview
+            :gateway-url="config.baseUrl.value"
+            :bearer-token="config.bearerToken.value"
+          />
 
-      <WebSearchSettings
-        :model-value="form"
-        :disabled="!canSave"
-        :saving="sectionSaving['web-search']"
-        @update:model-value="Object.assign(form, $event)"
-        @save="saveSection('web-search')"
-      />
+          <HealthDashboard
+            :gateway-url="config.baseUrl.value"
+            :bearer-token="config.bearerToken.value"
+          />
+        </div>
+      </section>
 
-      <BrowserSettings
-        :model-value="form"
-        :disabled="!canSave"
-        :saving="sectionSaving.browser"
-        @update:model-value="Object.assign(form, $event)"
-        @save="saveSection('browser')"
-      />
+      <section class="section-intro-card">
+        <div class="section-intro">
+          <p class="section-kicker">Configuration surfaces</p>
+          <h2>System controls</h2>
+          <p class="helper section-copy">
+            Adjust operators, runtime, security, and integrations in grouped technical panels.
+          </p>
+        </div>
+      </section>
 
-      <ComposioSettings
-        :model-value="form"
-        :disabled="!canSave"
-        :saving="sectionSaving.composio"
-        @update:model-value="Object.assign(form, $event)"
-        @save="saveSection('composio')"
-      />
+      <div class="config-stack">
+        <GeneralSettings
+          :model-value="config.form"
+          :memory-backend-options="config.memoryBackendOptions.value"
+          :disabled="!config.canSave.value"
+          :saving="config.sectionSaving.general"
+          @update:model-value="Object.assign(config.form, $event)"
+          @save="config.saveSection('general')"
+        />
 
-      <MemorySettings
-        :model-value="form"
-        :disabled="!canSave"
-        :saving="sectionSaving.memory"
-        @update:model-value="Object.assign(form, $event)"
-        @save="saveSection('memory')"
-      />
+        <SecuritySettings
+          :model-value="config.form"
+          :autonomy-level-options="config.autonomyLevelOptions.value"
+          :disabled="!config.canSave.value"
+          :saving="config.sectionSaving.security"
+          @update:model-value="Object.assign(config.form, $event)"
+          @save="config.saveSection('security')"
+        />
 
-      <ChannelsOverview
-        v-if="isOperatorReady"
-        :gateway-url="baseUrl"
-        :bearer-token="bearerToken"
-      />
+        <ObservabilitySettings
+          :model-value="config.form"
+          :observability-backend-options="config.observabilityBackendOptions.value"
+          :disabled="!config.canSave.value"
+          :saving="config.sectionSaving.observability"
+          @update:model-value="Object.assign(config.form, $event)"
+          @save="config.saveSection('observability')"
+        />
 
-      <SchedulerStatus
-        v-if="isOperatorReady"
-        :gateway-url="baseUrl"
-        :bearer-token="bearerToken"
-      />
+        <RuntimeSettings
+          :model-value="config.form"
+          :runtime-kind-options="config.runtimeKindOptions.value"
+          :disabled="!config.canSave.value"
+          :saving="config.sectionSaving.runtime"
+          @update:model-value="Object.assign(config.form, $event)"
+          @save="config.saveSection('runtime')"
+        />
 
-      <CostOverview
-        v-if="isOperatorReady"
-        :gateway-url="baseUrl"
-        :bearer-token="bearerToken"
-      />
+        <SchedulerSettings
+          :model-value="config.form"
+          :disabled="!config.canSave.value"
+          :saving="config.sectionSaving.scheduler"
+          @update:model-value="Object.assign(config.form, $event)"
+          @save="config.saveSection('scheduler')"
+        />
 
-      <McpOverview
-        v-if="isOperatorReady"
-        :gateway-url="baseUrl"
-        :bearer-token="bearerToken"
-      />
+        <GatewaySettings
+          :model-value="config.form"
+          :disabled="!config.canSave.value"
+          :saving="config.sectionSaving.gateway"
+          @update:model-value="Object.assign(config.form, $event)"
+          @save="config.saveSection('gateway')"
+        />
 
-      <TunnelOverview
-        v-if="isOperatorReady"
-        :gateway-url="baseUrl"
-        :bearer-token="bearerToken"
-      />
+        <WebhookSettings
+          :model-value="config.form"
+          :disabled="!config.canSave.value"
+          :saving="config.sectionSaving.webhook"
+          @update:model-value="Object.assign(config.form, $event)"
+          @save="config.saveSection('webhook')"
+        />
 
-      <ReliabilityOverview
-        v-if="isOperatorReady"
-        :gateway-url="baseUrl"
-        :bearer-token="bearerToken"
-      />
+        <WebSearchSettings
+          :model-value="config.form"
+          :disabled="!config.canSave.value"
+          :saving="config.sectionSaving['web-search']"
+          @update:model-value="Object.assign(config.form, $event)"
+          @save="config.saveSection('web-search')"
+        />
 
-      <HeartbeatOverview
-        v-if="isOperatorReady"
-        :gateway-url="baseUrl"
-        :bearer-token="bearerToken"
-      />
+        <BrowserSettings
+          :model-value="config.form"
+          :disabled="!config.canSave.value"
+          :saving="config.sectionSaving.browser"
+          @update:model-value="Object.assign(config.form, $event)"
+          @save="config.saveSection('browser')"
+        />
 
-      <HealthDashboard
-        v-if="isOperatorReady"
-        :gateway-url="baseUrl"
-        :bearer-token="bearerToken"
-      />
+        <ComposioSettings
+          :model-value="config.form"
+          :disabled="!config.canSave.value"
+          :saving="config.sectionSaving.composio"
+          @update:model-value="Object.assign(config.form, $event)"
+          @save="config.saveSection('composio')"
+        />
+
+        <MemorySettings
+          :model-value="config.form"
+          :disabled="!config.canSave.value"
+          :saving="config.sectionSaving.memory"
+          @update:model-value="Object.assign(config.form, $event)"
+          @save="config.saveSection('memory')"
+        />
+      </div>
 
       <!-- TODO: Wire UpdateSettings when raw AdminConfigView is exposed from useConfig
            (UpdateSettings expects AdminConfigView, not AdminConfigForm) -->
     </template>
 
     <!-- Sessions page -->
-    <template v-if="currentPage === 'sessions' && isOperatorReady">
+    <template v-if="currentPage === 'sessions' && config.isOperatorReady.value">
       <section class="card">
         <h2>{{ t("nav.sessions", "Sessions") }}</h2>
         <SessionFilters
@@ -420,7 +414,7 @@ function onViewSessionMemory(sessionId: string) {
     </template>
 
     <!-- Memory page -->
-    <template v-if="currentPage === 'memory' && isOperatorReady">
+    <template v-if="currentPage === 'memory' && config.isOperatorReady.value">
       <section class="card">
         <h2>{{ t("nav.memory", "Memory") }}</h2>
         <MemoryStats
@@ -449,25 +443,25 @@ function onViewSessionMemory(sessionId: string) {
       <p class="helper">
         {{
           t("webhook.secretStatus", {
-            status: form.webhook_secret_exists
+            status: config.form.webhook_secret_exists
               ? t("webhook.statusConfigured")
               : t("webhook.statusNotConfigured"),
           })
         }}
       </p>
-      <p v-if="statusMessage" class="ok">{{ statusMessage }}</p>
-      <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+      <p v-if="config.statusMessage.value" class="ok">{{ config.statusMessage.value }}</p>
+      <p v-if="config.errorMessage.value" class="error">{{ config.errorMessage.value }}</p>
     </section>
   </main>
 </template>
 
 <style scoped>
 .dashboard-shell {
-  max-width: 1040px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 24px 24px 64px;
   display: grid;
-  gap: 16px;
+  gap: 24px;
 }
 
 .header-card,
@@ -475,12 +469,18 @@ function onViewSessionMemory(sessionId: string) {
   background: var(--corvus-color-bg-surface);
   border: 1px solid var(--corvus-color-border-default);
   border-radius: var(--corvus-radius-card-lg);
-  padding: 16px;
+  padding: 18px;
+}
+
+.header-card {
+  padding: 20px 22px;
 }
 
 .header-card h1 {
   margin: 0;
-  font-size: 24px;
+  font-size: clamp(28px, 4vw, 40px);
+  line-height: 0.98;
+  letter-spacing: -0.03em;
 }
 
 .header-card p {
@@ -500,16 +500,17 @@ function onViewSessionMemory(sessionId: string) {
 
 .nav-tabs {
   display: flex;
-  gap: 4px;
-  margin-top: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
   border-top: 1px solid var(--corvus-color-border-default);
-  padding-top: 12px;
+  padding-top: 16px;
 }
 
 .nav-tab {
-  padding: 6px 16px;
+  padding: 8px 16px;
   border: 1px solid var(--corvus-color-border-default);
-  border-radius: var(--corvus-radius-input);
+  border-radius: var(--corvus-radius-pill);
   background: transparent;
   color: var(--corvus-color-text-secondary);
   cursor: pointer;
@@ -533,7 +534,7 @@ function onViewSessionMemory(sessionId: string) {
 .sessions-layout {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 16px;
+  gap: 20px;
 }
 
 @media (min-width: 768px) {
@@ -543,8 +544,9 @@ function onViewSessionMemory(sessionId: string) {
 }
 
 h2 {
-  margin: 0 0 12px;
-  font-size: 16px;
+  margin: 0 0 14px;
+  font-size: 20px;
+  line-height: 1.1;
 }
 
 h3 {
@@ -582,8 +584,56 @@ label span {
 .actions {
   margin-top: 12px;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
+}
+
+.overview-section,
+.config-stack {
+  display: grid;
+  gap: 20px;
+}
+
+.section-intro-card {
+  border-top: 1px solid var(--corvus-color-border-default);
+  padding-top: 8px;
+}
+
+.section-intro {
+  display: grid;
+  gap: 8px;
+  max-width: 60ch;
+}
+
+.section-kicker {
+  margin: 0;
+  font-family: var(--corvus-typography-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--corvus-color-text-secondary);
+}
+
+.section-copy {
+  margin: 0;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+@media (min-width: 1100px) {
+  .overview-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 799px) {
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .switch-row {
@@ -602,6 +652,7 @@ label span {
 
 .onboarding-intro {
   margin-top: 0;
+  max-width: 60ch;
 }
 
 .onboarding-steps {
@@ -615,8 +666,8 @@ label span {
 .onboarding-step {
   border: 1px solid var(--corvus-color-border-default);
   border-radius: var(--corvus-radius-card);
-  padding: 12px;
-  background: var(--corvus-color-bg-surface);
+  padding: 14px 16px;
+  background: var(--corvus-color-bg-base);
 }
 
 .onboarding-step-header {
@@ -658,8 +709,8 @@ label span {
 
 .onboarding-banner {
   border-radius: var(--corvus-radius-card);
-  padding: 12px;
-  margin: 0 0 16px;
+  padding: 14px 16px;
+  margin: 0 0 18px;
 }
 
 .onboarding-banner-ready {

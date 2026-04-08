@@ -106,16 +106,16 @@ body {
   gap: var(--corvus-spacing-sm);
   color: var(--corvus-color-text-display);
   text-decoration: none;
-  font-family: var(--corvus-typography-font-mono);
-  font-size: var(--corvus-typography-scale-body-sm-size);
+  font-family: var(--corvus-typography-font-display);
+  font-size: 1.1rem;
   font-weight: var(--corvus-typography-weight-bold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: -0.03em;
+  text-transform: none;
 }
 
 .brand-mark {
-  width: 1.375rem;
-  height: 1.375rem;
+  width: 1.5rem;
+  height: 1.5rem;
 }
 
 .topbar-nav {
@@ -132,7 +132,7 @@ body {
   color: var(--corvus-color-text-secondary);
   text-decoration: none;
   font-family: var(--corvus-typography-font-mono);
-  font-size: var(--corvus-typography-scale-caption-size);
+  font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   transition: color var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
