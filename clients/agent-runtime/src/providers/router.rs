@@ -187,10 +187,26 @@ impl Provider for RouterProvider {
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {
-        for (name, provider) in &self.providers {
+        for (i, (name, provider)) in self.providers.iter().enumerate() {
             tracing::info!(provider = name, "Warming up routed provider");
             if let Err(e) = provider.warmup().await {
-                tracing::warn!(provider = name, "Warmup failed (non-fatal): {e}");
+                let mut affected: Vec<&str> = self
+                    .routes
+                    .iter()
+                    .filter(|(_, (provider_idx, _))| *provider_idx == i)
+                    .map(|(hint, _)| hint.as_str())
+                    .collect();
+                affected.sort_unstable();
+                let affected_hints = if affected.is_empty() {
+                    "none".to_string()
+                } else {
+                    affected.join(", ")
+                };
+                tracing::warn!(
+                    provider = name,
+                    affected_hints = affected_hints,
+                    "Warmup failed; routes using this provider may not be available: {e}"
+                );
             }
         }
         Ok(())
@@ -477,6 +493,126 @@ mod tests {
 
         // Warmup should not error
         assert!(router.warmup().await.is_ok());
+    }
+
+    struct FailingWarmupProvider;
+
+    #[async_trait]
+    impl Provider for FailingWarmupProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok("ok".into())
+        }
+
+        async fn warmup(&self) -> anyhow::Result<()> {
+            Err(anyhow::anyhow!("simulated warmup failure"))
+        }
+    }
+
+    #[tokio::test]
+    async fn warmup_logs_affected_route_hints_on_failure() {
+        use crate::test_support::tracing_capture::CaptureLayer;
+        use tracing_subscriber::prelude::*;
+
+        let layer = CaptureLayer::default();
+        let subscriber = tracing_subscriber::registry().with(layer.clone());
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let router = RouterProvider::new(
+            vec![
+                (
+                    "default".into(),
+                    Box::new(MockProvider::new("ok")) as Box<dyn Provider>,
+                ),
+                (
+                    "failing".into(),
+                    Box::new(FailingWarmupProvider) as Box<dyn Provider>,
+                ),
+            ],
+            vec![
+                (
+                    "code".into(),
+                    Route {
+                        provider_name: "failing".into(),
+                        model: "codellama".into(),
+                    },
+                ),
+                (
+                    "reasoning".into(),
+                    Route {
+                        provider_name: "failing".into(),
+                        model: "o1-preview".into(),
+                    },
+                ),
+            ],
+            "default-model".into(),
+        );
+
+        assert!(router.warmup().await.is_ok());
+
+        let events = layer.snapshot();
+        let warning = events.iter().find(|event| {
+            event
+                .field("message")
+                .is_some_and(|m| m.contains("Warmup failed"))
+        });
+        assert!(warning.is_some(), "expected warmup failure warning");
+        let warning = warning.unwrap();
+        assert_eq!(warning.field("provider"), Some("failing"));
+        let hints = warning
+            .field("affected_hints")
+            .expect("expected affected_hints field");
+        assert!(hints.contains("code"), "expected 'code' in affected hints");
+        assert!(
+            hints.contains("reasoning"),
+            "expected 'reasoning' in affected hints"
+        );
+    }
+
+    #[tokio::test]
+    async fn warmup_reports_no_affected_hints_when_provider_has_no_routes() {
+        use crate::test_support::tracing_capture::CaptureLayer;
+        use tracing_subscriber::prelude::*;
+
+        let layer = CaptureLayer::default();
+        let subscriber = tracing_subscriber::registry().with(layer.clone());
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        // FailingWarmupProvider is registered but has no routes pointing to it
+        let router = RouterProvider::new(
+            vec![
+                (
+                    "default".into(),
+                    Box::new(MockProvider::new("ok")) as Box<dyn Provider>,
+                ),
+                (
+                    "failing".into(),
+                    Box::new(FailingWarmupProvider) as Box<dyn Provider>,
+                ),
+            ],
+            vec![],
+            "default-model".into(),
+        );
+
+        assert!(router.warmup().await.is_ok());
+
+        let events = layer.snapshot();
+        let warning = events.iter().find(|event| {
+            event
+                .field("message")
+                .is_some_and(|m| m.contains("Warmup failed"))
+        });
+        assert!(warning.is_some(), "expected warmup failure warning");
+        assert_eq!(
+            warning.unwrap().field("affected_hints"),
+            Some("none"),
+            "provider with no routes should report 'none' for affected_hints"
+        );
     }
 
     #[tokio::test]
