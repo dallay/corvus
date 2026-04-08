@@ -552,6 +552,59 @@ fn parse_image_attachments(d: &serde_json::Value) -> Vec<ContentPart> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn spawn_mock_cdn(
+        body: Vec<u8>,
+        content_type: &'static str,
+    ) -> (
+        String,
+        Arc<Mutex<Option<String>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("mock CDN listener should bind");
+        let addr = listener
+            .local_addr()
+            .expect("mock CDN listener should have a local address");
+        let captured_request = Arc::new(Mutex::new(None));
+        let captured_request_clone = Arc::clone(&captured_request);
+
+        let handle = tokio::spawn(async move {
+            let (mut socket, _) = listener
+                .accept()
+                .await
+                .expect("mock CDN should accept one connection");
+            let mut request_buf = vec![0_u8; 4096];
+            let read = socket
+                .read(&mut request_buf)
+                .await
+                .expect("mock CDN should read request bytes");
+            *captured_request_clone.lock() =
+                Some(String::from_utf8_lossy(&request_buf[..read]).into_owned());
+
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                body.len()
+            );
+            socket
+                .write_all(headers.as_bytes())
+                .await
+                .expect("mock CDN should write response headers");
+            socket
+                .write_all(&body)
+                .await
+                .expect("mock CDN should write response body");
+        });
+
+        (
+            format!("http://{addr}/attachment.png"),
+            captured_request,
+            handle,
+        )
+    }
 
     #[test]
     fn discord_channel_name() {
@@ -956,6 +1009,53 @@ mod tests {
             }
             other => panic!("expected Image, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn fetch_and_stage_image_downloads_public_cdn_without_auth_header() {
+        let mut png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        png.extend_from_slice(&[7_u8; 32]);
+        let (url, captured_request, server) = spawn_mock_cdn(png.clone(), "image/png").await;
+        let channel =
+            DiscordChannel::new("super-secret-bot-token".into(), None, vec![], false, false);
+
+        let staged = channel
+            .fetch_and_stage_image(&url, Some("image/png"), media::MAX_IMAGE_BYTES)
+            .await
+            .expect("Discord CDN image should stage successfully");
+
+        server.await.expect("mock CDN task should finish cleanly");
+
+        let request = captured_request
+            .lock()
+            .clone()
+            .expect("mock CDN should capture the request");
+        let lower_request = request.to_ascii_lowercase();
+        assert!(request.starts_with("GET /attachment.png HTTP/1.1\r\n"));
+        assert!(
+            !lower_request.contains("\r\nauthorization:"),
+            "Discord CDN download must not send auth header: {request}"
+        );
+        assert_eq!(staged.mime_type, media::AllowedImageMime::Png);
+        assert_eq!(staged.byte_len, png.len() as u64);
+        assert_eq!(staged.channel_origin, "dc");
+        assert!(staged
+            .temp_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("corvus-dc-img-")));
+        assert_eq!(
+            std::fs::read(&staged.temp_path).expect("staged file must be readable"),
+            png
+        );
+
+        let temp_path = staged.temp_path.clone();
+        staged.cleanup();
+        assert!(
+            !temp_path.exists(),
+            "staged.cleanup() should remove {}",
+            temp_path.display()
+        );
     }
 
     #[test]
