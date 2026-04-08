@@ -1,41 +1,6 @@
 @import url("@corvus/shared/nothing-shell.css");
 @import url("tailwindcss");
-
-/* stylelint-disable-next-line at-rule-no-unknown */
-@theme {
-  /* Colors — generates bg-*, text-*, border-* utilities */
-  --color-bg-base: var(--corvus-color-bg-base);
-  --color-bg-surface: var(--corvus-color-bg-surface);
-  --color-bg-raised: var(--corvus-color-bg-raised);
-  --color-text-primary: var(--corvus-color-text-primary);
-  --color-text-secondary: var(--corvus-color-text-secondary);
-  --color-text-display: var(--corvus-color-text-display);
-  --color-text-disabled: var(--corvus-color-text-disabled);
-  --color-border-default: var(--corvus-color-border-default);
-  --color-border-visible: var(--corvus-color-border-visible);
-  --color-accent: var(--corvus-color-accent-default);
-  --color-accent-subtle: var(--corvus-color-accent-subtle);
-  --color-interactive: var(--corvus-color-interactive-default);
-  --color-success: var(--corvus-color-status-success);
-  --color-warning: var(--corvus-color-status-warning);
-  --color-error: var(--corvus-color-status-error);
-
-  /* Typography */
-  --font-body: var(--corvus-typography-font-body);
-  --font-mono: var(--corvus-typography-font-mono);
-  --font-display: var(--corvus-typography-font-display);
-
-  /* Spacing */
-  --spacing-2xs: var(--corvus-spacing-2xs);
-  --spacing-xs: var(--corvus-spacing-xs);
-  --spacing-sm: var(--corvus-spacing-sm);
-  --spacing-md: var(--corvus-spacing-md);
-  --spacing-lg: var(--corvus-spacing-lg);
-  --spacing-xl: var(--corvus-spacing-xl);
-  --spacing-2xl: var(--corvus-spacing-2xl);
-  --spacing-3xl: var(--corvus-spacing-3xl);
-  --spacing-4xl: var(--corvus-spacing-4xl);
-}
+@import url("@corvus/shared/tailwind-bridge.css");
 
 /* ── Animations ─────────────────────────────────────────────── */
 

@@ -700,8 +700,8 @@ h3 {
   .faq-group,
   .stat-card,
   .cta-band {
-    transition:
-      border-color var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
+    transition: border-color var(--corvus-motion-duration-default)
+      var(--corvus-motion-easing-default);
   }
 
   .install-card:hover,

@@ -16,7 +16,8 @@
     },
     "./base.css": "./base.css",
     "./nothing-theme.css": "./nothing-theme.css",
-    "./nothing-shell.css": "./nothing-shell.css"
+    "./nothing-shell.css": "./nothing-shell.css",
+    "./tailwind-bridge.css": "./tailwind-bridge.css"
   },
   "scripts": {
     "build": "echo 'Shared package build not yet implemented'",
