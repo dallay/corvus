@@ -21,7 +21,7 @@ Before you publish, confirm:
 
 1. **Repository access**
    - You are a maintainer for `dallay/corvus`.
-   - `RELEASE_PLEASE_TOKEN` is configured so release-please can open PRs and create canonical tags plus the canonical GitHub Release.
+   - `APP_ID` and `APP_PRIVATE_KEY` are configured so release-please can mint a GitHub App token with permission to open PRs and create canonical tags plus the canonical GitHub Release.
 2. **Gradle/Maven release credentials**
    - `SIGNING_IN_MEMORY_KEY`
    - `SIGNING_IN_MEMORY_KEY_PASSWORD`
@@ -127,7 +127,7 @@ Use this procedure when the manifest, tags, or GitHub Releases drift:
 
 ### No release PR
 
-- Confirm `RELEASE_PLEASE_TOKEN` is present.
+- Confirm `APP_ID` and `APP_PRIVATE_KEY` are present and the GitHub App is installed on `dallay/corvus`.
 - Confirm commits follow Conventional Commits.
 - Review the `release-please.yml` summary before changing config.
 

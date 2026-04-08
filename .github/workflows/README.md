@@ -267,7 +267,7 @@ canonical stable tag, GitHub Release, and release notes.
 
 **Secrets Required**:
 
-- `RELEASE_PLEASE_TOKEN` - Fine-grained PAT scoped only to this repository (no org-wide tokens). Minimum permissions: Contents: Read and write, Pull requests: Read and write, Issues: Read and write. Set a short expiry (<= 90 days) and rotate on a 90-day cadence; document who owns the rotation and where it is tracked. Store only in GitHub Secrets using the exact name `RELEASE_PLEASE_TOKEN`. Broader scopes or long-lived tokens are not permitted.
+- `APP_ID` / `APP_PRIVATE_KEY` - GitHub App credentials used to mint the release automation token. The app installation must have at least: Contents: Read and write, Pull requests: Read and write, Issues: Read and write. This avoids relying on the default `GITHUB_TOKEN` when the repository or organization blocks release creation for the built-in integration.
 
 ---
 

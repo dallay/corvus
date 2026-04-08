@@ -25,11 +25,18 @@ jobs:
       tag_name: ${{ steps.release-please.outputs.tag_name }}
       release_id: ${{ steps.resolve-release-id.outputs.release_id }}
     steps:
+      - name: 🔐 Generate release GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: 🤖 Run release-please
         id: release-please
         uses: googleapis/release-please-action@c3fc4de07084f75a2b61a5b933069bda6edf3d5c # v4.4.0
         with:
-          token: ${{ github.token }}
+          token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
@@ -37,7 +44,7 @@ jobs:
         if: ${{ steps.release-please.outputs.releases_created == 'true' || steps.release-please.outputs.release_created == 'true' }}
         id: resolve-release-id
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_TAG: ${{ steps.release-please.outputs.tag_name }}
         run: |
           set -euo pipefail
@@ -70,12 +77,14 @@ jobs:
           releases_created = outputs.get("releases_created") or outputs.get("release_created") or "false"
           prs_created = outputs.get("prs_created") or "false"
           pr_metadata = "present" if outputs.get("pr") or outputs.get("prs") else "absent"
+          auth_source = "GitHub App token via APP_ID/APP_PRIVATE_KEY"
 
           lines = [
               "## release-please action outputs",
               "",
               "- Canonical release PR/tag/GitHub Release path: `release-please` from merges to `main`",
               "- Canonical GitHub Release notes owner: `release-please`",
+              f"- Auth source: `{auth_source}`",
               f"- Manifest baseline: `{manifest_version}`",
               f"- Candidate version output: `{version}`",
               f"- Tag output: `{tag_name}`",

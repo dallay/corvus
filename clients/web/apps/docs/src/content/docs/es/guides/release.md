@@ -21,7 +21,7 @@ Antes de publicar, confirma:
 
 1. **Acceso al repositorio**
    - Eres maintainer de `dallay/corvus`.
-   - `RELEASE_PLEASE_TOKEN` está configurado para que release-please pueda abrir PRs y crear tags canónicos más el GitHub Release canónico.
+   - `APP_ID` y `APP_PRIVATE_KEY` están configurados para que release-please pueda emitir un token de GitHub App con permiso para abrir PRs y crear tags canónicos más el GitHub Release canónico.
 2. **Credenciales de release para Gradle/Maven**
    - `SIGNING_IN_MEMORY_KEY`
    - `SIGNING_IN_MEMORY_KEY_PASSWORD`
@@ -127,7 +127,7 @@ Usa este procedimiento cuando haya drift entre el manifiesto, los tags o GitHub 
 
 ### No aparece PR de release
 
-- Confirma que `RELEASE_PLEASE_TOKEN` existe.
+- Confirma que `APP_ID` y `APP_PRIVATE_KEY` existen y que el GitHub App está instalado en `dallay/corvus`.
 - Confirma que los commits siguen Conventional Commits.
 - Revisa el summary de `release-please.yml` antes de tocar la configuración.
 
