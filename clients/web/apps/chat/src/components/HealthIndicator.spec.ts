@@ -94,7 +94,10 @@ describe("HealthIndicator", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    resolveFetch?.(new Response(JSON.stringify({ status: "ok" }), { status: 200 }));
+    const resolve = resolveFetch as ((value: Response) => void) | null;
+    if (resolve) {
+      resolve(new Response(JSON.stringify({ status: "ok" }), { status: 200 }));
+    }
     await flushPromises();
   });
 });
