@@ -1049,7 +1049,13 @@ mod tests {
             png
         );
 
+        let temp_path = staged.temp_path.clone();
         staged.cleanup();
+        assert!(
+            !temp_path.exists(),
+            "staged.cleanup() should remove {}",
+            temp_path.display()
+        );
     }
 
     #[test]
