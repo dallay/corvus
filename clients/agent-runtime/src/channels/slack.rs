@@ -265,8 +265,14 @@ impl SlackChannel {
                     media::ImageRejectionReason::FetchFailed
                 })?;
 
-            media::stream_validate_and_stage(response, declared_mime, "sl", &download_url, max_bytes)
-                .await
+            media::stream_validate_and_stage(
+                response,
+                declared_mime,
+                "sl",
+                &download_url,
+                max_bytes,
+            )
+            .await
         })
         .await
         .map_err(|_| {
