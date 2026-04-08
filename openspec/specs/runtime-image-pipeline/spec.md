@@ -383,14 +383,16 @@ messages.
 
 ### REQ-8: Configuration Contract
 
-The `[multimodal]` config section MUST conform to the following contract:
+The `[multimodal]` config section MUST continue to support the existing image-ingress settings and
+it MUST additionally support an optional staged-image startup reaper threshold.
 
 ```toml
 [multimodal]
-enabled = false                    # bool, default: false — global kill switch
-allowed_channels = []              # list of strings — channel allowlist
-vision_model_hint = ""             # string — model route selector
-max_image_bytes = null             # optional integer — override MAX_IMAGE_BYTES
+enabled = false                                   # bool, default: false — global kill switch
+allowed_channels = []                             # list of strings — channel allowlist
+vision_model_hint = ""                            # string — model route selector
+max_image_bytes = null                            # optional integer — override MAX_IMAGE_BYTES
+staged_image_reaper_threshold_minutes = 30        # optional integer — startup cleanup age threshold
 ```
 
 Startup validation MUST enforce:
@@ -401,47 +403,35 @@ Startup validation MUST enforce:
   error.
 - If `max_image_bytes` is set, it MUST be > 0 and <= 52428800 (50 MiB). Violation MUST produce a
   startup error.
+- If `staged_image_reaper_threshold_minutes` is not set, the effective threshold MUST default to 30
+  minutes.
+- If `staged_image_reaper_threshold_minutes` is set, it MUST be greater than 0. Violation MUST
+  produce a startup error.
 - Non-MVP channel names in `allowed_channels` SHOULD produce a startup warning (not an error).
   These channels will be fail-closed at runtime per the channel-ingestion spec (REQ-8 / ADR-4).
 
-The runtime MUST log the effective `max_image_bytes` value at startup when multimodal is enabled,
-indicating whether the value comes from config override or the hardcoded default.
+The runtime MAY use a large configured threshold to make startup cleanup effectively inert, but it
+MUST still preserve the same matching and age-based deletion rules.
 
-#### Scenario: Valid config with custom size limit
+#### Scenario: Default reaper threshold is applied
 
-- GIVEN a config file with `multimodal.enabled=true`, `vision_model_hint="gpt-4o"`,
-  `allowed_channels=["telegram"]`, `max_image_bytes=5242880`
-- WHEN the runtime starts
-- THEN config validation passes
-- AND the runtime logs "Multimodal enabled: max_image_bytes=5242880 (config override)"
+- GIVEN a config file omits `multimodal.staged_image_reaper_threshold_minutes`
+- WHEN the runtime starts and executes the staged-image startup reaper
+- THEN the effective reaper threshold MUST be 30 minutes
 
-#### Scenario: Invalid config — enabled without vision route
+#### Scenario: Config override changes the reaper threshold
 
-- GIVEN a config file with `multimodal.enabled=true` and `vision_model_hint=""`
-- WHEN the runtime starts
-- THEN the runtime MUST produce a startup validation error
-- AND the error message indicates that `vision_model_hint` is required when multimodal is enabled
+- GIVEN a config file sets `multimodal.staged_image_reaper_threshold_minutes=90`
+- WHEN the runtime starts and executes the staged-image startup reaper
+- THEN the effective reaper threshold MUST be 90 minutes
+- AND the cleanup decision for matching files MUST use that threshold
 
-#### Scenario: Invalid config — max_image_bytes too large
+#### Scenario: Invalid reaper threshold fails startup validation
 
-- GIVEN a config file with `max_image_bytes=104857600` (100 MiB)
+- GIVEN a config file sets `multimodal.staged_image_reaper_threshold_minutes=0`
 - WHEN the runtime starts
 - THEN the runtime MUST produce a startup validation error
-- AND the error message indicates the 50 MiB ceiling
-
-#### Scenario: Invalid config — max_image_bytes is zero
-
-- GIVEN a config file with `max_image_bytes=0`
-- WHEN the runtime starts
-- THEN the runtime MUST produce a startup validation error
-
-#### Scenario: Warning for non-MVP channel in allowlist
-
-- GIVEN a config file with `allowed_channels=["telegram", "slack"]`
-- WHEN the runtime starts
-- THEN the runtime logs a warning that "slack" is not an MVP channel
-- AND startup succeeds (not a fatal error)
-- AND Slack image requests are fail-closed at runtime
+- AND the error message MUST indicate that the reaper threshold must be greater than 0
 
 ## Cross-References
 

@@ -38,13 +38,13 @@ function formatRelativeTime(isoDate: string): string {
 
   const minutes = Math.floor(diffMs / 60_000);
   if (minutes < 1) return t("session.justNow");
-  if (minutes < 60) return t("session.minutesAgo", { count: minutes });
+  if (minutes < 60) return t("session.minutesAgo", { count: minutes }, minutes);
 
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t("session.hoursAgo", { count: hours });
+  if (hours < 24) return t("session.hoursAgo", { count: hours }, hours);
 
   const days = Math.floor(hours / 24);
-  return t("session.daysAgo", { count: days });
+  return t("session.daysAgo", { count: days }, days);
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -122,7 +122,7 @@ function truncateId(id: string): string {
             <span class="session-item-id">{{ truncateId(session.id) }}</span>
             <span class="session-item-meta">
               {{ formatRelativeTime(session.last_activity) }}
-              · {{ t("session.messageCount", { count: session.message_count }) }}
+              · {{ t("session.messageCount", { count: session.message_count }, session.message_count) }}
             </span>
           </button>
         </li>

@@ -1,6 +1,6 @@
 import { translations } from "@corvus/locales";
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createI18n } from "vue-i18n";
 
 import SessionSidebar from "@/components/SessionSidebar.vue";
@@ -53,6 +53,10 @@ function mountSidebar(props?: Record<string, unknown>) {
 }
 
 describe("SessionSidebar", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("renders session list with message count", () => {
     const wrapper = mountSidebar();
 
@@ -125,5 +129,30 @@ describe("SessionSidebar", () => {
     const wrapper = mountSidebar({ sessions: [] });
 
     expect(wrapper.find(".session-sidebar-new-chat").exists()).toBe(true);
+  });
+
+  it("renders localized labels and pluralized session metadata", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-28T11:01:00Z"));
+
+    const wrapper = mountSidebar({
+      sessions: [
+        {
+          id: "sess-1",
+          started_at: "2026-03-28T10:00:00Z",
+          ended_at: null,
+          message_count: 1,
+          last_activity: "2026-03-28T11:00:00Z",
+        },
+      ],
+    });
+
+    expect(wrapper.text()).toContain("History");
+    expect(wrapper.text()).toContain("1 minute ago");
+    expect(wrapper.text()).toContain("1 message");
+    expect(wrapper.find(".session-sidebar").attributes("aria-label")).toBe("Session history");
+    expect(wrapper.find(".session-sidebar-toggle").attributes("aria-label")).toBe(
+      "Collapse sidebar"
+    );
   });
 });

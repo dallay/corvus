@@ -294,6 +294,16 @@ pub struct MultimodalConfig {
     /// Operator override for the default 10 MiB limit.
     #[serde(default)]
     pub max_image_bytes: Option<u64>,
+    /// Startup-only stale staged-image reaper threshold in minutes.
+    #[serde(default)]
+    pub staged_image_reaper_threshold_minutes: Option<u64>,
+}
+
+impl MultimodalConfig {
+    pub fn effective_staged_image_reaper_threshold_minutes(&self) -> u64 {
+        self.staged_image_reaper_threshold_minutes
+            .unwrap_or(crate::channels::media::DEFAULT_STAGED_IMAGE_REAPER_THRESHOLD_MINUTES)
+    }
 }
 
 // ── Audio input rollout controls ────────────────────────────────
@@ -3385,6 +3395,14 @@ impl Config {
                     "multimodal.max_image_bytes={} exceeds the 50 MiB ceiling ({})",
                     max_bytes,
                     crate::channels::media::MAX_IMAGE_BYTES_CEILING,
+                );
+            }
+        }
+
+        if let Some(threshold_minutes) = mm.staged_image_reaper_threshold_minutes {
+            if threshold_minutes == 0 {
+                anyhow::bail!(
+                    "multimodal.staged_image_reaper_threshold_minutes must be greater than 0"
                 );
             }
         }
@@ -6495,6 +6513,7 @@ default_model = "legacy-model"
         assert!(mm.allowed_channels.is_empty());
         assert!(mm.vision_model_hint.is_none());
         assert!(mm.max_image_bytes.is_none());
+        assert!(mm.staged_image_reaper_threshold_minutes.is_none());
     }
 
     #[test]
@@ -6507,6 +6526,16 @@ default_temperature = 0.7
         assert!(parsed.multimodal.allowed_channels.is_empty());
         assert!(parsed.multimodal.vision_model_hint.is_none());
         assert!(parsed.multimodal.max_image_bytes.is_none());
+        assert!(parsed
+            .multimodal
+            .staged_image_reaper_threshold_minutes
+            .is_none());
+        assert_eq!(
+            parsed
+                .multimodal
+                .effective_staged_image_reaper_threshold_minutes(),
+            crate::channels::media::DEFAULT_STAGED_IMAGE_REAPER_THRESHOLD_MINUTES
+        );
     }
 
     #[test]
@@ -6519,6 +6548,7 @@ enabled = true
 allowed_channels = ["telegram", "whatsapp", "discord"]
 vision_model_hint = "vision"
 max_image_bytes = 5242880
+staged_image_reaper_threshold_minutes = 90
 "#;
         let parsed: Config = toml::from_str(toml_str).unwrap();
         assert!(parsed.multimodal.enabled);
@@ -6531,6 +6561,16 @@ max_image_bytes = 5242880
             Some("vision")
         );
         assert_eq!(parsed.multimodal.max_image_bytes, Some(5_242_880));
+        assert_eq!(
+            parsed.multimodal.staged_image_reaper_threshold_minutes,
+            Some(90)
+        );
+        assert_eq!(
+            parsed
+                .multimodal
+                .effective_staged_image_reaper_threshold_minutes(),
+            90
+        );
     }
 
     #[test]
@@ -6601,6 +6641,7 @@ allow_image_input = true
                 allowed_channels: vec!["telegram".into()],
                 vision_model_hint: Some("vision".into()),
                 max_image_bytes: None,
+                ..Default::default()
             },
             model_routes: vec![make_vision_route()],
             ..Config::default()
@@ -6617,6 +6658,7 @@ allow_image_input = true
                 allowed_channels: Vec::new(),
                 vision_model_hint: Some("vision".into()),
                 max_image_bytes: None,
+                ..Default::default()
             },
             model_routes: vec![make_vision_route()],
             ..Config::default()
@@ -6635,6 +6677,7 @@ allow_image_input = true
                 allowed_channels: vec!["telegram".into()],
                 vision_model_hint: None,
                 max_image_bytes: None,
+                ..Default::default()
             },
             ..Config::default()
         };
@@ -6652,6 +6695,7 @@ allow_image_input = true
                 allowed_channels: vec!["discord".into()],
                 vision_model_hint: Some("vision".into()),
                 max_image_bytes: None,
+                ..Default::default()
             },
             model_routes: vec![make_vision_route()],
             ..Config::default()
@@ -6667,6 +6711,7 @@ allow_image_input = true
                 allowed_channels: vec!["slack".into()],
                 vision_model_hint: Some("vision".into()),
                 max_image_bytes: None,
+                ..Default::default()
             },
             model_routes: vec![make_vision_route()],
             ..Config::default()
@@ -6691,6 +6736,25 @@ allow_image_input = true
         assert!(
             err.to_string().contains("greater than 0"),
             "expected 'greater than 0' error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn multimodal_reaper_threshold_zero_rejected() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: false,
+                staged_image_reaper_threshold_minutes: Some(0),
+                ..Default::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_multimodal_config().unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("staged_image_reaper_threshold_minutes")
+                && err.to_string().contains("greater than 0"),
+            "expected reaper threshold validation error, got: {err}"
         );
     }
 

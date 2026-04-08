@@ -777,7 +777,7 @@ async fn maybe_handle_onboard_command(command: &Commands) -> Result<bool> {
     })
     .await??;
 
-    if std::env::var("CORVUS_AUTOSTART_CHANNELS").as_deref() == Ok("1") {
+    if maybe_run_onboard_autostart_reaper(&config) {
         channels::start_channels(config).await?;
     }
 
@@ -882,7 +882,7 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
         Commands::Doctor => doctor::run(&config),
 
         Commands::Channel { channel_command } => match channel_command {
-            ChannelCommands::Start => channels::start_channels(config).await,
+            ChannelCommands::Start => handle_channel_start_command(config).await,
             ChannelCommands::Doctor => channels::doctor_channels(config).await,
             other => channels::handle_command(other, &config),
         },
@@ -1450,6 +1450,7 @@ async fn handle_gateway_command(
     port: Option<u16>,
     host: Option<String>,
 ) -> Result<()> {
+    run_startup_staged_image_reaper(&config);
     let port = port.unwrap_or(config.gateway.port);
     let host = host.unwrap_or_else(|| config.gateway.host.clone());
     if port == 0 {
@@ -1465,6 +1466,7 @@ async fn handle_daemon_command(
     port: Option<u16>,
     host: Option<String>,
 ) -> Result<()> {
+    run_startup_staged_image_reaper(&config);
     let update_config = config.clone();
     tokio::spawn(async move {
         update::maybe_print_update_notice(&update_config).await;
@@ -1477,6 +1479,56 @@ async fn handle_daemon_command(
         info!("🧠 Starting Corvus Daemon on {host}:{port}");
     }
     daemon::run(config, host, port).await
+}
+
+async fn handle_channel_start_command(config: Config) -> Result<()> {
+    run_startup_staged_image_reaper(&config);
+    channels::start_channels(config).await
+}
+
+fn startup_staged_image_reaper_threshold(config: &Config) -> Duration {
+    Duration::from_secs(
+        config
+            .multimodal
+            .effective_staged_image_reaper_threshold_minutes()
+            * 60,
+    )
+}
+
+fn run_startup_staged_image_reaper(config: &Config) {
+    let report =
+        channels::media::reap_startup_staged_images(startup_staged_image_reaper_threshold(config));
+    info!(
+        cleaned_files = report.deleted_files,
+        matched_files = report.matched_files,
+        scanned_entries = report.scanned_entries,
+        "startup staged image reaper completed"
+    );
+}
+
+fn should_autostart_onboard_channels() -> bool {
+    std::env::var("CORVUS_AUTOSTART_CHANNELS").as_deref() == Ok("1")
+}
+
+fn maybe_run_onboard_autostart_reaper(config: &Config) -> bool {
+    if should_autostart_onboard_channels() {
+        run_startup_staged_image_reaper(config);
+        true
+    } else {
+        false
+    }
+}
+
+fn command_uses_startup_staged_image_reaper(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::Gateway { .. }
+            | Commands::Daemon { .. }
+            | Commands::Onboard { .. }
+            | Commands::Channel {
+                channel_command: ChannelCommands::Start,
+            }
+    )
 }
 
 fn dashboard_resume_status_lines() -> [&'static str; 4] {
@@ -2098,11 +2150,47 @@ fn handle_status(auth_service: &auth::AuthService) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::tracing_capture::capture_tracing_events;
     use async_trait::async_trait;
     use clap::CommandFactory;
     use clap::Parser;
     use std::sync::Arc;
+    use std::sync::Mutex;
     use tempfile::TempDir;
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: Mutex<()> = Mutex::new(());
+        &LOCK
+    }
 
     struct MainTestProvider;
 
@@ -2482,6 +2570,110 @@ mod tests {
         assert!(!combined.contains("bearer "));
         assert!(!combined.contains("authorization:"));
         assert!(!combined.contains("/web/admin/"));
+    }
+
+    #[test]
+    fn startup_staged_image_reaper_uses_default_and_override_thresholds() {
+        let mut config = Config::default();
+        assert_eq!(
+            startup_staged_image_reaper_threshold(&config),
+            Duration::from_secs(
+                channels::media::DEFAULT_STAGED_IMAGE_REAPER_THRESHOLD_MINUTES * 60,
+            )
+        );
+
+        config.multimodal.staged_image_reaper_threshold_minutes = Some(90);
+        assert_eq!(
+            startup_staged_image_reaper_threshold(&config),
+            Duration::from_secs(90 * 60)
+        );
+    }
+
+    #[test]
+    fn startup_staged_image_reaper_routes_only_required_command_paths() {
+        let gateway = Commands::Gateway {
+            port: None,
+            host: None,
+        };
+        let daemon = Commands::Daemon {
+            port: None,
+            host: None,
+        };
+        let channel_start = Commands::Channel {
+            channel_command: ChannelCommands::Start,
+        };
+        let channel_doctor = Commands::Channel {
+            channel_command: ChannelCommands::Doctor,
+        };
+        let onboard = Commands::Onboard {
+            interactive: false,
+            channels_only: false,
+            api_key: None,
+            provider: None,
+            memory: None,
+        };
+
+        assert!(command_uses_startup_staged_image_reaper(&gateway));
+        assert!(command_uses_startup_staged_image_reaper(&daemon));
+        assert!(command_uses_startup_staged_image_reaper(&channel_start));
+        assert!(command_uses_startup_staged_image_reaper(&onboard));
+        assert!(!command_uses_startup_staged_image_reaper(&channel_doctor));
+        assert!(!command_uses_startup_staged_image_reaper(&Commands::Status));
+    }
+
+    #[test]
+    fn onboard_autostart_reaper_runs_only_when_env_guard_is_enabled() {
+        let _env_lock = env_lock().lock().unwrap();
+        let _autostart = EnvVarGuard::set("CORVUS_AUTOSTART_CHANNELS", "1");
+        let tmp = TempDir::new().unwrap();
+        let _tmpdir = EnvVarGuard::set("TMPDIR", tmp.path());
+        let config = Config::default();
+
+        let (autostarted, events) =
+            capture_tracing_events(|| maybe_run_onboard_autostart_reaper(&config));
+
+        assert!(autostarted);
+        let reaper_log = events.iter().find(|event| {
+            event
+                .field("message")
+                .is_some_and(|message| message.contains("startup staged image reaper completed"))
+        });
+        assert!(reaper_log.is_some());
+    }
+
+    #[test]
+    fn onboard_autostart_reaper_stays_idle_without_env_guard() {
+        let _env_lock = env_lock().lock().unwrap();
+        let _autostart = EnvVarGuard::remove("CORVUS_AUTOSTART_CHANNELS");
+        let config = Config::default();
+
+        let (autostarted, events) =
+            capture_tracing_events(|| maybe_run_onboard_autostart_reaper(&config));
+
+        assert!(!autostarted);
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn startup_staged_image_reaper_logs_cleaned_file_count() {
+        let _env_lock = env_lock().lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        let _tmpdir = EnvVarGuard::set("TMPDIR", tmp.path());
+        let config = Config::default();
+
+        let ((), events) = capture_tracing_events(|| run_startup_staged_image_reaper(&config));
+
+        let reaper_log = events
+            .iter()
+            .find(|event| {
+                event.field("message").is_some_and(|message| {
+                    message.contains("startup staged image reaper completed")
+                })
+            })
+            .unwrap();
+        assert_eq!(reaper_log.field("cleaned_files"), Some("0"));
+        assert_eq!(reaper_log.field("matched_files"), Some("0"));
+        assert_eq!(reaper_log.field("scanned_entries"), Some("0"));
     }
 
     #[test]

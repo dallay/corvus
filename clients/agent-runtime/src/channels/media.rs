@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,154 @@ pub const MAX_IMAGE_BYTES_CEILING: u64 = 52_428_800;
 
 /// Maximum images allowed per turn for MVP.
 pub const MAX_IMAGES_PER_TURN: usize = 1;
+
+/// Default startup-only reaper threshold for stale staged images.
+pub const DEFAULT_STAGED_IMAGE_REAPER_THRESHOLD_MINUTES: u64 = 30;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct StagedImageReaperReport {
+    pub scanned_entries: usize,
+    pub matched_files: usize,
+    pub deleted_files: usize,
+}
+
+impl StagedImageReaperReport {
+    fn record_scan(&mut self) {
+        self.scanned_entries += 1;
+    }
+
+    fn record_match(&mut self) {
+        self.matched_files += 1;
+    }
+
+    fn record_delete(&mut self) {
+        self.deleted_files += 1;
+    }
+}
+
+pub fn reap_startup_staged_images(threshold: Duration) -> StagedImageReaperReport {
+    reap_startup_staged_images_in_dir(&std::env::temp_dir(), threshold)
+}
+
+fn reap_startup_staged_images_in_dir(
+    dir: &std::path::Path,
+    threshold: Duration,
+) -> StagedImageReaperReport {
+    reap_startup_staged_images_in_dir_at(dir, threshold, SystemTime::now())
+}
+
+fn reap_startup_staged_images_in_dir_at(
+    dir: &std::path::Path,
+    threshold: Duration,
+    now: SystemTime,
+) -> StagedImageReaperReport {
+    reap_startup_staged_images_in_dir_at_with_remover(dir, threshold, now, |path| {
+        std::fs::remove_file(path)
+    })
+}
+
+fn reap_startup_staged_images_in_dir_at_with_remover<F>(
+    dir: &std::path::Path,
+    threshold: Duration,
+    now: SystemTime,
+    mut remove_file: F,
+) -> StagedImageReaperReport
+where
+    F: FnMut(&std::path::Path) -> std::io::Result<()>,
+{
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return StagedImageReaperReport::default();
+    };
+
+    let mut report = StagedImageReaperReport::default();
+
+    for entry in entries {
+        let Ok(entry) = entry else {
+            continue;
+        };
+
+        report.record_scan();
+
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+
+        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !is_corvus_staged_image_file_name(&file_name) {
+            continue;
+        }
+        report.record_match();
+
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        let Ok(age) = now.duration_since(modified) else {
+            continue;
+        };
+        if age <= threshold {
+            continue;
+        }
+
+        match remove_file(&entry.path()) {
+            Ok(()) => report.record_delete(),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => {}
+        }
+    }
+
+    report
+}
+
+fn is_corvus_staged_image_file_name(file_name: &str) -> bool {
+    let Some((stem, ext)) = file_name.rsplit_once('.') else {
+        return false;
+    };
+    if !matches!(ext, "jpg" | "png" | "webp") {
+        return false;
+    }
+
+    if let Some(legacy_sha) = stem.strip_prefix("corvus-tg-img-") {
+        return is_lower_hex(legacy_sha, 16);
+    }
+
+    let Some(remainder) = stem.strip_prefix("corvus-") else {
+        return false;
+    };
+    let Some((channel, suffix)) = remainder.split_once("-img-") else {
+        return false;
+    };
+    if channel.is_empty()
+        || !channel
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())
+    {
+        return false;
+    }
+
+    let Some((sha, nonce)) = suffix.split_once('-') else {
+        return false;
+    };
+    if nonce.contains('-') {
+        return false;
+    }
+
+    is_lower_hex(sha, 16) && is_lower_hex(nonce, 8)
+}
+
+fn is_lower_hex(value: &str, len: usize) -> bool {
+    value.len() == len
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
 
 /// Allowed image MIME types for ingress.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -318,6 +467,10 @@ pub async fn stream_validate_and_stage(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::io;
+    use std::time::{Duration, SystemTime};
+    use tempfile::TempDir;
 
     // ── AllowedImageMime ──────────────────────────────────────
 
@@ -651,6 +804,127 @@ mod tests {
             "filename should contain channel prefix: {fname}"
         );
         staged.cleanup();
+    }
+
+    #[test]
+    fn staged_image_reaper_matches_current_and_legacy_names() {
+        assert!(is_corvus_staged_image_file_name(
+            "corvus-telegram-img-0123456789abcdef-89abcdef.jpg"
+        ));
+        assert!(is_corvus_staged_image_file_name(
+            "corvus-whatsapp-img-fedcba9876543210-0123abcd.png"
+        ));
+        assert!(is_corvus_staged_image_file_name(
+            "corvus-discord-img-a1b2c3d4e5f60718-deadbeef.webp"
+        ));
+        assert!(is_corvus_staged_image_file_name(
+            "corvus-tg-img-0123456789abcdef.jpg"
+        ));
+    }
+
+    #[test]
+    fn staged_image_reaper_rejects_near_miss_names() {
+        for invalid in [
+            "corvus-telegram-img-0123456789abcde-89abcdef.jpg",
+            "corvus-telegram-img-0123456789abcdef-89abcdeg.jpg",
+            "corvus-telegram-img-0123456789abcdef-89abcdef.gif",
+            "corvus-telegram-img-0123456789abcdef-89abcdef.jpg.tmp",
+            "corvus-tg-img-0123456789abcdeg.jpg",
+            "corvus-img-0123456789abcdef-89abcdef.jpg",
+            "other-telegram-img-0123456789abcdef-89abcdef.jpg",
+        ] {
+            assert!(
+                !is_corvus_staged_image_file_name(invalid),
+                "expected '{invalid}' to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn staged_image_reaper_deletes_only_stale_matching_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let stale = temp_dir
+            .path()
+            .join("corvus-telegram-img-0123456789abcdef-89abcdef.jpg");
+        let legacy = temp_dir.path().join("corvus-tg-img-fedcba9876543210.png");
+        let fresh = temp_dir
+            .path()
+            .join("corvus-discord-img-a1b2c3d4e5f60718-deadbeef.webp");
+        let unrelated = temp_dir.path().join("notes.txt");
+
+        fs::write(&stale, b"stale").unwrap();
+        fs::write(&legacy, b"legacy").unwrap();
+        fs::write(&unrelated, b"keep").unwrap();
+
+        std::thread::sleep(Duration::from_millis(25));
+        fs::write(&fresh, b"fresh").unwrap();
+
+        let threshold = Duration::from_millis(10);
+        let report =
+            reap_startup_staged_images_in_dir_at(temp_dir.path(), threshold, SystemTime::now());
+
+        assert_eq!(report.matched_files, 3);
+        assert_eq!(report.deleted_files, 2);
+        assert!(!stale.exists());
+        assert!(!legacy.exists());
+        assert!(fresh.exists());
+        assert!(unrelated.exists());
+    }
+
+    #[test]
+    fn staged_image_reaper_skips_future_timestamp_and_duplicate_execution() {
+        let temp_dir = TempDir::new().unwrap();
+        let candidate = temp_dir
+            .path()
+            .join("corvus-telegram-img-0123456789abcdef-89abcdef.jpg");
+        fs::write(&candidate, b"candidate").unwrap();
+
+        let threshold = Duration::from_secs(30);
+        let future_skipped = reap_startup_staged_images_in_dir_at(
+            temp_dir.path(),
+            threshold,
+            SystemTime::UNIX_EPOCH,
+        );
+        assert_eq!(future_skipped.deleted_files, 0);
+        assert!(candidate.exists());
+
+        std::thread::sleep(Duration::from_millis(20));
+
+        let first = reap_startup_staged_images_in_dir_at(
+            temp_dir.path(),
+            Duration::from_millis(5),
+            SystemTime::now(),
+        );
+        let second = reap_startup_staged_images_in_dir_at(
+            temp_dir.path(),
+            Duration::from_millis(5),
+            SystemTime::now(),
+        );
+
+        assert_eq!(first.deleted_files, 1);
+        assert_eq!(second.deleted_files, 0);
+        assert!(!candidate.exists());
+    }
+
+    #[test]
+    fn staged_image_reaper_treats_not_found_delete_race_as_non_fatal() {
+        let temp_dir = TempDir::new().unwrap();
+        let candidate = temp_dir
+            .path()
+            .join("corvus-telegram-img-0123456789abcdef-89abcdef.jpg");
+        fs::write(&candidate, b"candidate").unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+
+        let report = reap_startup_staged_images_in_dir_at_with_remover(
+            temp_dir.path(),
+            Duration::from_millis(5),
+            SystemTime::now(),
+            |_| Err(io::Error::from(io::ErrorKind::NotFound)),
+        );
+
+        assert_eq!(report.matched_files, 1);
+        assert_eq!(report.deleted_files, 0);
+        assert!(candidate.exists());
     }
 
     // ── ImageHistoryMeta (task 2.7) ───────────────────────────
