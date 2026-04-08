@@ -1,4 +1,5 @@
-use super::traits::{Channel, ChannelMessage, SendMessage};
+use super::media;
+use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use async_trait::async_trait;
 
 /// Slack channel — polls conversations.history via Web API
@@ -7,6 +8,7 @@ pub struct SlackChannel {
     channel_id: Option<String>,
     allowed_users: Vec<String>,
     client: reqwest::Client,
+    api_base_url: String,
 }
 
 impl SlackChannel {
@@ -16,7 +18,32 @@ impl SlackChannel {
             channel_id,
             allowed_users,
             client: reqwest::Client::new(),
+            api_base_url: "https://slack.com/api".to_string(),
         }
+    }
+
+    #[cfg(test)]
+    fn new_with_api_base_url(
+        bot_token: String,
+        channel_id: Option<String>,
+        allowed_users: Vec<String>,
+        api_base_url: String,
+    ) -> Self {
+        Self {
+            bot_token,
+            channel_id,
+            allowed_users,
+            client: reqwest::Client::new(),
+            api_base_url,
+        }
+    }
+
+    fn api_url(&self, endpoint: &str) -> String {
+        format!("{}/{endpoint}", self.api_base_url.trim_end_matches('/'))
+    }
+
+    fn sanitize_error(&self, err: &reqwest::Error) -> String {
+        err.to_string().replace(&self.bot_token, "[REDACTED]")
     }
 
     /// Check if a Slack user ID is in the allowlist.
@@ -30,7 +57,7 @@ impl SlackChannel {
     async fn get_bot_user_id(&self) -> Option<String> {
         let resp: serde_json::Value = self
             .client
-            .get("https://slack.com/api/auth.test")
+            .get(self.api_url("auth.test"))
             .bearer_auth(&self.bot_token)
             .send()
             .await
@@ -61,7 +88,7 @@ impl SlackChannel {
 
         let resp = self
             .client
-            .get("https://slack.com/api/conversations.history")
+            .get(self.api_url("conversations.history"))
             .bearer_auth(&self.bot_token)
             .query(&params)
             .send()
@@ -75,6 +102,123 @@ impl SlackChannel {
             tracing::warn!("Slack parse error: {e}");
             e.into()
         })
+    }
+
+    fn parse_image_parts(
+        &self,
+        msg: &serde_json::Value,
+        caption: Option<&str>,
+    ) -> Vec<ContentPart> {
+        let mut file_refs = Vec::new();
+        if let Some(files) = msg.get("files").and_then(|files| files.as_array()) {
+            file_refs.extend(files.iter());
+        } else if let Some(file) = msg.get("file") {
+            file_refs.push(file);
+        }
+
+        let caption = caption
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        file_refs
+            .into_iter()
+            .filter_map(|file| {
+                let mimetype = file.get("mimetype").and_then(|value| value.as_str())?;
+                media::AllowedImageMime::from_mime_str(mimetype)?;
+
+                let file_id = file.get("id").and_then(|value| value.as_str())?;
+                if file_id.is_empty() {
+                    return None;
+                }
+
+                Some(ContentPart::Image {
+                    channel_handle: file_id.to_string(),
+                    source_channel: "slack".to_string(),
+                    declared_mime: Some(mimetype.to_string()),
+                    caption_text: caption.clone(),
+                    file_name: file
+                        .get("name")
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string),
+                    declared_bytes: file.get("size").and_then(|value| value.as_u64()),
+                })
+            })
+            .collect()
+    }
+
+    async fn resolve_file_download_url(
+        &self,
+        file_id: &str,
+    ) -> Result<String, media::ImageRejectionReason> {
+        let response = self
+            .client
+            .get(self.api_url("files.info"))
+            .bearer_auth(&self.bot_token)
+            .query(&[("file", file_id)])
+            .send()
+            .await
+            .map_err(|err| {
+                tracing::warn!(
+                    "Slack file metadata fetch failed for {}: {}",
+                    &file_id[..file_id.len().min(8)],
+                    self.sanitize_error(&err)
+                );
+                media::ImageRejectionReason::FetchFailed
+            })?;
+
+        if !response.status().is_success() {
+            tracing::warn!("Slack file metadata HTTP {}", response.status());
+            return Err(media::ImageRejectionReason::FetchFailed);
+        }
+
+        let payload: serde_json::Value = response.json().await.map_err(|err| {
+            tracing::warn!("Slack file metadata parse error: {err}");
+            media::ImageRejectionReason::FetchFailed
+        })?;
+
+        if payload.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+            let api_error = payload
+                .get("error")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown_error");
+            tracing::warn!("Slack file metadata API error: {api_error}");
+            return Err(media::ImageRejectionReason::FetchFailed);
+        }
+
+        payload
+            .get("file")
+            .and_then(|file| file.get("url_private_download"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| {
+                tracing::warn!("Slack file metadata missing url_private_download");
+                media::ImageRejectionReason::FetchFailed
+            })
+    }
+
+    pub async fn fetch_and_stage_image(
+        &self,
+        file_id: &str,
+        declared_mime: Option<&str>,
+        max_bytes: u64,
+    ) -> Result<media::StagedImage, media::ImageRejectionReason> {
+        let download_url = self.resolve_file_download_url(file_id).await?;
+        let response = self
+            .client
+            .get(&download_url)
+            .bearer_auth(&self.bot_token)
+            .send()
+            .await
+            .map_err(|err| {
+                tracing::warn!(
+                    "Slack file download request failed: {}",
+                    self.sanitize_error(&err)
+                );
+                media::ImageRejectionReason::FetchFailed
+            })?;
+
+        media::stream_validate_and_stage(response, declared_mime, "sl", &download_url, max_bytes)
+            .await
     }
 
     /// Parse a single Slack message JSON value into a `ChannelMessage`.
@@ -101,9 +245,27 @@ impl SlackChannel {
             tracing::warn!("Slack: ignoring message from unauthorized user: {user}");
             return None;
         }
-        if text.is_empty() || ts <= last_ts {
+        if ts <= last_ts {
             return None;
         }
+
+        let image_parts = self.parse_image_parts(msg, Some(text));
+        if text.is_empty() && image_parts.is_empty() {
+            return None;
+        }
+
+        let parts = if image_parts.is_empty() {
+            Vec::new()
+        } else {
+            let mut parts = Vec::with_capacity(image_parts.len() + usize::from(!text.is_empty()));
+            if !text.is_empty() {
+                parts.push(ContentPart::Text {
+                    text: text.to_string(),
+                });
+            }
+            parts.extend(image_parts);
+            parts
+        };
 
         let channel_msg = ChannelMessage {
             id: format!("slack_{channel_id}_{ts}"),
@@ -115,7 +277,7 @@ impl SlackChannel {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-            parts: vec![],
+            parts,
         };
 
         Some((channel_msg, ts.to_string()))
@@ -136,7 +298,7 @@ impl Channel for SlackChannel {
 
         let resp = self
             .client
-            .post("https://slack.com/api/chat.postMessage")
+            .post(self.api_url("chat.postMessage"))
             .bearer_auth(&self.bot_token)
             .json(&body)
             .send()
@@ -204,7 +366,7 @@ impl Channel for SlackChannel {
 
     async fn health_check(&self) -> bool {
         self.client
-            .get("https://slack.com/api/auth.test")
+            .get(self.api_url("auth.test"))
             .bearer_auth(&self.bot_token)
             .send()
             .await
@@ -216,6 +378,11 @@ impl Channel for SlackChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::channels::media;
+    use crate::channels::traits::ContentPart;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]
     fn slack_channel_name() {
@@ -328,6 +495,91 @@ mod tests {
     }
 
     #[test]
+    fn parse_slack_message_with_image_files_emits_caption_and_image_parts() {
+        let ch = make_slack_channel();
+        let msg = serde_json::json!({
+            "user": "U111",
+            "text": "What is in this image?",
+            "ts": "100.0",
+            "files": [{
+                "id": "F123",
+                "mimetype": "image/png",
+                "name": "photo.png",
+                "size": 2048,
+                "url_private_download": "https://files.slack.com/files-pri/T1-F123/download/photo.png"
+            }]
+        });
+
+        let (parsed, _) = ch
+            .parse_slack_message(&msg, "BOT", "", "C12345")
+            .expect("Slack image message should parse");
+
+        assert_eq!(parsed.content, "What is in this image?");
+        assert_eq!(parsed.parts.len(), 2);
+        assert!(
+            matches!(&parsed.parts[0], ContentPart::Text { text } if text == "What is in this image?")
+        );
+        match &parsed.parts[1] {
+            ContentPart::Image {
+                channel_handle,
+                source_channel,
+                declared_mime,
+                caption_text,
+                file_name,
+                declared_bytes,
+            } => {
+                assert_eq!(channel_handle, "F123");
+                assert_eq!(source_channel, "slack");
+                assert_eq!(declared_mime.as_deref(), Some("image/png"));
+                assert_eq!(caption_text.as_deref(), Some("What is in this image?"));
+                assert_eq!(file_name.as_deref(), Some("photo.png"));
+                assert_eq!(*declared_bytes, Some(2048));
+            }
+            other => panic!("expected image part, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_slack_file_share_without_text_keeps_image_message() {
+        let ch = make_slack_channel();
+        let msg = serde_json::json!({
+            "user": "U111",
+            "subtype": "file_share",
+            "text": "",
+            "ts": "100.0",
+            "file": {
+                "id": "F999",
+                "mimetype": "image/jpeg",
+                "name": "snap.jpg",
+                "size": 4096,
+                "url_private_download": "https://files.slack.com/files-pri/T1-F999/download/snap.jpg"
+            }
+        });
+
+        let (parsed, _) = ch
+            .parse_slack_message(&msg, "BOT", "", "C12345")
+            .expect("Slack file_share image message should parse");
+
+        assert!(parsed.content.is_empty());
+        assert_eq!(parsed.parts.len(), 1);
+        match &parsed.parts[0] {
+            ContentPart::Image {
+                channel_handle,
+                caption_text,
+                file_name,
+                declared_bytes,
+                ..
+            } => {
+                assert_eq!(channel_handle, "F999");
+                assert!(caption_text.is_none());
+                assert_eq!(file_name.as_deref(), Some("snap.jpg"));
+                assert_eq!(*declared_bytes, Some(4096));
+            }
+            other => panic!("expected image part, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parse_slack_message_skips_old_timestamp() {
         let ch = make_slack_channel();
         // String comparison: "100.0" <= "200.0" is true, so message is skipped
@@ -393,5 +645,121 @@ mod tests {
         let id = format!("slack_{channel_id}_{ts}");
         assert!(!id.contains('-')); // No UUID dashes
         assert!(id.starts_with("slack_"));
+    }
+
+    async fn spawn_mock_slack_file_api(
+        image_body: Vec<u8>,
+    ) -> (String, Arc<Mutex<Vec<String>>>, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("mock Slack API listener should bind");
+        let addr = listener
+            .local_addr()
+            .expect("mock Slack API listener should have address");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let requests_clone = Arc::clone(&requests);
+
+        let handle = tokio::spawn(async move {
+            for idx in 0..2 {
+                let (mut socket, _) = listener
+                    .accept()
+                    .await
+                    .expect("mock Slack API should accept connection");
+                let mut request_buf = vec![0_u8; 8192];
+                let read = socket
+                    .read(&mut request_buf)
+                    .await
+                    .expect("mock Slack API should read request");
+                requests_clone
+                    .lock()
+                    .push(String::from_utf8_lossy(&request_buf[..read]).into_owned());
+
+                if idx == 0 {
+                    let body = format!(
+                        concat!(
+                            r#"{{"ok":true,"file":{{"id":"F123","url_private_download":"http://127.0.0.1:{}/download/photo.png"}}}}"#
+                        ),
+                        addr.port()
+                    );
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        body.len(), body
+                    );
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("mock Slack API should write metadata response");
+                } else {
+                    let headers = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: image/png\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                        image_body.len()
+                    );
+                    socket
+                        .write_all(headers.as_bytes())
+                        .await
+                        .expect("mock Slack API should write download headers");
+                    socket
+                        .write_all(&image_body)
+                        .await
+                        .expect("mock Slack API should write image body");
+                }
+            }
+        });
+
+        (
+            format!("http://127.0.0.1:{}/api", addr.port()),
+            requests,
+            handle,
+        )
+    }
+
+    #[tokio::test]
+    async fn fetch_and_stage_image_uses_bearer_auth_for_metadata_and_download() {
+        let mut png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        png.extend_from_slice(&[9_u8; 32]);
+        let (api_base_url, requests, server) = spawn_mock_slack_file_api(png.clone()).await;
+        let channel = SlackChannel::new_with_api_base_url(
+            "xoxb-super-secret".into(),
+            None,
+            vec![],
+            api_base_url,
+        );
+
+        let staged = channel
+            .fetch_and_stage_image("F123", Some("image/png"), media::MAX_IMAGE_BYTES)
+            .await
+            .expect("Slack image should stage successfully");
+
+        server.await.expect("mock Slack API should finish cleanly");
+
+        let requests = requests.lock().clone();
+        assert_eq!(requests.len(), 2, "expected metadata + download requests");
+        assert!(requests[0].starts_with("GET /api/files.info?file=F123 HTTP/1.1\r\n"));
+        assert!(requests[0]
+            .to_ascii_lowercase()
+            .contains("\r\nauthorization: bearer xoxb-super-secret\r\n"));
+        assert!(requests[1].starts_with("GET /download/photo.png HTTP/1.1\r\n"));
+        assert!(requests[1]
+            .to_ascii_lowercase()
+            .contains("\r\nauthorization: bearer xoxb-super-secret\r\n"));
+        assert_eq!(staged.mime_type, media::AllowedImageMime::Png);
+        assert_eq!(staged.byte_len, png.len() as u64);
+        assert_eq!(
+            std::fs::read(&staged.temp_path).expect("staged file must exist"),
+            png
+        );
+        assert!(staged
+            .temp_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("corvus-sl-img-")));
+
+        let temp_path = staged.temp_path.clone();
+        staged.cleanup();
+        assert!(
+            !temp_path.exists(),
+            "cleanup should remove {}",
+            temp_path.display()
+        );
     }
 }

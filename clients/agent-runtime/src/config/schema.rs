@@ -274,7 +274,7 @@ impl Default for SkillsConfig {
 // ── Multimodal rollout controls ─────────────────────────────────
 
 /// Valid MVP channel names for multimodal image ingress.
-const MVP_VALID_MULTIMODAL_CHANNELS: &[&str] = &["telegram", "whatsapp", "discord"];
+const MVP_VALID_MULTIMODAL_CHANNELS: &[&str] = &["telegram", "whatsapp", "discord", "slack"];
 
 /// Multimodal image ingress rollout controls.
 ///
@@ -3440,7 +3440,7 @@ impl Config {
             if !MVP_VALID_MULTIMODAL_CHANNELS.contains(&ch.as_str()) {
                 tracing::warn!(
                     "multimodal.allowed_channels contains '{}' which is not a supported MVP channel \
-                     (telegram, whatsapp, discord) — it will be fail-closed at runtime",
+                     (telegram, whatsapp, discord, slack) — it will be fail-closed at runtime",
                     ch,
                 );
             }
@@ -6545,7 +6545,7 @@ default_temperature = 0.7
 
 [multimodal]
 enabled = true
-allowed_channels = ["telegram", "whatsapp", "discord"]
+allowed_channels = ["telegram", "whatsapp", "discord", "slack"]
 vision_model_hint = "vision"
 max_image_bytes = 5242880
 staged_image_reaper_threshold_minutes = 90
@@ -6554,7 +6554,7 @@ staged_image_reaper_threshold_minutes = 90
         assert!(parsed.multimodal.enabled);
         assert_eq!(
             parsed.multimodal.allowed_channels,
-            vec!["telegram", "whatsapp", "discord"]
+            vec!["telegram", "whatsapp", "discord", "slack"]
         );
         assert_eq!(
             parsed.multimodal.vision_model_hint.as_deref(),
@@ -6704,11 +6704,27 @@ allow_image_input = true
     }
 
     #[test]
-    fn multimodal_validation_warns_but_passes_for_non_mvp_channels() {
+    fn multimodal_validation_passes_with_slack_channel() {
         let config = Config {
             multimodal: MultimodalConfig {
                 enabled: true,
                 allowed_channels: vec!["slack".into()],
+                vision_model_hint: Some("vision".into()),
+                max_image_bytes: None,
+                ..Default::default()
+            },
+            model_routes: vec![make_vision_route()],
+            ..Config::default()
+        };
+        assert!(config.validate_multimodal_config().is_ok());
+    }
+
+    #[test]
+    fn multimodal_validation_warns_but_passes_for_non_mvp_channels() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: true,
+                allowed_channels: vec!["matrix".into()],
                 vision_model_hint: Some("vision".into()),
                 max_image_bytes: None,
                 ..Default::default()

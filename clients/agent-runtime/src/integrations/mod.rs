@@ -120,7 +120,7 @@ fn show_integration_info(config: &Config, name: &str) -> Result<()> {
         "Slack" => {
             println!("  Setup:");
             println!("    1. Go to https://api.slack.com/apps");
-            println!("    2. Create app → Bot Token Scopes → Install");
+            println!("    2. Create app → Bot Token Scopes (chat:write, channels:history, files:read) → Install");
             println!("    3. Run: corvus onboard");
         }
         "OpenRouter" => {
