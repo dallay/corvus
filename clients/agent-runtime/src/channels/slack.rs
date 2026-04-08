@@ -46,6 +46,13 @@ impl SlackChannel {
         err.to_string().replace(&self.bot_token, "[REDACTED]")
     }
 
+    fn slack_api_error(payload: &serde_json::Value) -> &str {
+        payload
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown_error")
+    }
+
     /// Check if a Slack user ID is in the allowlist.
     /// Empty list means deny everyone until explicitly configured.
     /// `"*"` means allow everyone.
@@ -55,16 +62,36 @@ impl SlackChannel {
 
     /// Get the bot's own user ID so we can ignore our own messages
     async fn get_bot_user_id(&self) -> Option<String> {
-        let resp: serde_json::Value = self
+        let response = self
             .client
             .get(self.api_url("auth.test"))
             .bearer_auth(&self.bot_token)
             .send()
             .await
-            .ok()?
+            .map_err(|err| {
+                tracing::warn!("Slack auth.test request failed: {}", self.sanitize_error(&err));
+                err
+            })
+            .ok()?;
+
+        if !response.status().is_success() {
+            tracing::warn!("Slack auth.test HTTP {}", response.status());
+            return None;
+        }
+
+        let resp: serde_json::Value = response
             .json()
             .await
+            .map_err(|err| {
+                tracing::warn!("Slack auth.test parse error: {err}");
+                err
+            })
             .ok()?;
+
+        if resp.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+            tracing::warn!("Slack auth.test API error: {}", Self::slack_api_error(&resp));
+            return None;
+        }
 
         resp.get("user_id")
             .and_then(|u| u.as_str())
@@ -98,10 +125,23 @@ impl SlackChannel {
                 e
             })?;
 
-        resp.json().await.map_err(|e| {
+        if !resp.status().is_success() {
+            tracing::warn!("Slack poll HTTP {}", resp.status());
+            return Err(anyhow::anyhow!("Slack conversations.history HTTP failure"));
+        }
+
+        let payload: serde_json::Value = resp.json().await.map_err(|e| {
             tracing::warn!("Slack parse error: {e}");
-            e.into()
-        })
+            anyhow::Error::from(e)
+        })?;
+
+        if payload.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+            let api_error = Self::slack_api_error(&payload);
+            tracing::warn!("Slack conversations.history API error: {api_error}");
+            return Err(anyhow::anyhow!("Slack conversations.history failed: {api_error}"));
+        }
+
+        Ok(payload)
     }
 
     fn parse_image_parts(
@@ -365,13 +405,39 @@ impl Channel for SlackChannel {
     }
 
     async fn health_check(&self) -> bool {
-        self.client
+        let response = match self
+            .client
             .get(self.api_url("auth.test"))
             .bearer_auth(&self.bot_token)
             .send()
             .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
+        {
+            Ok(response) => response,
+            Err(err) => {
+                tracing::warn!("Slack health check request failed: {}", self.sanitize_error(&err));
+                return false;
+            }
+        };
+
+        if !response.status().is_success() {
+            tracing::warn!("Slack health check HTTP {}", response.status());
+            return false;
+        }
+
+        let payload: serde_json::Value = match response.json().await {
+            Ok(payload) => payload,
+            Err(err) => {
+                tracing::warn!("Slack health check parse error: {err}");
+                return false;
+            }
+        };
+
+        if payload.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+            tracing::warn!("Slack health check API error: {}", Self::slack_api_error(&payload));
+            return false;
+        }
+
+        true
     }
 }
 
@@ -711,6 +777,44 @@ mod tests {
         )
     }
 
+    async fn spawn_mock_slack_json_api(
+        path: &'static str,
+        body: String,
+    ) -> (String, Arc<Mutex<Option<String>>>, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("mock Slack JSON API listener should bind");
+        let addr = listener
+            .local_addr()
+            .expect("mock Slack JSON API listener should have address");
+        let request = Arc::new(Mutex::new(None));
+        let request_clone = Arc::clone(&request);
+
+        let handle = tokio::spawn(async move {
+            let (mut socket, _) = listener
+                .accept()
+                .await
+                .expect("mock Slack JSON API should accept connection");
+            let mut request_buf = vec![0_u8; 4096];
+            let read = socket
+                .read(&mut request_buf)
+                .await
+                .expect("mock Slack JSON API should read request");
+            *request_clone.lock() = Some(String::from_utf8_lossy(&request_buf[..read]).into_owned());
+
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(), body
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("mock Slack JSON API should write response");
+        });
+
+        (format!("http://127.0.0.1:{}/api/{path}", addr.port()), request, handle)
+    }
+
     #[tokio::test]
     async fn fetch_and_stage_image_uses_bearer_auth_for_metadata_and_download() {
         let mut png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
@@ -759,5 +863,67 @@ mod tests {
             "cleanup should remove {}",
             temp_path.display()
         );
+    }
+
+    #[tokio::test]
+    async fn get_bot_user_id_returns_none_when_slack_api_reports_error() {
+        let (auth_url, request, server) =
+            spawn_mock_slack_json_api("auth.test", r#"{"ok":false,"error":"invalid_auth"}"#.to_string())
+                .await;
+        let channel = SlackChannel::new_with_api_base_url(
+            "xoxb-invalid".into(),
+            None,
+            vec![],
+            auth_url.trim_end_matches("/auth.test").to_string(),
+        );
+
+        assert!(channel.get_bot_user_id().await.is_none());
+        server.await.expect("mock auth.test server should finish");
+
+        let request = request.lock().clone().expect("request should be captured");
+        assert!(request.starts_with("GET /api/auth.test HTTP/1.1\r\n"));
+    }
+
+    #[tokio::test]
+    async fn poll_history_returns_error_when_slack_api_reports_error() {
+        let (history_url, request, server) = spawn_mock_slack_json_api(
+            "conversations.history",
+            r#"{"ok":false,"error":"missing_scope"}"#.to_string(),
+        )
+        .await;
+        let channel = SlackChannel::new_with_api_base_url(
+            "xoxb-invalid".into(),
+            Some("C12345".into()),
+            vec![],
+            history_url
+                .trim_end_matches("/conversations.history")
+                .to_string(),
+        );
+
+        let error = channel
+            .poll_history("C12345", "")
+            .await
+            .expect_err("poll_history should fail when Slack returns ok=false");
+        assert!(error.to_string().contains("missing_scope"));
+        server.await.expect("mock conversations.history server should finish");
+
+        let request = request.lock().clone().expect("request should be captured");
+        assert!(request.starts_with("GET /api/conversations.history?channel=C12345&limit=10 HTTP/1.1\r\n"));
+    }
+
+    #[tokio::test]
+    async fn health_check_returns_false_when_slack_api_reports_error() {
+        let (auth_url, _request, server) =
+            spawn_mock_slack_json_api("auth.test", r#"{"ok":false,"error":"account_inactive"}"#.to_string())
+                .await;
+        let channel = SlackChannel::new_with_api_base_url(
+            "xoxb-invalid".into(),
+            None,
+            vec![],
+            auth_url.trim_end_matches("/auth.test").to_string(),
+        );
+
+        assert!(!channel.health_check().await);
+        server.await.expect("mock health check server should finish");
     }
 }
