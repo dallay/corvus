@@ -35,28 +35,56 @@ const modelName = "Corvus Agent";
 const { t } = useI18n();
 
 const showConfig = ref(false);
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const sidebarCollapsed = ref(true);
 const prompt = ref("");
 const chatContainer = ref<HTMLDivElement | null>(null);
 const gateway = useGateway(t);
+const {
+  baseUrl,
+  pairingCode,
+  bearerToken,
+  webhookSecret,
+  loading: gatewayLoading,
+  statusMessage: gatewayStatusMessage,
+  errorMessage: gatewayErrorMessage,
+  onboardingState,
+  onboardingSteps,
+  isGatewayReady,
+  normalizeBaseUrl,
+  createIdempotencyKey,
+  pairGateway,
+  connectGateway,
+} = gateway;
+
 const chat = useChat(t, gateway);
+const {
+  currentSessionId,
+  statusMessage: chatStatusMessage,
+  errorMessage: chatErrorMessage,
+  sending,
+  isSessionReady,
+  canResumeSession,
+  sessionList,
+  startSession,
+  clearSession,
+  sendMessage: sendChatMessage,
+  streamMessage,
+  switchSession,
+  stopSessionPolling,
+} = chat;
 
 let messageIdCounter = 1;
 
 const messages = ref<Message[]>([]);
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const canSend = computed(
-  () => prompt.value.trim().length > 0 && chat.isSessionReady.value && !chat.sending.value
+  () => prompt.value.trim().length > 0 && isSessionReady.value && !sending.value
 );
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
-const showOnboardingGate = computed(() => !chat.isSessionReady.value);
+const showOnboardingGate = computed(() => !isSessionReady.value);
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const combinedErrorMessage = computed(() => {
-  const gw = gateway.errorMessage.value;
-  const ch = chat.errorMessage.value;
+  const gw = gatewayErrorMessage.value;
+  const ch = chatErrorMessage.value;
   if (gw && ch) return `${gw} — ${ch}`;
   return ch || gw || "";
 });
@@ -98,7 +126,7 @@ function updateAssistantMessage(messageId: number, content: string, status?: Mes
 }
 
 async function beginSession(preferResume: boolean): Promise<void> {
-  const started = chat.startSession(preferResume);
+  const started = startSession(preferResume);
   if (!started) {
     return;
   }
@@ -111,39 +139,34 @@ async function beginSession(preferResume: boolean): Promise<void> {
   scrollChatToBottom();
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function startNewSession(): Promise<void> {
-  chat.clearSession();
+  clearSession();
   await beginSession(false);
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function resumeSession(): Promise<void> {
   await beginSession(true);
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function handleSidebarNewChat(): Promise<void> {
   persistMessages();
-  chat.clearSession();
+  clearSession();
   await beginSession(false);
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleSwitchSession(targetSessionId: string): void {
   persistMessages();
-  chat.switchSession(targetSessionId);
+  switchSession(targetSessionId);
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function sendMessage(): Promise<void> {
   const text = prompt.value.trim();
-  if (!text || !chat.isSessionReady.value) {
+  if (!text || !isSessionReady.value) {
     return;
   }
 
   const normalizedText = text.slice(0, MAX_PROMPT_LENGTH);
-  const requestId = gateway.createIdempotencyKey();
+  const requestId = createIdempotencyKey();
   messages.value.push({
     id: nextMessageId(),
     role: "user",
@@ -157,7 +180,7 @@ async function sendMessage(): Promise<void> {
     content: t("chat.processing", {
       text: normalizedText,
       modelName,
-      gateway: gateway.normalizeBaseUrl(),
+      gateway: normalizeBaseUrl(),
     }),
   });
 
@@ -169,7 +192,7 @@ async function sendMessage(): Promise<void> {
     // Try streaming first
     let streamBuffer = "";
     updateAssistantMessage(assistantMessageId, "", "streaming");
-    await chat.streamMessage(
+    await streamMessage(
       normalizedText,
       (chunk) => {
         streamBuffer += chunk;
@@ -194,11 +217,11 @@ async function sendMessage(): Promise<void> {
         t("chat.processing", {
           text: normalizedText,
           modelName,
-          gateway: gateway.normalizeBaseUrl(),
+          gateway: normalizeBaseUrl(),
         }),
         undefined
       );
-      const result = await chat.sendMessage(normalizedText, requestId);
+      const result = await sendChatMessage(normalizedText, requestId);
       if (result.type === "approval_required") {
         updateAssistantMessage(assistantMessageId, t("chat.toolApprovalTitle"));
         messages.value.push({
@@ -224,7 +247,7 @@ async function sendMessage(): Promise<void> {
 }
 
 watch(
-  () => chat.isSessionReady.value,
+  () => isSessionReady.value,
   (ready) => {
     if (!ready) {
       prompt.value = "";
@@ -233,11 +256,11 @@ watch(
 );
 
 function messagesStorageKey(): string {
-  return `corvus-chat-messages-${chat.currentSessionId.value}`;
+  return `corvus-chat-messages-${currentSessionId.value}`;
 }
 
 function persistMessages(): void {
-  if (!chat.currentSessionId.value) return;
+  if (!currentSessionId.value) return;
   try {
     const serializable = messages.value.map((m) => ({
       id: m.id,
@@ -255,7 +278,7 @@ function persistMessages(): void {
 }
 
 function restoreMessages(): void {
-  if (!chat.currentSessionId.value) return;
+  if (!currentSessionId.value) return;
   try {
     const raw = sessionStorage.getItem(messagesStorageKey());
     if (!raw) {
@@ -300,7 +323,6 @@ function restoreMessages(): void {
   }
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleApprove(approvalId: string): void {
   // Phase 5B stub: full round-trip will be wired in a follow-up.
   const idx = messages.value.findIndex((m) => m.approvalId === approvalId);
@@ -315,7 +337,6 @@ function handleApprove(approvalId: string): void {
   }
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleReject(approvalId: string): void {
   // Phase 5B stub: full round-trip will be wired in a follow-up.
   const idx = messages.value.findIndex((m) => m.approvalId === approvalId);
@@ -342,19 +363,19 @@ watch(
 );
 
 watch(
-  () => chat.currentSessionId.value,
+  () => currentSessionId.value,
   (sessionId) => {
     if (sessionId) restoreMessages();
   }
 );
 
 onMounted(() => {
-  if (chat.currentSessionId.value) restoreMessages();
+  if (currentSessionId.value) restoreMessages();
 });
 
 onUnmounted(() => {
   prompt.value = "";
-  chat.stopSessionPolling();
+  stopSessionPolling();
 });
 </script>
 
@@ -446,21 +467,21 @@ onUnmounted(() => {
 
       <div v-if="showConfig" class="config-wrapper">
         <ConfigPanel
-          :base-url="gateway.baseUrl.value"
-          :pairing-code="gateway.pairingCode.value"
-          :bearer-token="gateway.bearerToken.value"
-          :webhook-secret="gateway.webhookSecret.value"
-          :loading="gateway.loading.value"
-          :status-message="gateway.statusMessage.value"
+          :base-url="baseUrl"
+          :pairing-code="pairingCode"
+          :bearer-token="bearerToken"
+          :webhook-secret="webhookSecret"
+          :loading="gatewayLoading"
+          :status-message="gatewayStatusMessage"
           :error-message="combinedErrorMessage"
-          :onboarding-state="gateway.onboardingState.value"
-          :onboarding-steps="gateway.onboardingSteps.value"
-          @update:base-url="gateway.baseUrl.value = $event"
-          @update:pairing-code="gateway.pairingCode.value = $event"
-          @update:bearer-token="gateway.bearerToken.value = $event"
-          @update:webhook-secret="gateway.webhookSecret.value = $event"
-          @pair="gateway.pairGateway"
-          @connect="gateway.connectGateway"
+          :onboarding-state="onboardingState"
+          :onboarding-steps="onboardingSteps"
+          @update:base-url="baseUrl = $event"
+          @update:pairing-code="pairingCode = $event"
+          @update:bearer-token="bearerToken = $event"
+          @update:webhook-secret="webhookSecret = $event"
+          @pair="pairGateway"
+          @connect="connectGateway"
         />
       </div>
 
@@ -477,7 +498,7 @@ onUnmounted(() => {
 
           <ol class="gate-steps" aria-label="Web chat onboarding steps">
             <li
-              v-for="step in gateway.onboardingSteps.value"
+              v-for="step in onboardingSteps"
               :key="step.key"
               class="gate-step"
               :data-step-status="step.status"
@@ -491,19 +512,19 @@ onUnmounted(() => {
           </ol>
 
           <div
-            v-if="gateway.onboardingState.value.state === 'blocked' && gateway.onboardingState.value.recoveryKind"
+            v-if="onboardingState.state === 'blocked' && onboardingState.recoveryKind"
             class="gate-banner gate-banner-error"
             role="alert"
           >
             <p class="banner-title">
-              {{ t(`chatOnboarding.recovery.${gateway.onboardingState.value.recoveryKind}.title`) }}
+              {{ t(`chatOnboarding.recovery.${onboardingState.recoveryKind}.title`) }}
             </p>
             <p>
-              {{ t(`chatOnboarding.recovery.${gateway.onboardingState.value.recoveryKind}.description`) }}
+              {{ t(`chatOnboarding.recovery.${onboardingState.recoveryKind}.description`) }}
             </p>
           </div>
 
-          <div v-else-if="gateway.isGatewayReady.value" class="gate-banner gate-banner-success">
+          <div v-else-if="isGatewayReady" class="gate-banner gate-banner-success">
             <p class="banner-title">{{ t("chatOnboarding.session.title") }}</p>
             <p>{{ t("chatOnboarding.session.description") }}</p>
           </div>
@@ -511,27 +532,27 @@ onUnmounted(() => {
           <div class="gate-actions">
             <Button @click="showConfig = true">{{ t("app.config") }}</Button>
             <Button
-              v-if="gateway.isGatewayReady.value"
+              v-if="isGatewayReady"
               variant="outline"
               @click="startNewSession"
             >
               {{ t("chat.startSession") }}
             </Button>
             <Button
-              v-if="gateway.isGatewayReady.value"
+              v-if="isGatewayReady"
               variant="outline"
-              :disabled="!chat.canResumeSession.value"
+              :disabled="!canResumeSession"
               @click="resumeSession"
             >
               {{ t("chat.resumeSession") }}
             </Button>
           </div>
 
-          <p v-if="chat.statusMessage.value" class="gate-status gate-status-ok">
-            {{ chat.statusMessage.value }}
+          <p v-if="chatStatusMessage" class="gate-status gate-status-ok">
+            {{ chatStatusMessage }}
           </p>
-          <p v-if="chat.errorMessage.value" class="gate-status gate-status-error">
-            {{ chat.errorMessage.value }}
+          <p v-if="chatErrorMessage" class="gate-status gate-status-error">
+            {{ chatErrorMessage }}
           </p>
         </section>
       </template>
@@ -539,8 +560,8 @@ onUnmounted(() => {
       <template v-else>
         <div class="chat-with-sidebar">
           <SessionSidebar
-            :sessions="chat.sessionList.value"
-            :current-session-id="chat.currentSessionId.value"
+            :sessions="sessionList"
+            :current-session-id="currentSessionId"
             :collapsed="sidebarCollapsed"
             @switch-session="handleSwitchSession"
             @new-chat="handleSidebarNewChat"
@@ -571,11 +592,11 @@ onUnmounted(() => {
             <div class="chat-toolbar">
               <div class="chat-toolbar-left">
                 <p class="session-pill">
-                  {{ t("chat.sessionActive", { sessionId: chat.currentSessionId.value }) }}
+                  {{ t("chat.sessionActive", { sessionId: currentSessionId }) }}
                 </p>
                 <HealthIndicator
-                  :gateway-url="gateway.normalizeBaseUrl()"
-                  :bearer-token="gateway.bearerToken.value"
+                  :gateway-url="normalizeBaseUrl()"
+                  :bearer-token="bearerToken"
                 />
               </div>
               <Button variant="outline" @click="startNewSession">{{ t("chat.newSession") }}</Button>

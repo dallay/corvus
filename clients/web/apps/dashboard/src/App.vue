@@ -59,7 +59,28 @@ import type { AdminSessionView } from "@/types/admin-sessions";
 
 const { t } = useI18n();
 
-const config = useConfig(t);
+const {
+  baseUrl,
+  pairingCode,
+  bearerToken,
+  loading,
+  statusMessage,
+  errorMessage,
+  form,
+  canSave,
+  sectionSaving,
+  memoryBackendOptions,
+  observabilityBackendOptions,
+  runtimeKindOptions,
+  autonomyLevelOptions,
+  quickPairState,
+  onboardingState,
+  onboardingSteps,
+  isOperatorReady,
+  pairGateway,
+  connectGateway,
+  saveSection,
+} = useConfig(t);
 
 type DashboardPage = "config" | "sessions" | "memory";
 const currentPage = ref<DashboardPage>("config");
@@ -81,7 +102,7 @@ const memorySearchFilter = ref<string | undefined>(undefined);
 // Gateway URL builder and auth headers for useAdmin composable
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function adminGatewayUrl(path: string): string {
-  const base = trimTrailingSlashes(config.baseUrl.value.trim()) || "/api";
+  const base = trimTrailingSlashes(baseUrl.value.trim()) || "/api";
   if (base.startsWith("/")) {
     return new URL(`${base}${path}`, globalThis.location.origin).toString();
   }
@@ -92,8 +113,8 @@ function adminGatewayUrl(path: string): string {
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function adminAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (config.bearerToken.value.trim()) {
-    headers.Authorization = `Bearer ${config.bearerToken.value.trim()}`;
+  if (bearerToken.value.trim()) {
+    headers.Authorization = `Bearer ${bearerToken.value.trim()}`;
   }
   return headers;
 }
@@ -121,7 +142,7 @@ function onViewSessionMemory(sessionId: string) {
           <p>{{ t("app.subtitle") }}</p>
         </div>
       </div>
-      <nav v-if="config.isOperatorReady.value" class="nav-tabs" role="tablist" aria-label="Dashboard navigation">
+      <nav v-if="isOperatorReady" class="nav-tabs" role="tablist" aria-label="Dashboard navigation">
         <button
           role="tab"
           class="nav-tab"
@@ -158,7 +179,7 @@ function onViewSessionMemory(sessionId: string) {
       <p class="helper onboarding-intro">{{ t("onboarding.intro") }}</p>
       <ol class="onboarding-steps" aria-label="Dashboard onboarding steps">
         <li
-          v-for="step in config.onboardingSteps.value"
+          v-for="step in onboardingSteps"
           :key="step.key"
           class="onboarding-step"
           :data-step-status="step.status"
@@ -173,7 +194,7 @@ function onViewSessionMemory(sessionId: string) {
         </li>
       </ol>
       <output
-        v-if="config.isOperatorReady.value"
+        v-if="isOperatorReady"
         class="onboarding-banner onboarding-banner-ready"
         aria-live="polite"
       >
@@ -182,42 +203,42 @@ function onViewSessionMemory(sessionId: string) {
       </output>
       <div
         v-else-if="
-          config.onboardingState.value.state === 'blocked' && config.onboardingState.value.recoveryKind
+          onboardingState.state === 'blocked' && onboardingState.recoveryKind
         "
         class="onboarding-banner onboarding-banner-blocked"
         role="alert"
         aria-live="assertive"
       >
         <p class="banner-title">
-          {{ t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.title`) }}
+          {{ t(`onboarding.recovery.${onboardingState.recoveryKind}.title`) }}
         </p>
-        <p>{{ t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.description`) }}</p>
+        <p>{{ t(`onboarding.recovery.${onboardingState.recoveryKind}.description`) }}</p>
       </div>
-      <output v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
+      <output v-if="quickPairState === 'validating' || quickPairState === 'pairing'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
         <span>{{ t("auth.quickPairValidating") }}</span>
       </output>
-      <output v-else-if="config.quickPairState.value === 'connecting'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
+      <output v-else-if="quickPairState === 'connecting'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
         <span>{{ t("auth.quickPairConnecting") }}</span>
       </output>
       <div v-else>
-        <p v-if="config.quickPairState.value === 'failed'" class="error" role="alert" aria-live="assertive" aria-atomic="true">{{ t("auth.quickPairFailed") }}</p>
+        <p v-if="quickPairState === 'failed'" class="error" role="alert" aria-live="assertive" aria-atomic="true">{{ t("auth.quickPairFailed") }}</p>
         <div class="grid">
           <label>
             <span>{{ t("auth.baseUrl") }}</span>
-            <Input v-model="config.baseUrl.value" :placeholder="t('form.baseUrlPlaceholder')" />
+            <Input v-model="baseUrl" :placeholder="t('form.baseUrlPlaceholder')" />
           </label>
           <label>
             <span>{{ t("auth.pairingCode") }}</span>
-            <Input v-model="config.pairingCode.value" type="password" />
+            <Input v-model="pairingCode" type="password" />
           </label>
           <label>
             <span>{{ t("auth.bearerToken") }}</span>
-            <Input v-model="config.bearerToken.value" type="password" />
+            <Input v-model="bearerToken" type="password" />
           </label>
         </div>
         <div class="actions">
-          <Button :disabled="config.loading.value" @click="config.pairGateway">{{ t("auth.pair") }}</Button>
-          <Button :disabled="config.loading.value" variant="outline" @click="config.connectGateway">
+          <Button :disabled="loading" @click="pairGateway">{{ t("auth.pair") }}</Button>
+          <Button :disabled="loading" variant="outline" @click="connectGateway">
             {{ t("auth.connect") }}
           </Button>
         </div>
@@ -227,143 +248,143 @@ function onViewSessionMemory(sessionId: string) {
     <!-- Config page (existing content) -->
     <template v-if="currentPage === 'config'">
       <GeneralSettings
-        :model-value="config.form"
-        :memory-backend-options="config.memoryBackendOptions.value"
-        :disabled="!config.canSave.value"
-        :saving="config.sectionSaving.general"
-        @update:model-value="Object.assign(config.form, $event)"
-        @save="config.saveSection('general')"
+        :model-value="form"
+        :memory-backend-options="memoryBackendOptions"
+        :disabled="!canSave"
+        :saving="sectionSaving.general"
+        @update:model-value="Object.assign(form, $event)"
+        @save="saveSection('general')"
       />
 
       <SecuritySettings
-        :model-value="config.form"
-        :autonomy-level-options="config.autonomyLevelOptions.value"
-        :disabled="!config.canSave.value"
-        :saving="config.sectionSaving.security"
-        @update:model-value="Object.assign(config.form, $event)"
-        @save="config.saveSection('security')"
+        :model-value="form"
+        :autonomy-level-options="autonomyLevelOptions"
+        :disabled="!canSave"
+        :saving="sectionSaving.security"
+        @update:model-value="Object.assign(form, $event)"
+        @save="saveSection('security')"
       />
 
       <ObservabilitySettings
-        :model-value="config.form"
-        :observability-backend-options="config.observabilityBackendOptions.value"
-        :disabled="!config.canSave.value"
-        :saving="config.sectionSaving.observability"
-        @update:model-value="Object.assign(config.form, $event)"
-        @save="config.saveSection('observability')"
+        :model-value="form"
+        :observability-backend-options="observabilityBackendOptions"
+        :disabled="!canSave"
+        :saving="sectionSaving.observability"
+        @update:model-value="Object.assign(form, $event)"
+        @save="saveSection('observability')"
       />
 
       <RuntimeSettings
-        :model-value="config.form"
-        :runtime-kind-options="config.runtimeKindOptions.value"
-        :disabled="!config.canSave.value"
-        :saving="config.sectionSaving.runtime"
-        @update:model-value="Object.assign(config.form, $event)"
-        @save="config.saveSection('runtime')"
+        :model-value="form"
+        :runtime-kind-options="runtimeKindOptions"
+        :disabled="!canSave"
+        :saving="sectionSaving.runtime"
+        @update:model-value="Object.assign(form, $event)"
+        @save="saveSection('runtime')"
       />
 
       <SchedulerSettings
-        :model-value="config.form"
-        :disabled="!config.canSave.value"
-        :saving="config.sectionSaving.scheduler"
-        @update:model-value="Object.assign(config.form, $event)"
-        @save="config.saveSection('scheduler')"
+        :model-value="form"
+        :disabled="!canSave"
+        :saving="sectionSaving.scheduler"
+        @update:model-value="Object.assign(form, $event)"
+        @save="saveSection('scheduler')"
       />
 
       <GatewaySettings
-        :model-value="config.form"
-        :disabled="!config.canSave.value"
-        :saving="config.sectionSaving.gateway"
-        @update:model-value="Object.assign(config.form, $event)"
-        @save="config.saveSection('gateway')"
+        :model-value="form"
+        :disabled="!canSave"
+        :saving="sectionSaving.gateway"
+        @update:model-value="Object.assign(form, $event)"
+        @save="saveSection('gateway')"
       />
 
       <WebhookSettings
-        :model-value="config.form"
-        :disabled="!config.canSave.value"
-        :saving="config.sectionSaving.webhook"
-        @update:model-value="Object.assign(config.form, $event)"
-        @save="config.saveSection('webhook')"
+        :model-value="form"
+        :disabled="!canSave"
+        :saving="sectionSaving.webhook"
+        @update:model-value="Object.assign(form, $event)"
+        @save="saveSection('webhook')"
       />
 
       <WebSearchSettings
-        :model-value="config.form"
-        :disabled="!config.canSave.value"
-        :saving="config.sectionSaving['web-search']"
-        @update:model-value="Object.assign(config.form, $event)"
-        @save="config.saveSection('web-search')"
+        :model-value="form"
+        :disabled="!canSave"
+        :saving="sectionSaving['web-search']"
+        @update:model-value="Object.assign(form, $event)"
+        @save="saveSection('web-search')"
       />
 
       <BrowserSettings
-        :model-value="config.form"
-        :disabled="!config.canSave.value"
-        :saving="config.sectionSaving.browser"
-        @update:model-value="Object.assign(config.form, $event)"
-        @save="config.saveSection('browser')"
+        :model-value="form"
+        :disabled="!canSave"
+        :saving="sectionSaving.browser"
+        @update:model-value="Object.assign(form, $event)"
+        @save="saveSection('browser')"
       />
 
       <ComposioSettings
-        :model-value="config.form"
-        :disabled="!config.canSave.value"
-        :saving="config.sectionSaving.composio"
-        @update:model-value="Object.assign(config.form, $event)"
-        @save="config.saveSection('composio')"
+        :model-value="form"
+        :disabled="!canSave"
+        :saving="sectionSaving.composio"
+        @update:model-value="Object.assign(form, $event)"
+        @save="saveSection('composio')"
       />
 
       <MemorySettings
-        :model-value="config.form"
-        :disabled="!config.canSave.value"
-        :saving="config.sectionSaving.memory"
-        @update:model-value="Object.assign(config.form, $event)"
-        @save="config.saveSection('memory')"
+        :model-value="form"
+        :disabled="!canSave"
+        :saving="sectionSaving.memory"
+        @update:model-value="Object.assign(form, $event)"
+        @save="saveSection('memory')"
       />
 
       <ChannelsOverview
-        v-if="config.isOperatorReady.value"
-        :gateway-url="config.baseUrl.value"
-        :bearer-token="config.bearerToken.value"
+        v-if="isOperatorReady"
+        :gateway-url="baseUrl"
+        :bearer-token="bearerToken"
       />
 
       <SchedulerStatus
-        v-if="config.isOperatorReady.value"
-        :gateway-url="config.baseUrl.value"
-        :bearer-token="config.bearerToken.value"
+        v-if="isOperatorReady"
+        :gateway-url="baseUrl"
+        :bearer-token="bearerToken"
       />
 
       <CostOverview
-        v-if="config.isOperatorReady.value"
-        :gateway-url="config.baseUrl.value"
-        :bearer-token="config.bearerToken.value"
+        v-if="isOperatorReady"
+        :gateway-url="baseUrl"
+        :bearer-token="bearerToken"
       />
 
       <McpOverview
-        v-if="config.isOperatorReady.value"
-        :gateway-url="config.baseUrl.value"
-        :bearer-token="config.bearerToken.value"
+        v-if="isOperatorReady"
+        :gateway-url="baseUrl"
+        :bearer-token="bearerToken"
       />
 
       <TunnelOverview
-        v-if="config.isOperatorReady.value"
-        :gateway-url="config.baseUrl.value"
-        :bearer-token="config.bearerToken.value"
+        v-if="isOperatorReady"
+        :gateway-url="baseUrl"
+        :bearer-token="bearerToken"
       />
 
       <ReliabilityOverview
-        v-if="config.isOperatorReady.value"
-        :gateway-url="config.baseUrl.value"
-        :bearer-token="config.bearerToken.value"
+        v-if="isOperatorReady"
+        :gateway-url="baseUrl"
+        :bearer-token="bearerToken"
       />
 
       <HeartbeatOverview
-        v-if="config.isOperatorReady.value"
-        :gateway-url="config.baseUrl.value"
-        :bearer-token="config.bearerToken.value"
+        v-if="isOperatorReady"
+        :gateway-url="baseUrl"
+        :bearer-token="bearerToken"
       />
 
       <HealthDashboard
-        v-if="config.isOperatorReady.value"
-        :gateway-url="config.baseUrl.value"
-        :bearer-token="config.bearerToken.value"
+        v-if="isOperatorReady"
+        :gateway-url="baseUrl"
+        :bearer-token="bearerToken"
       />
 
       <!-- TODO: Wire UpdateSettings when raw AdminConfigView is exposed from useConfig
@@ -371,7 +392,7 @@ function onViewSessionMemory(sessionId: string) {
     </template>
 
     <!-- Sessions page -->
-    <template v-if="currentPage === 'sessions' && config.isOperatorReady.value">
+    <template v-if="currentPage === 'sessions' && isOperatorReady">
       <section class="card">
         <h2>{{ t("nav.sessions", "Sessions") }}</h2>
         <SessionFilters
@@ -399,7 +420,7 @@ function onViewSessionMemory(sessionId: string) {
     </template>
 
     <!-- Memory page -->
-    <template v-if="currentPage === 'memory' && config.isOperatorReady.value">
+    <template v-if="currentPage === 'memory' && isOperatorReady">
       <section class="card">
         <h2>{{ t("nav.memory", "Memory") }}</h2>
         <MemoryStats
@@ -428,14 +449,14 @@ function onViewSessionMemory(sessionId: string) {
       <p class="helper">
         {{
           t("webhook.secretStatus", {
-            status: config.form.webhook_secret_exists
+            status: form.webhook_secret_exists
               ? t("webhook.statusConfigured")
               : t("webhook.statusNotConfigured"),
           })
         }}
       </p>
-      <p v-if="config.statusMessage.value" class="ok">{{ config.statusMessage.value }}</p>
-      <p v-if="config.errorMessage.value" class="error">{{ config.errorMessage.value }}</p>
+      <p v-if="statusMessage" class="ok">{{ statusMessage }}</p>
+      <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </section>
   </main>
 </template>
