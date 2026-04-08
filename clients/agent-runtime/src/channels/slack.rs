@@ -63,8 +63,8 @@ impl SlackChannel {
         self.allowed_users.iter().any(|u| u == "*" || u == user_id)
     }
 
-    /// Get the bot's own user ID so we can ignore our own messages
-    async fn get_bot_user_id(&self) -> Option<String> {
+    /// Get the bot's own user ID so we can ignore our own messages.
+    async fn get_bot_user_id(&self) -> anyhow::Result<String> {
         let response = self
             .client
             .get(self.api_url("auth.test"))
@@ -77,11 +77,19 @@ impl SlackChannel {
                     self.sanitize_error(err)
                 );
             })
-            .ok()?;
+            .map_err(|err| {
+                anyhow::anyhow!(
+                    "Slack auth.test request failed: {}",
+                    self.sanitize_error(&err)
+                )
+            })?;
 
         if !response.status().is_success() {
             tracing::warn!("Slack auth.test HTTP {}", response.status());
-            return None;
+            return Err(anyhow::anyhow!(
+                "Slack auth.test HTTP failure: {}",
+                response.status()
+            ));
         }
 
         let resp: serde_json::Value = response
@@ -89,21 +97,23 @@ impl SlackChannel {
             .await
             .map_err(|err| {
                 tracing::warn!("Slack auth.test parse error: {err}");
-                err
-            })
-            .ok()?;
+                anyhow::anyhow!("Slack auth.test parse error: {err}")
+            })?;
 
         if resp.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+            let api_error = Self::slack_api_error(&resp);
             tracing::warn!(
                 "Slack auth.test API error: {}",
-                Self::slack_api_error(&resp)
+                api_error
             );
-            return None;
+            return Err(anyhow::anyhow!("Slack auth.test failed: {api_error}"));
         }
 
         resp.get("user_id")
             .and_then(|u| u.as_str())
-            .map(String::from)
+            .filter(|user_id| !user_id.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("Slack auth.test response missing valid user_id"))
     }
 
     /// Poll Slack conversations.history API. Returns parsed JSON on success,
@@ -128,9 +138,8 @@ impl SlackChannel {
             .query(&params)
             .send()
             .await
-            .map_err(|e| {
-                tracing::warn!("Slack poll error: {}", self.sanitize_error(&e));
-                e
+            .inspect_err(|e| {
+                tracing::warn!("Slack poll error: {}", self.sanitize_error(e));
             })?;
 
         if !resp.status().is_success() {
@@ -200,47 +209,57 @@ impl SlackChannel {
         &self,
         file_id: &str,
     ) -> Result<String, media::ImageRejectionReason> {
-        let response = self
-            .client
-            .get(self.api_url("files.info"))
-            .bearer_auth(&self.bot_token)
-            .query(&[("file", file_id)])
-            .send()
-            .await
-            .map_err(|err| {
-                tracing::warn!(
-                    "Slack file metadata fetch failed for {}: {}",
-                    &file_id[..file_id.len().min(8)],
-                    self.sanitize_error(&err)
-                );
+        tokio::time::timeout(SLACK_DOWNLOAD_TIMEOUT, async {
+            let response = self
+                .client
+                .get(self.api_url("files.info"))
+                .bearer_auth(&self.bot_token)
+                .query(&[("file", file_id)])
+                .send()
+                .await
+                .map_err(|err| {
+                    tracing::warn!(
+                        "Slack file metadata fetch failed for {}: {}",
+                        &file_id[..file_id.len().min(8)],
+                        self.sanitize_error(&err)
+                    );
+                    media::ImageRejectionReason::FetchFailed
+                })?;
+
+            if !response.status().is_success() {
+                tracing::warn!("Slack file metadata HTTP {}", response.status());
+                return Err(media::ImageRejectionReason::FetchFailed);
+            }
+
+            let payload: serde_json::Value = response.json().await.map_err(|err| {
+                tracing::warn!("Slack file metadata parse error: {err}");
                 media::ImageRejectionReason::FetchFailed
             })?;
 
-        if !response.status().is_success() {
-            tracing::warn!("Slack file metadata HTTP {}", response.status());
-            return Err(media::ImageRejectionReason::FetchFailed);
-        }
+            if payload.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                let api_error = Self::slack_api_error(&payload);
+                tracing::warn!("Slack file metadata API error: {api_error}");
+                return Err(media::ImageRejectionReason::FetchFailed);
+            }
 
-        let payload: serde_json::Value = response.json().await.map_err(|err| {
-            tracing::warn!("Slack file metadata parse error: {err}");
+            payload
+                .get("file")
+                .and_then(|file| file.get("url_private_download"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    tracing::warn!("Slack file metadata missing url_private_download");
+                    media::ImageRejectionReason::FetchFailed
+                })
+        })
+        .await
+        .map_err(|_| {
+            tracing::warn!(
+                "Slack file metadata timed out after {}s",
+                SLACK_DOWNLOAD_TIMEOUT.as_secs()
+            );
             media::ImageRejectionReason::FetchFailed
-        })?;
-
-        if payload.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
-            let api_error = Self::slack_api_error(&payload);
-            tracing::warn!("Slack file metadata API error: {api_error}");
-            return Err(media::ImageRejectionReason::FetchFailed);
-        }
-
-        payload
-            .get("file")
-            .and_then(|file| file.get("url_private_download"))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string)
-            .ok_or_else(|| {
-                tracing::warn!("Slack file metadata missing url_private_download");
-                media::ImageRejectionReason::FetchFailed
-            })
+        })?
     }
 
     pub async fn fetch_and_stage_image(
@@ -265,8 +284,14 @@ impl SlackChannel {
                     media::ImageRejectionReason::FetchFailed
                 })?;
 
-            media::stream_validate_and_stage(response, declared_mime, "sl", &download_url, max_bytes)
-                .await
+            media::stream_validate_and_stage(
+                response,
+                declared_mime,
+                "sl",
+                &download_url,
+                max_bytes,
+            )
+            .await
         })
         .await
         .map_err(|_| {
@@ -390,7 +415,7 @@ impl Channel for SlackChannel {
             .clone()
             .ok_or_else(|| anyhow::anyhow!("Slack channel_id required for listening"))?;
 
-        let bot_user_id = self.get_bot_user_id().await.unwrap_or_default();
+        let bot_user_id = self.get_bot_user_id().await?;
         let mut last_ts = String::new();
 
         tracing::info!("Slack channel listening on #{channel_id}...");
@@ -898,7 +923,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_bot_user_id_returns_none_when_slack_api_reports_error() {
+    async fn get_bot_user_id_returns_error_when_slack_api_reports_error() {
         let (auth_url, request, server) = spawn_mock_slack_json_api(
             "auth.test",
             r#"{"ok":false,"error":"invalid_auth"}"#.to_string(),
@@ -911,11 +936,39 @@ mod tests {
             auth_url.trim_end_matches("/auth.test").to_string(),
         );
 
-        assert!(channel.get_bot_user_id().await.is_none());
+        let error = channel
+            .get_bot_user_id()
+            .await
+            .expect_err("auth.test should fail when Slack returns ok=false");
+        assert!(error.to_string().contains("invalid_auth"));
         server.await.expect("mock auth.test server should finish");
 
         let request = request.lock().clone().expect("request should be captured");
         assert!(request.starts_with("GET /api/auth.test HTTP/1.1\r\n"));
+    }
+
+    #[tokio::test]
+    async fn get_bot_user_id_returns_error_when_user_id_is_missing() {
+        let (auth_url, _request, server) = spawn_mock_slack_json_api(
+            "auth.test",
+            r#"{"ok":true}"#.to_string(),
+        )
+        .await;
+        let channel = SlackChannel::new_with_api_base_url(
+            "xoxb-invalid".into(),
+            None,
+            vec![],
+            auth_url.trim_end_matches("/auth.test").to_string(),
+        );
+
+        let error = channel
+            .get_bot_user_id()
+            .await
+            .expect_err("auth.test should fail when user_id is missing");
+        assert!(error
+            .to_string()
+            .contains("missing valid user_id"));
+        server.await.expect("mock auth.test server should finish");
     }
 
     #[tokio::test]
