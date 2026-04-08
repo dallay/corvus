@@ -676,9 +676,7 @@ mod tests {
 
                 if idx == 0 {
                     let body = format!(
-                        concat!(
-                            r#"{{"ok":true,"file":{{"id":"F123","url_private_download":"http://127.0.0.1:{}/download/photo.png"}}}}"#
-                        ),
+                        r#"{{"ok":true,"file":{{"id":"F123","url_private_download":"http://127.0.0.1:{}/download/photo.png"}}}}"#,
                         addr.port()
                     );
                     let response = format!(
