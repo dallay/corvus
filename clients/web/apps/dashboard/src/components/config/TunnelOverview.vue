@@ -123,9 +123,9 @@ onBeforeUnmount(() => abortController?.abort());
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--corvus-color-border-default);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-bg-secondary) 82%, transparent);
+  background: var(--corvus-color-bg-surface);
 }
 
 .status-indicator {
@@ -136,11 +136,11 @@ onBeforeUnmount(() => abortController?.abort());
 }
 
 .configured {
-  background: #22c55e;
+  background: var(--corvus-color-status-success);
 }
 
 .not-configured {
-  background: #9ca3af;
+  background: var(--corvus-color-text-disabled);
 }
 
 .status-label {
@@ -150,6 +150,6 @@ onBeforeUnmount(() => abortController?.abort());
 
 .status-value {
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--corvus-color-text-secondary);
 }
 </style>

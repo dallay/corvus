@@ -2,7 +2,7 @@
 defineOptions({ inheritAttrs: false });
 
 const props = defineProps<{
-  variant?: "default" | "ghost" | "outline";
+  variant?: "primary" | "secondary" | "ghost" | "destructive";
   size?: "default" | "sm" | "lg" | "icon";
   type?: "button" | "submit" | "reset";
 }>();
@@ -14,7 +14,7 @@ const props = defineProps<{
     :type="type ?? 'button'"
     :class="[
       'btn',
-      `btn--${props.variant ?? 'default'}`,
+      `btn--${props.variant ?? 'primary'}`,
       `btn-size--${props.size ?? 'default'}`,
       ($attrs.class as string),
     ]"
@@ -24,20 +24,25 @@ const props = defineProps<{
 </template>
 
 <style scoped>
+/* ── Nothing Design System — Button ── */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  font-family: inherit;
+  gap: var(--corvus-spacing-sm);
+  border-radius: var(--corvus-radius-pill);
+  font-family: var(--corvus-typography-font-mono);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   border: none;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
   user-select: none;
   outline: none;
+  min-height: 44px;
+  padding: 12px 24px;
 }
 
 .btn:disabled {
@@ -47,68 +52,86 @@ const props = defineProps<{
 }
 
 .btn:focus-visible {
-  box-shadow: 0 0 0 2px var(--color-bg-primary), 0 0 0 4px var(--color-accent);
+  outline: 2px solid var(--corvus-color-text-primary);
+  outline-offset: 2px;
 }
 
-/* Variants */
-.btn--default {
-  background: var(--color-accent);
-  color: white;
-  box-shadow: 0 4px 12px var(--color-accent-glow);
+/* ── Variants ── */
+
+/* Primary: inverted — white bg / black text (dark), black bg / light text (light) */
+.btn--primary {
+  background: var(--corvus-color-text-display);
+  color: var(--corvus-color-bg-base);
 }
 
-.btn--default:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-  box-shadow: 0 6px 20px var(--color-accent-glow);
+.btn--primary:hover:not(:disabled) {
+  background: var(--corvus-color-text-primary);
 }
 
-.btn--default:active:not(:disabled) {
-  transform: scale(0.97);
+.btn--primary:active:not(:disabled) {
+  background: var(--corvus-color-text-secondary);
 }
 
+/* Secondary: transparent, visible border */
+.btn--secondary {
+  background: transparent;
+  border: 1px solid var(--corvus-color-border-visible);
+  color: var(--corvus-color-text-primary);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  border-color: var(--corvus-color-text-secondary);
+  color: var(--corvus-color-text-display);
+}
+
+.btn--secondary:active:not(:disabled) {
+  background: var(--corvus-color-bg-raised);
+}
+
+/* Ghost: no border, no background */
 .btn--ghost {
   background: transparent;
-  color: var(--color-text-secondary);
+  border-radius: 0;
+  color: var(--corvus-color-text-secondary);
 }
 
 .btn--ghost:hover:not(:disabled) {
-  color: var(--color-text-primary);
-  background: var(--color-surface-glass-hover);
+  color: var(--corvus-color-text-primary);
 }
 
-.btn--outline {
+/* Destructive: accent red border */
+.btn--destructive {
   background: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
+  border: 1px solid var(--corvus-color-accent-default);
+  color: var(--corvus-color-accent-default);
 }
 
-.btn--outline:hover:not(:disabled) {
-  border-color: var(--color-border-hover);
-  color: var(--color-text-primary);
-  background: var(--color-surface-glass);
+.btn--destructive:hover:not(:disabled) {
+  background: var(--corvus-color-accent-subtle);
 }
 
-/* Sizes */
+/* ── Sizes ── */
 .btn-size--default {
-  height: 40px;
-  padding: 0 20px;
+  height: 44px;
+  padding: 12px 24px;
 }
 
 .btn-size--sm {
-  height: 32px;
-  padding: 0 12px;
-  font-size: 12px;
+  height: 36px;
+  padding: 8px 16px;
+  font-size: 11px;
 }
 
 .btn-size--lg {
-  height: 48px;
-  padding: 0 24px;
-  font-size: 16px;
+  height: 52px;
+  padding: 14px 32px;
+  font-size: 14px;
 }
 
 .btn-size--icon {
-  height: 36px;
-  width: 36px;
+  height: 44px;
+  width: 44px;
+  min-width: 44px;
   padding: 0;
 }
 </style>

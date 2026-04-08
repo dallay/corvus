@@ -1,0 +1,153 @@
+/* ─────────────────────────────────────────────────────────────
+   Corvus — Nothing Design Tokens
+   Canonical token naming: --corvus-{category}-{property}-{variant}
+   Dark-first: :root defines dark mode defaults.
+   Light mode: @media (prefers-color-scheme: light) + manual [data-theme] overrides.
+   ───────────────────────────────────────────────────────────── */
+
+/* ── Dark Mode (Default) ── */
+:root {
+  /* Color — Backgrounds */
+  --corvus-color-bg-base: #000;
+  --corvus-color-bg-surface: #111;
+  --corvus-color-bg-raised: #1a1a1a;
+
+  /* Color — Borders */
+  --corvus-color-border-default: #222;
+  --corvus-color-border-visible: #333;
+
+  /* Color — Text */
+  --corvus-color-text-disabled: #666;
+  --corvus-color-text-secondary: #999;
+  --corvus-color-text-primary: #e8e8e8;
+  --corvus-color-text-display: #fff;
+
+  /* Color — Accent & Status */
+  --corvus-color-accent-default: #d71921;
+  --corvus-color-accent-subtle: rgb(215 25 33 / 15%);
+  --corvus-color-status-success: #4a9e5c;
+  --corvus-color-status-warning: #d4a843;
+  --corvus-color-status-error: #d71921;
+  --corvus-color-status-info: #999;
+  --corvus-color-interactive-default: #5b9bf6;
+
+  /* Typography — Font Families */
+  --corvus-typography-font-body: "Space Grotesk", "DM Sans", system-ui, sans-serif;
+  --corvus-typography-font-mono: "Space Mono", "JetBrains Mono", "SF Mono", monospace;
+  --corvus-typography-font-display: "Doto", "Space Mono", monospace;
+
+  /* Typography — Type Scale (composable sub-tokens) */
+  --corvus-typography-scale-display-xl-size: 72px;
+  --corvus-typography-scale-display-xl-lh: 1.0;
+  --corvus-typography-scale-display-xl-ls: -0.03em;
+  --corvus-typography-scale-display-lg-size: 48px;
+  --corvus-typography-scale-display-lg-lh: 1.05;
+  --corvus-typography-scale-display-lg-ls: -0.02em;
+  --corvus-typography-scale-display-md-size: 36px;
+  --corvus-typography-scale-display-md-lh: 1.1;
+  --corvus-typography-scale-display-md-ls: -0.02em;
+  --corvus-typography-scale-heading-size: 24px;
+  --corvus-typography-scale-heading-lh: 1.2;
+  --corvus-typography-scale-heading-ls: -0.01em;
+  --corvus-typography-scale-subheading-size: 18px;
+  --corvus-typography-scale-subheading-lh: 1.3;
+  --corvus-typography-scale-subheading-ls: 0;
+  --corvus-typography-scale-body-size: 16px;
+  --corvus-typography-scale-body-lh: 1.5;
+  --corvus-typography-scale-body-ls: 0;
+  --corvus-typography-scale-body-sm-size: 14px;
+  --corvus-typography-scale-body-sm-lh: 1.5;
+  --corvus-typography-scale-body-sm-ls: 0.01em;
+  --corvus-typography-scale-caption-size: 12px;
+  --corvus-typography-scale-caption-lh: 1.4;
+  --corvus-typography-scale-caption-ls: 0.04em;
+  --corvus-typography-scale-label-size: 11px;
+  --corvus-typography-scale-label-lh: 1.2;
+  --corvus-typography-scale-label-ls: 0.08em;
+
+  /* Typography — Weights */
+  --corvus-typography-weight-light: 300;
+  --corvus-typography-weight-regular: 400;
+  --corvus-typography-weight-medium: 500;
+  --corvus-typography-weight-bold: 700;
+
+  /* Spacing (8px base) */
+  --corvus-spacing-2xs: 2px;
+  --corvus-spacing-xs: 4px;
+  --corvus-spacing-sm: 8px;
+  --corvus-spacing-md: 16px;
+  --corvus-spacing-lg: 24px;
+  --corvus-spacing-xl: 32px;
+  --corvus-spacing-2xl: 48px;
+  --corvus-spacing-3xl: 64px;
+  --corvus-spacing-4xl: 96px;
+
+  /* Radius */
+  --corvus-radius-none: 0;
+  --corvus-radius-technical: 4px;
+  --corvus-radius-input: 8px;
+  --corvus-radius-card: 12px;
+  --corvus-radius-card-lg: 16px;
+  --corvus-radius-pill: 999px;
+
+  /* Motion */
+  --corvus-motion-duration-micro: 150ms;
+  --corvus-motion-duration-default: 200ms;
+  --corvus-motion-duration-slow: 350ms;
+  --corvus-motion-easing-default: cubic-bezier(0.25, 0.1, 0.25, 1);
+
+  /* Color Scheme — declare support for both modes */
+  color-scheme: dark light;
+}
+
+/* ── Light Mode (System Preference) ──
+   The :not([data-theme="dark"]) guard prevents system-light from
+   overriding an explicit manual-dark choice. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --corvus-color-bg-base: #f5f5f5;
+    --corvus-color-bg-surface: #fff;
+    --corvus-color-bg-raised: #f0f0f0;
+    --corvus-color-border-default: #e8e8e8;
+    --corvus-color-border-visible: #ccc;
+    --corvus-color-text-disabled: #999;
+    --corvus-color-text-secondary: #666;
+    --corvus-color-text-primary: #1a1a1a;
+    --corvus-color-text-display: #000;
+    --corvus-color-accent-subtle: rgb(215 25 33 / 10%);
+    --corvus-color-status-info: #666;
+    --corvus-color-interactive-default: #007aff;
+  }
+}
+
+/* ── Manual Light Override ── */
+html[data-theme="light"] {
+  --corvus-color-bg-base: #f5f5f5;
+  --corvus-color-bg-surface: #fff;
+  --corvus-color-bg-raised: #f0f0f0;
+  --corvus-color-border-default: #e8e8e8;
+  --corvus-color-border-visible: #ccc;
+  --corvus-color-text-disabled: #999;
+  --corvus-color-text-secondary: #666;
+  --corvus-color-text-primary: #1a1a1a;
+  --corvus-color-text-display: #000;
+  --corvus-color-accent-subtle: rgb(215 25 33 / 10%);
+  --corvus-color-status-info: #666;
+  --corvus-color-interactive-default: #007aff;
+}
+
+/* ── Manual Dark Override ── */
+html[data-theme="dark"] {
+  --corvus-color-bg-base: #000;
+  --corvus-color-bg-surface: #111;
+  --corvus-color-bg-raised: #1a1a1a;
+  --corvus-color-border-default: #222;
+  --corvus-color-border-visible: #333;
+  --corvus-color-text-disabled: #666;
+  --corvus-color-text-secondary: #999;
+  --corvus-color-text-primary: #e8e8e8;
+  --corvus-color-text-display: #fff;
+  --corvus-color-accent-subtle: rgb(215 25 33 / 15%);
+  --corvus-color-status-info: #999;
+  --corvus-color-interactive-default: #5b9bf6;
+}

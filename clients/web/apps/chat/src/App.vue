@@ -362,7 +362,7 @@ onUnmounted(() => {
   <div class="app-shell">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <div class="logo-icon animate-pulse-glow">
+        <div class="logo-icon">
           <img src="/favicon-light.svg" alt="Corvus" width="20" height="20" />
         </div>
         <div>
@@ -467,7 +467,7 @@ onUnmounted(() => {
       <template v-else-if="showOnboardingGate">
         <section class="gate-card">
           <div class="hero-content animate-slide-up">
-            <div class="hero-icon animate-pulse-glow">
+            <div class="hero-icon">
               <img src="/favicon-light.svg" alt="Corvus" width="32" height="32" />
             </div>
             <p class="hero-kicker">{{ t("sections.auth") }}</p>
@@ -512,14 +512,14 @@ onUnmounted(() => {
             <Button @click="showConfig = true">{{ t("app.config") }}</Button>
             <Button
               v-if="gateway.isGatewayReady.value"
-              variant="outline"
+              variant="secondary"
               @click="startNewSession"
             >
               {{ t("chat.startSession") }}
             </Button>
             <Button
               v-if="gateway.isGatewayReady.value"
-              variant="outline"
+              variant="secondary"
               :disabled="!chat.canResumeSession.value"
               @click="resumeSession"
             >
@@ -578,7 +578,7 @@ onUnmounted(() => {
                   :bearer-token="gateway.bearerToken.value"
                 />
               </div>
-              <Button variant="outline" @click="startNewSession">{{ t("chat.newSession") }}</Button>
+              <Button variant="secondary" @click="startNewSession">{{ t("chat.newSession") }}</Button>
             </div>
 
             <div class="input-bar">
@@ -613,8 +613,7 @@ onUnmounted(() => {
   display: flex;
   height: 100vh;
   width: 100vw;
-  background: radial-gradient(circle at top, rgba(16, 185, 129, 0.08), transparent 36%),
-    var(--color-bg-primary);
+  background: var(--corvus-color-bg-base);
   overflow: hidden;
 }
 
@@ -622,8 +621,8 @@ onUnmounted(() => {
   display: none;
   width: 260px;
   flex-direction: column;
-  border-right: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-bg-secondary) 92%, transparent);
+  border-right: 1px solid var(--corvus-color-border-default);
+  background: var(--corvus-color-bg-surface);
 }
 
 @media (min-width: 768px) {
@@ -637,19 +636,19 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   padding: 20px;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--corvus-color-border-default);
 }
 
 .sidebar-title {
   font-size: 16px;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: var(--corvus-color-text-primary);
   margin: 0;
 }
 
 .sidebar-subtitle {
   font-size: 12px;
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
   margin: 0;
 }
 
@@ -660,7 +659,7 @@ onUnmounted(() => {
 
 .sidebar-footer {
   padding: 12px;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--corvus-color-border-default);
 }
 
 .logo-icon {
@@ -669,16 +668,16 @@ onUnmounted(() => {
   justify-content: center;
   width: 36px;
   height: 36px;
-  border-radius: 12px;
-  background: var(--color-accent-subtle);
-  color: var(--color-accent);
+  border-radius: var(--corvus-radius-card);
+  background: var(--corvus-color-accent-subtle);
+  color: var(--corvus-color-accent-default);
   flex-shrink: 0;
 }
 
 .logo-icon--sm {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--corvus-radius-input);
 }
 
 .nav-item {
@@ -686,30 +685,30 @@ onUnmounted(() => {
   width: 100%;
   align-items: center;
   gap: 12px;
-  border-radius: 12px;
+  border-radius: var(--corvus-radius-card);
   padding: 10px 12px;
   font-size: 14px;
-  color: var(--color-text-secondary);
+  color: var(--corvus-color-text-secondary);
   background: transparent;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
   font-family: inherit;
 }
 
 .nav-item:hover {
-  color: var(--color-text-primary);
-  background: var(--color-surface-glass-hover);
+  color: var(--corvus-color-text-primary);
+  background: var(--corvus-color-bg-raised);
 }
 
 .nav-item--active {
-  color: var(--color-text-primary);
-  background: var(--color-surface-glass);
-  border-color: var(--color-border-accent);
+  color: var(--corvus-color-text-primary);
+  background: var(--corvus-color-bg-surface);
+  border-color: var(--corvus-color-border-visible);
 }
 
 .nav-item--active svg {
-  color: var(--color-accent);
+  color: var(--corvus-color-text-primary);
 }
 
 .icon-btn {
@@ -718,17 +717,17 @@ onUnmounted(() => {
   justify-content: center;
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: var(--corvus-radius-input);
   background: transparent;
   border: none;
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
 }
 
 .icon-btn:hover {
-  color: var(--color-text-primary);
-  background: var(--color-surface-glass-hover);
+  color: var(--corvus-color-text-primary);
+  background: var(--corvus-color-bg-raised);
 }
 
 .main-content {
@@ -743,8 +742,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-bg-secondary) 94%, transparent);
+  border-bottom: 1px solid var(--corvus-color-border-default);
+  background: var(--corvus-color-bg-surface);
 }
 
 @media (min-width: 768px) {
@@ -762,7 +761,7 @@ onUnmounted(() => {
 .mobile-title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: var(--corvus-color-text-primary);
 }
 
 .config-wrapper,
@@ -797,7 +796,7 @@ onUnmounted(() => {
   width: 72px;
   height: 72px;
   border-radius: 20px;
-  background: var(--color-accent-subtle);
+  background: var(--corvus-color-accent-subtle);
 }
 
 .hero-kicker {
@@ -805,23 +804,20 @@ onUnmounted(() => {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
 }
 
 .hero-title {
   margin: 0;
   font-size: 28px;
   font-weight: 700;
-  background: linear-gradient(to right, var(--color-accent), #6ee7b7);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--corvus-color-text-display);
 }
 
 .hero-subtitle {
   max-width: 580px;
   margin: 0;
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
   line-height: 1.6;
 }
 
@@ -838,9 +834,9 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  border-radius: 16px;
-  border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-bg-secondary) 90%, transparent);
+  border-radius: var(--corvus-radius-card-lg);
+  border: 1px solid var(--corvus-color-border-default);
+  background: var(--corvus-color-bg-surface);
   padding: 16px;
 }
 
@@ -855,36 +851,36 @@ onUnmounted(() => {
 
 .gate-step p {
   margin-top: 6px;
-  color: var(--color-text-secondary);
+  color: var(--corvus-color-text-secondary);
 }
 
 .gate-step[data-step-status="complete"] {
-  border-color: color-mix(in srgb, #22c55e 45%, var(--color-border));
+  border-color: var(--corvus-color-status-success);
 }
 
 .gate-step[data-step-status="current"] {
-  border-color: color-mix(in srgb, #3b82f6 45%, var(--color-border));
+  border-color: var(--corvus-color-interactive-default);
 }
 
 .gate-step[data-step-status="blocked"] {
-  border-color: color-mix(in srgb, #ef4444 45%, var(--color-border));
+  border-color: var(--corvus-color-status-error);
 }
 
 .step-badge {
   flex-shrink: 0;
-  border-radius: 999px;
+  border-radius: var(--corvus-radius-pill);
   padding: 4px 10px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  background: var(--color-bg-input);
-  color: var(--color-text-secondary);
+  background: var(--corvus-color-bg-raised);
+  color: var(--corvus-color-text-secondary);
 }
 
 .gate-banner {
   width: 100%;
-  border-radius: 16px;
+  border-radius: var(--corvus-radius-card-lg);
   padding: 16px;
 }
 
@@ -893,13 +889,13 @@ onUnmounted(() => {
 }
 
 .gate-banner-success {
-  border: 1px solid color-mix(in srgb, #22c55e 45%, var(--color-border));
-  background: color-mix(in srgb, #22c55e 10%, var(--color-bg-secondary));
+  border: 1px solid var(--corvus-color-status-success);
+  background: var(--corvus-color-bg-surface);
 }
 
 .gate-banner-error {
-  border: 1px solid color-mix(in srgb, #ef4444 45%, var(--color-border));
-  background: color-mix(in srgb, #ef4444 10%, var(--color-bg-secondary));
+  border: 1px solid var(--corvus-color-status-error);
+  background: var(--corvus-color-bg-surface);
 }
 
 .gate-actions {
@@ -910,11 +906,11 @@ onUnmounted(() => {
 }
 
 .gate-status-ok {
-  color: #22c55e;
+  color: var(--corvus-color-status-success);
 }
 
 .gate-status-error {
-  color: #ef4444;
+  color: var(--corvus-color-status-error);
 }
 
 .chat-with-sidebar {
@@ -985,13 +981,13 @@ onUnmounted(() => {
 
 .session-pill {
   max-width: 768px;
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
   font-size: 12px;
 }
 
 .input-bar {
-  border-top: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-bg-secondary) 94%, transparent);
+  border-top: 1px solid var(--corvus-color-border-default);
+  background: var(--corvus-color-bg-surface);
   padding: 16px;
 }
 
@@ -1007,16 +1003,15 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   align-items: center;
-  border-radius: 16px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-input);
+  border-radius: var(--corvus-radius-card-lg);
+  border: 1px solid var(--corvus-color-border-default);
+  background: var(--corvus-color-bg-surface);
   padding: 0 16px;
-  transition: all 0.2s;
+  transition: border-color var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
 }
 
 .input-wrapper:focus-within {
-  border-color: var(--color-border-accent);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+  border-color: var(--corvus-color-text-primary);
 }
 
 .chat-input {
@@ -1026,12 +1021,12 @@ onUnmounted(() => {
   padding: 12px 0;
   font-size: 14px;
   font-family: inherit;
-  color: var(--color-text-primary);
+  color: var(--corvus-color-text-primary);
   outline: none;
 }
 
 .chat-input::placeholder {
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
 }
 
 .send-btn {
@@ -1040,20 +1035,17 @@ onUnmounted(() => {
   justify-content: center;
   width: 44px;
   height: 44px;
-  border-radius: 16px;
+  border-radius: var(--corvus-radius-card-lg);
   border: none;
-  background: var(--color-accent);
-  color: white;
+  background: var(--corvus-color-text-display);
+  color: var(--corvus-color-bg-base);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
   flex-shrink: 0;
-  box-shadow: 0 4px 12px var(--color-accent-glow);
 }
 
 .send-btn:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-  box-shadow: 0 6px 20px var(--color-accent-glow);
-  transform: translateY(-1px);
+  background: var(--corvus-color-text-primary);
 }
 
 .send-btn:active:not(:disabled) {
@@ -1063,14 +1055,13 @@ onUnmounted(() => {
 .send-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
-  box-shadow: none;
 }
 
 .input-disclaimer {
   margin: 8px 0 0;
   text-align: center;
   font-size: 12px;
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
 }
 
 @media (max-width: 767px) {

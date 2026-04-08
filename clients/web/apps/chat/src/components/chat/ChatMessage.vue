@@ -66,21 +66,21 @@ defineProps<{
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--corvus-radius-input);
   flex-shrink: 0;
   margin-top: 4px;
 }
 
 .avatar--assistant {
   margin-right: 12px;
-  background: var(--color-accent-subtle);
-  color: var(--color-accent);
+  background: var(--corvus-color-accent-subtle);
+  color: var(--corvus-color-accent-default);
 }
 
 .avatar--user {
   margin-left: 12px;
-  background: var(--color-bg-hover);
-  color: var(--color-text-secondary);
+  background: var(--corvus-color-bg-raised);
+  color: var(--corvus-color-text-secondary);
 }
 
 .bubble {
@@ -91,22 +91,22 @@ defineProps<{
 }
 
 .bubble--user {
-  border-radius: 16px 16px 4px 16px;
-  background: var(--color-user-bubble);
-  color: var(--color-user-bubble-text);
-  box-shadow: 0 4px 12px var(--color-accent-glow);
+  border-radius: var(--corvus-radius-card-lg) var(--corvus-radius-card-lg) var(--corvus-radius-technical) var(--corvus-radius-card-lg);
+  background: var(--corvus-color-bg-raised);
+  color: var(--corvus-color-text-primary);
+  border: 1px solid var(--corvus-color-border-visible);
 }
 
 .bubble--assistant {
-  border-radius: 16px 16px 16px 4px;
-  background: var(--color-assistant-bubble);
-  color: var(--color-assistant-bubble-text);
-  border: 1px solid var(--color-border);
+  border-radius: var(--corvus-radius-card-lg) var(--corvus-radius-card-lg) var(--corvus-radius-card-lg) var(--corvus-radius-technical);
+  background: var(--corvus-color-bg-surface);
+  color: var(--corvus-color-text-primary);
+  border: 1px solid var(--corvus-color-border-default);
 }
 
 .bubble--error {
-  border-color: color-mix(in srgb, #ef4444 45%, var(--color-border));
-  background: color-mix(in srgb, #ef4444 10%, var(--color-assistant-bubble));
+  border-color: var(--corvus-color-status-error);
+  background: var(--corvus-color-bg-surface);
 }
 
 .bubble-text {
@@ -120,7 +120,7 @@ defineProps<{
   height: 14px;
   margin-left: 2px;
   vertical-align: text-bottom;
-  background: var(--color-accent);
+  background: var(--corvus-color-text-primary);
   border-radius: 1px;
   animation: cursor-blink 0.8s step-end infinite;
 }

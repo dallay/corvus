@@ -143,10 +143,10 @@ function truncateId(id: string): string {
   display: flex;
   flex-direction: column;
   width: 240px;
-  border-right: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-bg-secondary) 92%, transparent);
+  border-right: 1px solid var(--corvus-color-border-default);
+  background: var(--corvus-color-bg-surface);
   overflow: hidden;
-  transition: width 0.2s ease;
+  transition: width var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
 }
 
 .session-sidebar--collapsed {
@@ -158,7 +158,7 @@ function truncateId(id: string): string {
   align-items: center;
   justify-content: space-between;
   padding: 12px;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--corvus-color-border-default);
   min-height: 44px;
 }
 
@@ -171,7 +171,7 @@ function truncateId(id: string): string {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
 }
 
 .session-sidebar-toggle {
@@ -183,15 +183,15 @@ function truncateId(id: string): string {
   border-radius: 6px;
   background: transparent;
   border: none;
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
   flex-shrink: 0;
 }
 
 .session-sidebar-toggle:hover {
-  color: var(--color-text-primary);
-  background: var(--color-surface-glass-hover);
+  color: var(--corvus-color-text-primary);
+  background: var(--corvus-color-bg-raised);
 }
 
 .session-sidebar-new-chat {
@@ -200,20 +200,20 @@ function truncateId(id: string): string {
   gap: 8px;
   margin: 8px 12px;
   padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px dashed var(--color-border);
+  border-radius: var(--corvus-radius-input);
+  border: 1px dashed var(--corvus-color-border-default);
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--corvus-color-text-secondary);
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
 }
 
 .session-sidebar-new-chat:hover {
-  color: var(--color-accent);
-  border-color: var(--color-border-accent);
-  background: var(--color-surface-glass-hover);
+  color: var(--corvus-color-text-primary);
+  border-color: var(--corvus-color-border-visible);
+  background: var(--corvus-color-bg-raised);
 }
 
 .session-sidebar-list {
@@ -230,46 +230,46 @@ function truncateId(id: string): string {
   width: 100%;
   gap: 2px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--corvus-radius-input);
   border: 1px solid transparent;
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--corvus-motion-duration-default) var(--corvus-motion-easing-default);
   font-family: inherit;
 }
 
 .session-sidebar-item:hover {
-  background: var(--color-surface-glass-hover);
+  background: var(--corvus-color-bg-raised);
 }
 
 .session-sidebar-item--active {
-  background: var(--color-surface-glass);
-  border-color: var(--color-border-accent);
+  background: var(--corvus-color-bg-surface);
+  border-color: var(--corvus-color-border-visible);
 }
 
 .session-item-id {
   font-size: 13px;
   font-weight: 500;
-  color: var(--color-text-primary);
+  color: var(--corvus-color-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .session-sidebar-item--active .session-item-id {
-  color: var(--color-accent);
+  color: var(--corvus-color-text-display);
 }
 
 .session-item-meta {
   font-size: 11px;
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
 }
 
 .session-sidebar-empty {
   padding: 16px 12px;
   font-size: 12px;
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
   text-align: center;
 }
 </style>

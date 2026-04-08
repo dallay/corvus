@@ -14,10 +14,9 @@
     "./env": {
       "import": "./env.mjs"
     },
-    "./app-shell.css": "./app-shell.css",
     "./base.css": "./base.css",
-    "./theme.css": "./theme.css",
-    "./tokens.css": "./theme.css"
+    "./nothing-theme.css": "./nothing-theme.css",
+    "./nothing-shell.css": "./nothing-shell.css"
   },
   "scripts": {
     "build": "echo 'Shared package build not yet implemented'",

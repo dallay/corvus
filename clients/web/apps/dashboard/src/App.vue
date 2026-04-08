@@ -217,7 +217,7 @@ function onViewSessionMemory(sessionId: string) {
         </div>
         <div class="actions">
           <Button :disabled="config.loading.value" @click="config.pairGateway">{{ t("auth.pair") }}</Button>
-          <Button :disabled="config.loading.value" variant="outline" @click="config.connectGateway">
+          <Button :disabled="config.loading.value" variant="secondary" @click="config.connectGateway">
             {{ t("auth.connect") }}
           </Button>
         </div>
@@ -451,9 +451,9 @@ function onViewSessionMemory(sessionId: string) {
 
 .header-card,
 .card {
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 16px;
+  background: var(--corvus-color-bg-surface);
+  border: 1px solid var(--corvus-color-border-default);
+  border-radius: var(--corvus-radius-card-lg);
   padding: 16px;
 }
 
@@ -464,7 +464,7 @@ function onViewSessionMemory(sessionId: string) {
 
 .header-card p {
   margin: 6px 0 0;
-  color: var(--color-text-secondary);
+  color: var(--corvus-color-text-secondary);
 }
 
 .header-title-row {
@@ -481,31 +481,32 @@ function onViewSessionMemory(sessionId: string) {
   display: flex;
   gap: 4px;
   margin-top: 12px;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--corvus-color-border-default);
   padding-top: 12px;
 }
 
 .nav-tab {
   padding: 6px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border: 1px solid var(--corvus-color-border-default);
+  border-radius: var(--corvus-radius-input);
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--corvus-color-text-secondary);
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default),
+    color var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
 }
 
 .nav-tab:hover {
-  background: color-mix(in srgb, var(--color-bg-secondary) 60%, transparent);
+  background: var(--corvus-color-bg-raised);
 }
 
 .nav-tab-active {
-  background: var(--color-bg-input);
-  color: var(--color-text-primary);
-  border-color: color-mix(in srgb, #3b82f6 45%, var(--color-border));
+  background: var(--corvus-color-bg-raised);
+  color: var(--corvus-color-text-primary);
+  border-color: var(--corvus-color-interactive-default);
 }
 
 .sessions-layout {
@@ -544,15 +545,15 @@ label {
 
 label span {
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--corvus-color-text-secondary);
 }
 
 .select-input {
   height: 42px;
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-input);
-  color: var(--color-text-primary);
+  border-radius: var(--corvus-radius-input);
+  border: 1px solid var(--corvus-color-border-default);
+  background: var(--corvus-color-bg-surface);
+  color: var(--corvus-color-text-primary);
   font-family: inherit;
   padding: 0 10px;
 }
@@ -591,10 +592,10 @@ label span {
 }
 
 .onboarding-step {
-  border: 1px solid var(--color-border);
-  border-radius: 14px;
+  border: 1px solid var(--corvus-color-border-default);
+  border-radius: var(--corvus-radius-card);
   padding: 12px;
-  background: color-mix(in srgb, var(--color-bg-secondary) 82%, transparent);
+  background: var(--corvus-color-bg-surface);
 }
 
 .onboarding-step-header {
@@ -612,42 +613,42 @@ label span {
 
 .step-badge {
   flex-shrink: 0;
-  border-radius: 999px;
+  border-radius: var(--corvus-radius-pill);
   padding: 4px 10px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  background: var(--color-bg-input);
-  color: var(--color-text-secondary);
+  background: var(--corvus-color-bg-raised);
+  color: var(--corvus-color-text-secondary);
 }
 
 .onboarding-step[data-step-status="complete"] {
-  border-color: color-mix(in srgb, #22c55e 45%, var(--color-border));
+  border-color: var(--corvus-color-status-success);
 }
 
 .onboarding-step[data-step-status="current"] {
-  border-color: color-mix(in srgb, #3b82f6 45%, var(--color-border));
+  border-color: var(--corvus-color-interactive-default);
 }
 
 .onboarding-step[data-step-status="blocked"] {
-  border-color: color-mix(in srgb, #ef4444 45%, var(--color-border));
+  border-color: var(--corvus-color-status-error);
 }
 
 .onboarding-banner {
-  border-radius: 14px;
+  border-radius: var(--corvus-radius-card);
   padding: 12px;
   margin: 0 0 16px;
 }
 
 .onboarding-banner-ready {
-  border: 1px solid color-mix(in srgb, #22c55e 45%, var(--color-border));
-  background: color-mix(in srgb, #22c55e 10%, var(--color-bg-secondary));
+  border: 1px solid var(--corvus-color-status-success);
+  background: var(--corvus-color-bg-surface);
 }
 
 .onboarding-banner-blocked {
-  border: 1px solid color-mix(in srgb, #ef4444 45%, var(--color-border));
-  background: color-mix(in srgb, #ef4444 8%, var(--color-bg-secondary));
+  border: 1px solid var(--corvus-color-status-error);
+  background: var(--corvus-color-bg-surface);
 }
 
 .banner-title {
@@ -656,21 +657,21 @@ label span {
 }
 
 .helper {
-  color: var(--color-text-muted);
+  color: var(--corvus-color-text-disabled);
 }
 
 .ok {
-  color: #22c55e;
+  color: var(--corvus-color-status-success);
 }
 
 .error {
-  color: #ef4444;
+  color: var(--corvus-color-status-error);
 }
 
 .quick-pair-state span {
   display: block;
   margin: 10px 0;
   font-size: 14px;
-  color: var(--color-text-secondary);
+  color: var(--corvus-color-text-secondary);
 }
 </style>

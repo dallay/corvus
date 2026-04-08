@@ -7,15 +7,15 @@ html {
 
 @media (prefers-reduced-motion: reduce) {
   html {
-    scroll-behavior: auto;
+    scroll-behavior: auto !important;
   }
 
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms;
-    animation-iteration-count: 1;
-    transition-duration: 0.01ms;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
@@ -51,5 +51,5 @@ svg {
 
 code,
 pre {
-  font-family: var(--corvus-font-mono, monospace);
+  font-family: var(--corvus-typography-font-mono, monospace);
 }
