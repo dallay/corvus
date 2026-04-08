@@ -237,13 +237,8 @@ function onViewSessionMemory(sessionId: string) {
           </label>
         </div>
         <div class="actions">
-<<<<<<< HEAD
-          <Button :disabled="config.loading.value" @click="config.pairGateway">{{ t("auth.pair") }}</Button>
-          <Button :disabled="config.loading.value" variant="secondary" @click="config.connectGateway">
-=======
           <Button :disabled="loading" @click="pairGateway">{{ t("auth.pair") }}</Button>
-          <Button :disabled="loading" variant="outline" @click="connectGateway">
->>>>>>> origin/main
+          <Button :disabled="loading" variant="secondary" @click="connectGateway">
             {{ t("auth.connect") }}
           </Button>
         </div>
@@ -683,7 +678,7 @@ label span {
 }
 
 .helper {
-  color: var(--corvus-color-text-disabled);
+  color: var(--corvus-color-text-secondary);
 }
 
 .ok {
