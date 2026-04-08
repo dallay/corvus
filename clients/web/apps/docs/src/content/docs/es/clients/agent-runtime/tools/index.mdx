@@ -16,13 +16,14 @@ El sistema de herramientas se basa en un modelo de seguridad de "denegación por
 
 ## Categorías
 
-Las herramientas integradas se organizan en cinco categorías principales:
+Las herramientas integradas se organizan en seis categorías principales:
 
 - [**Herramientas Core**](core.md) — Ejecución de comandos del sistema (`shell`), búsqueda nativa en el workspace (`code_search`) y acceso al sistema de archivos del workspace (`file_read`, `file_write`).
 - [**Herramientas Web**](web.md) — Navegación web (`browser`), búsqueda (`web_search_tool`) y llamadas estructuradas a APIs (`http_request`).
 - [**Herramientas de Memoria**](memory.md) — Persistencia a largo plazo y recuperación de hechos y preferencias (`memory_store`, `memory_recall`).
-- [**Herramientas de Automatización**](automation.md) — Gestión de repositorios Git, tareas programadas (Cron/Schedule) y notificaciones (`pushover`).
+- [**Herramientas de Automatización**](automation.md) — Delegación multi-agente (`delegate`), integraciones de aplicaciones gestionadas (`composio`), gestión de repositorios Git, tareas programadas (Cron/Schedule) y notificaciones (`pushover`).
 - [**Herramientas Multimedia**](media.md) — Capacidades relacionadas con la visión, incluyendo captura de pantalla y extracción de metadatos de imágenes.
+- [**Herramientas de Hardware**](hardware.md) — Descubrimiento de placas (`hardware_board_info`), introspección de memoria (`hardware_memory_read`) y control de periféricos (`gpio_write`).
 
 ## Modelo de Seguridad
 
@@ -30,11 +31,11 @@ Cada ejecución de herramienta pasa por la capa de `SecurityPolicy`. Las herrami
 
 ### Solo Lectura (Seguras)
 Estas herramientas no modifican el sistema ni el estado externo. Generalmente están permitidas incluso en modos de baja autonomía.
-- *Ejemplos:* `file_read`, `memory_recall`, `web_search_tool`, `image_info`.
+- *Ejemplos:* `file_read`, `memory_recall`, `web_search_tool`, `image_info`, `hardware_board_info`.
 
 ### De Acción (Con riesgo)
 Estas herramientas pueden modificar archivos, ejecutar código o interactuar con servicios externos. Pueden requerir aprobación explícita del usuario en modos supervisados.
-- *Ejemplos:* `shell`, `file_write`, `git_operations`, `cron_add`, `pushover`.
+- *Ejemplos:* `shell`, `file_write`, `git_operations`, `cron_add`, `delegate`, `composio`, `gpio_write`.
 
 ## Integración MCP
 
