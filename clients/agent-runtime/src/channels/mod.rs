@@ -1609,6 +1609,12 @@ async fn stage_channel_images(
                     .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
                     .await?
             }
+            "slack" => {
+                build_slack_channel(config)
+                    .ok_or(media::ImageRejectionReason::FetchFailed)?
+                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
+                    .await?
+            }
             _ => return Ok(Vec::new()),
         };
 
