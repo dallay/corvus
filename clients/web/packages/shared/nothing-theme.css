@@ -110,13 +110,15 @@
     --corvus-color-bg-raised: #f0f0f0;
     --corvus-color-border-default: #e8e8e8;
     --corvus-color-border-visible: #ccc;
-    --corvus-color-text-disabled: #999;
+    --corvus-color-text-disabled: #767676;
     --corvus-color-text-secondary: #666;
     --corvus-color-text-primary: #1a1a1a;
     --corvus-color-text-display: #000;
     --corvus-color-accent-subtle: rgb(215 25 33 / 10%);
     --corvus-color-status-info: #666;
     --corvus-color-interactive-default: #007aff;
+
+    color-scheme: light;
   }
 }
 
@@ -127,27 +129,18 @@ html[data-theme="light"] {
   --corvus-color-bg-raised: #f0f0f0;
   --corvus-color-border-default: #e8e8e8;
   --corvus-color-border-visible: #ccc;
-  --corvus-color-text-disabled: #999;
+  --corvus-color-text-disabled: #767676;
   --corvus-color-text-secondary: #666;
   --corvus-color-text-primary: #1a1a1a;
   --corvus-color-text-display: #000;
   --corvus-color-accent-subtle: rgb(215 25 33 / 10%);
   --corvus-color-status-info: #666;
   --corvus-color-interactive-default: #007aff;
+
+  color-scheme: light;
 }
 
 /* ── Manual Dark Override ── */
 html[data-theme="dark"] {
-  --corvus-color-bg-base: #000;
-  --corvus-color-bg-surface: #111;
-  --corvus-color-bg-raised: #1a1a1a;
-  --corvus-color-border-default: #222;
-  --corvus-color-border-visible: #333;
-  --corvus-color-text-disabled: #666;
-  --corvus-color-text-secondary: #999;
-  --corvus-color-text-primary: #e8e8e8;
-  --corvus-color-text-display: #fff;
-  --corvus-color-accent-subtle: rgb(215 25 33 / 15%);
-  --corvus-color-status-info: #999;
-  --corvus-color-interactive-default: #5b9bf6;
+  color-scheme: dark;
 }

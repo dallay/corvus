@@ -41,7 +41,6 @@ const props = defineProps<{
   transition: all var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
   user-select: none;
   outline: none;
-  min-height: 44px;
   padding: 12px 24px;
 }
 
@@ -113,23 +112,27 @@ const props = defineProps<{
 /* ── Sizes ── */
 .btn-size--default {
   height: 44px;
+  min-height: 44px;
   padding: 12px 24px;
 }
 
 .btn-size--sm {
   height: 36px;
+  min-height: 36px;
   padding: 8px 16px;
   font-size: 11px;
 }
 
 .btn-size--lg {
   height: 52px;
+  min-height: 52px;
   padding: 14px 32px;
   font-size: 14px;
 }
 
 .btn-size--icon {
   height: 44px;
+  min-height: 44px;
   width: 44px;
   min-width: 44px;
   padding: 0;

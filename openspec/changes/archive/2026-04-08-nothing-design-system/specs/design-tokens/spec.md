@@ -142,7 +142,8 @@ Each type scale token MUST be implemented as individual CSS custom properties fo
 - WHEN the element is rendered
 - THEN the font family MUST be `--corvus-typography-font-mono`
 - AND the text MUST be set in ALL CAPS via `text-transform: uppercase`
-- AND letter-spacing MUST be at least 0.06em
+- AND letter-spacing MUST equal `var(--corvus-typography-scale-label-ls)`
+- AND `--corvus-typography-scale-label-ls` MUST resolve to `0.08em`
 
 #### Scenario: Type scale tokens are composable
 

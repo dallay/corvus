@@ -84,6 +84,11 @@ through token *values*, not token *names*. Semantic groupings:
 | `corvus.typography.font.mono` | `--corvus-typography-font-mono` | `'Space Mono'` | same |
 | `corvus.typography.font.display` | `--corvus-typography-font-display` | `'Doto'` | same |
 
+(Note: these proposal values were preliminary planning values. The implemented canonical source of
+truth is `clients/web/packages/shared/nothing-theme.css`. The final implementation differs for
+`corvus.color.bg.surface`, `corvus.color.text.primary`, and `corvus.color.accent.default`, so
+readers should defer to `nothing-theme.css` for authoritative token values.)
+
 (Full token set to be defined in specs phase.)
 
 ### Tailwind v4 Bridge

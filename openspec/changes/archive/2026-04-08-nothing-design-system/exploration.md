@@ -1,4 +1,4 @@
-## Exploration: Nothing Design System Overhaul
+# Exploration: Nothing Design System Overhaul
 
 ### Current State
 

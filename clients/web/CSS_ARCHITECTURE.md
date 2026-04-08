@@ -98,8 +98,10 @@ The `@theme` block is **identical** across chat and dashboard. It lives in each 
 because Tailwind v4 requires `@theme` to appear in the same file as `@import "tailwindcss"`.
 
 **Resulting utilities**: `bg-bg-base`, `text-text-primary`, `border-border-visible`, `font-body`,
-`gap-md`, etc. The double-prefix (`bg-bg-*`, `text-text-*`) is the standard Tailwind v4 pattern
-when using `@theme` namespace mapping.
+`gap-md`, etc. The double-prefix (`bg-bg-*`, `text-text-*`) is intentional: Tailwind v4 uses the
+`@theme` variable name suffix as the generated utility suffix, so `--color-bg-base` becomes
+`bg-bg-base`. If the team ever wants shorter utilities like `bg-surface`, the bridge keys would
+need to be renamed to shorter semantic aliases such as `--color-surface`.
 
 **Non-Tailwind apps** (docs, marketing) import `nothing-theme.css` directly and reference
 `--corvus-*` tokens via standard CSS custom properties — no `@theme` block needed.

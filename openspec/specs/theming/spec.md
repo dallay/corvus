@@ -28,7 +28,8 @@ via a CSS class or data attribute. Theme switching MUST NOT cause page reloads o
 ### Requirement: Font Loading Strategy
 
 The system MUST load Nothing fonts via `@fontsource` npm packages with minimal weight subsets.
-Font loading MUST be centralized to avoid duplication across apps.
+Font tokens and family definitions MUST stay centralized, while concrete `@fontsource` imports MAY
+be performed per app because the workspace bundlers load font assets at the app boundary.
 
 ### Requirement: Tailwind v4 Bridge
 

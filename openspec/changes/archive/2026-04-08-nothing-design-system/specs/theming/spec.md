@@ -83,10 +83,10 @@ via a CSS class or data attribute. Theme switching MUST NOT cause page reloads o
 | `--sl-color-text-accent`| `--corvus-color-text-display`      |
 | `--sl-color-accent`     | `--corvus-color-accent-default`    |
 | `--sl-color-white`      | `--corvus-color-text-display`      |
-| `--sl-color-gray-1`     | `--corvus-color-text-disabled`     |
+| `--sl-color-gray-1`     | `--corvus-color-text-primary`      |
 | `--sl-color-gray-2`     | `--corvus-color-text-secondary`    |
-| `--sl-color-gray-3`     | `--corvus-color-border-visible`    |
-| `--sl-color-gray-4`     | `--corvus-color-border-default`    |
+| `--sl-color-gray-3`     | `--corvus-color-text-disabled`     |
+| `--sl-color-gray-4`     | `--corvus-color-border-visible`    |
 | `--sl-color-gray-5`     | `--corvus-color-bg-raised`         |
 | `--sl-color-gray-6`     | `--corvus-color-bg-surface`        |
 | `--sl-color-black`      | `--corvus-color-bg-base`           |
@@ -100,7 +100,8 @@ The mapping MUST be defined separately for `:root` (dark) and `:root[data-theme=
 ### Requirement: Font Loading Strategy
 
 The system MUST load Nothing fonts via `@fontsource` npm packages with minimal weight subsets.
-Font loading MUST be centralized to avoid duplication across apps.
+Font definitions and token names MUST be centralized, while actual `@fontsource` imports MAY be
+performed per app according to bundler constraints documented in `clients/web/CSS_ARCHITECTURE.md`.
 
 **Required packages**:
 
@@ -168,7 +169,7 @@ their CSS entry point to generate utility classes.
 
 **Required `@theme` mappings**:
 
-```
+```css
 @theme {
   --color-base: var(--corvus-color-bg-base);
   --color-surface: var(--corvus-color-bg-surface);

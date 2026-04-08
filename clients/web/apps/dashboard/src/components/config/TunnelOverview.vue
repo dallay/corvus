@@ -124,7 +124,7 @@ onBeforeUnmount(() => abortController?.abort());
   gap: 10px;
   padding: 8px 12px;
   border: 1px solid var(--corvus-color-border-default);
-  border-radius: 10px;
+  border-radius: var(--corvus-radius-input);
   background: var(--corvus-color-bg-surface);
 }
 

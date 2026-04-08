@@ -53,7 +53,7 @@ attribute on `<html>` for manual override, with manual taking precedence.
 
 **Rationale**: The layered approach gives three levels of specificity:
 
-```
+```text
 :root { }                                    /* dark defaults (lowest) */
 @media (prefers-color-scheme: light) { :root { } }  /* system pref (middle) */
 html[data-theme="light"] { }                 /* manual override (highest) */
@@ -91,7 +91,7 @@ The cost is temporary file duplication, resolved at step 8 (cleanup).
 
 ### New File Structure
 
-```
+```text
 clients/web/packages/shared/
 ├── base.css                    ← Modify: update font-family references
 ├── theme.css                   ← Keep during transition, delete at step 8
@@ -103,7 +103,7 @@ clients/web/packages/shared/
 
 ### Import Graph
 
-```
+```text
                     nothing-theme.css
                     (tokens only, no element styles)
                          │
@@ -176,7 +176,7 @@ clients/web/packages/shared/
   --corvus-color-status-warning: #D4A843;
   --corvus-color-status-error: #D71921;
   --corvus-color-status-info: #999999;
-  --corvus-color-interactive: #5B9BF6;
+  --corvus-color-interactive-default: #5B9BF6;
 
   /* Typography — Font Families */
   --corvus-typography-font-body: "Space Grotesk", "DM Sans", system-ui, sans-serif;
@@ -233,7 +233,7 @@ clients/web/packages/shared/
     --corvus-color-text-secondary: #666666;
     --corvus-color-text-primary: #1A1A1A;
     --corvus-color-text-display: #000000;
-    --corvus-color-interactive: #007AFF;
+    --corvus-color-interactive-default: #007AFF;
   }
 }
 
@@ -248,7 +248,7 @@ html[data-theme="light"] {
   --corvus-color-text-secondary: #666666;
   --corvus-color-text-primary: #1A1A1A;
   --corvus-color-text-display: #000000;
-  --corvus-color-interactive: #007AFF;
+  --corvus-color-interactive-default: #007AFF;
 }
 
 /* ── Manual Dark Override ── */
@@ -262,7 +262,7 @@ html[data-theme="dark"] {
   --corvus-color-text-secondary: #999999;
   --corvus-color-text-primary: #E8E8E8;
   --corvus-color-text-display: #FFFFFF;
-  --corvus-color-interactive: #5B9BF6;
+  --corvus-color-interactive-default: #5B9BF6;
 }
 ```
 
@@ -270,7 +270,7 @@ html[data-theme="dark"] {
 
 The manual toggle works via a `data-theme` attribute on `<html>`:
 
-```
+```text
 User clicks toggle → JS sets html[data-theme="light"|"dark"]
                     → JS stores preference in localStorage
                     → CSS specificity: [data-theme] > @media query > :root defaults
@@ -311,7 +311,7 @@ to Tailwind utility namespace:
   --color-border-default: var(--corvus-color-border-default);
   --color-border-visible: var(--corvus-color-border-visible);
   --color-accent: var(--corvus-color-accent-default);
-  --color-interactive: var(--corvus-color-interactive);
+  --color-interactive: var(--corvus-color-interactive-default);
   --color-success: var(--corvus-color-status-success);
   --color-warning: var(--corvus-color-status-warning);
   --color-error: var(--corvus-color-status-error);
@@ -460,6 +460,7 @@ exist in the current architecture.
 ### Exact Imports Per App Type
 
 **Vue apps (`main.ts`)**:
+
 ```typescript
 // Remove:
 // import "@fontsource-variable/inter";
@@ -481,6 +482,7 @@ import "@fontsource/doto/700.css";
 ```
 
 **Docs (`custom.css`)**:
+
 ```css
 /* Font loading — self-hosted via @fontsource */
 @import url("@fontsource-variable/space-grotesk");
@@ -491,10 +493,12 @@ import "@fontsource/doto/700.css";
 ```
 
 **Marketing (`MarketingLayout.astro`)**:
+
 ```html
 <!-- Remove Google Fonts <link> -->
 <!-- Replace with @fontsource CSS imports in global.css -->
 ```
+
 ```css
 /* marketing/src/styles/global.css — top of file */
 @import url("@fontsource-variable/space-grotesk");
@@ -556,10 +560,9 @@ ALL CAPS labels.
   text-transform: uppercase;
   border: none;
   cursor: pointer;
-  transition: all var(--corvus-motion-normal) var(--corvus-motion-easing);
+  transition: all var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
   user-select: none;
   outline: none;
-  min-height: 44px;
   padding: 12px 24px;
 }
 
@@ -652,11 +655,11 @@ Target: Underline or 8px radius, transparent background, border-only focus indic
   border: none;
   border-bottom: 1px solid var(--corvus-color-border-visible);
   background: transparent;
-  padding: 0 var(--corvus-spacing-xs);
+  padding: 0 var(--corvus-spacing-sm);
   font-size: var(--corvus-typography-body-sm);
   font-family: var(--corvus-typography-font-mono);
   color: var(--corvus-color-text-primary);
-  transition: border-color var(--corvus-motion-normal) var(--corvus-motion-easing);
+  transition: border-color var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
   outline: none;
 }
 
@@ -694,7 +697,7 @@ Target: Underline or 8px radius, transparent background, border-only focus indic
 
 ### Theme Toggle Flow
 
-```
+```text
 User clicks theme toggle
          │
          ▼
@@ -720,7 +723,7 @@ CSS: [data-theme] selector overrides --corvus-* tokens
 
 ### Page Load Theme Resolution
 
-```
+```text
 Browser loads page
          │
          ▼

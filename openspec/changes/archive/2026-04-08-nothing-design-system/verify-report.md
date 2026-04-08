@@ -20,7 +20,8 @@ All 27 tasks across 6 phases are marked `[x]` complete.
 ## Build & Tests Execution
 
 **Install**: ✅ Passed
-```
+
+```bash
 pnpm --dir clients/web install
 Scope: all 8 workspace projects
 Packages: +3 -5
@@ -31,13 +32,15 @@ Done in 1.4s
 ```
 
 **Build — Docs**: ✅ Passed
-```
+
+```bash
 pnpm --dir clients/web --filter @corvus/docs run build
 build complete: 78 page(s) built
 ```
 
 **Build — Marketing**: ✅ Passed
-```
+
+```bash
 pnpm --dir clients/web --filter @corvus/marketing run build
 build complete: 1 page(s) built
 ```
@@ -47,12 +50,14 @@ build complete: 1 page(s) built
 **Tests — Dashboard**: ✅ 185 passed / 0 failed / 0 skipped
 
 **Build — Chat**: ⚠️ Failed (pre-existing, unrelated to this change)
-```
+
+```text
 src/components/HealthIndicator.spec.ts(97,5): error TS2349: This expression is not callable.
 ```
 
 **Build — Dashboard**: ⚠️ Failed (pre-existing, unrelated to this change)
-```
+
+```text
 src/components/sessions/SessionFilters.vue(33,3): error TS2769: No overload matches this call.
 ```
 
@@ -147,6 +152,45 @@ None.
 
 1. Add browser-level verification for theme switching and visual token application.
 2. Add an automated font bundle-size check if the proposal budget is meant to be enforced continuously.
+
+### Follow-up Tracking Issue Proposal
+
+**Title**: Browser/runtime verification for design-system theme & bundle delta
+
+**Scope**:
+- add Playwright/browser verification for dark/light behavior across chat, dashboard, and docs
+- add artifact-size checks for the new font bundle footprint
+- document unrelated TypeScript blockers that still prevent a fully green workspace build
+
+**Acceptance criteria**:
+- `prefers-color-scheme` emulation proves dark and light token resolution in browser
+- manual `data-theme="light"` and `data-theme="dark"` switching updates the rendered theme correctly
+- Tailwind bridge utilities resolve correctly in both themes for chat and dashboard
+- Starlight theme toggle applies Nothing token mappings correctly in docs
+- bundle-size check compares before/after outputs and reports per-font delta, total delta, and pass/fail
+- unrelated failures remain explicitly tracked for:
+  - `clients/web/apps/chat/src/components/HealthIndicator.spec.ts:97`
+  - `clients/web/apps/dashboard/src/components/sessions/SessionFilters.vue:33`
+
+**Suggested commands**:
+- `pnpm --dir clients/web --filter @corvus/chat run check`
+- `pnpm --dir clients/web --filter @corvus/dashboard run check`
+- `pnpm --dir clients/web --filter @corvus/docs run check`
+- `pnpm --dir clients/web --filter @corvus/dashboard exec playwright test`
+- `pnpm --dir clients/web install`
+- `du -sh clients/web/node_modules/@fontsource-variable/space-grotesk/files`
+- `du -sh clients/web/node_modules/@fontsource/space-mono/files`
+- `du -sh clients/web/node_modules/@fontsource/doto/files`
+
+**Artifacts / fixtures**:
+- screenshots for light/dark chat, dashboard, and docs states
+- screenshots for docs theme toggle before/after
+- recorded bundle-size report attached to the verification output
+
+**Pass/fail thresholds**:
+- visual diffs must stay within agreed Playwright snapshot threshold for intentional theme changes
+- no unexpected token regressions in rendered screenshots
+- bundle delta must remain neutral or within the accepted budget defined by the proposal/spec
 
 ---
 

@@ -33,7 +33,7 @@ const emit = defineEmits<{
   border: none;
   border-bottom: 1px solid var(--corvus-color-border-visible);
   background: transparent;
-  padding: 0 var(--corvus-spacing-xs);
+  padding: 0 var(--corvus-spacing-sm);
   font-size: var(--corvus-typography-scale-body-sm-size);
   font-family: var(--corvus-typography-font-mono);
   color: var(--corvus-color-text-primary);
