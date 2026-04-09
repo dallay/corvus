@@ -38,16 +38,16 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: 🔍 Debug GitHub App token permissions
+      - name: 🔍 Debug release endpoint access
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          echo "Repository permissions:"
-          gh api "repos/${GITHUB_REPOSITORY}" --jq '.permissions'
+          echo "GET releases endpoint"
+          gh api -i "repos/${GITHUB_REPOSITORY}/releases?per_page=1" || true
           echo
-          echo "Installation permissions:"
-          gh api "repos/${GITHUB_REPOSITORY}/installation" --jq '.permissions'
+          echo "POST releases endpoint without payload (should be 422 if authorized)"
+          gh api -i -X POST "repos/${GITHUB_REPOSITORY}/releases" || true
 
       - name: 🤖 Run release-please
         id: release-please
