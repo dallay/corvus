@@ -63,7 +63,10 @@ bootstrap-bash: ## Ensure bash is available (Windows)
 check-tools: bootstrap-bash ## Verify toolchain (Java 21, Node 22, pnpm 10, Rust 1.75)
 	@bash scripts/check-tools.sh
 
-setup: check-tools ## Initial project setup (agents, web deps, rust check)
+install-hooks: ## Install repository git hooks
+	@bash scripts/install-hooks.sh
+
+setup: check-tools install-hooks ## Initial project setup (hooks, agents, web deps, rust check)
 	@echo "🔧 $(BOLD)Setting up project...$(SGR0)"
 	@$(GRADLEW) agentsyncApply
 	@$(GRADLEW) $(WEB_MODULE):workspaceInstall
@@ -72,7 +75,6 @@ setup: check-tools ## Initial project setup (agents, web deps, rust check)
 
 doctor: bootstrap-bash ## Diagnose dev environment and repo health
 	@bash scripts/doctor.sh
-
 sync-agents: ## Sync AI agent configurations (agentsync)
 	@$(GRADLEW) agentsyncApply
 
