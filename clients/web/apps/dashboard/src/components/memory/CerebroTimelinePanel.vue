@@ -11,11 +11,21 @@ const props = defineProps<{
 
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function timelineItemKey(item: Record<string, unknown>): string {
+  const stableValue = item.id ?? item.memory_id ?? item.timestamp ?? item.summary;
+  return stableValue ? String(stableValue) : JSON.stringify(item);
+}
+
 watch(
   () => props.selected?.memory_id,
   async (memoryId) => {
     if (memoryId) {
-      await admin.fetchCerebroTimeline({ memory_id: memoryId });
+      try {
+        await admin.fetchCerebroTimeline({ memory_id: memoryId });
+      } catch (error) {
+        console.error("Failed to fetch Cerebro timeline", error);
+      }
     }
   },
   { immediate: true }
@@ -34,7 +44,7 @@ watch(
       {{ admin.cerebroTimeline.value.message }}
     </p>
     <ul v-else-if="admin.cerebroTimeline.value && 'items' in admin.cerebroTimeline.value" class="items">
-      <li v-for="(item, index) in admin.cerebroTimeline.value.items" :key="index">
+      <li v-for="item in admin.cerebroTimeline.value.items" :key="timelineItemKey(item)">
         <pre>{{ JSON.stringify(item, null, 2) }}</pre>
       </li>
     </ul>

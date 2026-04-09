@@ -44,15 +44,15 @@ async function submitSearch() {
     <div class="search-row">
       <input v-model="query" type="text" placeholder="Search long-term memory" />
       <button
-        :disabled="effectiveStatus?.tools.mem_search.state !== 'available' || admin.loadingBuckets.value.cerebroSearch"
+        :disabled="effectiveStatus?.tools?.mem_search?.state !== 'available' || admin.loadingBuckets.value.cerebroSearch"
         @click="submitSearch"
       >
         Search
       </button>
     </div>
 
-    <p v-if="effectiveStatus?.tools.mem_search.state !== 'available'" class="helper">
-      {{ effectiveStatus?.tools.mem_search.message ?? "Semantic search is not currently available." }}
+    <p v-if="effectiveStatus?.tools?.mem_search?.state !== 'available'" class="helper">
+      {{ effectiveStatus?.tools?.mem_search?.message ?? "Semantic search is not currently available." }}
     </p>
 
     <p

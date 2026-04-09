@@ -22,7 +22,18 @@ const { t } = useI18n();
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 
 async function load() {
-  await Promise.all([admin.fetchSessionDetail(props.sessionId), admin.fetchCerebroStatus()]);
+  const [sessionResult, cerebroResult] = await Promise.allSettled([
+    admin.fetchSessionDetail(props.sessionId),
+    admin.fetchCerebroStatus(),
+  ]);
+
+  if (sessionResult.status === "rejected") {
+    throw sessionResult.reason;
+  }
+
+  if (cerebroResult.status === "rejected") {
+    console.error("Failed to fetch Cerebro status", cerebroResult.reason);
+  }
 }
 
 watch(() => props.sessionId, load, { immediate: true });

@@ -59,7 +59,7 @@ describe("useAdmin", () => {
       expect(parsed.searchParams.get("offset")).toBe("10");
       expect(parsed.searchParams.get("sort")).toBe("started_at");
       expect(parsed.searchParams.get("order")).toBe("desc");
-      expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer test-token");
     });
 
     it("populates sessions ref and totalSessions on success", async () => {
@@ -451,9 +451,23 @@ describe("useAdmin", () => {
       const [url, init] = fetchMock.mock.calls[0] ?? [];
       expect(url).toContain("/web/admin/cerebro/search");
       expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("Content-Type")).toBe("application/json");
+      expect(JSON.parse(String(init?.body))).toMatchObject({ query: "dark mode", limit: 5 });
       expect(result).toMatchObject({ state: "available", results_count: 1 });
       expect(admin.cerebroSearch.value).toMatchObject({ state: "available", results_count: 1 });
       expect(admin.loadingBuckets.value.cerebroSearch).toBe(false);
+    });
+  });
+
+  describe("invokeCerebroSessionAction", () => {
+    it("fails fast when session-scoped tools are missing session_id", async () => {
+      const admin = createAdmin();
+
+      await expect(admin.invokeCerebroSessionAction("mem_session_end")).rejects.toThrow(
+        "mem_session_end requires a session_id."
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(admin.error.value).toBe("mem_session_end requires a session_id.");
     });
   });
 
@@ -468,7 +482,7 @@ describe("useAdmin", () => {
       const [url, init] = fetchMock.mock.calls[0] ?? [];
       expect(url).toContain("/web/admin/memory/outdated-fact");
       expect(init?.method).toBe("DELETE");
-      expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer test-token");
     });
 
     it("treats empty successful responses as successful deletes", async () => {

@@ -84,22 +84,22 @@ with a conservative override for currently planned session/context tools.
 - A conservative matrix gives the dashboard dependable product states today while leaving a clean
   path to remove overrides once upstream implementation matures.
 
-### Decision: Reserve non-2xx responses for gateway/auth/validation failures; return typed domain states for Cerebro readiness failures
+### Decision: Keep typed endpoint-specific payloads and use normalized non-2xx responses for degraded Cerebro states
 
-**Choice**: Cerebro action endpoints return `200 OK` with a typed `status` for normalized remote
-states such as `available`, `unconfigured`, `unreachable`, `unsupported`, and `not_implemented`.
-Use non-2xx only for invalid input, unauthorized access, forbidden origin, and unexpected gateway
-serialization/runtime failures.
+**Choice**: Cerebro endpoints return typed, endpoint-specific payloads with a `state` field on
+success, and use normalized non-2xx responses for degraded remote states such as `unconfigured`,
+`unreachable`, `unsupported`, and `not_implemented`. Reserve `400`/`401`/`403` for input and auth
+failures, and `502` for malformed upstream payloads.
 
 **Alternatives considered**:
-- Return `503` for unreachable and `501` for not implemented
+- Return `200 OK` for every Cerebro readiness outcome
 - Return raw upstream HTTP/MCP error codes
 
 **Rationale**:
-- The dashboard needs predictable, UI-friendly branching for degraded states.
-- Current `useAdmin.ts` treats non-OK responses as generic failures; typed domain responses fit the
-  graceful-degradation requirement better.
-- Auth and input failures are true request failures and should keep standard HTTP semantics.
+- The dashboard already consumes typed endpoint-specific bodies and normalized degraded responses.
+- Returning normalized `503` / `501` for remote availability problems keeps transport failures distinct
+  from valid available payloads.
+- Auth, input, and malformed-upstream failures remain true request failures and keep standard HTTP semantics.
 
 ### Decision: Keep Local Memory and Cerebro Memory as parallel views, not merged rows
 
@@ -169,7 +169,7 @@ Dashboard Memory/Sessions page
 ### Capability detection flow
 
 ```text
-Dashboard ── GET /web/admin/cerebro/capabilities ──→ Gateway
+Dashboard ── GET /web/admin/cerebro/status ──→ Gateway
   │                                                   │
   │                                                   ├── validate memory.cerebro config
   │                                                   ├── enforce egress/read boundary
@@ -300,11 +300,8 @@ export interface CerebroToolCapability {
   message?: string;
 }
 
-export interface AdminCerebroCapabilitiesResponse {
-  status: Exclude<CerebroGatewayState, "unsupported" | "not_implemented">;
-  configured: boolean;
-  reachable: boolean;
-  endpoint_configured: boolean;
+export interface AdminCerebroStatusResponse {
+  service_state: CerebroGatewayState;
   tools: Record<CerebroToolName, CerebroToolCapability>;
 }
 ```
@@ -312,11 +309,11 @@ export interface AdminCerebroCapabilitiesResponse {
 ### Endpoint strategy
 
 ```text
-GET  /web/admin/cerebro/capabilities
+GET  /web/admin/cerebro/status
 GET  /web/admin/cerebro/stats
 POST /web/admin/cerebro/search
 GET  /web/admin/cerebro/observations/:memoryId
-GET  /web/admin/cerebro/timeline/:memoryId
+POST /web/admin/cerebro/timeline
 
 POST /web/admin/cerebro/memories          -> mem_save
 PATCH /web/admin/cerebro/memories/:id     -> mem_update
@@ -324,8 +321,8 @@ DELETE /web/admin/cerebro/memories/:id    -> mem_delete
 
 POST /web/admin/cerebro/prompts           -> mem_save_prompt
 POST /web/admin/cerebro/sessions/start    -> mem_session_start
-POST /web/admin/cerebro/sessions/end      -> mem_session_end
-POST /web/admin/cerebro/sessions/summary  -> mem_session_summary
+POST /web/admin/cerebro/sessions/:session_id/end      -> mem_session_end
+POST /web/admin/cerebro/sessions/:session_id/summary  -> mem_session_summary
 POST /web/admin/cerebro/context           -> mem_context
 ```
 
@@ -337,14 +334,19 @@ Notes:
 - The gateway internally maps those requests to the Cerebro MCP schema payloads documented under
   `clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/`.
 
-### Typed action response envelope
+### Typed response contracts
 
 ```ts
-export interface AdminCerebroActionResponse<T> {
-  status: CerebroGatewayState;
-  data?: T;
-  message?: string;
+export interface AdminCerebroActionSuccess {
+  state: "available";
   tool: CerebroToolName;
+  data: unknown;
+}
+
+export interface AdminCerebroActionError {
+  state: Exclude<CerebroGatewayState, "available">;
+  tool: CerebroToolName;
+  message: string;
 }
 ```
 
@@ -352,27 +354,25 @@ Examples:
 
 ```json
 {
-  "status": "available",
-  "tool": "mem_search",
-  "data": {
-    "results": [
-      {
-        "memory_id": "mem_123",
-        "summary": "User prefers dark mode",
-        "score": 0.92,
-        "topic_key": "preferences",
-        "scope": "shared",
-        "timestamp": "2026-04-01T12:00:00Z"
-      }
-    ],
-    "truncated": false
-  }
+  "state": "available",
+  "results": [
+    {
+      "memory_id": "mem_123",
+      "summary": "User prefers dark mode",
+      "score": 0.92,
+      "topic_key": "preferences",
+      "scope": "shared",
+      "timestamp": "2026-04-01T12:00:00Z"
+    }
+  ],
+  "truncated": false,
+  "results_count": 1
 }
 ```
 
 ```json
 {
-  "status": "not_implemented",
+  "state": "not_implemented",
   "tool": "mem_session_summary",
   "message": "Cerebro defines this tool but the current server returns NotImplemented. Local session data remains available."
 }
@@ -412,7 +412,7 @@ The following tools receive explicit conservative treatment in this phase:
 
 Design rules:
 
-1. They appear in `/web/admin/cerebro/capabilities` even when not ready.
+1. They appear in `/web/admin/cerebro/status` even when not ready.
 2. Capability responses default them to `planned_override` + `not_implemented` unless the gateway
    has positive evidence of support beyond current repository reality.
 3. Session Detail UI renders them as visible actions/cards with explanatory status copy.

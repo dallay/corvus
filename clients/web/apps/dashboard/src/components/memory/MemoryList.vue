@@ -93,11 +93,16 @@ onMounted(() => load());
   <div class="memory-list">
     <header class="memory-list-header">
       <div>
-        <p class="memory-kicker">Local Memory</p>
-        <h3>SQLite-backed memory browser</h3>
+        <p class="memory-kicker">{{ t("memory.kicker", "Local Memory") }}</p>
+        <h3>{{ t("memory.title", "SQLite-backed memory browser") }}</h3>
       </div>
       <p class="helper">
-        Local memory stays available even when Cerebro is unconfigured, unreachable, or partially implemented.
+        {{
+          t(
+            "memory.helper",
+            "Local memory stays available even when Cerebro is unconfigured, unreachable, or partially implemented."
+          )
+        }}
       </p>
     </header>
     <p v-if="admin.loading.value" class="helper" aria-live="polite" role="status">

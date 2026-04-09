@@ -310,6 +310,24 @@
     "apiKeyMode": "Clave API",
     "apiKeyValue": "Nueva clave API"
   },
+  "actions": {
+    "close": "Cerrar"
+  },
+  "sessions": {
+    "detail": "Detalle de la sesión",
+    "loading": "Cargando…",
+    "colId": "ID de sesión",
+    "colStatus": "Estado",
+    "colStarted": "Inició",
+    "colMessages": "Mensajes",
+    "colLastActivity": "Última actividad",
+    "endedAt": "Finalizó",
+    "statusActive": "Activa",
+    "statusEnded": "Finalizada",
+    "memorySummary": "Resumen de memoria",
+    "noMemoryEntries": "0 entradas",
+    "viewMemory": "Ver entradas de memoria"
+  },
   "memory": {
     "cerebroEndpoint": "Endpoint de Cerebro",
     "cerebroTimeoutMs": "Timeout de Cerebro (ms)",
@@ -325,6 +343,9 @@
     "cerebroNotConfigured": "No configurado",
     "statCerebro": "Cerebro",
     "statByCategory": "Por categoría",
+    "kicker": "Memoria local",
+    "title": "Explorador de memoria respaldado por SQLite",
+    "helper": "La memoria local sigue disponible aunque Cerebro no esté configurado, esté inaccesible o esté parcialmente implementado.",
     "loading": "Cargando entradas de memoria…",
     "empty": "No se encontraron entradas de memoria",
     "colKey": "Clave",

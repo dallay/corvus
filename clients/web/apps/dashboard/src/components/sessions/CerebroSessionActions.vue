@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { useAdmin } from "@/composables/useAdmin";
 import type { AdminCerebroStatusResponse, CerebroToolName } from "@/types/admin-sessions";
 
@@ -10,6 +11,7 @@ const props = defineProps<{
 }>();
 
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
+const pendingActions = ref<Set<CerebroToolName>>(new Set());
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const sessionTools: Array<{ tool: CerebroToolName; label: string }> = [
@@ -21,14 +23,33 @@ const sessionTools: Array<{ tool: CerebroToolName; label: string }> = [
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function invoke(tool: CerebroToolName) {
-  if (tool === "mem_context") {
-    await admin.invokeCerebroContext({ session_id: props.sessionId, limit: 5 });
+  if (pendingActions.value.has(tool)) {
     return;
   }
-  await admin.invokeCerebroSessionAction(
-    tool as "mem_session_start" | "mem_session_end" | "mem_session_summary",
-    props.sessionId
-  );
+
+  pendingActions.value = new Set(pendingActions.value).add(tool);
+
+  if (tool === "mem_context") {
+    try {
+      await admin.invokeCerebroContext({ session_id: props.sessionId, limit: 5 });
+      return;
+    } finally {
+      const next = new Set(pendingActions.value);
+      next.delete(tool);
+      pendingActions.value = next;
+    }
+  }
+
+  try {
+    await admin.invokeCerebroSessionAction(
+      tool as "mem_session_start" | "mem_session_end" | "mem_session_summary",
+      props.sessionId
+    );
+  } finally {
+    const next = new Set(pendingActions.value);
+    next.delete(tool);
+    pendingActions.value = next;
+  }
 }
 </script>
 
@@ -48,7 +69,10 @@ async function invoke(tool: CerebroToolName) {
           <strong>{{ entry.label }}</strong>
           <p class="helper">{{ status?.tools[entry.tool]?.message ?? status?.tools[entry.tool]?.state }}</p>
         </div>
-        <button :disabled="status?.tools[entry.tool]?.state !== 'available'" @click="invoke(entry.tool)">
+        <button
+          :disabled="status?.tools[entry.tool]?.state !== 'available' || pendingActions.has(entry.tool)"
+          @click="invoke(entry.tool)"
+        >
           {{ status?.tools[entry.tool]?.state === "available" ? "Run" : status?.tools[entry.tool]?.state }}
         </button>
       </li>

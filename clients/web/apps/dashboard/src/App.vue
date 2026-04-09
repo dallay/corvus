@@ -443,7 +443,7 @@ function onSelectCerebroResult(result: AdminCerebroSearchResult) {
             class="nav-tab"
             :class="{ 'nav-tab-active': memoryMode === 'local' }"
             :aria-selected="memoryMode === 'local'"
-            @click="memoryMode = 'local'"
+            @click="memoryMode = 'local'; selectedCerebroResult = null"
           >
             Local Memory
           </button>

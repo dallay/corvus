@@ -15,11 +15,9 @@ const { t } = useI18n();
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 
 onMounted(async () => {
-  await Promise.all([
-    admin.fetchMemoryStats(),
-    admin.fetchCerebroStatus(),
-    admin.fetchCerebroStats(),
-  ]);
+  await admin.fetchMemoryStats();
+
+  await Promise.allSettled([admin.fetchCerebroStatus(), admin.fetchCerebroStats()]);
 });
 </script>
 

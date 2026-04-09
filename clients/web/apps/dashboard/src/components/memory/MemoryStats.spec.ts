@@ -13,6 +13,8 @@ beforeEach(() => {
 });
 
 function queueDefaultRequests(options?: { remoteUnavailable?: boolean }) {
+  const remoteToolState = options?.remoteUnavailable ? "unreachable" : "available";
+
   fetchMock
     .mockResolvedValueOnce(
       new Response(
@@ -32,20 +34,18 @@ function queueDefaultRequests(options?: { remoteUnavailable?: boolean }) {
         JSON.stringify({
           service_state: options?.remoteUnavailable ? "unreachable" : "available",
           tools: {
-            mem_search: { state: options?.remoteUnavailable ? "unreachable" : "available" },
-            mem_get_observation: {
-              state: options?.remoteUnavailable ? "unreachable" : "available",
-            },
-            mem_timeline: { state: options?.remoteUnavailable ? "unreachable" : "available" },
-            mem_stats: { state: options?.remoteUnavailable ? "unreachable" : "available" },
-            mem_save: { state: "available" },
-            mem_update: { state: "available" },
-            mem_delete: { state: "available" },
-            mem_save_prompt: { state: "not_implemented" },
-            mem_session_start: { state: "not_implemented" },
-            mem_session_end: { state: "not_implemented" },
-            mem_session_summary: { state: "not_implemented" },
-            mem_context: { state: "not_implemented" },
+            mem_search: { state: remoteToolState },
+            mem_get_observation: { state: remoteToolState },
+            mem_timeline: { state: remoteToolState },
+            mem_stats: { state: remoteToolState },
+            mem_save: { state: remoteToolState },
+            mem_update: { state: remoteToolState },
+            mem_delete: { state: remoteToolState },
+            mem_save_prompt: { state: remoteToolState },
+            mem_session_start: { state: remoteToolState },
+            mem_session_end: { state: remoteToolState },
+            mem_session_summary: { state: remoteToolState },
+            mem_context: { state: remoteToolState },
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }

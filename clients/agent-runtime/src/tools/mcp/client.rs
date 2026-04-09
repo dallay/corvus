@@ -283,7 +283,7 @@ impl McpClient {
             .context("MCP HTTP endpoint missing in server args")?;
 
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_millis(self.server.call_timeout_ms))
+            .timeout(Duration::from_millis(self.server.startup_timeout_ms))
             .build()
             .context("failed to build MCP HTTP client")?;
 
@@ -549,10 +549,39 @@ impl McpClient {
 
         let response = req.send().await.context("MCP HTTP discovery failed")?;
         let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("failed to read MCP HTTP discovery body")?;
+        let limit = self.server.output_limit_bytes as usize;
+
+        if let Some(content_length) = response.content_length() {
+            let content_length = usize::try_from(content_length).map_err(|_| {
+                anyhow::anyhow!(
+                    "MCP discovery output exceeded output_limit_bytes ({})",
+                    limit
+                )
+            })?;
+            if content_length > limit {
+                anyhow::bail!(
+                    "MCP discovery output exceeded output_limit_bytes ({} > {})",
+                    content_length,
+                    limit
+                );
+            }
+        }
+
+        let mut body = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.context("MCP HTTP discovery response stream failed")?;
+            if body.len().saturating_add(chunk.len()) > limit {
+                anyhow::bail!(
+                    "MCP discovery output exceeded output_limit_bytes ({})",
+                    limit
+                );
+            }
+            body.extend_from_slice(&chunk);
+        }
+
+        let body =
+            String::from_utf8(body).context("MCP HTTP discovery body was not valid UTF-8")?;
         let redacted = redact_diagnostic(
             &body,
             self.server

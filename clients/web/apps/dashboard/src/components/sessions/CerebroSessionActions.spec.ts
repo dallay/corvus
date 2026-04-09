@@ -80,6 +80,8 @@ describe("CerebroSessionActions", () => {
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toContain("/web/admin/cerebro/context");
     expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer token");
+    expect(JSON.parse(String(init?.body))).toMatchObject({ session_id: "abc-123", limit: 5 });
     expect(wrapper.text()).toContain("dark mode");
   });
 });

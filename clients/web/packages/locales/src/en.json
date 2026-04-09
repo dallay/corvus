@@ -310,6 +310,24 @@
     "apiKeyMode": "API key",
     "apiKeyValue": "New API key"
   },
+  "actions": {
+    "close": "Close"
+  },
+  "sessions": {
+    "detail": "Session Detail",
+    "loading": "Loading…",
+    "colId": "Session ID",
+    "colStatus": "Status",
+    "colStarted": "Started",
+    "colMessages": "Messages",
+    "colLastActivity": "Last Activity",
+    "endedAt": "Ended At",
+    "statusActive": "Active",
+    "statusEnded": "Ended",
+    "memorySummary": "Memory Summary",
+    "noMemoryEntries": "0 entries",
+    "viewMemory": "View Memory Entries"
+  },
   "memory": {
     "cerebroEndpoint": "Cerebro endpoint",
     "cerebroTimeoutMs": "Cerebro timeout (ms)",
@@ -325,6 +343,9 @@
     "cerebroNotConfigured": "Not configured",
     "statCerebro": "Cerebro",
     "statByCategory": "By Category",
+    "kicker": "Local Memory",
+    "title": "SQLite-backed memory browser",
+    "helper": "Local memory stays available even when Cerebro is unconfigured, unreachable, or partially implemented.",
     "loading": "Loading memory entries…",
     "empty": "No memory entries found",
     "colKey": "Key",

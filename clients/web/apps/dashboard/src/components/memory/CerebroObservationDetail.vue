@@ -15,7 +15,11 @@ watch(
   () => props.selected?.memory_id,
   async (memoryId) => {
     if (memoryId) {
-      await admin.fetchCerebroObservation(memoryId);
+      try {
+        await admin.fetchCerebroObservation(memoryId);
+      } catch (error) {
+        console.error("Failed to fetch Cerebro observation", error);
+      }
     }
   },
   { immediate: true }
@@ -43,6 +47,14 @@ watch(
       >
         <h5>Relationship Insights</h5>
         <p class="helper">Read-only metadata returned by Cerebro.</p>
+        <div v-if="admin.cerebroObservation.value.observation.relationships" class="insight-block">
+          <strong>Relationships</strong>
+          <pre class="payload">{{ JSON.stringify(admin.cerebroObservation.value.observation.relationships, null, 2) }}</pre>
+        </div>
+        <div v-if="admin.cerebroObservation.value.observation.ontology" class="insight-block">
+          <strong>Ontology</strong>
+          <pre class="payload">{{ JSON.stringify(admin.cerebroObservation.value.observation.ontology, null, 2) }}</pre>
+        </div>
       </div>
     </template>
   </section>
@@ -71,5 +83,9 @@ watch(
 
 .insights {
   margin-top: 12px;
+}
+
+.insight-block {
+  margin-top: 10px;
 }
 </style>

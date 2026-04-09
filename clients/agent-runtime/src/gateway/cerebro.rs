@@ -244,17 +244,7 @@ fn tool_status_map(
             normalize::CerebroGatewayState::Available => None,
             _ => Some(service_error.map_or_else(
                 || normalize::cerebro_gateway_message(state, tool),
-                |error| {
-                    if matches!(
-                        state,
-                        normalize::CerebroGatewayState::Unconfigured
-                            | normalize::CerebroGatewayState::Unreachable
-                    ) {
-                        normalize::cerebro_gateway_message(state, tool)
-                    } else {
-                        error.to_string()
-                    }
-                },
+                |_| normalize::cerebro_gateway_message(state, tool),
             )),
         };
         tools.insert(tool.to_string(), AdminCerebroToolStatus { state, message });
@@ -286,6 +276,49 @@ fn error_response(state: normalize::CerebroGatewayState, tool: &str) -> (StatusC
         status,
         Json(serde_json::to_value(body).unwrap_or_else(|_| json!({}))),
     )
+}
+
+fn malformed_upstream_response(tool: &str, reason: &str) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::BAD_GATEWAY,
+        Json(json!({
+            "error": format!("Malformed Cerebro response for {tool}: {reason}")
+        })),
+    )
+}
+
+fn require_data_object<'a>(
+    body: &'a Value,
+    tool: &str,
+) -> Result<&'a Value, (StatusCode, Json<Value>)> {
+    body.get("data")
+        .filter(|value| value.is_object())
+        .ok_or_else(|| malformed_upstream_response(tool, "missing object data payload"))
+}
+
+fn require_array_field<'a>(
+    data: &'a Value,
+    field: &str,
+    tool: &str,
+) -> Result<&'a Vec<Value>, (StatusCode, Json<Value>)> {
+    data.get(field)
+        .and_then(Value::as_array)
+        .ok_or_else(|| malformed_upstream_response(tool, &format!("missing array field `{field}`")))
+}
+
+fn optional_bool_field(
+    data: &Value,
+    field: &str,
+    tool: &str,
+) -> Result<Option<bool>, (StatusCode, Json<Value>)> {
+    match data.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        Some(_) => Err(malformed_upstream_response(
+            tool,
+            &format!("field `{field}` must be a boolean when present"),
+        )),
+    }
 }
 
 fn validate_non_empty(value: &str, field: &str) -> Result<(), (StatusCode, Json<Value>)> {
@@ -402,19 +435,22 @@ pub async fn handle_admin_cerebro_search(
         return response;
     }
 
-    let data = response.1 .0["data"].clone();
-    let results = data
-        .get("results")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let data = match require_data_object(&response.1 .0, normalize::CEREBRO_TOOL_RECALL) {
+        Ok(data) => data,
+        Err(error) => return error,
+    };
+    let results = match require_array_field(data, "results", normalize::CEREBRO_TOOL_RECALL) {
+        Ok(results) => results.clone(),
+        Err(error) => return error,
+    };
+    let truncated = match optional_bool_field(data, "truncated", normalize::CEREBRO_TOOL_RECALL) {
+        Ok(value) => value.unwrap_or(false),
+        Err(error) => return error,
+    };
     success(&AdminCerebroSearchResponse {
         state: normalize::CerebroGatewayState::Available,
         results_count: results.len(),
-        truncated: data
-            .get("truncated")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        truncated,
         results,
     })
 }
@@ -452,7 +488,10 @@ pub async fn handle_admin_cerebro_observation(
     if response.0 != StatusCode::OK {
         return response;
     }
-    let data = response.1 .0["data"].clone();
+    let data = match require_data_object(&response.1 .0, normalize::CEREBRO_TOOL_GET_OBSERVATION) {
+        Ok(data) => data.clone(),
+        Err(error) => return error,
+    };
     success(&AdminCerebroObservationResponse {
         state: normalize::CerebroGatewayState::Available,
         observation: data,
@@ -493,12 +532,14 @@ pub async fn handle_admin_cerebro_timeline(
     if response.0 != StatusCode::OK {
         return response;
     }
-    let data = response.1 .0["data"].clone();
-    let items = data
-        .get("items")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let data = match require_data_object(&response.1 .0, normalize::CEREBRO_TOOL_TIMELINE) {
+        Ok(data) => data,
+        Err(error) => return error,
+    };
+    let items = match require_array_field(data, "items", normalize::CEREBRO_TOOL_TIMELINE) {
+        Ok(items) => items.clone(),
+        Err(error) => return error,
+    };
     success(&AdminCerebroTimelineResponse {
         state: normalize::CerebroGatewayState::Available,
         items_count: items.len(),
@@ -534,10 +575,14 @@ pub async fn handle_admin_cerebro_stats(
     if response.0 != StatusCode::OK {
         return response;
     }
+    let data = match require_data_object(&response.1 .0, normalize::CEREBRO_TOOL_STATS) {
+        Ok(data) => data.clone(),
+        Err(error) => return error,
+    };
 
     success(&AdminCerebroStatsResponse {
         state: normalize::CerebroGatewayState::Available,
-        stats: response.1 .0["data"].clone(),
+        stats: data,
     })
 }
 
@@ -1018,6 +1063,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn status_messages_do_not_echo_raw_inventory_errors() {
+        let tools = tool_status_map(
+            normalize::CerebroGatewayState::Unsupported,
+            &BTreeSet::new(),
+            Some("upstream token leaked"),
+        );
+
+        let message = tools
+            .get(normalize::CEREBRO_TOOL_RECALL)
+            .and_then(|status| status.message.as_deref())
+            .unwrap_or_default();
+
+        assert_eq!(
+            message,
+            normalize::cerebro_gateway_message(
+                normalize::CerebroGatewayState::Unsupported,
+                normalize::CEREBRO_TOOL_RECALL,
+            )
+        );
+        assert!(!message.contains("token leaked"));
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn search_success_returns_typed_payload() {
         let tmp = TempDir::new().unwrap();
@@ -1057,6 +1125,48 @@ mod tests {
         assert_eq!(json["state"], "available");
         assert_eq!(json["results_count"], 1);
         assert_eq!(json["results"][0]["memory_id"], "mem-42");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn search_rejects_malformed_success_payload() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp, Some("valid-token"));
+        let mut responses = BTreeMap::new();
+        responses.insert(
+            normalize::CEREBRO_TOOL_RECALL,
+            json!({
+                "result": {
+                    "output": {
+                        "results": "not-an-array",
+                        "truncated": false
+                    }
+                }
+            }),
+        );
+        let endpoint = spawn_mock_cerebro(vec![normalize::CEREBRO_TOOL_RECALL], responses).await;
+        configure_cerebro(&state, endpoint);
+
+        let (status, json) = response_json(
+            handle_admin_cerebro_search(
+                State(state),
+                admin_headers("valid-token"),
+                Json(AdminCerebroSearchRequest {
+                    query: "dark mode".into(),
+                    limit: Some(5),
+                    scope: None,
+                    topic_key: None,
+                    include_deleted: None,
+                }),
+            )
+            .await,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(
+            json["error"],
+            "Malformed Cerebro response for mem_search: missing array field `results`"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

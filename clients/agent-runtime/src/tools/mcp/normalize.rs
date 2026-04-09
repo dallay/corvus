@@ -83,11 +83,14 @@ pub fn classify_cerebro_error(raw_error: &str) -> CerebroGatewayState {
 
     if normalized.contains("timeout")
         || normalized.contains("transport")
-        || normalized.contains("failed")
         || normalized.contains("unreachable")
         || normalized.contains("egress")
+        || normalized.contains("connection failed")
+        || normalized.contains("request failed")
         || normalized.contains("http 4")
+        || normalized.contains("http4")
         || normalized.contains("http 5")
+        || normalized.contains("http5")
     {
         return CerebroGatewayState::Unreachable;
     }
@@ -349,6 +352,15 @@ mod tests {
     fn classify_unreachable_cerebro_error() {
         let state = classify_cerebro_error(r#"{"code":"mcp_transport_error","reason":"HTTP 503"}"#);
         assert_eq!(state, CerebroGatewayState::Unreachable);
+    }
+
+    #[test]
+    fn classify_unreachable_http4_variants() {
+        let compact = classify_cerebro_error(r#"{"reason":"HTTP400"}"#);
+        let spaced = classify_cerebro_error(r#"{"reason":"HTTP 404"}"#);
+
+        assert_eq!(compact, CerebroGatewayState::Unreachable);
+        assert_eq!(spaced, CerebroGatewayState::Unreachable);
     }
 
     #[test]

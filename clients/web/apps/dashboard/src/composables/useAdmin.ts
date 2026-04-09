@@ -138,6 +138,24 @@ export function useAdmin(
     return url.toString();
   }
 
+  function buildHeaders(init?: RequestInit): Headers {
+    const headers = new Headers(authHeaders());
+
+    if (init?.headers) {
+      const provided = new Headers(init.headers);
+      for (const [key, value] of provided.entries()) {
+        headers.set(key, value);
+      }
+    }
+
+    const bodyIsString = typeof init?.body === "string";
+    if (bodyIsString && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+
+    return headers;
+  }
+
   async function fetchJson<T>(
     bucket: RequestBucket,
     path: string,
@@ -151,10 +169,7 @@ export function useAdmin(
     try {
       const res = await fetch(buildUrl(path, params), {
         ...init,
-        headers: {
-          ...authHeaders(),
-          ...(init?.headers ?? {}),
-        },
+        headers: buildHeaders(init),
         signal: controller.signal,
       });
       if (!res.ok) {
@@ -183,15 +198,13 @@ export function useAdmin(
     params?: Record<string, string | number | undefined>
   ): Promise<AdminCerebroActionResponse<T>> {
     setLoading(bucket, true);
+    error.value = null;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30_000);
     try {
       const res = await fetch(buildUrl(path, params), {
         ...init,
-        headers: {
-          ...authHeaders(),
-          ...(init?.headers ?? {}),
-        },
+        headers: buildHeaders(init),
         signal: controller.signal,
       });
       const payload = (await res.json()) as T | AdminCerebroActionError;
@@ -244,7 +257,7 @@ export function useAdmin(
     const timeoutId = setTimeout(() => controller.abort(), 30_000);
     try {
       const res = await fetch(buildUrl(`/web/admin/sessions/${encodeURIComponent(id)}`), {
-        headers: authHeaders(),
+        headers: buildHeaders(),
         signal: controller.signal,
       });
       if (!res.ok) {
@@ -392,6 +405,12 @@ export function useAdmin(
     sessionId?: string,
     payload: Record<string, unknown> = {}
   ) {
+    if ((tool === "mem_session_end" || tool === "mem_session_summary") && !sessionId) {
+      const message = `${tool} requires a session_id.`;
+      error.value = message;
+      throw new Error(message);
+    }
+
     const path =
       tool === "mem_session_start"
         ? "/web/admin/cerebro/sessions/start"
@@ -477,7 +496,7 @@ export function useAdmin(
   async function isSessionApiAvailable(): Promise<boolean> {
     try {
       const url = buildUrl("/web/admin/sessions", { limit: 1 });
-      const res = await fetch(url, { method: "GET", headers: authHeaders() });
+      const res = await fetch(url, { method: "GET", headers: buildHeaders() });
       return res.ok;
     } catch {
       return false;
