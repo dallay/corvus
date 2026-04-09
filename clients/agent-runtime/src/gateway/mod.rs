@@ -2060,7 +2060,7 @@ async fn handle_chat_stream(
 
     // ── Process message via existing dispatch ────────────
     enum StreamProcessingOutcome {
-        Success(String),
+        Success(String, Vec<String>),
         Error(serde_json::Value),
     }
 
@@ -2093,7 +2093,7 @@ async fn handle_chat_stream(
                     .response_text
                     .map(|t| scrub_sensitive_boundary_text(&t))
                     .unwrap_or_default();
-                StreamProcessingOutcome::Success(text)
+                StreamProcessingOutcome::Success(text, result.tools_called)
             }
             webhook_dispatch::WebhookTerminalOutcome::BudgetExceeded {
                 current_usd,
@@ -2152,7 +2152,7 @@ async fn handle_chat_stream(
                 .await
             {
                 Ok(response) => {
-                    StreamProcessingOutcome::Success(scrub_sensitive_boundary_text(&response))
+                    StreamProcessingOutcome::Success(scrub_sensitive_boundary_text(&response), vec![])
                 }
                 Err(e) => {
                     let sanitized = providers::sanitize_api_error(&e.to_string());
@@ -2183,16 +2183,20 @@ async fn handle_chat_stream(
         StreamProcessingOutcome::Error(error_data) => vec![Ok(Event::default()
             .event("error")
             .data(error_data.to_string()))],
-        StreamProcessingOutcome::Success(response_text) => vec![
-            Ok(Event::default().event("chunk").data(&response_text)),
-            Ok(Event::default().event("done").data(
-                serde_json::json!({
-                    "message_id": message_id,
-                    "session_id": sid,
-                })
-                .to_string(),
-            )),
-        ],
+        StreamProcessingOutcome::Success(response_text, tools_called) => {
+            let memory_recalled = tools_called.iter().any(|name| name == "memory_recall");
+            vec![
+                Ok(Event::default().event("chunk").data(&response_text)),
+                Ok(Event::default().event("done").data(
+                    serde_json::json!({
+                        "message_id": message_id,
+                        "session_id": sid,
+                        "recalled_memory_keys": if memory_recalled { vec!["memory_recall"] } else { vec![] },
+                    })
+                    .to_string(),
+                )),
+            ]
+        }
     };
 
     Ok(Sse::new(futures::stream::iter(events)))
@@ -3012,6 +3016,7 @@ mod tests {
                 outcome: webhook_dispatch::WebhookTerminalOutcome::Completed,
                 response_text: Some("mcp seam completed".into()),
                 event_frames: vec!["id: seam\nevent: complete\ndata: {}\n\n".into()],
+                tools_called: vec![],
             });
 
         assert_eq!(status, StatusCode::OK);
@@ -3038,6 +3043,7 @@ mod tests {
                 outcome: webhook_dispatch::WebhookTerminalOutcome::Error,
                 response_text: Some("ignored".into()),
                 event_frames: Vec::new(),
+                tools_called: vec![],
             });
 
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);

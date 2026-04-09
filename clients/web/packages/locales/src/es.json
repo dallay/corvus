@@ -272,7 +272,10 @@
     "connected": "Conectado",
     "disconnected": "Desconectado",
     "toolApprovalTitle": "La herramienta requiere aprobación",
-    "disclaimer": "Corvus Agent puede cometer errores. Verifica la información importante."
+    "disclaimer": "Corvus Agent puede cometer errores. Verifica la información importante.",
+    "memoryRecalled": "Contexto recordado",
+    "memoryRecallLabel": "El agente recordó memoria",
+    "memoryRecallHint": "Esta respuesta utilizó información de la memoria del agente."
   },
   "session": {
     "history": "Historial",

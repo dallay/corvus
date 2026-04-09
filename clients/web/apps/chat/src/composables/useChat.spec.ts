@@ -256,6 +256,37 @@ describe("useChat", () => {
     expect(init?.body).toBe(JSON.stringify({ message: "hello", request_id: "req-1" }));
   });
 
+  it("streamMessage surfaces recalled_memory_keys from done event", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("90909090-9090-4090-8090-909090909090");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    const encoder = new TextEncoder();
+    const donePayload = JSON.stringify({
+      session_id: "90909090-9090-4090-8090-909090909090",
+      message_id: "msg-002",
+      recalled_memory_keys: ["memory_recall"],
+    });
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("event: chunk\r\ndata: Sure!\r\n\r\n"));
+        controller.enqueue(encoder.encode(`event: done\r\ndata: ${donePayload}\r\n\r\n`));
+        controller.close();
+      },
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      })
+    );
+
+    const doneEvent = await chat.streamMessage("hi", () => undefined);
+    expect(doneEvent.recalled_memory_keys).toEqual(["memory_recall"]);
+  });
+
   it("streamMessage keeps approval responses eligible for webhook fallback", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("34343434-3434-4434-8434-343434343434");
     const gateway = await connectReadyGateway();
