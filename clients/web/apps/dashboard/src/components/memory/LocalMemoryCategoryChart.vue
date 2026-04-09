@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import type {LocalMemoryCategoryFacet} from "@/types/admin-sessions";
+import type { LocalMemoryCategoryFacet } from "@/types/admin-sessions";
 
 defineProps<{
   facets: LocalMemoryCategoryFacet[];

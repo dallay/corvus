@@ -1,9 +1,9 @@
 <script lang="ts" setup>
-import {trimTrailingSlashes} from "@corvus/shared";
+import { trimTrailingSlashes } from "@corvus/shared";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import {Button, Input} from "@corvus/ui";
-import {ref} from "vue";
-import {useI18n} from "vue-i18n";
+import { Button, Input } from "@corvus/ui";
+import { ref } from "vue";
+import { useI18n } from "vue-i18n";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import BrowserSettings from "@/components/config/BrowserSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
@@ -62,7 +62,7 @@ import SessionDetail from "@/components/sessions/SessionDetail.vue";
 import SessionFilters from "@/components/sessions/SessionFilters.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import SessionList from "@/components/sessions/SessionList.vue";
-import {useConfig} from "@/composables/useConfig";
+import { useConfig } from "@/composables/useConfig";
 import type {
   AdminCerebroSearchResult,
   AdminSessionView,
@@ -70,7 +70,7 @@ import type {
   LocalMemorySubview,
 } from "@/types/admin-sessions";
 
-const {t} = useI18n();
+const { t } = useI18n();
 
 const config = useConfig(t);
 
@@ -107,7 +107,7 @@ function adminGatewayUrl(path: string): string {
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function adminAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {"Content-Type": "application/json"};
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (config.bearerToken.value.trim()) {
     headers.Authorization = `Bearer ${config.bearerToken.value.trim()}`;
   }

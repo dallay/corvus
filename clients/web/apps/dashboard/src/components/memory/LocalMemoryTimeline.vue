@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import type {LocalMemoryTimelineGroup} from "@/types/admin-sessions";
+import type { LocalMemoryTimelineGroup } from "@/types/admin-sessions";
 
 const props = defineProps<{
   groups: LocalMemoryTimelineGroup[];

@@ -1,19 +1,18 @@
 <script lang="ts" setup>
-import {onMounted, watch} from "vue";
+import { onMounted, watch } from "vue";
 
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import LocalMemoryCategoryChart from "@/components/memory/LocalMemoryCategoryChart.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import LocalMemoryRelationshipExplorer
-  from "@/components/memory/LocalMemoryRelationshipExplorer.vue";
+import LocalMemoryRelationshipExplorer from "@/components/memory/LocalMemoryRelationshipExplorer.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import LocalMemoryTimeline from "@/components/memory/LocalMemoryTimeline.vue";
-import {useAdmin} from "@/composables/useAdmin";
-import {useLocalMemoryExplorer} from "@/composables/useLocalMemoryExplorer";
-import type {LocalMemoryExplorerSelection} from "@/types/admin-sessions";
+import { useAdmin } from "@/composables/useAdmin";
+import { useLocalMemoryExplorer } from "@/composables/useLocalMemoryExplorer";
+import type { LocalMemoryExplorerSelection } from "@/types/admin-sessions";
 
 function normalizeSelection(
-    selection: LocalMemoryExplorerSelection = {}
+  selection: LocalMemoryExplorerSelection = {}
 ): LocalMemoryExplorerSelection {
   return {
     sessionId: selection.sessionId?.trim() || undefined,
@@ -23,8 +22,8 @@ function normalizeSelection(
 }
 
 function selectionsEqual(
-    left: LocalMemoryExplorerSelection = {},
-    right: LocalMemoryExplorerSelection = {}
+  left: LocalMemoryExplorerSelection = {},
+  right: LocalMemoryExplorerSelection = {}
 ): boolean {
   return JSON.stringify(normalizeSelection(left)) === JSON.stringify(normalizeSelection(right));
 }
@@ -47,30 +46,30 @@ const explorer = useLocalMemoryExplorer({
 });
 
 watch(
-    () => props.selection,
-    (nextSelection, previousSelection) => {
-      const normalizedNextSelection = normalizeSelection(nextSelection ?? {});
+  () => props.selection,
+  (nextSelection, previousSelection) => {
+    const normalizedNextSelection = normalizeSelection(nextSelection ?? {});
 
-      if (
-          selectionsEqual(nextSelection ?? {}, previousSelection ?? {}) ||
-          selectionsEqual(normalizedNextSelection, explorer.selection.value)
-      ) {
-        return;
-      }
-
-      explorer.setSelection(normalizedNextSelection);
+    if (
+      selectionsEqual(nextSelection ?? {}, previousSelection ?? {}) ||
+      selectionsEqual(normalizedNextSelection, explorer.selection.value)
+    ) {
+      return;
     }
+
+    explorer.setSelection(normalizedNextSelection);
+  }
 );
 
 watch(
-    () => explorer.selection.value,
-    (nextSelection, previousSelection) => {
-      if (selectionsEqual(nextSelection, previousSelection ?? {})) {
-        return;
-      }
-
-      emit("selection-change", {...nextSelection});
+  () => explorer.selection.value,
+  (nextSelection, previousSelection) => {
+    if (selectionsEqual(nextSelection, previousSelection ?? {})) {
+      return;
     }
+
+    emit("selection-change", { ...nextSelection });
+  }
 );
 
 onMounted(async () => {

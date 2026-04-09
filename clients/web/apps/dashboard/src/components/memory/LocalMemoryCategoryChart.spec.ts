@@ -1,17 +1,17 @@
-import {mount} from "@vue/test-utils";
-import {describe, expect, it} from "vitest";
+import { mount } from "@vue/test-utils";
+import { describe, expect, it } from "vitest";
 
 import LocalMemoryCategoryChart from "@/components/memory/LocalMemoryCategoryChart.vue";
 
 const facets = [
-  {category: "Core", total: 4, sessionCount: 2, isActive: true},
-  {category: "Conversation", total: 2, sessionCount: 1, isActive: false},
+  { category: "Core", total: 4, sessionCount: 2, isActive: true },
+  { category: "Conversation", total: 2, sessionCount: 1, isActive: false },
 ];
 
 describe("LocalMemoryCategoryChart", () => {
   it("renders category totals and emits category selection", async () => {
     const wrapper = mount(LocalMemoryCategoryChart, {
-      props: {facets},
+      props: { facets },
     });
 
     await wrapper.findAll("button.category-bar")[1]?.trigger("click");
@@ -23,7 +23,7 @@ describe("LocalMemoryCategoryChart", () => {
 
   it("offers a clear-focus action when a category is active", async () => {
     const wrapper = mount(LocalMemoryCategoryChart, {
-      props: {facets},
+      props: { facets },
     });
 
     await wrapper.find("button.clear-category-focus").trigger("click");
@@ -34,7 +34,7 @@ describe("LocalMemoryCategoryChart", () => {
   it("pluralizes the session label correctly", () => {
     const wrapper = mount(LocalMemoryCategoryChart, {
       props: {
-        facets: [{category: "Conversation", total: 1, sessionCount: 1, isActive: false}],
+        facets: [{ category: "Conversation", total: 1, sessionCount: 1, isActive: false }],
       },
     });
 

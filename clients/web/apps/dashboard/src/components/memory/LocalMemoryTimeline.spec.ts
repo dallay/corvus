@@ -1,8 +1,8 @@
-import {mount} from "@vue/test-utils";
-import {describe, expect, it} from "vitest";
+import { mount } from "@vue/test-utils";
+import { describe, expect, it } from "vitest";
 
 import LocalMemoryTimeline from "@/components/memory/LocalMemoryTimeline.vue";
-import type {LocalMemoryTimelineGroup} from "@/types/admin-sessions";
+import type { LocalMemoryTimelineGroup } from "@/types/admin-sessions";
 
 const groups: LocalMemoryTimelineGroup[] = [
   {
@@ -11,7 +11,7 @@ const groups: LocalMemoryTimelineGroup[] = [
     entryCount: 1,
     firstTimestamp: "2026-01-01T10:00:00Z",
     lastTimestamp: "2026-01-01T10:00:00Z",
-    categories: {Daily: 1},
+    categories: { Daily: 1 },
     entries: [
       {
         id: "m1",
@@ -29,7 +29,7 @@ const groups: LocalMemoryTimelineGroup[] = [
     entryCount: 2,
     firstTimestamp: "2026-01-02T10:00:00Z",
     lastTimestamp: "2026-01-03T10:00:00Z",
-    categories: {Core: 2},
+    categories: { Core: 2 },
     entries: [
       {
         id: "m2",
@@ -54,7 +54,7 @@ const groups: LocalMemoryTimelineGroup[] = [
 describe("LocalMemoryTimeline", () => {
   it("renders session lanes in chronological order with a navigable no-session fallback", () => {
     const wrapper = mount(LocalMemoryTimeline, {
-      props: {groups},
+      props: { groups },
     });
 
     expect(wrapper.findAll("[data-testid='timeline-group']")).toHaveLength(2);
@@ -79,7 +79,7 @@ describe("LocalMemoryTimeline", () => {
     expect(wrapper.emitted("select-session")).toEqual([["session-a"]]);
     expect(wrapper.find(".timeline-group-active").text()).toContain("session-a");
     expect(wrapper.findAll("button.timeline-group-button")[1]?.attributes("aria-pressed")).toBe(
-        "true"
+      "true"
     );
   });
 });

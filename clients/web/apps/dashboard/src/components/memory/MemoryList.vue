@@ -1,8 +1,8 @@
 <script lang="ts" setup>
-import {nextTick, onMounted, ref, watch} from "vue";
-import {useI18n} from "vue-i18n";
-import {type MemoryListParams, useAdmin} from "@/composables/useAdmin";
-import type {LocalMemoryExplorerSelection} from "@/types/admin-sessions";
+import { nextTick, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+import { type MemoryListParams, useAdmin } from "@/composables/useAdmin";
+import type { LocalMemoryExplorerSelection } from "@/types/admin-sessions";
 
 const props = defineProps<{
   gatewayUrl: (path: string) => string;
@@ -19,7 +19,7 @@ const emit = defineEmits<{
 }>();
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
-const {t} = useI18n();
+const { t } = useI18n();
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 const page = ref(1);
 const perPage = ref(25);
@@ -52,7 +52,7 @@ function goToPage(p: number) {
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function requestDelete(key: string, event?: Event) {
   restoreFocusTarget.value =
-      event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;
   confirmingDelete.value = key;
   nextTick(() => confirmBtnRef.value?.focus());
 }

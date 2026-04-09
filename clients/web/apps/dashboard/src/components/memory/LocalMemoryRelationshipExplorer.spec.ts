@@ -1,8 +1,7 @@
-import {mount} from "@vue/test-utils";
-import {describe, expect, it} from "vitest";
+import { mount } from "@vue/test-utils";
+import { describe, expect, it } from "vitest";
 
-import LocalMemoryRelationshipExplorer
-  from "@/components/memory/LocalMemoryRelationshipExplorer.vue";
+import LocalMemoryRelationshipExplorer from "@/components/memory/LocalMemoryRelationshipExplorer.vue";
 
 const clusters = [
   {
@@ -53,7 +52,7 @@ describe("LocalMemoryRelationshipExplorer", () => {
       props: {
         clusters,
         visibleEntries: clusters[0]?.entries ?? [],
-        selection: {category: "Core", sessionId: "session-a"},
+        selection: { category: "Core", sessionId: "session-a" },
       },
     });
 
@@ -69,13 +68,13 @@ describe("LocalMemoryRelationshipExplorer", () => {
       props: {
         clusters,
         visibleEntries: clusters[0]?.entries ?? [],
-        selection: {category: "Core", sessionId: "session-a"},
+        selection: { category: "Core", sessionId: "session-a" },
       },
     });
 
     expect(wrapper.find("button.relationship-cluster").attributes("aria-pressed")).toBe("true");
     expect(wrapper.find("button.relationship-cluster").classes()).toContain(
-        "relationship-cluster-active"
+      "relationship-cluster-active"
     );
   });
 });

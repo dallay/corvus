@@ -1,7 +1,7 @@
-import {mount} from "@vue/test-utils";
-import {describe, expect, it, vi} from "vitest";
-import {nextTick, reactive, ref} from "vue";
-import {createI18n} from "vue-i18n";
+import { mount } from "@vue/test-utils";
+import { describe, expect, it, vi } from "vitest";
+import { nextTick, reactive, ref } from "vue";
+import { createI18n } from "vue-i18n";
 
 import App from "@/App.vue";
 import type {
@@ -9,8 +9,8 @@ import type {
   DashboardOnboardingStep,
   QuickPairState,
 } from "@/composables/useConfig";
-import {i18nConfig} from "@/i18n";
-import {createAdminConfigForm} from "@/test/adminConfigFormFactory";
+import { i18nConfig } from "@/i18n";
+import { createAdminConfigForm } from "@/test/adminConfigFormFactory";
 
 const mockedConfigState = vi.hoisted(() => ({
   current: null as ReturnType<typeof createMockConfig> | null,
@@ -26,7 +26,7 @@ vi.mock("@/composables/useConfig", () => ({
 }));
 
 vi.mock("@corvus/ui", async () => {
-  const {defineComponent} = await import("vue");
+  const { defineComponent } = await import("vue");
 
   return {
     Button: defineComponent({
@@ -43,7 +43,7 @@ vi.mock("@corvus/ui", async () => {
       },
       emits: ["click"],
       template:
-          '<button :data-variant="variant" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
+        '<button :data-variant="variant" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
     }),
     Input: defineComponent({
       name: "Input",
@@ -59,26 +59,26 @@ vi.mock("@corvus/ui", async () => {
       },
       emits: ["update:modelValue"],
       template:
-          '<input :value="modelValue" :type="type" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+        '<input :value="modelValue" :type="type" @input="$emit(\'update:modelValue\', $event.target.value)" />',
     }),
   };
 });
 
 vi.mock("@/components/memory/MemoryStats.vue", async () => {
-  const {defineComponent} = await import("vue");
+  const { defineComponent } = await import("vue");
 
   return {
     default: defineComponent({
       name: "MemoryStatsStub",
       emits: ["select-category"],
       template:
-          '<section data-testid="memory-stats"><button class="stats-select-category" @click="$emit(\'select-category\', \'Core\')">stats-select-category</button></section>',
+        '<section data-testid="memory-stats"><button class="stats-select-category" @click="$emit(\'select-category\', \'Core\')">stats-select-category</button></section>',
     }),
   };
 });
 
 vi.mock("@/components/memory/MemoryFilters.vue", async () => {
-  const {defineComponent} = await import("vue");
+  const { defineComponent } = await import("vue");
 
   return {
     default: defineComponent({
@@ -91,13 +91,13 @@ vi.mock("@/components/memory/MemoryFilters.vue", async () => {
       },
       emits: ["update:category", "update:session-id", "update:search"],
       template:
-          '<section data-testid="memory-filters">filters:{{ initialSessionId ?? "none" }}</section>',
+        '<section data-testid="memory-filters">filters:{{ initialSessionId ?? "none" }}</section>',
     }),
   };
 });
 
 vi.mock("@/components/memory/MemoryList.vue", async () => {
-  const {defineComponent} = await import("vue");
+  const { defineComponent } = await import("vue");
 
   return {
     default: defineComponent({
@@ -130,7 +130,7 @@ vi.mock("@/components/memory/MemoryList.vue", async () => {
 });
 
 vi.mock("@/components/memory/LocalMemoryExplorerPanel.vue", async () => {
-  const {defineComponent} = await import("vue");
+  const { defineComponent } = await import("vue");
 
   return {
     default: defineComponent({
@@ -153,7 +153,7 @@ vi.mock("@/components/memory/LocalMemoryExplorerPanel.vue", async () => {
 });
 
 vi.mock("@/components/memory/CerebroSearchPanel.vue", async () => {
-  const {defineComponent} = await import("vue");
+  const { defineComponent } = await import("vue");
 
   return {
     default: defineComponent({
@@ -164,7 +164,7 @@ vi.mock("@/components/memory/CerebroSearchPanel.vue", async () => {
 });
 
 vi.mock("@/components/memory/CerebroObservationDetail.vue", async () => {
-  const {defineComponent} = await import("vue");
+  const { defineComponent } = await import("vue");
 
   return {
     default: defineComponent({
@@ -175,7 +175,7 @@ vi.mock("@/components/memory/CerebroObservationDetail.vue", async () => {
 });
 
 vi.mock("@/components/memory/CerebroTimelinePanel.vue", async () => {
-  const {defineComponent} = await import("vue");
+  const { defineComponent } = await import("vue");
 
   return {
     default: defineComponent({
@@ -187,7 +187,7 @@ vi.mock("@/components/memory/CerebroTimelinePanel.vue", async () => {
 
 function createSectionModule(name: string) {
   return async () => {
-    const {defineComponent} = await import("vue");
+    const { defineComponent } = await import("vue");
 
     return {
       default: defineComponent({
@@ -219,7 +219,7 @@ function createSectionModule(name: string) {
           </section>
         `,
         setup() {
-          return {name};
+          return { name };
         },
       }),
     };
@@ -235,59 +235,59 @@ vi.mock("@/components/config/GatewaySettings.vue", createSectionModule("gateway"
 vi.mock("@/components/config/WebhookSettings.vue", createSectionModule("webhook"));
 
 function createMockConfig(
-    overrides: {
-      quickPairState?: QuickPairState;
-      canSave?: boolean;
-      statusMessage?: string;
-      errorMessage?: string;
-      webhookSecretExists?: boolean;
-      sectionSaving?: Partial<Record<string, boolean>>;
-      onboardingState?: DashboardOnboardingState;
-      onboardingSteps?: DashboardOnboardingStep[];
-      isOperatorReady?: boolean;
-    } = {}
+  overrides: {
+    quickPairState?: QuickPairState;
+    canSave?: boolean;
+    statusMessage?: string;
+    errorMessage?: string;
+    webhookSecretExists?: boolean;
+    sectionSaving?: Partial<Record<string, boolean>>;
+    onboardingState?: DashboardOnboardingState;
+    onboardingSteps?: DashboardOnboardingStep[];
+    isOperatorReady?: boolean;
+  } = {}
 ) {
   const onboardingState =
-      overrides.onboardingState ??
-      ({
-        surfaceId: "web_dashboard",
-        state: "trust_pending",
-        trustMode: "http_paired",
-        transportMode: "http_gateway",
-        recoveryKind: null,
-        canRetry: false,
-        canResume: false,
-        persistsPairingCode: false,
-        persistsBearerToken: false,
-      } satisfies DashboardOnboardingState);
+    overrides.onboardingState ??
+    ({
+      surfaceId: "web_dashboard",
+      state: "trust_pending",
+      trustMode: "http_paired",
+      transportMode: "http_gateway",
+      recoveryKind: null,
+      canRetry: false,
+      canResume: false,
+      persistsPairingCode: false,
+      persistsBearerToken: false,
+    } satisfies DashboardOnboardingState);
   const onboardingSteps =
-      overrides.onboardingSteps ??
-      ([
-        {
-          key: "runtime",
-          titleKey: "onboarding.steps.runtime.title",
-          descriptionKey: "onboarding.steps.runtime.description",
-          status: "current",
-        },
-        {
-          key: "trust",
-          titleKey: "onboarding.steps.trust.title",
-          descriptionKey: "onboarding.steps.trust.description",
-          status: "pending",
-        },
-        {
-          key: "connect",
-          titleKey: "onboarding.steps.connect.title",
-          descriptionKey: "onboarding.steps.connect.description",
-          status: "pending",
-        },
-        {
-          key: "ready",
-          titleKey: "onboarding.steps.ready.title",
-          descriptionKey: "onboarding.steps.ready.description",
-          status: "pending",
-        },
-      ] satisfies DashboardOnboardingStep[]);
+    overrides.onboardingSteps ??
+    ([
+      {
+        key: "runtime",
+        titleKey: "onboarding.steps.runtime.title",
+        descriptionKey: "onboarding.steps.runtime.description",
+        status: "current",
+      },
+      {
+        key: "trust",
+        titleKey: "onboarding.steps.trust.title",
+        descriptionKey: "onboarding.steps.trust.description",
+        status: "pending",
+      },
+      {
+        key: "connect",
+        titleKey: "onboarding.steps.connect.title",
+        descriptionKey: "onboarding.steps.connect.description",
+        status: "pending",
+      },
+      {
+        key: "ready",
+        titleKey: "onboarding.steps.ready.title",
+        descriptionKey: "onboarding.steps.ready.description",
+        status: "pending",
+      },
+    ] satisfies DashboardOnboardingStep[]);
 
   return {
     baseUrl: ref("/api"),
@@ -298,9 +298,9 @@ function createMockConfig(
     errorMessage: ref(overrides.errorMessage ?? ""),
     quickPairState: ref<QuickPairState>(overrides.quickPairState ?? "idle"),
     form: reactive(
-        createAdminConfigForm({
-          webhook_secret_exists: overrides.webhookSecretExists ?? false,
-        })
+      createAdminConfigForm({
+        webhook_secret_exists: overrides.webhookSecretExists ?? false,
+      })
     ),
     canSave: ref(overrides.canSave ?? true),
     sectionSaving: reactive({
@@ -348,10 +348,10 @@ function mountApp(config = createMockConfig()) {
 
 describe("Dashboard App", () => {
   it("renders auth controls, config sections, and webhook helper state", () => {
-    const {wrapper} = mountApp(
-        createMockConfig({
-          webhookSecretExists: true,
-        })
+    const { wrapper } = mountApp(
+      createMockConfig({
+        webhookSecretExists: true,
+      })
     );
 
     expect(wrapper.text()).toContain("Configuración segura del gateway");
@@ -364,7 +364,7 @@ describe("Dashboard App", () => {
   });
 
   it("shows quick-pair progress states and hides auth controls while connecting", async () => {
-    const {wrapper, config} = mountApp(createMockConfig({quickPairState: "validating"}));
+    const { wrapper, config } = mountApp(createMockConfig({ quickPairState: "validating" }));
 
     expect(wrapper.text()).toContain("Enlace detectado, validando");
     expect(wrapper.findAll("input")).toHaveLength(9);
@@ -377,48 +377,48 @@ describe("Dashboard App", () => {
   });
 
   it("shows quick-pair failures and delegates auth actions", async () => {
-    const {wrapper, config} = mountApp(
-        createMockConfig({
-          quickPairState: "failed",
-          errorMessage: "No se pudo conectar",
-          onboardingState: {
-            surfaceId: "web_dashboard",
-            state: "blocked",
-            trustMode: "http_paired",
-            transportMode: "http_gateway",
-            recoveryKind: "paired_but_not_connected",
-            canRetry: true,
-            canResume: true,
-            persistsPairingCode: false,
-            persistsBearerToken: true,
+    const { wrapper, config } = mountApp(
+      createMockConfig({
+        quickPairState: "failed",
+        errorMessage: "No se pudo conectar",
+        onboardingState: {
+          surfaceId: "web_dashboard",
+          state: "blocked",
+          trustMode: "http_paired",
+          transportMode: "http_gateway",
+          recoveryKind: "paired_but_not_connected",
+          canRetry: true,
+          canResume: true,
+          persistsPairingCode: false,
+          persistsBearerToken: true,
+        },
+        onboardingSteps: [
+          {
+            key: "runtime",
+            titleKey: "onboarding.steps.runtime.title",
+            descriptionKey: "onboarding.steps.runtime.description",
+            status: "complete",
           },
-          onboardingSteps: [
-            {
-              key: "runtime",
-              titleKey: "onboarding.steps.runtime.title",
-              descriptionKey: "onboarding.steps.runtime.description",
-              status: "complete",
-            },
-            {
-              key: "trust",
-              titleKey: "onboarding.steps.trust.title",
-              descriptionKey: "onboarding.steps.trust.description",
-              status: "complete",
-            },
-            {
-              key: "connect",
-              titleKey: "onboarding.steps.connect.title",
-              descriptionKey: "onboarding.steps.connect.description",
-              status: "blocked",
-            },
-            {
-              key: "ready",
-              titleKey: "onboarding.steps.ready.title",
-              descriptionKey: "onboarding.steps.ready.description",
-              status: "pending",
-            },
-          ],
-        })
+          {
+            key: "trust",
+            titleKey: "onboarding.steps.trust.title",
+            descriptionKey: "onboarding.steps.trust.description",
+            status: "complete",
+          },
+          {
+            key: "connect",
+            titleKey: "onboarding.steps.connect.title",
+            descriptionKey: "onboarding.steps.connect.description",
+            status: "blocked",
+          },
+          {
+            key: "ready",
+            titleKey: "onboarding.steps.ready.title",
+            descriptionKey: "onboarding.steps.ready.description",
+            status: "pending",
+          },
+        ],
+      })
     );
 
     expect(wrapper.text()).toContain("Falló el emparejamiento rápido");
@@ -434,11 +434,11 @@ describe("Dashboard App", () => {
   });
 
   it("propagates child section updates and save events", async () => {
-    const {wrapper, config} = mountApp(
-        createMockConfig({
-          canSave: false,
-          sectionSaving: {general: true, webhook: true},
-        })
+    const { wrapper, config } = mountApp(
+      createMockConfig({
+        canSave: false,
+        sectionSaving: { general: true, webhook: true },
+      })
     );
 
     const generalSection = wrapper.find('[data-section="general"]');
@@ -457,47 +457,47 @@ describe("Dashboard App", () => {
   });
 
   it("renders operator-ready completion copy when the dashboard is ready", () => {
-    const {wrapper} = mountApp(
-        createMockConfig({
-          isOperatorReady: true,
-          onboardingState: {
-            surfaceId: "web_dashboard",
-            state: "ready",
-            trustMode: "http_paired",
-            transportMode: "http_gateway",
-            recoveryKind: null,
-            canRetry: false,
-            canResume: true,
-            persistsPairingCode: false,
-            persistsBearerToken: true,
+    const { wrapper } = mountApp(
+      createMockConfig({
+        isOperatorReady: true,
+        onboardingState: {
+          surfaceId: "web_dashboard",
+          state: "ready",
+          trustMode: "http_paired",
+          transportMode: "http_gateway",
+          recoveryKind: null,
+          canRetry: false,
+          canResume: true,
+          persistsPairingCode: false,
+          persistsBearerToken: true,
+        },
+        onboardingSteps: [
+          {
+            key: "runtime",
+            titleKey: "onboarding.steps.runtime.title",
+            descriptionKey: "onboarding.steps.runtime.description",
+            status: "complete",
           },
-          onboardingSteps: [
-            {
-              key: "runtime",
-              titleKey: "onboarding.steps.runtime.title",
-              descriptionKey: "onboarding.steps.runtime.description",
-              status: "complete",
-            },
-            {
-              key: "trust",
-              titleKey: "onboarding.steps.trust.title",
-              descriptionKey: "onboarding.steps.trust.description",
-              status: "complete",
-            },
-            {
-              key: "connect",
-              titleKey: "onboarding.steps.connect.title",
-              descriptionKey: "onboarding.steps.connect.description",
-              status: "complete",
-            },
-            {
-              key: "ready",
-              titleKey: "onboarding.steps.ready.title",
-              descriptionKey: "onboarding.steps.ready.description",
-              status: "complete",
-            },
-          ],
-        })
+          {
+            key: "trust",
+            titleKey: "onboarding.steps.trust.title",
+            descriptionKey: "onboarding.steps.trust.description",
+            status: "complete",
+          },
+          {
+            key: "connect",
+            titleKey: "onboarding.steps.connect.title",
+            descriptionKey: "onboarding.steps.connect.description",
+            status: "complete",
+          },
+          {
+            key: "ready",
+            titleKey: "onboarding.steps.ready.title",
+            descriptionKey: "onboarding.steps.ready.description",
+            status: "complete",
+          },
+        ],
+      })
     );
 
     expect(wrapper.text()).toContain("Listo para operar");
@@ -505,7 +505,7 @@ describe("Dashboard App", () => {
   });
 
   it("switches to the local explorer from browse drill-ins and preserves local filters", async () => {
-    const {wrapper} = mountApp(createMockConfig({isOperatorReady: true}));
+    const { wrapper } = mountApp(createMockConfig({ isOperatorReady: true }));
 
     await wrapper.find('[data-testid="nav-memory"]').trigger("click");
     await wrapper.find(".list-open-explorer").trigger("click");
@@ -521,7 +521,7 @@ describe("Dashboard App", () => {
   });
 
   it("keeps the local explorer visibly separate from Cerebro memory mode", async () => {
-    const {wrapper} = mountApp(createMockConfig({isOperatorReady: true}));
+    const { wrapper } = mountApp(createMockConfig({ isOperatorReady: true }));
 
     await wrapper.find('[data-testid="nav-memory"]').trigger("click");
     await wrapper.find(".stats-select-category").trigger("click");

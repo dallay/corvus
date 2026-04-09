@@ -21,8 +21,8 @@ const emit = defineEmits<{
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function isClusterSelected(cluster: LocalMemoryRelationshipCluster): boolean {
   return (
-      (props.selection.sessionId ?? undefined) === (cluster.sessionId ?? undefined) &&
-      props.selection.category === cluster.category
+    (props.selection.sessionId ?? undefined) === (cluster.sessionId ?? undefined) &&
+    props.selection.category === cluster.category
   );
 }
 </script>
