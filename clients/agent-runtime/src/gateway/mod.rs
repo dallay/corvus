@@ -2184,18 +2184,14 @@ async fn handle_chat_stream(
             .event("error")
             .data(error_data.to_string()))],
         StreamProcessingOutcome::Success(response_text, tools_called) => {
-            let recalled_memory_keys: Vec<&str> = tools_called
-                .iter()
-                .filter(|name| name.as_str() == "memory_recall")
-                .map(String::as_str)
-                .collect();
+            let memory_recalled = tools_called.iter().any(|name| name == "memory_recall");
             vec![
                 Ok(Event::default().event("chunk").data(&response_text)),
                 Ok(Event::default().event("done").data(
                     serde_json::json!({
                         "message_id": message_id,
                         "session_id": sid,
-                        "recalled_memory_keys": recalled_memory_keys,
+                        "recalled_memory_keys": if memory_recalled { vec!["memory_recall"] } else { vec![] },
                     })
                     .to_string(),
                 )),

@@ -99,7 +99,7 @@ function updateAssistantMessage(
       ...messages.value[messageIndex],
       content,
       status,
-      ...(recalledMemoryKeys !== undefined && { recalledMemoryKeys }),
+      ...(recalledMemoryKeys != null && { recalledMemoryKeys }),
     };
   }
 }
