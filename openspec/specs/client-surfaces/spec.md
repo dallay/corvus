@@ -1,6 +1,6 @@
 ---
 doc_id: client-surfaces-capability-matrix
-version: 1.3.0
+version: 1.4.0
 created: 2026-03-21
 status: active
 owner: architecture
@@ -503,68 +503,177 @@ The dashboard MUST include a session monitoring page that displays a paginated t
 
 ### Requirement: Dashboard Session Detail View (CS-2)
 
-The dashboard MUST provide a session detail panel accessible by clicking a session row.
+The dashboard MUST provide a session detail panel accessible by clicking a session row, and that
+panel MUST now include additive Cerebro workflow status/action areas.
 
-- The detail view MUST display: session ID, started_at, ended_at (or "Active"), message_count,
-  last_activity, metadata (if present).
-- The detail view MUST display a memory summary: count of memory entries by category for that
-  session.
-- The detail view SHOULD provide a link/button to view the session's memory entries in the memory
-  browser (pre-filtered by session_id).
+- The detail view MUST still display: session ID, started_at, ended_at (or "Active"),
+  message_count, last_activity, metadata (if present), and local memory summary.
+- The detail view SHOULD still provide a link/button to view the session's memory entries in the
+  memory browser (pre-filtered by session_id).
+- The detail view MUST include a clearly labeled Cerebro section that reflects normalized tool
+  states and any returned context/session results.
 - The detail view MUST consume `GET /web/admin/sessions/:id` from the gateway.
 
-#### Scenario: Admin views session detail
+#### Scenario: Session detail separates local facts from Cerebro enhancements
 
-- GIVEN session "abc-123" is active with 15 messages and 6 memory entries (4 Conversation, 2 Core)
-- WHEN the admin clicks session "abc-123" in the session list
-- THEN the session detail panel MUST open
-- AND it MUST show: id "abc-123", message count 15, status "Active"
-- AND it MUST show memory summary: Conversation 4, Core 2.
+- GIVEN session `abc-123` has local metadata and local memory summary
+- AND Cerebro session tools are mixed between `available` and `not_implemented`
+- WHEN the admin opens the session detail panel
+- THEN the local session facts MUST remain visible as the primary session record
+- AND the Cerebro section MUST appear as an additive enhancement area with per-tool readiness.
 
 ### Requirement: Dashboard Memory Browser (CS-3)
 
-The dashboard MUST include a memory administration page with a searchable, filterable list of memory
-entries.
+The dashboard MUST include a memory administration page that supports both the existing local memory
+browser and a Cerebro-enhanced memory mode.
 
-- The page MUST be accessible from the dashboard navigation.
-- The page MUST display a table/list of memory entries with columns: Key, Category, Timestamp,
-  Session ID, Content (truncated preview).
-- The page MUST support filtering by category (Core, Daily, Conversation, Custom).
-- The page MUST support filtering by session ID (dropdown or text input).
-- The page MUST support full-text search via a search input field.
-- The page MUST support pagination.
-- Each entry MUST have a "Delete" action (with confirmation dialog).
-- The page MUST consume `GET /web/admin/memory` and `DELETE /web/admin/memory/:key`.
+- The local memory mode MUST preserve the existing browse/search/delete behavior.
+- The Cerebro memory mode MUST add semantic search and drill-in behavior without changing the local
+  endpoint contracts.
+- Operators MUST be able to tell which mode they are using.
+- The page MUST remain accessible from the dashboard navigation.
+- The local mode MUST continue consuming `GET /web/admin/memory` and `DELETE /web/admin/memory/:key`.
 
-#### Scenario: Admin deletes a memory entry
+#### Scenario: Admin switches between local and Cerebro memory modes
 
-- GIVEN a memory entry with key "outdated-fact" exists in the browser
-- WHEN the admin clicks "Delete" on that entry
-- THEN a confirmation dialog MUST appear
-- WHEN the admin confirms deletion
-- THEN the entry MUST be removed from the list
-- AND a DELETE request MUST be sent to /web/admin/memory/outdated-fact.
+- GIVEN the dashboard memory page is open
+- AND Cerebro semantic search is `available`
+- WHEN the admin switches from Local Memory to Cerebro Memory
+- THEN the local list/delete controls MUST remain associated with the Local Memory mode
+- AND the Cerebro mode MUST expose semantic search and remote drill-in controls.
 
 ### Requirement: Dashboard Memory Stats Summary (CS-4)
 
-The dashboard memory browser page MUST display a stats summary panel.
+The dashboard memory area MUST display the existing local stats summary and MUST now support a
+separate Cerebro status/remote-stats summary.
 
-- The panel MUST show: total entry count, entries by category, total sessions, active sessions,
-  backend name, Cerebro status.
-- The panel MUST consume `GET /web/admin/memory/stats`.
+- The local stats panel MUST continue consuming `GET /web/admin/memory/stats`.
+- Cerebro readiness MUST be sourced from `GET /web/admin/cerebro/status`.
+- Cerebro remote counts, when available, MUST be sourced from `GET /web/admin/cerebro/stats`.
 - The panel SHOULD be displayed above or alongside the memory entry list.
 
-#### Scenario: Memory stats panel displays correctly
+#### Scenario: Dashboard distinguishes configured from truly available Cerebro
 
-- GIVEN 50 memory entries (20 Core, 15 Conversation, 10 Daily, 5 Custom)
-- AND 8 total sessions, 3 active
-- AND backend is "sqlite", Cerebro is not configured
-- WHEN the admin views the memory browser page
-- THEN the stats panel MUST show: 50 total entries
-- AND the panel MUST show category breakdown
-- AND the panel MUST show 8 total sessions, 3 active
-- AND the panel MUST show backend "sqlite"
-- AND the panel MUST show Cerebro as "Not configured".
+- GIVEN `GET /web/admin/memory/stats` reports `cerebro_configured: true`
+- AND `GET /web/admin/cerebro/status` reports `service_state: "unreachable"`
+- WHEN the admin views the memory stats area
+- THEN the dashboard MUST show that Cerebro is configured but unreachable
+- AND the dashboard MUST NOT present that state as fully available.
+
+### Requirement: Dashboard Cerebro Capability Gating (CS-4A)
+
+The dashboard MUST treat Cerebro memory features as capability-gated admin enhancements rather than
+baseline functionality.
+
+- The dashboard MUST query `GET /web/admin/cerebro/status` before enabling Cerebro-specific memory or
+  session actions.
+- The dashboard MUST preserve separate operator labels for **Local Memory** and **Cerebro Memory**.
+- Existing local session and memory views MUST remain usable even when Cerebro is unavailable.
+- Cerebro-only actions MUST be enabled, disabled, or rendered as informational states based on the
+  normalized gateway states `available`, `unconfigured`, `unreachable`, `unsupported`, and
+  `not_implemented`.
+
+#### Scenario: Dashboard shows Cerebro as unavailable without blocking local tools
+
+- GIVEN the admin is authenticated in the dashboard
+- AND `GET /web/admin/cerebro/status` returns `service_state: "unconfigured"`
+- WHEN the admin opens the memory area
+- THEN the existing Local Memory browser MUST remain usable
+- AND Cerebro-specific controls MUST render an explicit unconfigured state
+- AND the dashboard MUST NOT hide or break the local memory experience.
+
+#### Scenario: Dashboard enables Cerebro features only when available
+
+- GIVEN the admin is authenticated in the dashboard
+- AND `GET /web/admin/cerebro/status` reports `mem_search`, `mem_get_observation`,
+  `mem_timeline`, and `mem_stats` as `available`
+- WHEN the admin opens the memory area
+- THEN the dashboard MUST enable the Cerebro search and insight controls
+- AND tools reported as non-available MUST remain visually distinct from the available ones.
+
+### Requirement: Dashboard Cerebro Semantic Search and Drill-In (CS-4B)
+
+The dashboard MUST provide a Cerebro semantic search flow that complements, but does not replace,
+the existing local SQLite memory browser.
+
+- Cerebro semantic search MUST use `POST /web/admin/cerebro/search`.
+- Search results MUST be summary-first and MUST NOT require the initial result list to include full
+  observation payloads.
+- Selecting a result MUST allow the dashboard to fetch observation detail and timeline detail through
+  the typed Cerebro proxy endpoints.
+- If Cerebro returns relationship, graph, or ontology-oriented metadata in observation or timeline
+  responses, the dashboard MUST render that information as read-only insights.
+
+#### Scenario: Admin performs Cerebro semantic search
+
+- GIVEN Cerebro search is `available`
+- WHEN the admin submits a semantic query from the Cerebro Memory view
+- THEN the dashboard MUST call `POST /web/admin/cerebro/search`
+- AND the result list MUST display summary-oriented results
+- AND the local memory browser MUST remain separately accessible.
+
+#### Scenario: Admin drills into a Cerebro result
+
+- GIVEN the Cerebro search results include memory `mem-42`
+- WHEN the admin selects `mem-42`
+- THEN the dashboard MUST request `GET /web/admin/cerebro/observations/mem-42`
+- AND the dashboard MUST be able to request the related timeline through
+  `POST /web/admin/cerebro/timeline`
+- AND the detail panel MUST render the returned observation and timeline information.
+
+#### Scenario: Dashboard renders relationship insights only when present
+
+- GIVEN a Cerebro observation response includes relationship or ontology metadata
+- WHEN the dashboard renders the observation detail
+- THEN the dashboard MUST show a read-only insight panel for those relationships
+- AND the dashboard MUST NOT present editing controls for graph or ontology data.
+
+### Requirement: Dashboard Cerebro Remote Stats and Insight Panels (CS-4C)
+
+The dashboard MUST surface Cerebro remote statistics and remote memory insights as additive panels in
+the admin memory experience.
+
+- Cerebro remote statistics MUST use `GET /web/admin/cerebro/stats`.
+- Remote stats MUST be displayed separately from the existing local `/web/admin/memory/stats`
+  summary.
+- Observation detail, timeline detail, and relationship/ontology insight panels MUST degrade
+  independently if one remote workflow is unavailable.
+
+#### Scenario: Dashboard shows local and remote stats separately
+
+- GIVEN local memory stats are available
+- AND Cerebro remote stats are `available`
+- WHEN the admin views the memory page
+- THEN the dashboard MUST show the local stats summary and the Cerebro remote stats summary as
+  distinct sections
+- AND the UI MUST make it clear which counts come from SQLite and which come from Cerebro.
+
+#### Scenario: Remote stats outage does not hide local stats
+
+- GIVEN local memory stats are available
+- AND `GET /web/admin/cerebro/stats` returns `state: "unreachable"`
+- WHEN the admin views the memory page
+- THEN the local stats panel MUST still render normally
+- AND the Cerebro stats panel MUST render an explicit unreachable state instead of a generic crash.
+
+### Requirement: Dashboard Non-Cerebro Graceful Degradation (CS-4D)
+
+Non-Cerebro deployments and partially implemented Cerebro deployments MUST continue to provide the
+same local operator value introduced by the session-memory-visibility change.
+
+- The dashboard MUST NOT require Cerebro to render the session list, session detail, local memory
+  browser, local memory stats, or local memory delete flows.
+- Cerebro-specific failures MUST remain scoped to the Cerebro panels or controls that triggered them.
+- The dashboard MUST use explicit empty, disabled, or informational states instead of removing the
+  entire memory/session experience.
+
+#### Scenario: Unreachable Cerebro does not regress local session views
+
+- GIVEN the admin can load `/web/admin/sessions` and `/web/admin/sessions/:id`
+- AND Cerebro status resolves to `unreachable`
+- WHEN the admin browses sessions in the dashboard
+- THEN the session list and local session detail MUST keep working
+- AND only the Cerebro-specific portions of the UI MUST show the unreachable state.
 
 ### Requirement: Chat Session History Sidebar (CS-5)
 
@@ -632,21 +741,21 @@ The chat app MUST NOT expose raw memory contents to end users.
 
 ### Requirement: Dashboard Admin TypeScript Types (CS-8)
 
-The dashboard MUST define TypeScript types for all new API responses.
+The dashboard MUST define typed client models for the Cerebro enhancement layer in addition to the
+existing local admin models.
 
-- `AdminSessionView`: session list item (id, started_at, ended_at, message_count, last_activity).
-- `AdminSessionDetail`: extends `AdminSessionView` with metadata and memory_summary.
-- `AdminMemoryEntry`: memory entry (id, key, content, category, timestamp, session_id).
-- `AdminMemoryStats`: stats response (total_entries, by_category, total_sessions, active_sessions,
-  backend, cerebro_configured).
-- Types MUST be defined in the existing `admin-config.ts` or a co-located types file.
+- The dashboard MUST define types for Cerebro capability status, tool readiness, semantic search
+  results, observation detail, timeline detail, remote stats, and normalized action errors.
+- Those types MUST represent the normalized states `available`, `unconfigured`, `unreachable`,
+  `unsupported`, and `not_implemented`.
+- Types MUST be defined in the existing admin types surface or a co-located types file.
 
-#### Scenario: TypeScript types match API response shape
+#### Scenario: Dashboard types support normalized Cerebro states
 
-- GIVEN the dashboard makes a request to GET /web/admin/sessions
-- WHEN the response is received
-- THEN the response MUST be parseable as PaginatedResponse<AdminSessionView>
-- AND all fields defined in AdminSessionView MUST be present.
+- GIVEN the dashboard receives a Cerebro proxy error with `state: "not_implemented"`
+- WHEN the response is parsed by the admin composable layer
+- THEN the response MUST be representable by the dashboard's typed admin models
+- AND the UI MUST be able to branch on that normalized state without string-parsing backend errors.
 
 ### Requirement: KMP/Mobile Session Visibility Deferred (CS-9)
 
@@ -667,30 +776,19 @@ KMP and mobile clients (composeApp, androidApp) are OUT OF SCOPE for Phase 1.
 
 ### Requirement: Visibility Rules (CS-10)
 
-| Capability         | Dashboard (Admin) | Chat (End-User) | KMP/Mobile |
-|--------------------|-------------------|-----------------|------------|
-| Session list (all) | MUST              | -               | Deferred   |
-| Session list (own) | -                 | MUST            | Deferred   |
-| Session detail     | MUST              | -               | Deferred   |
-| Memory browser     | MUST              | MUST NOT        | Deferred   |
-| Memory stats       | MUST              | MUST NOT        | Deferred   |
-| Memory delete      | MUST              | MUST NOT        | Deferred   |
-| Memory search      | MUST              | MUST NOT        | Deferred   |
-| Session switching  | -                 | MUST            | Deferred   |
-| New chat / session | -                 | MUST            | Deferred   |
+The visibility matrix MUST treat Cerebro enhancement features as admin-only operator capabilities.
 
-#### Scenario: Admin has full visibility
+- Dashboard (Admin) MUST have access to Cerebro capability status, Cerebro semantic search, Cerebro
+  remote stats, Cerebro observation/timeline drill-in, and Cerebro session/context actions.
+- Chat (End-User) MUST NOT have access to Cerebro admin capability data or Cerebro operator actions.
+- KMP/Mobile remains deferred for Cerebro operator workflows in this change.
 
-- GIVEN an admin user authenticated in the dashboard
-- THEN the user MUST have access to: session list, session detail, memory browser, memory stats,
-  memory delete.
+#### Scenario: End-user surfaces cannot access Cerebro operator features
 
-#### Scenario: End-user has scoped visibility
-
-- GIVEN an end user authenticated in the chat app
-- THEN the user MUST have access to: own session list, session switching, new chat
-- AND the user MUST NOT have access to: memory browser, memory stats, memory delete, all-sessions
-  list.
+- GIVEN an authenticated end user is using the chat surface
+- WHEN the user navigates the product
+- THEN the user MUST NOT have access to Cerebro admin capability state, semantic search, remote
+  stats, observation drill-in, or session/context operator actions.
 
 ## Matrix Immutability Rules
 
@@ -718,6 +816,7 @@ KMP and mobile clients (composeApp, androidApp) are OUT OF SCOPE for Phase 1.
 
 | Version | Date       | Changes                                                                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 1.4.0   | 2026-04-09 | Added Cerebro capability gating, semantic search, remote stats, graceful degradation, and updated dashboard/admin visibility requirements from cerebro-memory-enhancement-layer change                                     |
 | 1.3.0   | 2026-03-28 | Added session monitoring (CS-1, CS-2), memory browser (CS-3, CS-4), chat session sidebar (CS-5, CS-6, CS-7), admin types (CS-8), KMP deferred (CS-9), and visibility rules (CS-10) from session-memory-visibility change |
 | 1.2.0   | 2026-03-24 | Added i18n Tier column to capability matrix; cross-references to i18n governance and design token specs                                                                                                                  |
 | 1.1.0   | 2026-03-24 | Added onboarding alignment and recovery coverage requirements; clarified transport validation during onboarding                                                                                                          |

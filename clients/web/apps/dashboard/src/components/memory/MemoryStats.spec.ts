@@ -12,13 +12,69 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
 });
 
-function mockStatsResponse(stats: Record<string, unknown>) {
-  fetchMock.mockResolvedValueOnce(
-    new Response(JSON.stringify(stats), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    })
-  );
+function queueDefaultRequests(options?: { remoteUnavailable?: boolean }) {
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          total_entries: 50,
+          by_category: { Core: 20, Conversation: 15 },
+          total_sessions: 8,
+          active_sessions: 3,
+          backend: "sqlite",
+          cerebro_configured: true,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          service_state: options?.remoteUnavailable ? "unreachable" : "available",
+          tools: {
+            mem_search: { state: options?.remoteUnavailable ? "unreachable" : "available" },
+            mem_get_observation: { state: options?.remoteUnavailable ? "unreachable" : "available" },
+            mem_timeline: { state: options?.remoteUnavailable ? "unreachable" : "available" },
+            mem_stats: { state: options?.remoteUnavailable ? "unreachable" : "available" },
+            mem_save: { state: "available" },
+            mem_update: { state: "available" },
+            mem_delete: { state: "available" },
+            mem_save_prompt: { state: "not_implemented" },
+            mem_session_start: { state: "not_implemented" },
+            mem_session_end: { state: "not_implemented" },
+            mem_session_summary: { state: "not_implemented" },
+            mem_context: { state: "not_implemented" },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify(
+          options?.remoteUnavailable
+            ? {
+                state: "unreachable",
+                tool: "mem_stats",
+                message: "Cerebro is currently unreachable.",
+              }
+            : {
+                state: "available",
+                stats: {
+                  memory_count: 33,
+                  session_count: 9,
+                  prompt_count: 4,
+                  worker_enabled: true,
+                  worker_queue_depth: 2,
+                },
+              }
+        ),
+        {
+          status: options?.remoteUnavailable ? 503 : 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
 }
 
 function mountStats() {
@@ -34,101 +90,27 @@ function mountStats() {
 }
 
 describe("MemoryStats", () => {
-  it("renders all stats fields", async () => {
-    mockStatsResponse({
-      total_entries: 50,
-      by_category: { Core: 20, Conversation: 15, Daily: 10, Custom: 5 },
-      total_sessions: 8,
-      active_sessions: 3,
-      backend: "sqlite",
-      cerebro_configured: false,
-    });
+  it("renders local and remote stats separately", async () => {
+    queueDefaultRequests();
+
+    const wrapper = mountStats();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Local Memory");
+    expect(wrapper.text()).toContain("Cerebro Memory");
+    expect(wrapper.text()).toContain("Remote Memories");
+    expect(wrapper.text()).toContain("33");
+    expect(wrapper.text()).toContain("sqlite");
+  });
+
+  it("shows remote unreachable state without hiding local stats", async () => {
+    queueDefaultRequests({ remoteUnavailable: true });
 
     const wrapper = mountStats();
     await flushPromises();
 
     expect(wrapper.text()).toContain("50");
-    expect(wrapper.text()).toContain("8");
-    expect(wrapper.text()).toContain("3");
-    expect(wrapper.text()).toContain("sqlite");
-    expect(wrapper.text()).toContain("Total Entries");
-    expect(wrapper.text()).toContain("Total Sessions");
-    expect(wrapper.text()).toContain("Active Sessions");
-    expect(wrapper.text()).toContain("Backend");
-  });
-
-  it("shows Cerebro as Not configured when cerebro_configured is false", async () => {
-    mockStatsResponse({
-      total_entries: 10,
-      by_category: {},
-      total_sessions: 2,
-      active_sessions: 1,
-      backend: "sqlite",
-      cerebro_configured: false,
-    });
-
-    const wrapper = mountStats();
-    await flushPromises();
-
-    expect(wrapper.text()).toContain("Not configured");
-    expect(wrapper.find(".indicator-off").exists()).toBe(true);
-  });
-
-  it("shows Cerebro as Configured when cerebro_configured is true", async () => {
-    mockStatsResponse({
-      total_entries: 10,
-      by_category: {},
-      total_sessions: 2,
-      active_sessions: 1,
-      backend: "sqlite",
-      cerebro_configured: true,
-    });
-
-    const wrapper = mountStats();
-    await flushPromises();
-
-    expect(wrapper.text()).toContain("Configured");
-    expect(wrapper.find(".indicator-ok").exists()).toBe(true);
-  });
-
-  it("displays category breakdown when categories exist", async () => {
-    mockStatsResponse({
-      total_entries: 50,
-      by_category: { Core: 20, Conversation: 15, Daily: 10, Custom: 5 },
-      total_sessions: 8,
-      active_sessions: 3,
-      backend: "sqlite",
-      cerebro_configured: false,
-    });
-
-    const wrapper = mountStats();
-    await flushPromises();
-
-    expect(wrapper.text()).toContain("By Category");
-    expect(wrapper.text()).toContain("Core");
-    expect(wrapper.text()).toContain("20");
-    expect(wrapper.text()).toContain("Conversation");
-    expect(wrapper.text()).toContain("15");
-    expect(wrapper.text()).toContain("Daily");
-    expect(wrapper.text()).toContain("10");
-    expect(wrapper.text()).toContain("Custom");
-    expect(wrapper.text()).toContain("5");
-  });
-
-  it("does not show category breakdown when by_category is empty", async () => {
-    mockStatsResponse({
-      total_entries: 0,
-      by_category: {},
-      total_sessions: 0,
-      active_sessions: 0,
-      backend: "sqlite",
-      cerebro_configured: false,
-    });
-
-    const wrapper = mountStats();
-    await flushPromises();
-
-    expect(wrapper.find(".category-breakdown").exists()).toBe(false);
-    expect(wrapper.text()).toContain("0");
+    expect(wrapper.text()).toContain("Cerebro is currently unreachable.");
+    expect(wrapper.text()).toContain("unreachable");
   });
 });

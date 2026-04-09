@@ -1,6 +1,6 @@
 ---
 doc_id: memory-visibility
-version: 1.0.0
+version: 1.1.0
 created: 2026-03-28
 status: active
 owner: architecture
@@ -249,13 +249,217 @@ And the memory entry MUST NOT be deleted
 
 ---
 
+### MEM-3A: Cerebro Admin Capability Status Endpoint
+
+The system MUST expose an admin-only Cerebro capability endpoint at `GET /web/admin/cerebro/status`.
+
+The endpoint MUST:
+
+- require the same bearer-token authentication, admin-role checks, and admin origin checks as the
+  existing `/web/admin/memory*` endpoints,
+- return a typed response instead of raw MCP JSON-RPC output,
+- report a top-level `service_state` and per-tool readiness for the allowlisted Cerebro tools used by
+  operator memory workflows,
+- include the normalized states `available`, `unconfigured`, `unreachable`, `unsupported`, and
+  `not_implemented`,
+- treat `mem_search`, `mem_get_observation`, `mem_timeline`, `mem_stats`, `mem_save`,
+  `mem_update`, `mem_delete`, `mem_session_start`, `mem_session_end`, `mem_session_summary`,
+  `mem_context`, and `mem_save_prompt` as the allowlisted gateway-facing tool inventory,
+- sanitize internal MCP/auth details so that Cerebro endpoint URLs, bearer tokens, and raw JSON-RPC
+  envelopes are never returned to clients.
+
+The status contract MUST map states as follows:
+
+- `unconfigured` — the runtime is missing the Cerebro endpoint and/or auth token configuration.
+- `unreachable` — configuration exists but the gateway cannot reach or successfully authenticate to
+  Cerebro within the bounded request window.
+- `unsupported` — Cerebro is reachable but the queried tool is absent from the discovered tool
+  inventory or rejected as unsupported by the backend.
+- `not_implemented` — Cerebro recognizes the tool but returns its structured NotImplemented outcome.
+- `available` — the tool is ready for operator use.
+
+#### Scenario: Status reports an unconfigured deployment
+
+```gherkin
+Given the runtime has no valid `memory.cerebro.endpoint` or `memory.cerebro.auth_token`
+When an admin calls `GET /web/admin/cerebro/status`
+Then the response status MUST be 200
+And `service_state` MUST be `unconfigured`
+And every allowlisted tool state MUST be `unconfigured`
+And the response MUST NOT include raw MCP request or auth details.
+```
+
+#### Scenario: Status reports mixed ready and planned tools
+
+```gherkin
+Given Cerebro is configured and reachable
+And `mem_search`, `mem_get_observation`, `mem_timeline`, `mem_stats`, `mem_save`, `mem_update`,
+  and `mem_delete` succeed
+And `mem_session_start`, `mem_session_end`, `mem_session_summary`, `mem_context`, and
+  `mem_save_prompt` return Cerebro's structured NotImplemented error
+When an admin calls `GET /web/admin/cerebro/status`
+Then `service_state` MUST be `available`
+And the implemented tools MUST report `available`
+And the planned tools MUST report `not_implemented`.
+```
+
+#### Scenario: Status reports a reachable but older backend
+
+```gherkin
+Given Cerebro is configured and reachable
+And the discovered tool inventory omits `mem_timeline`
+When an admin calls `GET /web/admin/cerebro/status`
+Then `service_state` MUST remain `available`
+And the `mem_timeline` tool state MUST be `unsupported`
+And other discovered tools MUST keep their own normalized states.
+```
+
+---
+
+### MEM-3B: Allowlisted Typed Cerebro Proxy Endpoints
+
+The system MUST expose admin-only, typed proxy endpoints under `/web/admin/cerebro/*` for approved
+operator workflows and MUST NOT expose arbitrary MCP passthrough.
+
+The gateway MUST provide typed wrappers for at least the following workflows:
+
+- `POST /web/admin/cerebro/search` → `mem_search`
+- `GET /web/admin/cerebro/observations/:memory_id` → `mem_get_observation`
+- `POST /web/admin/cerebro/timeline` → `mem_timeline`
+- `GET /web/admin/cerebro/stats` → `mem_stats`
+- `POST /web/admin/cerebro/memories` → `mem_save`
+- `PATCH /web/admin/cerebro/memories/:memory_id` → `mem_update`
+- `DELETE /web/admin/cerebro/memories/:memory_id` → `mem_delete`
+- `POST /web/admin/cerebro/sessions/start` → `mem_session_start`
+- `POST /web/admin/cerebro/sessions/:session_id/end` → `mem_session_end`
+- `POST /web/admin/cerebro/sessions/:session_id/summary` → `mem_session_summary`
+- `POST /web/admin/cerebro/context` → `mem_context`
+- `POST /web/admin/cerebro/prompts` → `mem_save_prompt`
+
+These endpoints MUST:
+
+- reject request bodies that attempt to pass raw MCP envelopes or arbitrary tool names,
+- validate only the typed fields documented for the corresponding operator workflow,
+- return typed success/error bodies rather than raw `result` / `error` JSON-RPC objects,
+- preserve existing admin security boundaries and MUST NOT be available on non-admin routes.
+
+#### Scenario: Typed semantic search succeeds without raw MCP passthrough
+
+```gherkin
+Given Cerebro is configured and `mem_search` is available
+And an admin submits `POST /web/admin/cerebro/search` with a typed search payload
+When the gateway proxies the request
+Then the response status MUST be 200
+And the response body MUST include a typed search result payload
+And the response body MUST NOT expose JSON-RPC fields such as `jsonrpc`, `method`, or raw MCP
+  transport metadata.
+```
+
+#### Scenario: Raw tool passthrough is rejected
+
+```gherkin
+Given an admin sends `POST /web/admin/cerebro/search` with fields such as `tool`, `jsonrpc`,
+  `method`, or `params`
+When the gateway validates the request
+Then the response status MUST be 400
+And the gateway MUST reject the request as an invalid typed proxy payload
+And no arbitrary Cerebro tool call MUST be executed.
+```
+
+#### Scenario: Non-admin access to Cerebro proxy is denied
+
+```gherkin
+Given a caller is missing admin authorization
+When the caller requests any `/web/admin/cerebro/*` endpoint
+Then the response MUST be rejected with the same 401/403 behavior used by existing admin memory
+  endpoints
+And no Cerebro tool call MUST be attempted.
+```
+
+---
+
+### MEM-3C: Normalized Proxy Error Contract
+
+Every `/web/admin/cerebro/*` proxy endpoint MUST normalize backend availability into a stable typed
+contract that dashboard clients can branch on without parsing backend-specific error strings.
+
+For allowlisted proxy endpoints:
+
+- successful execution MUST return HTTP 200 with `state: "available"`,
+- `unconfigured` and `unreachable` outcomes MUST return HTTP 503 with the normalized `state`,
+- `unsupported` and `not_implemented` outcomes MUST return HTTP 501 with the normalized `state`,
+- validation failures in the typed gateway payload MUST return HTTP 400,
+- normalized error bodies MUST include the `state`, the target workflow/tool identity, and a
+  user-safe message.
+
+#### Scenario: Planned session summary returns normalized not_implemented
+
+```gherkin
+Given Cerebro is configured and reachable
+And `mem_session_summary` returns Cerebro's structured NotImplemented error
+When an admin calls `POST /web/admin/cerebro/sessions/abc-123/summary`
+Then the response status MUST be 501
+And the response body MUST include `state: "not_implemented"`
+And the response body MUST identify `mem_session_summary` as the affected tool
+And the response body MUST contain a user-safe message instead of a raw backend stack trace.
+```
+
+#### Scenario: Reachability failures return normalized unreachable
+
+```gherkin
+Given Cerebro configuration exists
+And the gateway times out or cannot establish a working Cerebro connection
+When an admin calls `GET /web/admin/cerebro/stats`
+Then the response status MUST be 503
+And the response body MUST include `state: "unreachable"`
+And existing local `/web/admin/memory/stats` behavior MUST remain unaffected.
+```
+
+---
+
+### MEM-3D: Local-First Independence for Admin Memory Visibility
+
+The Cerebro enhancement layer MUST NOT replace or weaken the existing local-first admin memory and
+session visibility contracts.
+
+- `/web/admin/memory*` and `/web/admin/sessions*` MUST continue to operate when Cerebro is
+  unconfigured, unreachable, unsupported, or partially implemented.
+- The SQLite-backed admin endpoints MUST remain the source of truth for local session lifecycle and
+  local memory visibility.
+- Cerebro session/context proxy workflows MUST be additive operator actions; they MUST NOT redefine
+  local session creation, update, or ending semantics.
+
+#### Scenario: Local memory visibility still works without Cerebro
+
+```gherkin
+Given Cerebro is not configured
+When an admin calls `GET /web/admin/memory` and `GET /web/admin/memory/stats`
+Then both responses MUST continue to succeed according to the existing local memory specification
+And the admin MUST still be able to browse and manage local memory entries.
+```
+
+#### Scenario: Local session detail remains authoritative during Cerebro outage
+
+```gherkin
+Given a local session `abc-123` exists in SQLite
+And Cerebro is configured but currently unreachable
+When an admin calls `GET /web/admin/sessions/abc-123`
+Then the local session detail response MUST still succeed
+And any Cerebro-specific operator action for that session MUST fail independently with a
+  normalized `unreachable` outcome.
+```
+
+---
+
 ### MEM-4: Memory Visibility Access Control
 
-Memory contents MUST be restricted to admin users only.
+The existing admin-only memory visibility boundary MUST extend to the Cerebro enhancement layer.
 
 - All `/web/admin/memory*` endpoints MUST require admin role.
-- End-user endpoints (e.g., `/session/list`) MUST NOT expose memory content, keys, or categories.
-- Memory entries MUST NOT appear in any non-admin API response.
+- All `/web/admin/cerebro*` endpoints MUST require the same admin role as `/web/admin/memory*`.
+- End-user and non-admin surfaces MUST NOT expose Cerebro capability data, remote memory payloads,
+  or session/context action results.
+- Cerebro capability/status metadata MUST be treated as admin-only operational information.
 
 #### Scenario: End-user session list contains no memory data
 
@@ -276,6 +480,15 @@ When GET /web/admin/sessions/abc-123 is called
 Then the response MUST include a memory_summary with entry counts by category
 And the response SHOULD NOT include full memory content inline
 And the admin SHOULD use GET /web/admin/memory?session_id=abc-123 for full content
+```
+
+#### Scenario: End-user routes do not expose Cerebro capability data
+
+```gherkin
+Given Cerebro is configured and reachable
+When an authenticated end user calls a non-admin endpoint such as `GET /session/list`
+Then the response MUST NOT contain Cerebro capability state, remote memory summaries, or tool
+  readiness metadata.
 ```
 
 ---
@@ -327,7 +540,8 @@ And "total" MUST be 0
 
 ### MEM-6: Response Types
 
-All memory and stats responses MUST conform to typed contracts.
+Admin memory visibility contracts MUST include typed Cerebro enhancement responses alongside the
+existing local memory response types.
 
 #### `AdminMemoryEntry`
 
@@ -366,6 +580,62 @@ interface AdminMemoryListResponse {
 }
 ```
 
+#### Additional Cerebro response contracts
+
+```typescript
+type CerebroGatewayState =
+  | "available"
+  | "unconfigured"
+  | "unreachable"
+  | "unsupported"
+  | "not_implemented";
+
+interface AdminCerebroToolStatus {
+  state: CerebroGatewayState;
+  message?: string;
+}
+
+interface AdminCerebroStatusResponse {
+  service_state: CerebroGatewayState;
+  tools: Record<string, AdminCerebroToolStatus>;
+}
+
+interface AdminCerebroSearchResponse {
+  state: "available";
+  results: Array<{ memory_id: string; summary: string; score?: number; topic_key?: string }>;
+  truncated: boolean;
+  results_count: number;
+}
+
+interface AdminCerebroObservationResponse {
+  state: "available";
+  observation: Record<string, unknown>;
+}
+
+interface AdminCerebroTimelineResponse {
+  state: "available";
+  items: Array<Record<string, unknown>>;
+  items_count: number;
+}
+
+interface AdminCerebroStatsResponse {
+  state: "available";
+  stats: {
+    memory_count: number;
+    session_count: number;
+    prompt_count: number;
+    worker_enabled: boolean;
+    worker_queue_depth: number;
+  };
+}
+
+interface AdminCerebroActionError {
+  state: Exclude<CerebroGatewayState, "available">;
+  tool: string;
+  message: string;
+}
+```
+
 #### Scenario: Memory list response matches AdminMemoryEntry shape
 
 ```gherkin
@@ -389,8 +659,20 @@ And active_sessions MUST be less than or equal to total_sessions
 And backend MUST be a non-empty string
 ```
 
+#### Scenario: Cerebro status response matches typed contract
+
+```gherkin
+Given an admin requests `GET /web/admin/cerebro/status`
+When the gateway returns a status response
+Then the response MUST contain `service_state`
+And the response MUST contain a `tools` object keyed by allowlisted tool names
+And every tool entry MUST expose a normalized `state`
+And no raw JSON-RPC envelope fields MUST be present.
+```
+
 ## Change History
 
 | Version | Date       | Changes                                                     |
 |---------|------------|-------------------------------------------------------------|
+| 1.1.0   | 2026-04-09 | Added Cerebro admin capability/proxy contracts, normalized error states, local-first independence, and typed Cerebro responses from cerebro-memory-enhancement-layer change |
 | 1.0.0   | 2026-03-28 | Initial specification from session-memory-visibility change |

@@ -45,6 +45,7 @@ use tower_http::timeout::TimeoutLayer;
 use uuid::Uuid;
 
 pub mod admin;
+pub mod cerebro;
 pub mod cost;
 pub mod sessions;
 pub mod utils;
@@ -1328,6 +1329,55 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route(
             "/web/admin/memory/:key",
             axum::routing::delete(admin::handle_admin_delete_memory),
+        )
+        .route(
+            "/web/admin/cerebro/status",
+            get(cerebro::handle_admin_cerebro_status),
+        )
+        .route(
+            "/web/admin/cerebro/search",
+            post(cerebro::handle_admin_cerebro_search),
+        )
+        .route(
+            "/web/admin/cerebro/observations/:memory_id",
+            get(cerebro::handle_admin_cerebro_observation),
+        )
+        .route(
+            "/web/admin/cerebro/timeline",
+            post(cerebro::handle_admin_cerebro_timeline),
+        )
+        .route(
+            "/web/admin/cerebro/stats",
+            get(cerebro::handle_admin_cerebro_stats),
+        )
+        .route(
+            "/web/admin/cerebro/memories",
+            post(cerebro::handle_admin_cerebro_create_memory),
+        )
+        .route(
+            "/web/admin/cerebro/memories/:memory_id",
+            axum::routing::patch(cerebro::handle_admin_cerebro_update_memory)
+                .delete(cerebro::handle_admin_cerebro_delete_memory),
+        )
+        .route(
+            "/web/admin/cerebro/prompts",
+            post(cerebro::handle_admin_cerebro_prompt),
+        )
+        .route(
+            "/web/admin/cerebro/sessions/start",
+            post(cerebro::handle_admin_cerebro_session_start),
+        )
+        .route(
+            "/web/admin/cerebro/sessions/:session_id/end",
+            post(cerebro::handle_admin_cerebro_session_end),
+        )
+        .route(
+            "/web/admin/cerebro/sessions/:session_id/summary",
+            post(cerebro::handle_admin_cerebro_session_summary),
+        )
+        .route(
+            "/web/admin/cerebro/context",
+            post(cerebro::handle_admin_cerebro_context),
         )
         .route("/session/list", get(sessions::handle_session_list))
         .route("/web/chat/stream", post(handle_chat_stream))

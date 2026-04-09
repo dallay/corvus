@@ -59,6 +59,7 @@ impl McpClient {
         match self.server.command.as_str() {
             "__mcp_mock__" => self.list_tools_from_mock_payload(),
             "__mcp_mock_sleep__" => self.list_tools_from_mock_sleep(),
+            "__mcp_cerebro_http__" => self.list_tools_http(),
             _ => self.list_tools_from_command(),
         }
     }
@@ -498,6 +499,103 @@ impl McpClient {
             String::from_utf8(stdout_bytes).context("MCP discovery output was not UTF-8")?;
         parse_tool_manifest_payload(&stdout_str)
     }
+
+    fn list_tools_http(&self) -> anyhow::Result<Vec<McpToolManifest>> {
+        if tokio::runtime::Handle::try_current().is_ok() {
+            let this = self.clone();
+            return std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .context("failed to create runtime for MCP HTTP discovery")?;
+                runtime.block_on(this.list_tools_http_async())
+            })
+            .join()
+            .map_err(|_| anyhow::anyhow!("MCP HTTP discovery worker thread panicked"))?;
+        }
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("failed to create runtime for MCP HTTP discovery")?;
+        runtime.block_on(self.list_tools_http_async())
+    }
+
+    async fn list_tools_http_async(&self) -> anyhow::Result<Vec<McpToolManifest>> {
+        let endpoint = self
+            .server
+            .args
+            .first()
+            .context("MCP HTTP endpoint missing in server args")?;
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(self.server.call_timeout_ms))
+            .build()
+            .context("failed to build MCP HTTP client")?;
+
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": Uuid::new_v4().to_string(),
+            "method": "tools/list",
+            "params": {}
+        });
+
+        let mut req = client.post(endpoint).json(&request);
+        if let Some(token) = self.server.env.get("MCP_AUTH_TOKEN") {
+            if !token.trim().is_empty() {
+                req = req.bearer_auth(token.trim());
+            }
+        }
+
+        let response = req.send().await.context("MCP HTTP discovery failed")?;
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .context("failed to read MCP HTTP discovery body")?;
+        let redacted = redact_diagnostic(
+            &body,
+            self.server.env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        );
+
+        if !status.is_success() {
+            anyhow::bail!(
+                "{}",
+                json!({
+                    "code": "mcp_transport_error",
+                    "server": self.server.name,
+                    "reason": format!("HTTP {}", status.as_u16()),
+                    "details": redacted,
+                })
+            );
+        }
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&body).context("MCP HTTP discovery response was not valid JSON")?;
+
+        if let Some(error) = payload.get("error") {
+            let safe_error = redact_diagnostic(
+                &error.to_string(),
+                self.server.env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+            );
+            anyhow::bail!(
+                "{}",
+                json!({
+                    "code": "mcp_error",
+                    "server": self.server.name,
+                    "reason": safe_error,
+                })
+            );
+        }
+
+        let tools = payload
+            .get("result")
+            .and_then(|value| value.get("tools"))
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("MCP HTTP discovery response missing result.tools"))?;
+
+        parse_tool_manifest_payload(&json!({ "tools": tools }).to_string())
+    }
 }
 
 pub(crate) fn redact_diagnostic<'a>(
@@ -657,6 +755,89 @@ pub(crate) fn parse_prompt_manifest_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
+    use std::collections::BTreeMap;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct MockMcpState {
+        requests: Arc<Mutex<Vec<serde_json::Value>>>,
+    }
+
+    fn http_server_config(endpoint: String, token: &str) -> McpServerConfig {
+        let mut env = BTreeMap::new();
+        env.insert("MCP_AUTH_TOKEN".to_string(), token.to_string());
+        McpServerConfig {
+            name: "cerebro".into(),
+            command: "__mcp_cerebro_http__".into(),
+            args: vec![endpoint],
+            env,
+            call_timeout_ms: 5_000,
+            ..McpServerConfig::default()
+        }
+    }
+
+    async fn spawn_mcp_server(
+        token: &'static str,
+        status: StatusCode,
+        payload: serde_json::Value,
+    ) -> (String, MockMcpState) {
+        async fn handler(
+            State(state): State<MockMcpState>,
+            headers: axum::http::HeaderMap,
+            Json(body): Json<serde_json::Value>,
+        ) -> impl IntoResponse {
+            state.requests.lock().unwrap().push(body.clone());
+
+            let auth = headers
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+
+            let expected = format!("Bearer {}", body["params"].get("token_expect").and_then(|v| v.as_str()).unwrap_or("test-token"));
+            if auth != expected {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"error": {"message": format!("invalid token {auth}")}})),
+                );
+            }
+
+            let status = body["params"].get("status_code").and_then(|v| v.as_u64()).unwrap_or(200) as u16;
+            (
+                StatusCode::from_u16(status).unwrap_or(StatusCode::OK),
+                Json(body["params"].get("response_payload").cloned().unwrap_or_else(|| json!({}))),
+            )
+        }
+
+        let state = MockMcpState::default();
+        let payload_clone = payload.clone();
+        let app = Router::new()
+            .route(
+                "/",
+                post(
+                    move |State(state): State<MockMcpState>,
+                          headers: axum::http::HeaderMap,
+                          Json(mut body): Json<serde_json::Value>| {
+                        let payload = payload_clone.clone();
+                        async move {
+                            body["params"]["token_expect"] = serde_json::Value::String(token.to_string());
+                            body["params"]["status_code"] = serde_json::Value::from(status.as_u16());
+                            body["params"]["response_payload"] = payload;
+                            handler(State(state), headers, Json(body)).await
+                        }
+                    },
+                ),
+            )
+            .with_state(state.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        (format!("http://{addr}"), state)
+    }
 
     #[test]
     fn parse_payload_ignores_non_tool_capabilities_when_tools_exist() {
@@ -768,5 +949,51 @@ mod tests {
         let resources = parse_resource_manifest_payload(payload).unwrap();
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0].name, "index");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn list_tools_uses_live_http_discovery() {
+        let (endpoint, state) = spawn_mcp_server(
+            "secret-token",
+            StatusCode::OK,
+            json!({
+                "result": {
+                    "tools": [
+                        {"name": "mem_search", "description": "Search", "parameters": {"type": "object"}},
+                        {"name": "mem_stats", "description": "Stats", "parameters": {"type": "object"}}
+                    ]
+                }
+            }),
+        )
+        .await;
+
+        let client = McpClient::new(http_server_config(endpoint, "secret-token"));
+        let tools = client.list_tools().unwrap();
+
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0].name, "mem_search");
+        let requests = state.requests.lock().unwrap();
+        assert_eq!(requests[0]["method"], "tools/list");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn list_tools_redacts_auth_token_from_failures() {
+        let secret = "super-secret-token";
+        let (endpoint, _state) = spawn_mcp_server(
+            secret,
+            StatusCode::UNAUTHORIZED,
+            json!({
+                "error": {
+                    "message": format!("token rejected: {secret}")
+                }
+            }),
+        )
+        .await;
+
+        let client = McpClient::new(http_server_config(endpoint, secret));
+        let error = client.list_tools().unwrap_err().to_string();
+
+        assert!(error.contains("HTTP 401"));
+        assert!(!error.contains(secret));
     }
 }

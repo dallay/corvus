@@ -91,6 +91,15 @@ onMounted(() => load());
 
 <template>
   <div class="memory-list">
+    <header class="memory-list-header">
+      <div>
+        <p class="memory-kicker">Local Memory</p>
+        <h3>SQLite-backed memory browser</h3>
+      </div>
+      <p class="helper">
+        Local memory stays available even when Cerebro is unconfigured, unreachable, or partially implemented.
+      </p>
+    </header>
     <p v-if="admin.loading.value" class="helper" aria-live="polite" role="status">
       {{ t("memory.loading", "Loading memory entries…") }}
     </p>
@@ -328,4 +337,23 @@ onMounted(() => load());
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
 }
+.memory-list-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.memory-list-header h3,
+.memory-kicker {
+  margin: 0;
+}
+
+.memory-kicker {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
 </style>

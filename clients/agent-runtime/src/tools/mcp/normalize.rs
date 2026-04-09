@@ -4,6 +4,114 @@ use serde_json::Value;
 pub const CEREBRO_TOOL_STORE: &str = "mem_save";
 pub const CEREBRO_TOOL_RECALL: &str = "mem_search";
 pub const CEREBRO_TOOL_FORGET: &str = "mem_delete";
+pub const CEREBRO_TOOL_GET_OBSERVATION: &str = "mem_get_observation";
+pub const CEREBRO_TOOL_TIMELINE: &str = "mem_timeline";
+pub const CEREBRO_TOOL_STATS: &str = "mem_stats";
+pub const CEREBRO_TOOL_UPDATE: &str = "mem_update";
+pub const CEREBRO_TOOL_SAVE_PROMPT: &str = "mem_save_prompt";
+pub const CEREBRO_TOOL_SESSION_START: &str = "mem_session_start";
+pub const CEREBRO_TOOL_SESSION_END: &str = "mem_session_end";
+pub const CEREBRO_TOOL_SESSION_SUMMARY: &str = "mem_session_summary";
+pub const CEREBRO_TOOL_CONTEXT: &str = "mem_context";
+
+pub const CEREBRO_GATEWAY_ALLOWLIST: [&str; 12] = [
+    CEREBRO_TOOL_RECALL,
+    CEREBRO_TOOL_GET_OBSERVATION,
+    CEREBRO_TOOL_TIMELINE,
+    CEREBRO_TOOL_STATS,
+    CEREBRO_TOOL_STORE,
+    CEREBRO_TOOL_UPDATE,
+    CEREBRO_TOOL_FORGET,
+    CEREBRO_TOOL_SESSION_START,
+    CEREBRO_TOOL_SESSION_END,
+    CEREBRO_TOOL_SESSION_SUMMARY,
+    CEREBRO_TOOL_CONTEXT,
+    CEREBRO_TOOL_SAVE_PROMPT,
+];
+
+pub const CEREBRO_PLANNED_TOOLS: [&str; 4] = [
+    CEREBRO_TOOL_SAVE_PROMPT,
+    CEREBRO_TOOL_SESSION_START,
+    CEREBRO_TOOL_SESSION_END,
+    CEREBRO_TOOL_SESSION_SUMMARY,
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CerebroGatewayState {
+    Available,
+    Unconfigured,
+    Unreachable,
+    Unsupported,
+    NotImplemented,
+}
+
+pub fn is_cerebro_gateway_tool(tool_name: &str) -> bool {
+    CEREBRO_GATEWAY_ALLOWLIST.contains(&tool_name)
+}
+
+pub fn is_cerebro_planned_tool(tool_name: &str) -> bool {
+    CEREBRO_PLANNED_TOOLS.contains(&tool_name)
+}
+
+pub fn configured_cerebro_gateway_state(configured: bool) -> CerebroGatewayState {
+    if configured {
+        CerebroGatewayState::Available
+    } else {
+        CerebroGatewayState::Unconfigured
+    }
+}
+
+pub fn classify_cerebro_error(raw_error: &str) -> CerebroGatewayState {
+    let normalized = raw_error.to_ascii_lowercase();
+
+    if normalized.contains("memory.cerebro.endpoint must be configured")
+        || normalized.contains("memory.cerebro.auth_token must be configured")
+        || normalized.contains("memory.cerebro.auth_token is required")
+        || normalized.contains("missing cerebro endpoint")
+    {
+        return CerebroGatewayState::Unconfigured;
+    }
+
+    if normalized.contains("notimplemented") || normalized.contains("not_implemented") {
+        return CerebroGatewayState::NotImplemented;
+    }
+
+    if normalized.contains("unsupported") || normalized.contains("not supported") {
+        return CerebroGatewayState::Unsupported;
+    }
+
+    if normalized.contains("timeout")
+        || normalized.contains("transport")
+        || normalized.contains("failed")
+        || normalized.contains("unreachable")
+        || normalized.contains("egress")
+        || normalized.contains("http 4")
+        || normalized.contains("http 5")
+    {
+        return CerebroGatewayState::Unreachable;
+    }
+
+    CerebroGatewayState::Unreachable
+}
+
+pub fn cerebro_gateway_message(state: CerebroGatewayState, tool_name: &str) -> String {
+    match state {
+        CerebroGatewayState::Available => format!("{tool_name} is available."),
+        CerebroGatewayState::Unconfigured => {
+            "Cerebro is not configured. Local memory remains available.".to_string()
+        }
+        CerebroGatewayState::Unreachable => {
+            "Cerebro is currently unreachable. Local memory remains available.".to_string()
+        }
+        CerebroGatewayState::Unsupported => {
+            format!("The current Cerebro deployment does not support {tool_name}.")
+        }
+        CerebroGatewayState::NotImplemented => format!(
+            "Cerebro defines {tool_name} but the current server still returns NotImplemented. Local memory remains available."
+        ),
+    }
+}
 
 pub fn legacy_alias_target(tool_name: &str) -> Option<&'static str> {
     match tool_name {
@@ -229,5 +337,45 @@ mod tests {
         assert_eq!(meta.kind, "mcp_prompt");
         assert_eq!(meta.server.as_deref(), Some("workflows"));
         assert_eq!(meta.original_name.as_deref(), Some("code-review"));
+    }
+
+    #[test]
+    fn classify_unconfigured_cerebro_error() {
+        let state = classify_cerebro_error("memory.cerebro.endpoint must be configured");
+        assert_eq!(state, CerebroGatewayState::Unconfigured);
+    }
+
+    #[test]
+    fn classify_unreachable_cerebro_error() {
+        let state = classify_cerebro_error(r#"{"code":"mcp_transport_error","reason":"HTTP 503"}"#);
+        assert_eq!(state, CerebroGatewayState::Unreachable);
+    }
+
+    #[test]
+    fn classify_unsupported_cerebro_error() {
+        let state = classify_cerebro_error("tool unsupported by backend");
+        assert_eq!(state, CerebroGatewayState::Unsupported);
+    }
+
+    #[test]
+    fn classify_not_implemented_cerebro_error() {
+        let state = classify_cerebro_error("NotImplemented: mem_context is planned");
+        assert_eq!(state, CerebroGatewayState::NotImplemented);
+    }
+
+    #[test]
+    fn allowlist_contains_all_gateway_facing_tools() {
+        assert_eq!(CEREBRO_GATEWAY_ALLOWLIST.len(), 12);
+        for tool in CEREBRO_GATEWAY_ALLOWLIST {
+            assert!(is_cerebro_gateway_tool(tool));
+        }
+    }
+
+    #[test]
+    fn planned_tools_are_tracked_separately() {
+        assert!(is_cerebro_planned_tool(CEREBRO_TOOL_SESSION_SUMMARY));
+        assert!(is_cerebro_planned_tool(CEREBRO_TOOL_SAVE_PROMPT));
+        assert!(!is_cerebro_planned_tool(CEREBRO_TOOL_CONTEXT));
+        assert!(!is_cerebro_planned_tool(CEREBRO_TOOL_TIMELINE));
     }
 }
