@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
 import { useI18n } from "vue-i18n";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import CerebroStatusCard from "@/components/memory/CerebroStatusCard.vue";
 import { useAdmin } from "@/composables/useAdmin";
 
 const props = defineProps<{
@@ -12,18 +14,23 @@ const props = defineProps<{
 const { t } = useI18n();
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 
-onMounted(() => admin.fetchMemoryStats());
+onMounted(async () => {
+  await admin.fetchMemoryStats();
+
+  await Promise.allSettled([admin.fetchCerebroStatus(), admin.fetchCerebroStats()]);
+});
 </script>
 
 <template>
   <div class="memory-stats">
-    <p v-if="admin.loading.value" class="helper" aria-live="polite" role="status">
+    <p v-if="admin.loadingBuckets.value.memoryStats" class="helper" aria-live="polite" role="status">
       {{ t("memory.statsLoading", "Loading stats…") }}
     </p>
-    <p v-else-if="admin.error.value" class="error" aria-live="assertive" role="alert">
+    <p v-else-if="admin.error.value && !admin.memoryStats.value" class="error" aria-live="assertive" role="alert">
       {{ admin.error.value }}
     </p>
     <template v-else-if="admin.memoryStats.value">
+      <h3 class="section-title">Local Memory</h3>
       <div class="stats-grid">
         <div class="stat-card">
           <span class="stat-value">{{ admin.memoryStats.value.total_entries }}</span>
@@ -41,30 +48,49 @@ onMounted(() => admin.fetchMemoryStats());
           <span class="stat-value">{{ admin.memoryStats.value.backend }}</span>
           <span class="stat-label">{{ t("memory.statBackend", "Backend") }}</span>
         </div>
-        <div class="stat-card">
-          <span
-            class="stat-value"
-            :class="admin.memoryStats.value.cerebro_configured ? 'indicator-ok' : 'indicator-off'"
-          >
-            {{ admin.memoryStats.value.cerebro_configured
-              ? t("memory.cerebroConfigured", "Configured")
-              : t("memory.cerebroNotConfigured", "Not configured") }}
-          </span>
-          <span class="stat-label">{{ t("memory.statCerebro", "Cerebro") }}</span>
-        </div>
       </div>
 
-      <div
-        v-if="Object.keys(admin.memoryStats.value.by_category).length > 0"
-        class="category-breakdown"
-      >
+      <div class="remote-grid">
+        <CerebroStatusCard :status="admin.cerebroStatus.value" />
+
+        <section class="cerebro-remote-card">
+          <header class="card-header">
+            <div>
+              <p class="eyebrow">Cerebro Memory</p>
+              <h4>Remote Stats</h4>
+            </div>
+          </header>
+          <p
+            v-if="admin.cerebroStats.value && 'state' in admin.cerebroStats.value && admin.cerebroStats.value.state !== 'available'"
+            class="helper"
+          >
+            {{ admin.cerebroStats.value.message }}
+          </p>
+          <div v-else-if="admin.cerebroStats.value && 'stats' in admin.cerebroStats.value" class="stats-grid">
+            <div class="stat-card">
+              <span class="stat-value">{{ admin.cerebroStats.value.stats.memory_count }}</span>
+              <span class="stat-label">Remote Memories</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">{{ admin.cerebroStats.value.stats.session_count }}</span>
+              <span class="stat-label">Remote Sessions</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">{{ admin.cerebroStats.value.stats.prompt_count }}</span>
+              <span class="stat-label">Saved Prompts</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">{{ admin.cerebroStats.value.stats.worker_queue_depth }}</span>
+              <span class="stat-label">Worker Queue</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="Object.keys(admin.memoryStats.value.by_category).length > 0" class="category-breakdown">
         <h4>{{ t("memory.statByCategory", "By Category") }}</h4>
         <div class="category-grid">
-          <div
-            v-for="(count, cat) in admin.memoryStats.value.by_category"
-            :key="String(cat)"
-            class="category-item"
-          >
+          <div v-for="(count, cat) in admin.memoryStats.value.by_category" :key="String(cat)" class="category-item">
             <span class="category-name">{{ cat }}</span>
             <span class="category-count">{{ count }}</span>
           </div>
@@ -75,13 +101,25 @@ onMounted(() => admin.fetchMemoryStats());
 </template>
 
 <style scoped>
+.section-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
 .stats-grid {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.stat-card {
+.remote-grid {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.stat-card,
+.cerebro-remote-card {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -90,6 +128,21 @@ onMounted(() => admin.fetchMemoryStats());
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-bg-secondary) 82%, transparent);
   min-width: 100px;
+}
+
+.card-header {
+  margin-bottom: 8px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.card-header h4 {
+  margin: 0;
 }
 
 .stat-value {
@@ -102,16 +155,6 @@ onMounted(() => admin.fetchMemoryStats());
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-text-secondary);
-}
-
-.indicator-ok {
-  color: #22c55e;
-  font-size: 13px;
-}
-
-.indicator-off {
-  color: #9ca3af;
-  font-size: 13px;
 }
 
 .category-breakdown {

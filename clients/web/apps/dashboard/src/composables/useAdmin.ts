@@ -10,6 +10,17 @@ import type {
   AdminCostView,
 } from "@/types/admin-config";
 import type {
+  AdminCerebroActionError,
+  AdminCerebroActionResponse,
+  AdminCerebroActionSuccess,
+  AdminCerebroContextRequest,
+  AdminCerebroObservationResponse,
+  AdminCerebroSearchRequest,
+  AdminCerebroSearchResponse,
+  AdminCerebroStatsResponse,
+  AdminCerebroStatusResponse,
+  AdminCerebroTimelineRequest,
+  AdminCerebroTimelineResponse,
   AdminMemoryEntry,
   AdminMemoryListResponse,
   AdminMemoryStats,
@@ -17,6 +28,7 @@ import type {
   AdminSessionDetailResponse,
   AdminSessionListResponse,
   AdminSessionView,
+  CerebroToolName,
 } from "@/types/admin-sessions";
 
 export interface SessionListParams {
@@ -35,6 +47,32 @@ export interface MemoryListParams {
   per_page?: number;
 }
 
+type RequestBucket =
+  | "sessions"
+  | "sessionDetail"
+  | "memoryEntries"
+  | "memoryStats"
+  | "cerebroStatus"
+  | "cerebroStats"
+  | "cerebroSearch"
+  | "cerebroObservation"
+  | "cerebroTimeline"
+  | "cerebroAction"
+  | "cost";
+
+function isNormalizedCerebroError(value: unknown): value is AdminCerebroActionError {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.state === "string" &&
+    candidate.state !== "available" &&
+    typeof candidate.tool === "string" &&
+    typeof candidate.message === "string"
+  );
+}
+
 export function useAdmin(
   gatewayUrl: (path: string) => string,
   authHeaders: () => Record<string, string>
@@ -43,17 +81,45 @@ export function useAdmin(
   const sessionDetail = ref<AdminSessionDetail | null>(null);
   const memoryEntries = ref<AdminMemoryEntry[]>([]);
   const memoryStats = ref<AdminMemoryStats | null>(null);
+  const cerebroStatus = ref<AdminCerebroStatusResponse | null>(null);
+  const cerebroStats = ref<AdminCerebroActionResponse<AdminCerebroStatsResponse> | null>(null);
+  const cerebroSearch = ref<AdminCerebroActionResponse<AdminCerebroSearchResponse> | null>(null);
+  const cerebroObservation =
+    ref<AdminCerebroActionResponse<AdminCerebroObservationResponse> | null>(null);
+  const cerebroTimeline = ref<AdminCerebroActionResponse<AdminCerebroTimelineResponse> | null>(
+    null
+  );
+  const cerebroLastAction = ref<AdminCerebroActionResponse<AdminCerebroActionSuccess> | null>(null);
   const costConfig = ref<AdminCostView | null>(null);
   const costSummary = ref<AdminCostSummaryView | null>(null);
   const costHistory = ref<AdminCostHistoryView | null>(null);
-  // NOTE: Single shared loading ref — concurrent calls will overwrite each other's state.
-  // Acceptable for this dashboard's sequential usage pattern.
   const loading = ref(false);
   const error = ref<string | null>(null);
   const totalSessions = ref(0);
   const totalMemoryEntries = ref(0);
+  const loadingBuckets = ref<Record<RequestBucket, boolean>>({
+    sessions: false,
+    sessionDetail: false,
+    memoryEntries: false,
+    memoryStats: false,
+    cerebroStatus: false,
+    cerebroStats: false,
+    cerebroSearch: false,
+    cerebroObservation: false,
+    cerebroTimeline: false,
+    cerebroAction: false,
+    cost: false,
+  });
   let sessionDetailAbortController: AbortController | null = null;
   let sessionDetailRequestId = 0;
+
+  function setLoading(bucket: RequestBucket, value: boolean) {
+    loadingBuckets.value = {
+      ...loadingBuckets.value,
+      [bucket]: value,
+    };
+    loading.value = Object.values(loadingBuckets.value).some(Boolean);
+  }
 
   function buildUrl(path: string, params?: Record<string, string | number | undefined>): string {
     let url: URL;
@@ -72,36 +138,112 @@ export function useAdmin(
     return url.toString();
   }
 
-  async function fetchSessions(params: SessionListParams = {}): Promise<void> {
-    loading.value = true;
-    error.value = null;
-    try {
-      const url = buildUrl("/web/admin/sessions", {
-        status: params.status,
-        limit: params.per_page,
-        offset: params.page ? (params.page - 1) * (params.per_page ?? 50) : undefined,
-        sort: params.sort,
-        order: params.order,
-      });
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30_000);
-      try {
-        const res = await fetch(url, { headers: authHeaders(), signal: controller.signal });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const data = (await res.json()) as AdminSessionListResponse;
-        sessions.value = data.sessions;
-        totalSessions.value = data.total;
-      } finally {
-        clearTimeout(timeoutId);
+  function buildHeaders(init?: RequestInit): Headers {
+    const headers = new Headers(authHeaders());
+
+    if (init?.headers) {
+      const provided = new Headers(init.headers);
+      for (const [key, value] of provided.entries()) {
+        headers.set(key, value);
       }
+    }
+
+    const bodyIsString = typeof init?.body === "string";
+    if (bodyIsString && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+
+    return headers;
+  }
+
+  async function fetchJson<T>(
+    bucket: RequestBucket,
+    path: string,
+    init?: RequestInit,
+    params?: Record<string, string | number | undefined>
+  ): Promise<T> {
+    setLoading(bucket, true);
+    error.value = null;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(buildUrl(path, params), {
+        ...init,
+        headers: buildHeaders(init),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      if (res.status === 204) {
+        return undefined as T;
+      }
+
+      const text = await res.text();
+      if (!text.trim()) {
+        return undefined as T;
+      }
+
+      return JSON.parse(text) as T;
+    } finally {
+      clearTimeout(timeoutId);
+      setLoading(bucket, false);
+    }
+  }
+
+  async function fetchCerebroJson<T>(
+    bucket: RequestBucket,
+    path: string,
+    init?: RequestInit,
+    params?: Record<string, string | number | undefined>
+  ): Promise<AdminCerebroActionResponse<T>> {
+    setLoading(bucket, true);
+    error.value = null;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(buildUrl(path, params), {
+        ...init,
+        headers: buildHeaders(init),
+        signal: controller.signal,
+      });
+      const payload = (await res.json()) as T | AdminCerebroActionError;
+      if (res.ok) {
+        return payload as T;
+      }
+      if (isNormalizedCerebroError(payload)) {
+        return payload;
+      }
+      throw new Error(`HTTP ${res.status}`);
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e);
+      throw e;
+    } finally {
+      clearTimeout(timeoutId);
+      setLoading(bucket, false);
+    }
+  }
+
+  async function fetchSessions(params: SessionListParams = {}): Promise<void> {
+    try {
+      const data = await fetchJson<AdminSessionListResponse>(
+        "sessions",
+        "/web/admin/sessions",
+        undefined,
+        {
+          status: params.status,
+          limit: params.per_page,
+          offset: params.page ? (params.page - 1) * (params.per_page ?? 50) : undefined,
+          sort: params.sort,
+          order: params.order,
+        }
+      );
+      sessions.value = data.sessions;
+      totalSessions.value = data.total;
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e);
       sessions.value = [];
       totalSessions.value = 0;
-    } finally {
-      loading.value = false;
     }
   }
 
@@ -110,30 +252,25 @@ export function useAdmin(
     sessionDetailAbortController?.abort();
     const controller = new AbortController();
     sessionDetailAbortController = controller;
-    loading.value = true;
+    setLoading("sessionDetail", true);
     error.value = null;
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
     try {
-      const url = buildUrl(`/web/admin/sessions/${encodeURIComponent(id)}`);
-      const timeoutId = setTimeout(() => controller.abort(), 30_000);
-      try {
-        const res = await fetch(url, { headers: authHeaders(), signal: controller.signal });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const data = (await res.json()) as AdminSessionDetailResponse;
-        if (requestId !== sessionDetailRequestId) {
-          return;
-        }
-        sessionDetail.value = {
-          ...data.session,
-          memory_summary: data.memory_summary,
-        } as AdminSessionDetail;
-      } finally {
-        clearTimeout(timeoutId);
-        if (sessionDetailAbortController === controller) {
-          sessionDetailAbortController = null;
-        }
+      const res = await fetch(buildUrl(`/web/admin/sessions/${encodeURIComponent(id)}`), {
+        headers: buildHeaders(),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
       }
+      const data = (await res.json()) as AdminSessionDetailResponse;
+      if (requestId !== sessionDetailRequestId) {
+        return;
+      }
+      sessionDetail.value = {
+        ...data.session,
+        memory_summary: data.memory_summary,
+      } as AdminSessionDetail;
     } catch (e: unknown) {
       if (requestId !== sessionDetailRequestId) {
         return;
@@ -144,236 +281,222 @@ export function useAdmin(
       error.value = e instanceof Error ? e.message : String(e);
       sessionDetail.value = null;
     } finally {
+      clearTimeout(timeoutId);
+      if (sessionDetailAbortController === controller) {
+        sessionDetailAbortController = null;
+      }
       if (requestId === sessionDetailRequestId) {
-        loading.value = false;
+        setLoading("sessionDetail", false);
       }
     }
   }
 
   async function fetchMemoryEntries(params: MemoryListParams = {}): Promise<void> {
-    loading.value = true;
-    error.value = null;
     try {
-      const url = buildUrl("/web/admin/memory", {
-        category: params.category,
-        session_id: params.session_id,
-        q: params.search,
-        limit: params.per_page,
-        offset: params.page ? (params.page - 1) * (params.per_page ?? 50) : undefined,
-      });
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30_000);
-      try {
-        const res = await fetch(url, { headers: authHeaders(), signal: controller.signal });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
+      const data = await fetchJson<AdminMemoryListResponse>(
+        "memoryEntries",
+        "/web/admin/memory",
+        undefined,
+        {
+          category: params.category,
+          session_id: params.session_id,
+          q: params.search,
+          limit: params.per_page,
+          offset: params.page ? (params.page - 1) * (params.per_page ?? 50) : undefined,
         }
-        const data = (await res.json()) as AdminMemoryListResponse;
-        memoryEntries.value = data.entries;
-        totalMemoryEntries.value = data.total;
-      } finally {
-        clearTimeout(timeoutId);
-      }
+      );
+      memoryEntries.value = data.entries;
+      totalMemoryEntries.value = data.total;
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e);
       memoryEntries.value = [];
       totalMemoryEntries.value = 0;
-    } finally {
-      loading.value = false;
     }
   }
 
   async function fetchMemoryStats(): Promise<void> {
-    loading.value = true;
-    error.value = null;
     try {
-      const url = buildUrl("/web/admin/memory/stats");
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30_000);
-      try {
-        const res = await fetch(url, { headers: authHeaders(), signal: controller.signal });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        memoryStats.value = (await res.json()) as AdminMemoryStats;
-      } finally {
-        clearTimeout(timeoutId);
-      }
+      memoryStats.value = await fetchJson<AdminMemoryStats>(
+        "memoryStats",
+        "/web/admin/memory/stats"
+      );
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e);
       memoryStats.value = null;
-    } finally {
-      loading.value = false;
     }
   }
 
-  async function fetchCostConfig(): Promise<AdminCostView | null> {
-    loading.value = true;
-    error.value = null;
+  async function fetchCerebroStatus(): Promise<AdminCerebroStatusResponse | null> {
     try {
-      const url = buildUrl("/web/admin/config");
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30_000);
-      try {
-        const res = await fetch(url, { headers: authHeaders(), signal: controller.signal });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const data = (await res.json()) as AdminConfigResponse;
-        costConfig.value = data.config?.cost ?? null;
-        return costConfig.value;
-      } finally {
-        clearTimeout(timeoutId);
+      const data = await fetchJson<AdminCerebroStatusResponse>(
+        "cerebroStatus",
+        "/web/admin/cerebro/status"
+      );
+      cerebroStatus.value = data;
+      return data;
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e);
+      cerebroStatus.value = null;
+      return null;
+    }
+  }
+
+  async function fetchCerebroStats(): Promise<
+    AdminCerebroActionResponse<AdminCerebroStatsResponse>
+  > {
+    const response = await fetchCerebroJson<AdminCerebroStatsResponse>(
+      "cerebroStats",
+      "/web/admin/cerebro/stats"
+    );
+    cerebroStats.value = response;
+    return response;
+  }
+
+  async function searchCerebro(request: AdminCerebroSearchRequest) {
+    const response = await fetchCerebroJson<AdminCerebroSearchResponse>(
+      "cerebroSearch",
+      "/web/admin/cerebro/search",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
       }
+    );
+    cerebroSearch.value = response;
+    return response;
+  }
+
+  async function fetchCerebroObservation(memoryId: string) {
+    const response = await fetchCerebroJson<AdminCerebroObservationResponse>(
+      "cerebroObservation",
+      `/web/admin/cerebro/observations/${encodeURIComponent(memoryId)}`
+    );
+    cerebroObservation.value = response;
+    return response;
+  }
+
+  async function fetchCerebroTimeline(request: AdminCerebroTimelineRequest) {
+    const response = await fetchCerebroJson<AdminCerebroTimelineResponse>(
+      "cerebroTimeline",
+      "/web/admin/cerebro/timeline",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      }
+    );
+    cerebroTimeline.value = response;
+    return response;
+  }
+
+  async function invokeCerebroContext(request: AdminCerebroContextRequest) {
+    const response = await fetchCerebroJson<AdminCerebroActionSuccess>(
+      "cerebroAction",
+      "/web/admin/cerebro/context",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      }
+    );
+    cerebroLastAction.value = response;
+    return response;
+  }
+
+  async function invokeCerebroSessionAction(
+    tool: Extract<CerebroToolName, "mem_session_start" | "mem_session_end" | "mem_session_summary">,
+    sessionId?: string,
+    payload: Record<string, unknown> = {}
+  ) {
+    if ((tool === "mem_session_end" || tool === "mem_session_summary") && !sessionId) {
+      const message = `${tool} requires a session_id.`;
+      error.value = message;
+      throw new Error(message);
+    }
+
+    const path =
+      tool === "mem_session_start"
+        ? "/web/admin/cerebro/sessions/start"
+        : tool === "mem_session_end"
+          ? `/web/admin/cerebro/sessions/${encodeURIComponent(sessionId ?? "")}/end`
+          : `/web/admin/cerebro/sessions/${encodeURIComponent(sessionId ?? "")}/summary`;
+    const response = await fetchCerebroJson<AdminCerebroActionSuccess>("cerebroAction", path, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    cerebroLastAction.value = response;
+    return response;
+  }
+
+  async function fetchCostConfig(): Promise<AdminCostView | null> {
+    try {
+      const data = await fetchJson<AdminConfigResponse>("cost", "/web/admin/config");
+      costConfig.value = data.config?.cost ?? null;
+      return costConfig.value;
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e);
       costConfig.value = null;
       throw e;
-    } finally {
-      loading.value = false;
     }
   }
 
   async function fetchCostSummary(): Promise<AdminCostSummaryResponse> {
-    loading.value = true;
-    error.value = null;
     try {
-      const url = buildUrl("/web/cost/summary");
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30_000);
-      try {
-        const res = await fetch(url, { headers: authHeaders(), signal: controller.signal });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const data = (await res.json()) as AdminCostSummaryResponse;
-        costSummary.value = data.summary;
-        costConfig.value = data.config;
-        return data;
-      } finally {
-        clearTimeout(timeoutId);
-      }
+      const data = await fetchJson<AdminCostSummaryResponse>("cost", "/web/cost/summary");
+      costSummary.value = data.summary;
+      costConfig.value = data.config;
+      return data;
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e);
       costSummary.value = null;
       throw e;
-    } finally {
-      loading.value = false;
     }
   }
 
   async function fetchCostHistory(
     params: AdminCostHistoryParams = {}
   ): Promise<AdminCostHistoryView> {
-    loading.value = true;
-    error.value = null;
     try {
-      const url = buildUrl("/web/cost/history", {
+      const data = await fetchJson<AdminCostHistoryView>("cost", "/web/cost/history", undefined, {
         period: params.period,
         window: params.window,
       });
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30_000);
-      try {
-        const res = await fetch(url, { headers: authHeaders(), signal: controller.signal });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const data = (await res.json()) as AdminCostHistoryView;
-        costHistory.value = data;
-        return data;
-      } finally {
-        clearTimeout(timeoutId);
-      }
+      costHistory.value = data;
+      return data;
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e);
       costHistory.value = null;
       throw e;
-    } finally {
-      loading.value = false;
     }
   }
 
   async function resetCost(scope: "session" | "day" | "month"): Promise<AdminCostResetResultView> {
-    loading.value = true;
-    error.value = null;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const url = buildUrl("/web/admin/cost/reset");
-      const res = await fetch(url, {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({ scope }),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      return (await res.json()) as AdminCostResetResultView;
-    } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e);
-      throw e;
-    } finally {
-      clearTimeout(timeoutId);
-      loading.value = false;
-    }
+    return fetchJson<AdminCostResetResultView>("cost", "/web/admin/cost/reset", {
+      method: "POST",
+      body: JSON.stringify({ scope }),
+    });
   }
 
   async function grantCostOverride(): Promise<AdminCostOverrideRecordView> {
-    loading.value = true;
-    error.value = null;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const url = buildUrl("/web/admin/cost/override");
-      const res = await fetch(url, {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({ scope: "next_request" }),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      return (await res.json()) as AdminCostOverrideRecordView;
-    } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e);
-      throw e;
-    } finally {
-      clearTimeout(timeoutId);
-      loading.value = false;
-    }
+    return fetchJson<AdminCostOverrideRecordView>("cost", "/web/admin/cost/override", {
+      method: "POST",
+      body: JSON.stringify({ scope: "next_request" }),
+    });
   }
 
   async function deleteMemoryEntry(key: string): Promise<boolean> {
-    loading.value = true;
-    error.value = null;
     try {
-      const url = buildUrl(`/web/admin/memory/${encodeURIComponent(key)}`);
-      const res = await fetch(url, {
+      await fetchJson("memoryEntries", `/web/admin/memory/${encodeURIComponent(key)}`, {
         method: "DELETE",
-        headers: authHeaders(),
       });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
       return true;
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e);
       return false;
-    } finally {
-      loading.value = false;
     }
   }
 
   async function isSessionApiAvailable(): Promise<boolean> {
     try {
       const url = buildUrl("/web/admin/sessions", { limit: 1 });
-      const res = await fetch(url, {
-        method: "GET",
-        headers: authHeaders(),
-      });
+      const res = await fetch(url, { method: "GET", headers: buildHeaders() });
       return res.ok;
     } catch {
       return false;
@@ -385,10 +508,17 @@ export function useAdmin(
     sessionDetail,
     memoryEntries,
     memoryStats,
+    cerebroStatus,
+    cerebroStats,
+    cerebroSearch,
+    cerebroObservation,
+    cerebroTimeline,
+    cerebroLastAction,
     costConfig,
     costSummary,
     costHistory,
     loading,
+    loadingBuckets,
     error,
     totalSessions,
     totalMemoryEntries,
@@ -396,6 +526,13 @@ export function useAdmin(
     fetchSessionDetail,
     fetchMemoryEntries,
     fetchMemoryStats,
+    fetchCerebroStatus,
+    fetchCerebroStats,
+    searchCerebro,
+    fetchCerebroObservation,
+    fetchCerebroTimeline,
+    invokeCerebroContext,
+    invokeCerebroSessionAction,
     fetchCostConfig,
     fetchCostSummary,
     fetchCostHistory,

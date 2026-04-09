@@ -13,18 +13,41 @@ beforeEach(() => {
 });
 
 function mockDetailResponse(detail: Record<string, unknown>) {
-  fetchMock.mockResolvedValueOnce(
-    new Response(
-      JSON.stringify({
-        session: detail,
-        memory_summary: (detail.memory_summary as Record<string, unknown> | undefined) ?? {},
-      }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          session: detail,
+          memory_summary: (detail.memory_summary as Record<string, unknown> | undefined) ?? {},
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
     )
-  );
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          service_state: "available",
+          tools: {
+            mem_search: { state: "available" },
+            mem_get_observation: { state: "available" },
+            mem_timeline: { state: "available" },
+            mem_stats: { state: "available" },
+            mem_save: { state: "available" },
+            mem_update: { state: "available" },
+            mem_delete: { state: "available" },
+            mem_save_prompt: { state: "not_implemented" },
+            mem_session_start: { state: "not_implemented" },
+            mem_session_end: { state: "not_implemented" },
+            mem_session_summary: { state: "not_implemented" },
+            mem_context: { state: "available" },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
 }
 
 function deferredResponse(detail: Record<string, unknown>) {
@@ -117,6 +140,8 @@ describe("SessionDetail", () => {
     expect(wrapper.text()).toContain("4");
     expect(wrapper.text()).toContain("Core");
     expect(wrapper.text()).toContain("2");
+    expect(wrapper.text()).toContain("Session Enhancements");
+    expect(wrapper.text()).toContain("not_implemented");
   });
 
   it("shows 0 entries message when memory summary is empty", async () => {
@@ -202,7 +227,55 @@ describe("SessionDetail", () => {
 
     fetchMock
       .mockImplementationOnce(() => firstResponse.promise)
-      .mockImplementationOnce(() => secondResponse.promise);
+      .mockImplementationOnce(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              service_state: "available",
+              tools: {
+                mem_search: { state: "available" },
+                mem_get_observation: { state: "available" },
+                mem_timeline: { state: "available" },
+                mem_stats: { state: "available" },
+                mem_save: { state: "available" },
+                mem_update: { state: "available" },
+                mem_delete: { state: "available" },
+                mem_save_prompt: { state: "not_implemented" },
+                mem_session_start: { state: "not_implemented" },
+                mem_session_end: { state: "not_implemented" },
+                mem_session_summary: { state: "not_implemented" },
+                mem_context: { state: "available" },
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        )
+      )
+      .mockImplementationOnce(() => secondResponse.promise)
+      .mockImplementationOnce(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              service_state: "available",
+              tools: {
+                mem_search: { state: "available" },
+                mem_get_observation: { state: "available" },
+                mem_timeline: { state: "available" },
+                mem_stats: { state: "available" },
+                mem_save: { state: "available" },
+                mem_update: { state: "available" },
+                mem_delete: { state: "available" },
+                mem_save_prompt: { state: "not_implemented" },
+                mem_session_start: { state: "not_implemented" },
+                mem_session_end: { state: "not_implemented" },
+                mem_session_summary: { state: "not_implemented" },
+                mem_context: { state: "available" },
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        )
+      );
 
     const wrapper = mountDetail("older-session");
     await wrapper.setProps({ sessionId: "newer-session" });

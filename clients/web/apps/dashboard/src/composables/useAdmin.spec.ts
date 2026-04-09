@@ -59,7 +59,7 @@ describe("useAdmin", () => {
       expect(parsed.searchParams.get("offset")).toBe("10");
       expect(parsed.searchParams.get("sort")).toBe("started_at");
       expect(parsed.searchParams.get("order")).toBe("desc");
-      expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer test-token");
     });
 
     it("populates sessions ref and totalSessions on success", async () => {
@@ -373,6 +373,104 @@ describe("useAdmin", () => {
     });
   });
 
+  describe("fetchCerebroStatus", () => {
+    it("loads typed Cerebro status", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            service_state: "available",
+            tools: {
+              mem_search: { state: "available" },
+              mem_get_observation: { state: "available" },
+              mem_timeline: { state: "available" },
+              mem_stats: { state: "available" },
+              mem_save: { state: "available" },
+              mem_update: { state: "available" },
+              mem_delete: { state: "available" },
+              mem_save_prompt: { state: "not_implemented" },
+              mem_session_start: { state: "not_implemented" },
+              mem_session_end: { state: "not_implemented" },
+              mem_session_summary: { state: "not_implemented" },
+              mem_context: { state: "not_implemented" },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      const admin = createAdmin();
+      const result = await admin.fetchCerebroStatus();
+
+      expect(result?.service_state).toBe("available");
+      expect(admin.cerebroStatus.value?.tools.mem_search.state).toBe("available");
+      expect(admin.loadingBuckets.value.cerebroStatus).toBe(false);
+    });
+  });
+
+  describe("fetchCerebroStats", () => {
+    it("parses normalized degraded responses without throwing", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            state: "unreachable",
+            tool: "mem_stats",
+            message: "Cerebro is currently unreachable.",
+          }),
+          { status: 503, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      const admin = createAdmin();
+      const result = await admin.fetchCerebroStats();
+
+      expect(result).toEqual({
+        state: "unreachable",
+        tool: "mem_stats",
+        message: "Cerebro is currently unreachable.",
+      });
+    });
+  });
+
+  describe("searchCerebro", () => {
+    it("uses typed search endpoint and loading bucket", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            state: "available",
+            results: [{ memory_id: "mem-42", summary: "User prefers dark mode", score: 0.92 }],
+            truncated: false,
+            results_count: 1,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      const admin = createAdmin();
+      const result = await admin.searchCerebro({ query: "dark mode", limit: 5 });
+
+      const [url, init] = fetchMock.mock.calls[0] ?? [];
+      expect(url).toContain("/web/admin/cerebro/search");
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("Content-Type")).toBe("application/json");
+      expect(JSON.parse(String(init?.body))).toMatchObject({ query: "dark mode", limit: 5 });
+      expect(result).toMatchObject({ state: "available", results_count: 1 });
+      expect(admin.cerebroSearch.value).toMatchObject({ state: "available", results_count: 1 });
+      expect(admin.loadingBuckets.value.cerebroSearch).toBe(false);
+    });
+  });
+
+  describe("invokeCerebroSessionAction", () => {
+    it("fails fast when session-scoped tools are missing session_id", async () => {
+      const admin = createAdmin();
+
+      await expect(admin.invokeCerebroSessionAction("mem_session_end")).rejects.toThrow(
+        "mem_session_end requires a session_id."
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(admin.error.value).toBe("mem_session_end requires a session_id.");
+    });
+  });
+
   describe("deleteMemoryEntry", () => {
     it("sends DELETE with correct URL and auth headers", async () => {
       fetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
@@ -384,7 +482,17 @@ describe("useAdmin", () => {
       const [url, init] = fetchMock.mock.calls[0] ?? [];
       expect(url).toContain("/web/admin/memory/outdated-fact");
       expect(init?.method).toBe("DELETE");
-      expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer test-token");
+    });
+
+    it("treats empty successful responses as successful deletes", async () => {
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+      const admin = createAdmin();
+      const result = await admin.deleteMemoryEntry("outdated-fact");
+
+      expect(result).toBe(true);
+      expect(admin.error.value).toBeNull();
     });
 
     it("returns false and sets error on 404", async () => {

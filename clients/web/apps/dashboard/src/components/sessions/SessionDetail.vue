@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { watch } from "vue";
 import { useI18n } from "vue-i18n";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import CerebroSessionActions from "@/components/sessions/CerebroSessionActions.vue";
 import { useAdmin } from "@/composables/useAdmin";
 
 const props = defineProps<{
@@ -20,7 +22,18 @@ const { t } = useI18n();
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 
 async function load() {
-  await admin.fetchSessionDetail(props.sessionId);
+  const [sessionResult, cerebroResult] = await Promise.allSettled([
+    admin.fetchSessionDetail(props.sessionId),
+    admin.fetchCerebroStatus(),
+  ]);
+
+  if (sessionResult.status === "rejected") {
+    throw sessionResult.reason;
+  }
+
+  if (cerebroResult.status === "rejected") {
+    console.error("Failed to fetch Cerebro status", cerebroResult.reason);
+  }
 }
 
 watch(() => props.sessionId, load, { immediate: true });
@@ -35,7 +48,7 @@ watch(() => props.sessionId, load, { immediate: true });
       </button>
     </div>
 
-    <p v-if="admin.loading.value" class="helper" aria-live="polite" role="status">
+    <p v-if="admin.loadingBuckets.value.sessionDetail" class="helper" aria-live="polite" role="status">
       {{ t("sessions.loading", "Loading…") }}
     </p>
     <p v-else-if="admin.error.value" class="error" aria-live="assertive" role="alert">
@@ -95,12 +108,16 @@ watch(() => props.sessionId, load, { immediate: true });
         </p>
       </div>
 
-      <button
-        class="view-memory-btn"
-        @click="emit('view-memory', admin.sessionDetail.value.id)"
-      >
+      <button class="view-memory-btn" @click="emit('view-memory', admin.sessionDetail.value.id)">
         {{ t("sessions.viewMemory", "View Memory Entries") }}
       </button>
+
+      <CerebroSessionActions
+        :gateway-url="gatewayUrl"
+        :auth-headers="authHeaders"
+        :session-id="sessionId"
+        :status="admin.cerebroStatus.value"
+      />
     </template>
   </div>
 </template>
