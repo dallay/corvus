@@ -34,7 +34,9 @@ pub async fn cerebro_call_tool(
     tool_name: &str,
     arguments: serde_json::Value,
 ) -> anyhow::Result<serde_json::Value> {
-    let raw = cerebro_client(cerebro)?.call_tool(tool_name, arguments).await?;
+    let raw = cerebro_client(cerebro)?
+        .call_tool(tool_name, arguments)
+        .await?;
     serde_json::from_str(&raw).or_else(|_| Ok(serde_json::Value::String(raw)))
 }
 
@@ -109,6 +111,8 @@ mod tests {
     fn cerebro_client_uses_http_transport_for_gateway_calls() {
         let client = cerebro_client(&configured_cerebro()).unwrap();
         let tools = client.list_tools().unwrap_err().to_string();
-        assert!(tools.contains("MCP HTTP discovery failed") || tools.contains("mcp_transport_error"));
+        assert!(
+            tools.contains("MCP HTTP discovery failed") || tools.contains("mcp_transport_error")
+        );
     }
 }

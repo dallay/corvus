@@ -555,7 +555,10 @@ impl McpClient {
             .context("failed to read MCP HTTP discovery body")?;
         let redacted = redact_diagnostic(
             &body,
-            self.server.env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+            self.server
+                .env
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str())),
         );
 
         if !status.is_success() {
@@ -570,13 +573,16 @@ impl McpClient {
             );
         }
 
-        let payload: serde_json::Value =
-            serde_json::from_str(&body).context("MCP HTTP discovery response was not valid JSON")?;
+        let payload: serde_json::Value = serde_json::from_str(&body)
+            .context("MCP HTTP discovery response was not valid JSON")?;
 
         if let Some(error) = payload.get("error") {
             let safe_error = redact_diagnostic(
                 &error.to_string(),
-                self.server.env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+                self.server
+                    .env
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v.as_str())),
             );
             anyhow::bail!(
                 "{}",
@@ -755,7 +761,9 @@ pub(crate) fn parse_prompt_manifest_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
+    use axum::{
+        extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router,
+    };
     use std::collections::BTreeMap;
     use std::sync::{Arc, Mutex};
 
@@ -795,7 +803,13 @@ mod tests {
                 .unwrap_or_default()
                 .to_string();
 
-            let expected = format!("Bearer {}", body["params"].get("token_expect").and_then(|v| v.as_str()).unwrap_or("test-token"));
+            let expected = format!(
+                "Bearer {}",
+                body["params"]
+                    .get("token_expect")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("test-token")
+            );
             if auth != expected {
                 return (
                     StatusCode::UNAUTHORIZED,
@@ -803,10 +817,18 @@ mod tests {
                 );
             }
 
-            let status = body["params"].get("status_code").and_then(|v| v.as_u64()).unwrap_or(200) as u16;
+            let status = body["params"]
+                .get("status_code")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(200) as u16;
             (
                 StatusCode::from_u16(status).unwrap_or(StatusCode::OK),
-                Json(body["params"].get("response_payload").cloned().unwrap_or_else(|| json!({}))),
+                Json(
+                    body["params"]
+                        .get("response_payload")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                ),
             )
         }
 
@@ -821,8 +843,10 @@ mod tests {
                           Json(mut body): Json<serde_json::Value>| {
                         let payload = payload_clone.clone();
                         async move {
-                            body["params"]["token_expect"] = serde_json::Value::String(token.to_string());
-                            body["params"]["status_code"] = serde_json::Value::from(status.as_u16());
+                            body["params"]["token_expect"] =
+                                serde_json::Value::String(token.to_string());
+                            body["params"]["status_code"] =
+                                serde_json::Value::from(status.as_u16());
                             body["params"]["response_payload"] = payload;
                             handler(State(state), headers, Json(body)).await
                         }

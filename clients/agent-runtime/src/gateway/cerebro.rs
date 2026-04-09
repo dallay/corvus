@@ -199,7 +199,11 @@ fn config_or_status(config: &MemoryCerebroConfig) -> Result<(), normalize::Cereb
 
 fn inventory_status(
     config: &MemoryCerebroConfig,
-) -> (normalize::CerebroGatewayState, BTreeSet<String>, Option<String>) {
+) -> (
+    normalize::CerebroGatewayState,
+    BTreeSet<String>,
+    Option<String>,
+) {
     if let Err(state) = config_or_status(config) {
         return (state, BTreeSet::new(), None);
     }
@@ -241,7 +245,11 @@ fn tool_status_map(
             _ => Some(service_error.map_or_else(
                 || normalize::cerebro_gateway_message(state, tool),
                 |error| {
-                    if matches!(state, normalize::CerebroGatewayState::Unconfigured | normalize::CerebroGatewayState::Unreachable) {
+                    if matches!(
+                        state,
+                        normalize::CerebroGatewayState::Unconfigured
+                            | normalize::CerebroGatewayState::Unreachable
+                    ) {
                         normalize::cerebro_gateway_message(state, tool)
                     } else {
                         error.to_string()
@@ -264,9 +272,8 @@ fn success<T: Serialize>(value: &T) -> (StatusCode, Json<Value>) {
 fn error_response(state: normalize::CerebroGatewayState, tool: &str) -> (StatusCode, Json<Value>) {
     let status = match state {
         normalize::CerebroGatewayState::Available => StatusCode::OK,
-        normalize::CerebroGatewayState::Unconfigured | normalize::CerebroGatewayState::Unreachable => {
-            StatusCode::SERVICE_UNAVAILABLE
-        }
+        normalize::CerebroGatewayState::Unconfigured
+        | normalize::CerebroGatewayState::Unreachable => StatusCode::SERVICE_UNAVAILABLE,
         normalize::CerebroGatewayState::Unsupported
         | normalize::CerebroGatewayState::NotImplemented => StatusCode::NOT_IMPLEMENTED,
     };
@@ -275,7 +282,10 @@ fn error_response(state: normalize::CerebroGatewayState, tool: &str) -> (StatusC
         tool: tool.to_string(),
         message: normalize::cerebro_gateway_message(state, tool),
     };
-    (status, Json(serde_json::to_value(body).unwrap_or_else(|_| json!({}))))
+    (
+        status,
+        Json(serde_json::to_value(body).unwrap_or_else(|_| json!({}))),
+    )
 }
 
 fn validate_non_empty(value: &str, field: &str) -> Result<(), (StatusCode, Json<Value>)> {
@@ -794,10 +804,10 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::gateway::{AppState, GatewayRateLimiter, IdempotencyStore};
-    use crate::memory::{SqliteMemory, traits::Memory as MemoryTrait};
+    use crate::memory::{traits::Memory as MemoryTrait, SqliteMemory};
     use crate::security::pairing::PairingGuard;
-    use axum::{extract::State, routing::post, Json as AxumJson, Router};
     use axum::http::{HeaderName, HeaderValue};
+    use axum::{extract::State, routing::post, Json as AxumJson, Router};
     use http_body_util::BodyExt;
     use parking_lot::Mutex;
     use std::collections::BTreeMap;
@@ -908,7 +918,8 @@ mod tests {
     async fn status_requires_admin_auth() {
         let tmp = TempDir::new().unwrap();
         let state = test_state(&tmp, Some("valid-token"));
-        let (status, _) = response_json(handle_admin_cerebro_status(State(state), HeaderMap::new()).await).await;
+        let (status, _) =
+            response_json(handle_admin_cerebro_status(State(state), HeaderMap::new()).await).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
@@ -916,10 +927,16 @@ mod tests {
     async fn status_reports_unconfigured_when_cerebro_is_missing() {
         let tmp = TempDir::new().unwrap();
         let state = test_state(&tmp, Some("valid-token"));
-        let (status, json) = response_json(handle_admin_cerebro_status(State(state), admin_headers("valid-token")).await).await;
+        let (status, json) = response_json(
+            handle_admin_cerebro_status(State(state), admin_headers("valid-token")).await,
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(json["service_state"], "unconfigured");
-        assert_eq!(json["tools"][normalize::CEREBRO_TOOL_RECALL]["state"], "unconfigured");
+        assert_eq!(
+            json["tools"][normalize::CEREBRO_TOOL_RECALL]["state"],
+            "unconfigured"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -929,7 +946,16 @@ mod tests {
         let response = handle_admin_cerebro_search(
             State(state),
             admin_headers("valid-token"),
-            Json(serde_json::from_value(json!({ "query": "hello", "tool": "mem_search" })).unwrap_or(AdminCerebroSearchRequest { query: String::new(), limit: None, scope: None, topic_key: None, include_deleted: None })),
+            Json(
+                serde_json::from_value(json!({ "query": "hello", "tool": "mem_search" }))
+                    .unwrap_or(AdminCerebroSearchRequest {
+                        query: String::new(),
+                        limit: None,
+                        scope: None,
+                        topic_key: None,
+                        include_deleted: None,
+                    }),
+            ),
         )
         .await;
         let (status, _) = response_json(response).await;
@@ -964,7 +990,11 @@ mod tests {
     async fn status_reports_available_and_planned_tool_states() {
         let tmp = TempDir::new().unwrap();
         let state = test_state(&tmp, Some("valid-token"));
-        let endpoint = spawn_mock_cerebro(normalize::CEREBRO_GATEWAY_ALLOWLIST.to_vec(), BTreeMap::new()).await;
+        let endpoint = spawn_mock_cerebro(
+            normalize::CEREBRO_GATEWAY_ALLOWLIST.to_vec(),
+            BTreeMap::new(),
+        )
+        .await;
         configure_cerebro(&state, endpoint);
 
         let (status, json) = response_json(
@@ -974,8 +1004,14 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(json["service_state"], "available");
-        assert_eq!(json["tools"][normalize::CEREBRO_TOOL_RECALL]["state"], "available");
-        assert_eq!(json["tools"][normalize::CEREBRO_TOOL_CONTEXT]["state"], "available");
+        assert_eq!(
+            json["tools"][normalize::CEREBRO_TOOL_RECALL]["state"],
+            "available"
+        );
+        assert_eq!(
+            json["tools"][normalize::CEREBRO_TOOL_CONTEXT]["state"],
+            "available"
+        );
         assert_eq!(
             json["tools"][normalize::CEREBRO_TOOL_SESSION_SUMMARY]["state"],
             "not_implemented"
@@ -1036,7 +1072,8 @@ mod tests {
                 }
             }),
         );
-        let endpoint = spawn_mock_cerebro(vec![normalize::CEREBRO_TOOL_SESSION_SUMMARY], responses).await;
+        let endpoint =
+            spawn_mock_cerebro(vec![normalize::CEREBRO_TOOL_SESSION_SUMMARY], responses).await;
         configure_cerebro(&state, endpoint);
 
         let (status, json) = response_json(
