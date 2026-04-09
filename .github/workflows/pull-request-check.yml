@@ -85,6 +85,32 @@ jobs:
       - name: 🔧 Show Gradle version
         run: ./gradlew --version
 
+      - name: 🦀 Resolve Rust channel
+        id: rust-channel
+        shell: python
+        run: |
+          import os
+          import pathlib
+          import tomllib
+
+          toolchain_file = pathlib.Path("clients/agent-runtime/rust-toolchain.toml")
+          data = tomllib.loads(toolchain_file.read_text(encoding="utf-8"))
+          channel = data.get("toolchain", {}).get("channel")
+
+          if not channel:
+              raise SystemExit(
+                  "Failed to resolve [toolchain].channel from "
+                  "clients/agent-runtime/rust-toolchain.toml",
+              )
+
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"channel={channel}\n")
+
+      - name: 🦀 Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
+        with:
+          toolchain: ${{ steps.rust-channel.outputs.channel }}
+
       #      - name: 🦆 Run Actionlint
       #        run: ./gradlew runActionlint
 
@@ -94,6 +120,18 @@ jobs:
           github.event.pull_request.user.login != 'dependabot[bot]' &&
           github.event.pull_request.user.login != 'renovate[bot]'
         run: ./gradlew checkLocksAll --no-parallel
+
+      - name: 🦀 Check Rust lockfiles are up to date
+        if: >
+          github.event.pull_request.user.login != 'github-actions[bot]' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' &&
+          github.event.pull_request.user.login != 'renovate[bot]'
+        run: |
+          set -euo pipefail
+          # cargo metadata --locked fails fast if Cargo.lock is stale, without compiling.
+          cargo metadata --manifest-path clients/agent-runtime/Cargo.toml --locked --format-version 1 --no-deps > /dev/null
+          cargo metadata --manifest-path modules/cerebro/Cargo.toml --locked --format-version 1 --no-deps > /dev/null
+          echo "✅ All Cargo.lock files are consistent with their Cargo.toml"
 
       - name: 🏗 Run main checks
         run: ./gradlew check
