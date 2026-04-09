@@ -105,6 +105,71 @@ Constraints:
 - Resume block includes explicit commands for gateway status/start and dashboard launch.
 - Resume instructions can be executed independently of the onboarding run.
 
+### RF6 - Local Memory Visualization Entry Point
+
+The dashboard MUST provide a dedicated operator-facing entry point for Local Memory Visualization
+within the dashboard memory experience.
+
+Constraints:
+
+- The visualization appears as a local-memory page or tab distinct from the existing local memory
+  list.
+- The visualization remains distinct from remote Cerebro panels.
+- The existing local memory list remains available as a non-visual fallback.
+- Local-memory labeling MUST NOT imply remote Cerebro semantics.
+
+### RF7 - Timeline Grouping and Ordering
+
+The dashboard MUST present local memory entries in a chronological timeline grouped by session.
+
+Constraints:
+
+- Timeline items use local memory entries as the source of truth.
+- Entries are ordered chronologically within the active sort direction.
+- Entries are grouped by `session_id`.
+- Entries without `session_id` appear in a distinct fallback group.
+- Operators can drill into the corresponding local memory entries from a timeline group or item.
+
+### RF8 - Category Distribution Interaction
+
+The dashboard MUST visually represent local memory category distribution and use that
+representation to drive operator navigation.
+
+Constraints:
+
+- Category totals come from local memory statistics.
+- Selecting a category filters or highlights corresponding timeline and relationship results.
+- The dashboard provides a recoverable way to clear category-driven focus and return to the
+  broader local view.
+
+### RF9 - Inferred Relationship Explorer
+
+The dashboard MUST provide a navigable local relationship explorer derived from session and
+category signals only.
+
+Constraints:
+
+- Relationships are inferred from `session_id` and `category` data already available in local
+  memory and stats responses.
+- Operators can navigate across session groups, category facets, and related local memory entries.
+- Session-to-category relationships are presented as derived aggregates from entries in the same
+  session.
+- The v1 explorer MUST NOT require or imply explicit stored graph edges.
+- The UI MUST NOT present inferred local relationships as remote Cerebro semantic truth.
+
+### RF10 - Empty and Large Dataset Fallbacks
+
+The dashboard MUST remain usable when local memory data is empty or large.
+
+Constraints:
+
+- The visualization shows a clear empty state when there are no local memory entries to visualize.
+- Operators retain access to the existing local memory list and stats when the visualization has no
+  data.
+- Large datasets use bounded rendering or scoped views so operators can continue navigating by
+  session and category.
+- The UI avoids implying omitted items were deleted or unavailable.
+
 ## Non-Functional Requirements
 
 ### NFR-S1 Security
@@ -177,6 +242,86 @@ When user later follows resume instructions,
 Then user can start/verify gateway and launch dashboard with explicit commands and complete pairing
 through the same secure path.
 
+### Scenario G - Operator opens the local memory visualization
+
+Given an operator is viewing the dashboard memory area,
+When the operator selects the Local Memory Visualization page or tab,
+Then the dashboard shows a dedicated local visualization surface,
+And the existing local memory list remains reachable in the same memory area,
+And Cerebro panels are not presented as the same mode or surface.
+
+### Scenario H - Local visualization remains clearly separate from Cerebro
+
+Given Cerebro-related panels are available in the dashboard,
+When the operator is viewing the Local Memory Visualization page or tab,
+Then the UI identifies the current surface as local memory visualization,
+And the UI does not describe inferred local relationships as Cerebro relationships,
+And any Cerebro-specific panel or copy remains visibly separate.
+
+### Scenario I - Timeline renders entries grouped by session
+
+Given local memory entries exist across multiple sessions,
+When the visualization loads successfully,
+Then the timeline displays entries in chronological order,
+And entries sharing the same `session_id` appear in the same session grouping,
+And selecting a session grouping narrows the visible entries to that grouping.
+
+### Scenario J - Timeline handles entries without a session
+
+Given some local memory entries do not include a `session_id`,
+When the visualization renders the timeline,
+Then those entries appear in a distinct fallback group,
+And the fallback group remains navigable like other groups,
+And the UI does not assign those entries to an invented session.
+
+### Scenario K - Category selection focuses the visualization
+
+Given local memory statistics report category totals,
+When the operator selects a category from the visualization,
+Then the chosen category is visually identified as active,
+And the timeline limits or highlights entries matching that category,
+And the relationship explorer limits or highlights relationships derived from that category.
+
+### Scenario L - Category focus can be cleared
+
+Given a category filter or highlight is active,
+When the operator clears the category focus,
+Then the visualization returns to the broader unfiltered local memory view,
+And previously hidden or de-emphasized entries become visible again.
+
+### Scenario M - Operator navigates inferred local relationships
+
+Given local memory entries exist with session and category data,
+When the operator selects a session, category, or derived relationship grouping in the explorer,
+Then the dashboard reveals the corresponding related local memory entries,
+And the relationship view is explainable by shared session or category membership,
+And the UI does not require a remote Cerebro call to complete that navigation.
+
+### Scenario N - Relationship explorer avoids semantic overclaiming
+
+Given the visualization displays a session-to-category relationship,
+When the operator inspects that relationship,
+Then the UI treats it as a derived local view,
+And the UI does not label it as an ontology edge, semantic link, or remote Cerebro relationship.
+
+### Scenario O - Empty local dataset
+
+Given the local memory browse response contains no entries,
+And the local memory stats response reports zero entries,
+When the operator opens Local Memory Visualization,
+Then the dashboard shows an explicit empty state,
+And the empty state keeps the operator on the local memory surface,
+And the existing local memory list or stats path remains available.
+
+### Scenario P - Large local dataset uses bounded visualization behavior
+
+Given the local memory dataset is large enough that rendering every visible relationship at once
+would be unreadable or costly,
+When the operator opens Local Memory Visualization,
+Then the dashboard uses a bounded visualization strategy,
+And the operator can still navigate by session and category slices,
+And the UI avoids implying that omitted items were deleted or unavailable.
+
 ## Acceptance Criteria
 
 - AC1: Interactive onboarding always includes an optional final dashboard activation prompt. (RF1)
@@ -192,6 +337,20 @@ through the same secure path.
   guidance. (RF2, RF4, NFR-S1, NFR-U1)
 - AC8: Dashboard activation remains an operator-specific slice that uses shared onboarding sequence,
   terminology, and recovery taxonomy. (RF1A, RF2, RF4)
+- AC9: The dashboard exposes a dedicated Local Memory Visualization entry point while preserving the
+  browse list as a fallback. (RF6)
+- AC10: Local memory visualization remains visibly separate from remote Cerebro surfaces and
+  terminology. (RF6, RF9)
+- AC11: The timeline renders local memory entries chronologically, grouped by session, including a
+  distinct no-session fallback group. (RF7)
+- AC12: Category distribution can drive filtering or highlighting and can be cleared back to the
+  broader local view. (RF8)
+- AC13: Operators can navigate inferred local relationships between sessions, categories, and memory
+  entries without requiring remote Cerebro semantics. (RF9)
+- AC14: Empty datasets show an explicit local empty state without removing existing browse/stats
+  access. (RF10)
+- AC15: Large datasets use bounded visualization behavior while preserving session/category
+  navigation. (RF10)
 
 ## Traceability Matrix
 
@@ -203,6 +362,11 @@ through the same secure path.
 | RF3         | B                    | AC3                             |
 | RF4         | C                    | AC4, AC7                        |
 | RF5         | D                    | AC5                             |
+| RF6         | G, H                 | AC9, AC10                       |
+| RF7         | I, J                 | AC11                            |
+| RF8         | K, L                 | AC12                            |
+| RF9         | H, M, N              | AC10, AC13                      |
+| RF10        | O, P                 | AC14, AC15                      |
 | NFR-S1      | A, C, D              | AC6, AC7                        |
 | NFR-U1      | A, C                 | AC2, AC7                        |
 | NFR-R1      | C                    | AC2, AC4                        |
@@ -221,3 +385,5 @@ through the same secure path.
 
 1. Optional browser-open targets the local proxied entrypoint (`http://corvus.localhost`) only.
 2. Phase 4.1 bounded diagnosis uses 500 ms request timeout, one retry, and <= 1.5 s total budget.
+3. Local Memory Visualization v1 remains inferred-only and uses existing `/web/admin/memory` and
+   `/web/admin/memory/stats` contracts without adding explicit local graph-edge storage.

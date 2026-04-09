@@ -293,7 +293,26 @@ export function useAdmin(
 
   async function fetchMemoryEntries(params: MemoryListParams = {}): Promise<void> {
     try {
-      const data = await fetchJson<AdminMemoryListResponse>(
+      const data = await listMemoryEntries(params);
+      if (!data) {
+        memoryEntries.value = [];
+        totalMemoryEntries.value = 0;
+        return;
+      }
+      memoryEntries.value = data.entries;
+      totalMemoryEntries.value = data.total;
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e);
+      memoryEntries.value = [];
+      totalMemoryEntries.value = 0;
+    }
+  }
+
+  async function listMemoryEntries(
+    params: MemoryListParams = {}
+  ): Promise<AdminMemoryListResponse> {
+    try {
+      return await fetchJson<AdminMemoryListResponse>(
         "memoryEntries",
         "/web/admin/memory",
         undefined,
@@ -305,24 +324,23 @@ export function useAdmin(
           offset: params.page ? (params.page - 1) * (params.per_page ?? 50) : undefined,
         }
       );
-      memoryEntries.value = data.entries;
-      totalMemoryEntries.value = data.total;
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e);
-      memoryEntries.value = [];
-      totalMemoryEntries.value = 0;
+      throw e;
     }
   }
 
-  async function fetchMemoryStats(): Promise<void> {
+  async function fetchMemoryStats(): Promise<AdminMemoryStats | null> {
     try {
       memoryStats.value = await fetchJson<AdminMemoryStats>(
         "memoryStats",
         "/web/admin/memory/stats"
       );
+      return memoryStats.value;
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e);
       memoryStats.value = null;
+      return null;
     }
   }
 
@@ -525,6 +543,7 @@ export function useAdmin(
     fetchSessions,
     fetchSessionDetail,
     fetchMemoryEntries,
+    listMemoryEntries,
     fetchMemoryStats,
     fetchCerebroStatus,
     fetchCerebroStats,

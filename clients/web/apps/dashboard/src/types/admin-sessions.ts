@@ -159,3 +159,47 @@ export interface AdminMemoryListResponse {
   limit: number;
   offset: number;
 }
+
+export type LocalMemorySubview = "browse" | "explorer";
+
+export interface LocalMemoryExplorerSelection {
+  sessionId?: string;
+  category?: string;
+  entryId?: string;
+}
+
+export interface LocalMemoryTimelineGroup {
+  sessionId: string | null;
+  label: string;
+  entryCount: number;
+  firstTimestamp: string;
+  lastTimestamp: string;
+  categories: Record<string, number>;
+  entries: AdminMemoryEntry[];
+}
+
+export interface LocalMemoryCategoryFacet {
+  category: string;
+  total: number;
+  sessionCount: number;
+  isActive: boolean;
+}
+
+export interface LocalMemoryRelationshipCluster {
+  sessionId: string | null;
+  category: string;
+  count: number;
+  entries: AdminMemoryEntry[];
+}
+
+export interface LocalMemoryExplorerSnapshot {
+  entries: AdminMemoryEntry[];
+  stats: AdminMemoryStats | null;
+  timelineGroups: LocalMemoryTimelineGroup[];
+  categoryFacets: LocalMemoryCategoryFacet[];
+  relationshipClusters: LocalMemoryRelationshipCluster[];
+  selection: LocalMemoryExplorerSelection;
+  loadedEntries: number;
+  totalEntries: number;
+  isTruncated: boolean;
+}

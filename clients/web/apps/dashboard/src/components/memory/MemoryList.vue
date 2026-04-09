@@ -1,7 +1,8 @@
-<script setup lang="ts">
+<script lang="ts" setup>
 import { nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { type MemoryListParams, useAdmin } from "@/composables/useAdmin";
+import type { LocalMemoryExplorerSelection } from "@/types/admin-sessions";
 
 const props = defineProps<{
   gatewayUrl: (path: string) => string;
@@ -9,6 +10,12 @@ const props = defineProps<{
   categoryFilter?: string;
   sessionIdFilter?: string;
   searchFilter?: string;
+}>();
+
+const emit = defineEmits<{
+  "select-category": [category: string];
+  "select-session": [sessionId?: string];
+  "open-explorer": [selection: LocalMemoryExplorerSelection];
 }>();
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -72,6 +79,15 @@ async function confirmDelete() {
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function onSelectSession(sessionId?: string | null) {
+  if (!sessionId) {
+    return;
+  }
+
+  emit("select-session", sessionId);
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function truncate(text: string, maxLen: number): string {
   return text.length > maxLen ? `${text.slice(0, maxLen)}…` : text;
 }
@@ -99,56 +115,76 @@ onMounted(() => load());
       <p class="helper">
         {{
           t(
-            "memory.helper",
-            "Local memory stays available even when Cerebro is unconfigured, unreachable, or partially implemented."
+              "memory.helper",
+              "Local memory stays available even when Cerebro is unconfigured, unreachable, or partially implemented."
           )
         }}
       </p>
     </header>
-    <p v-if="admin.loading.value" class="helper" aria-live="polite" role="status">
+    <p v-if="admin.loading.value" aria-live="polite" class="helper" role="status">
       {{ t("memory.loading", "Loading memory entries…") }}
     </p>
-    <p v-else-if="admin.error.value" class="error" aria-live="assertive" role="alert">
+    <p v-else-if="admin.error.value" aria-live="assertive" class="error" role="alert">
       {{ admin.error.value }}
     </p>
     <template v-else>
       <p v-if="admin.memoryEntries.value.length === 0" class="helper">
         {{ t("memory.empty", "No memory entries found") }}
       </p>
-      <table v-else class="memory-table" aria-label="Memory entries">
+      <table v-else aria-label="Memory entries" class="memory-table">
         <thead>
-          <tr>
-            <th>{{ t("memory.colKey", "Key") }}</th>
-            <th>{{ t("memory.colCategory", "Category") }}</th>
-            <th>{{ t("memory.colTimestamp", "Timestamp") }}</th>
-            <th>{{ t("memory.colSessionId", "Session ID") }}</th>
-            <th>{{ t("memory.colContent", "Content") }}</th>
-            <th>{{ t("memory.colActions", "Actions") }}</th>
-          </tr>
+        <tr>
+          <th>{{ t("memory.colKey", "Key") }}</th>
+          <th>{{ t("memory.colCategory", "Category") }}</th>
+          <th>{{ t("memory.colTimestamp", "Timestamp") }}</th>
+          <th>{{ t("memory.colSessionId", "Session ID") }}</th>
+          <th>{{ t("memory.colContent", "Content") }}</th>
+          <th>{{ t("memory.colActions", "Actions") }}</th>
+        </tr>
         </thead>
         <tbody>
-          <tr
+        <tr
             v-for="entry in admin.memoryEntries.value"
             :key="entry.id"
             :data-testid="'memory-' + entry.key"
-          >
-            <td class="mono">{{ entry.key }}</td>
-            <td>
-              <span class="category-badge">{{ entry.category }}</span>
-            </td>
-            <td>{{ entry.timestamp }}</td>
-            <td class="mono">{{ entry.session_id ?? "—" }}</td>
-            <td class="content-cell">{{ truncate(entry.content, 80) }}</td>
-            <td>
-              <button
-                class="delete-btn"
+        >
+          <td class="mono">{{ entry.key }}</td>
+          <td>
+            <button class="category-badge" type="button"
+                    @click="emit('select-category', entry.category)">
+              {{ entry.category }}
+            </button>
+          </td>
+          <td>{{ entry.timestamp }}</td>
+          <td class="mono">
+            <button
+                :aria-label="entry.session_id ? `Filter by session ${entry.session_id}` : 'No session'"
+                :disabled="!entry.session_id"
+                class="session-link"
+                type="button"
+                @click="onSelectSession(entry.session_id)"
+            >
+              {{ entry.session_id ?? "No Session" }}
+            </button>
+          </td>
+          <td class="content-cell">{{ truncate(entry.content, 80) }}</td>
+          <td>
+            <button
+                class="explore-btn"
+                type="button"
+                @click="emit('open-explorer', { category: entry.category, sessionId: entry.session_id ?? undefined, entryId: entry.id })"
+            >
+              Explore
+            </button>
+            <button
                 :aria-label="t('memory.delete', 'Delete') + ' ' + entry.key"
+                class="delete-btn"
                 @click="requestDelete(entry.key, $event)"
-              >
-                {{ t("memory.delete", "Delete") }}
-              </button>
-            </td>
-          </tr>
+            >
+              {{ t("memory.delete", "Delete") }}
+            </button>
+          </td>
+        </tr>
         </tbody>
       </table>
 
@@ -168,17 +204,17 @@ onMounted(() => load());
 
     <!-- Delete confirmation dialog -->
     <div
-      v-if="confirmingDelete"
-      class="confirm-overlay"
-      @click.self="cancelDelete"
-      @keydown.escape="cancelDelete"
+        v-if="confirmingDelete"
+        class="confirm-overlay"
+        @click.self="cancelDelete"
+        @keydown.escape="cancelDelete"
     >
       <div
-        class="confirm-dialog"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="memory-delete-title"
-        aria-describedby="memory-delete-description"
+          aria-describedby="memory-delete-description"
+          aria-labelledby="memory-delete-title"
+          aria-modal="true"
+          class="confirm-dialog"
+          role="alertdialog"
       >
         <h2 id="memory-delete-title" class="confirm-title">
           {{ t("memory.confirmDelete", "Delete memory entry") }}
@@ -202,24 +238,24 @@ onMounted(() => load());
 
 <style scoped>
 .memory-table {
-  width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  width: 100%;
 }
 
 .memory-table th {
-  text-align: left;
-  padding: 8px 10px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-secondary);
   border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 8px 10px;
+  text-align: left;
+  text-transform: uppercase;
 }
 
 .memory-table td {
-  padding: 8px 10px;
   border-bottom: 1px solid var(--color-border);
+  padding: 8px 10px;
 }
 
 .mono {
@@ -228,32 +264,53 @@ onMounted(() => load());
 }
 
 .content-cell {
+  color: var(--color-text-secondary);
   max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--color-text-secondary);
 }
 
 .category-badge {
-  display: inline-block;
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: capitalize;
   background: color-mix(in srgb, var(--color-bg-input) 80%, transparent);
   border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  text-transform: capitalize;
+}
+
+.session-link,
+.explore-btn {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.explore-btn {
+  color: var(--color-primary, var(--color-text-primary));
+  margin-right: 8px;
+}
+
+.session-link:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .delete-btn {
-  padding: 2px 8px;
+  background: transparent;
   border: 1px solid color-mix(in srgb, #ef4444 40%, var(--color-border));
   border-radius: 6px;
-  background: transparent;
   color: #ef4444;
   cursor: pointer;
   font-size: 11px;
+  padding: 2px 8px;
 }
 
 .delete-btn:hover {
@@ -261,27 +318,27 @@ onMounted(() => load());
 }
 
 .pagination {
-  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 12px;
+  display: flex;
   font-size: 13px;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 12px;
 }
 
 .pagination button {
-  padding: 4px 12px;
+  background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: var(--color-bg-secondary);
   color: var(--color-text-primary);
   cursor: pointer;
   font-size: 12px;
+  padding: 4px 12px;
 }
 
 .pagination button:disabled {
-  opacity: 0.4;
   cursor: not-allowed;
+  opacity: 0.4;
 }
 
 .page-info {
@@ -290,12 +347,12 @@ onMounted(() => load());
 }
 
 .confirm-overlay {
-  position: fixed;
-  inset: 0;
+  align-items: center;
   background: rgb(0 0 0 / 0.4);
   display: flex;
-  align-items: center;
+  inset: 0;
   justify-content: center;
+  position: fixed;
   z-index: 100;
 }
 
@@ -303,19 +360,19 @@ onMounted(() => load());
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: 14px;
-  padding: 20px;
   max-width: 400px;
+  padding: 20px;
   width: 90%;
 }
 
 .confirm-dialog p {
-  margin: 0 0 16px;
   font-size: 14px;
+  margin: 0 0 16px;
 }
 
 .confirm-title {
-  margin: 0 0 8px;
   font-size: 16px;
+  margin: 0 0 8px;
 }
 
 .confirm-actions {
@@ -325,28 +382,29 @@ onMounted(() => load());
 }
 
 .confirm-btn {
-  padding: 6px 14px;
-  border-radius: 8px;
   border: 1px solid var(--color-border);
+  border-radius: 8px;
   cursor: pointer;
   font-size: 12px;
+  padding: 6px 14px;
 }
 
 .confirm-yes {
   background: #ef4444;
-  color: #fff;
   border-color: #ef4444;
+  color: #fff;
 }
 
 .confirm-no {
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
 }
+
 .memory-list-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
   align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
   margin-bottom: 12px;
 }
 
@@ -356,9 +414,9 @@ onMounted(() => load());
 }
 
 .memory-kicker {
+  color: var(--color-text-secondary);
   font-size: 11px;
   text-transform: uppercase;
-  color: var(--color-text-secondary);
 }
 
 </style>
