@@ -311,7 +311,8 @@
     "apiKeyValue": "Nueva clave API"
   },
   "actions": {
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "delete": "Eliminar"
   },
   "nav": {
     "config": "Configuración",
