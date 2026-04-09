@@ -1,6 +1,6 @@
 ---
 doc_id: memory-visibility
-version: 1.1.0
+version: 1.2.0
 created: 2026-03-28
 status: active
 owner: architecture
@@ -670,9 +670,48 @@ And every tool entry MUST expose a normalized `state`
 And no raw JSON-RPC envelope fields MUST be present.
 ```
 
+---
+
+### MEM-4: Local Visualization Data Boundary
+
+The local memory visibility contract MUST support dashboard visualization v1 using existing local
+memory signals and MUST preserve a clear boundary from remote Cerebro semantics.
+
+- MUST treat `GET /web/admin/memory` and `GET /web/admin/memory/stats` as the authoritative
+  sources for local memory visualization input.
+- MUST rely on returned `session_id`, `category`, `timestamp`, and category totals as the only
+  required structural signals for v1 local relationship inference.
+- MUST allow the dashboard to derive session-to-entry, category-to-entry, and session-to-category
+  views without requiring a new explicit edge-storage contract.
+- MUST keep Cerebro capability and proxy endpoints as remote-only workflows that MUST NOT be
+  required to render v1 local memory visualization.
+
+#### Scenario: Existing local admin responses are sufficient for v1 visualization
+
+```gherkin
+Given the dashboard receives local memory entries from `GET /web/admin/memory`
+And the dashboard receives category totals from `GET /web/admin/memory/stats`
+When the dashboard shapes data for the local memory visualization
+Then it MUST be able to derive timeline groupings from `session_id`
+And it MUST be able to derive category distribution from `by_category`
+And it MUST NOT require explicit relationship-edge fields in either response.
+```
+
+#### Scenario: Local visualization does not depend on Cerebro semantics
+
+```gherkin
+Given local memory endpoints are available
+And Cerebro is unconfigured, unreachable, unsupported, or not implemented for related workflows
+When an operator opens the local memory visualization
+Then the local visualization MAY still render from local memory data alone
+And the absence of Cerebro semantics MUST NOT block v1 local timeline, category, or inferred
+relationship views.
+```
+
 ## Change History
 
 | Version | Date       | Changes                                                     |
 |---------|------------|-------------------------------------------------------------|
+| 1.2.0   | 2026-04-09 | Added local visualization data-boundary requirements from dashboard-memory-graph-explorer change |
 | 1.1.0   | 2026-04-09 | Added Cerebro admin capability/proxy contracts, normalized error states, local-first independence, and typed Cerebro responses from cerebro-memory-enhancement-layer change |
 | 1.0.0   | 2026-03-28 | Initial specification from session-memory-visibility change |

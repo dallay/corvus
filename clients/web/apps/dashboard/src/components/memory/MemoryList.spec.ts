@@ -203,4 +203,28 @@ describe("MemoryList", () => {
     const parsed = new URL(url as string);
     expect(parsed.searchParams.get(queryParam)).toBe(propValue);
   });
+
+  it("emits category and session drill-in events while preserving browse list behavior", async () => {
+    mockMemoryResponse(sampleEntries);
+
+    const wrapper = mountMemoryList();
+    await flushPromises();
+
+    await wrapper.find("button.category-badge").trigger("click");
+    await wrapper.find("button.session-link").trigger("click");
+    await wrapper.find("button.explore-btn").trigger("click");
+
+    expect(wrapper.emitted("select-category")).toEqual([["Core"]]);
+    expect(wrapper.emitted("select-session")).toEqual([["s1"]]);
+    expect(wrapper.emitted("open-explorer")).toEqual([
+      [
+        {
+          category: "Core",
+          sessionId: "s1",
+          entryId: "m1",
+        },
+      ],
+    ]);
+    expect(wrapper.find("table.memory-table").exists()).toBe(true);
+  });
 });

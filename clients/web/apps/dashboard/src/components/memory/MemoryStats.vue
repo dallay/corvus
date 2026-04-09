@@ -11,6 +11,11 @@ const props = defineProps<{
 }>();
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const emit = defineEmits<{
+  "select-category": [category: string];
+}>();
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 
@@ -90,10 +95,16 @@ onMounted(async () => {
       <div v-if="Object.keys(admin.memoryStats.value.by_category).length > 0" class="category-breakdown">
         <h4>{{ t("memory.statByCategory", "By Category") }}</h4>
         <div class="category-grid">
-          <div v-for="(count, cat) in admin.memoryStats.value.by_category" :key="String(cat)" class="category-item">
+          <button
+            v-for="(count, cat) in admin.memoryStats.value.by_category"
+            :key="String(cat)"
+            type="button"
+            class="category-item"
+            @click="emit('select-category', String(cat))"
+          >
             <span class="category-name">{{ cat }}</span>
             <span class="category-count">{{ count }}</span>
-          </div>
+          </button>
         </div>
       </div>
     </template>
@@ -180,6 +191,9 @@ onMounted(async () => {
   border: 1px solid var(--color-border);
   border-radius: 8px;
   font-size: 13px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
 }
 
 .category-name {

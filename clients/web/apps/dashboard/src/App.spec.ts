@@ -64,6 +64,127 @@ vi.mock("@corvus/ui", async () => {
   };
 });
 
+vi.mock("@/components/memory/MemoryStats.vue", async () => {
+  const { defineComponent } = await import("vue");
+
+  return {
+    default: defineComponent({
+      name: "MemoryStatsStub",
+      emits: ["select-category"],
+      template:
+        '<section data-testid="memory-stats"><button class="stats-select-category" @click="$emit(\'select-category\', \'Core\')">stats-select-category</button></section>',
+    }),
+  };
+});
+
+vi.mock("@/components/memory/MemoryFilters.vue", async () => {
+  const { defineComponent } = await import("vue");
+
+  return {
+    default: defineComponent({
+      name: "MemoryFiltersStub",
+      props: {
+        initialSessionId: {
+          type: String,
+          default: undefined,
+        },
+      },
+      emits: ["update:category", "update:session-id", "update:search"],
+      template:
+        '<section data-testid="memory-filters">filters:{{ initialSessionId ?? "none" }}</section>',
+    }),
+  };
+});
+
+vi.mock("@/components/memory/MemoryList.vue", async () => {
+  const { defineComponent } = await import("vue");
+
+  return {
+    default: defineComponent({
+      name: "MemoryListStub",
+      props: {
+        categoryFilter: {
+          type: String,
+          default: undefined,
+        },
+        sessionIdFilter: {
+          type: String,
+          default: undefined,
+        },
+        searchFilter: {
+          type: String,
+          default: undefined,
+        },
+      },
+      emits: ["select-category", "select-session", "open-explorer"],
+      template: `
+        <section data-testid="memory-list">
+          <p class="memory-list-props">{{ categoryFilter ?? 'none' }}|{{ sessionIdFilter ?? 'none' }}|{{ searchFilter ?? 'none' }}</p>
+          <button class="list-select-category" @click="$emit('select-category', 'Core')">list-select-category</button>
+          <button class="list-select-session" @click="$emit('select-session', 'session-42')">list-select-session</button>
+          <button class="list-open-explorer" @click="$emit('open-explorer', { category: 'Core', sessionId: 'session-42', entryId: 'memory-7' })">list-open-explorer</button>
+        </section>
+      `,
+    }),
+  };
+});
+
+vi.mock("@/components/memory/LocalMemoryExplorerPanel.vue", async () => {
+  const { defineComponent } = await import("vue");
+
+  return {
+    default: defineComponent({
+      name: "LocalMemoryExplorerPanelStub",
+      props: {
+        selection: {
+          type: Object,
+          default: () => ({}),
+        },
+      },
+      emits: ["selection-change", "open-browse"],
+      template: `
+        <section data-testid="local-memory-explorer">
+          <p class="explorer-selection">{{ JSON.stringify(selection) }}</p>
+          <button class="explorer-open-browse" @click="$emit('open-browse', selection)">explorer-open-browse</button>
+        </section>
+      `,
+    }),
+  };
+});
+
+vi.mock("@/components/memory/CerebroSearchPanel.vue", async () => {
+  const { defineComponent } = await import("vue");
+
+  return {
+    default: defineComponent({
+      name: "CerebroSearchPanelStub",
+      template: '<section data-testid="cerebro-search">Cerebro Search</section>',
+    }),
+  };
+});
+
+vi.mock("@/components/memory/CerebroObservationDetail.vue", async () => {
+  const { defineComponent } = await import("vue");
+
+  return {
+    default: defineComponent({
+      name: "CerebroObservationDetailStub",
+      template: '<section data-testid="cerebro-detail">Cerebro Detail</section>',
+    }),
+  };
+});
+
+vi.mock("@/components/memory/CerebroTimelinePanel.vue", async () => {
+  const { defineComponent } = await import("vue");
+
+  return {
+    default: defineComponent({
+      name: "CerebroTimelinePanelStub",
+      template: '<section data-testid="cerebro-timeline">Cerebro Timeline</section>',
+    }),
+  };
+});
+
 function createSectionModule(name: string) {
   return async () => {
     const { defineComponent } = await import("vue");
@@ -381,5 +502,36 @@ describe("Dashboard App", () => {
 
     expect(wrapper.text()).toContain("Listo para operar");
     expect(wrapper.text()).toContain("dashboard completó el emparejamiento");
+  });
+
+  it("switches to the local explorer from browse drill-ins and preserves local filters", async () => {
+    const { wrapper } = mountApp(createMockConfig({ isOperatorReady: true }));
+
+    await wrapper.findAll(".nav-tab")[2]?.trigger("click");
+    await wrapper.find(".list-open-explorer").trigger("click");
+
+    expect(wrapper.find("[data-testid='local-memory-explorer']").exists()).toBe(true);
+    expect(wrapper.text()).toContain('"sessionId":"session-42"');
+    expect(wrapper.text()).toContain('"category":"Core"');
+
+    await wrapper.find(".explorer-open-browse").trigger("click");
+
+    expect(wrapper.find("[data-testid='memory-list']").exists()).toBe(true);
+    expect(wrapper.find(".memory-list-props").text()).toContain("Core|session-42|none");
+  });
+
+  it("keeps the local explorer visibly separate from Cerebro memory mode", async () => {
+    const { wrapper } = mountApp(createMockConfig({ isOperatorReady: true }));
+
+    await wrapper.findAll(".nav-tab")[2]?.trigger("click");
+    await wrapper.find(".stats-select-category").trigger("click");
+
+    expect(wrapper.find("[data-testid='local-memory-explorer']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='cerebro-search']").exists()).toBe(false);
+
+    await wrapper.findAll(".nav-tab")[4]?.trigger("click");
+
+    expect(wrapper.find("[data-testid='cerebro-search']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='local-memory-explorer']").exists()).toBe(false);
   });
 });

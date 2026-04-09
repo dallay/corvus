@@ -49,6 +49,8 @@ import CerebroSearchPanel from "@/components/memory/CerebroSearchPanel.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import CerebroTimelinePanel from "@/components/memory/CerebroTimelinePanel.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import LocalMemoryExplorerPanel from "@/components/memory/LocalMemoryExplorerPanel.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import MemoryFilters from "@/components/memory/MemoryFilters.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import MemoryList from "@/components/memory/MemoryList.vue";
@@ -61,7 +63,12 @@ import SessionFilters from "@/components/sessions/SessionFilters.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import SessionList from "@/components/sessions/SessionList.vue";
 import { useConfig } from "@/composables/useConfig";
-import type { AdminCerebroSearchResult, AdminSessionView } from "@/types/admin-sessions";
+import type {
+  AdminCerebroSearchResult,
+  AdminSessionView,
+  LocalMemoryExplorerSelection,
+  LocalMemorySubview,
+} from "@/types/admin-sessions";
 
 const { t } = useI18n();
 
@@ -78,12 +85,13 @@ const sessionSort = ref<"last_activity" | "started_at">("last_activity");
 const selectedSession = ref<AdminSessionView | null>(null);
 
 // Memory view state
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const memoryCategoryFilter = ref<string | undefined>(undefined);
 const memorySessionIdFilter = ref<string | undefined>(undefined);
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const memorySearchFilter = ref<string | undefined>(undefined);
 const memoryMode = ref<"local" | "cerebro">("local");
+const localMemorySubview = ref<LocalMemorySubview>("browse");
+const localExplorerSelection = ref<LocalMemoryExplorerSelection>({});
 const selectedCerebroResult = ref<AdminCerebroSearchResult | null>(null);
 
 // Gateway URL builder and auth headers for useAdmin composable
@@ -115,6 +123,7 @@ function onSelectSession(session: AdminSessionView) {
 function onViewSessionMemory(sessionId: string) {
   memorySessionIdFilter.value = sessionId;
   memoryMode.value = "local";
+  localMemorySubview.value = "browse";
   currentPage.value = "memory";
   selectedSession.value = null;
 }
@@ -122,6 +131,43 @@ function onViewSessionMemory(sessionId: string) {
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function onSelectCerebroResult(result: AdminCerebroSearchResult) {
   selectedCerebroResult.value = result;
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function openLocalExplorer(selection: LocalMemoryExplorerSelection = {}) {
+  if (selection.category !== undefined) {
+    memoryCategoryFilter.value = selection.category;
+  }
+  if (selection.sessionId !== undefined) {
+    memorySessionIdFilter.value = selection.sessionId;
+  }
+
+  localExplorerSelection.value = {
+    ...localExplorerSelection.value,
+    ...selection,
+  };
+  memoryMode.value = "local";
+  currentPage.value = "memory";
+  localMemorySubview.value = "explorer";
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function openLocalBrowse(selection: LocalMemoryExplorerSelection = localExplorerSelection.value) {
+  if (selection.category !== undefined) {
+    memoryCategoryFilter.value = selection.category;
+  }
+  if (selection.sessionId !== undefined) {
+    memorySessionIdFilter.value = selection.sessionId;
+  }
+  localExplorerSelection.value = {
+    ...selection,
+  };
+  localMemorySubview.value = "browse";
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection) {
+  localExplorerSelection.value = selection;
 }
 </script>
 
@@ -434,6 +480,7 @@ function onSelectCerebroResult(result: AdminCerebroSearchResult) {
         <MemoryStats
           :gateway-url="adminGatewayUrl"
           :auth-headers="adminAuthHeaders"
+          @select-category="openLocalExplorer({ category: $event })"
         />
       </section>
       <section class="card">
@@ -465,12 +512,45 @@ function onSelectCerebroResult(result: AdminCerebroSearchResult) {
             @update:session-id="memorySessionIdFilter = $event"
             @update:search="memorySearchFilter = $event"
           />
+          <div class="memory-mode-tabs" role="tablist" aria-label="Local memory workspace">
+            <button
+              role="tab"
+              class="nav-tab"
+              :class="{ 'nav-tab-active': localMemorySubview === 'browse' }"
+              :aria-selected="localMemorySubview === 'browse'"
+              @click="localMemorySubview = 'browse'"
+            >
+              Browse
+            </button>
+            <button
+              role="tab"
+              class="nav-tab"
+              :class="{ 'nav-tab-active': localMemorySubview === 'explorer' }"
+              :aria-selected="localMemorySubview === 'explorer'"
+              @click="localMemorySubview = 'explorer'"
+            >
+              Explorer
+            </button>
+          </div>
+
           <MemoryList
+            v-if="localMemorySubview === 'browse'"
             :gateway-url="adminGatewayUrl"
             :auth-headers="adminAuthHeaders"
             :category-filter="memoryCategoryFilter"
             :session-id-filter="memorySessionIdFilter"
             :search-filter="memorySearchFilter"
+            @select-category="openLocalExplorer({ category: $event })"
+            @select-session="openLocalExplorer({ sessionId: $event })"
+            @open-explorer="openLocalExplorer($event)"
+          />
+          <LocalMemoryExplorerPanel
+            v-else
+            :gateway-url="adminGatewayUrl"
+            :auth-headers="adminAuthHeaders"
+            :selection="localExplorerSelection"
+            @selection-change="onLocalExplorerSelectionChange"
+            @open-browse="openLocalBrowse($event)"
           />
         </template>
 

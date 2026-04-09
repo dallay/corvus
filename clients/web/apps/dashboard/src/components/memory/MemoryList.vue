@@ -2,6 +2,7 @@
 import { nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { type MemoryListParams, useAdmin } from "@/composables/useAdmin";
+import type { LocalMemoryExplorerSelection } from "@/types/admin-sessions";
 
 const props = defineProps<{
   gatewayUrl: (path: string) => string;
@@ -9,6 +10,13 @@ const props = defineProps<{
   categoryFilter?: string;
   sessionIdFilter?: string;
   searchFilter?: string;
+}>();
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const emit = defineEmits<{
+  "select-category": [category: string];
+  "select-session": [sessionId?: string];
+  "open-explorer": [selection: LocalMemoryExplorerSelection];
 }>();
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -134,12 +142,25 @@ onMounted(() => load());
           >
             <td class="mono">{{ entry.key }}</td>
             <td>
-              <span class="category-badge">{{ entry.category }}</span>
+              <button type="button" class="category-badge" @click="emit('select-category', entry.category)">
+                {{ entry.category }}
+              </button>
             </td>
             <td>{{ entry.timestamp }}</td>
-            <td class="mono">{{ entry.session_id ?? "—" }}</td>
+            <td class="mono">
+              <button type="button" class="session-link" @click="emit('select-session', entry.session_id ?? undefined)">
+                {{ entry.session_id ?? "No Session" }}
+              </button>
+            </td>
             <td class="content-cell">{{ truncate(entry.content, 80) }}</td>
             <td>
+              <button
+                type="button"
+                class="explore-btn"
+                @click="emit('open-explorer', { category: entry.category, sessionId: entry.session_id ?? undefined, entryId: entry.id })"
+              >
+                Explore
+              </button>
               <button
                 class="delete-btn"
                 :aria-label="t('memory.delete', 'Delete') + ' ' + entry.key"
@@ -244,6 +265,22 @@ onMounted(() => load());
   text-transform: capitalize;
   background: color-mix(in srgb, var(--color-bg-input) 80%, transparent);
   border: 1px solid var(--color-border);
+  color: inherit;
+  cursor: pointer;
+}
+
+.session-link,
+.explore-btn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.explore-btn {
+  margin-right: 8px;
+  color: var(--color-primary, var(--color-text-primary));
 }
 
 .delete-btn {
