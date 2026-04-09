@@ -137,6 +137,13 @@ Usa este procedimiento cuando haya drift entre el manifiesto, los tags o GitHub 
 - Confirma que release-please creó el release con el token y permisos esperados.
 - Confirma que el trigger de `publish-release.yml` vio `release.published` para el mismo tag `vX.Y.Z`.
 
+### `release-please` falla con `Resource not accessible by integration`
+
+- Verifica primero que el token del workflow puede llamar la API de GitHub Releases antes de cambiar permisos del GitHub App.
+- Revisa el PR de release ya mergeado para detectar labels stale de `release-please`.
+- Si el PR mergeado todavía tiene `autorelease: pending`, elimina ese label y vuelve a correr `release-please`.
+- Trata un label stale `autorelease: pending` como drift del estado de release, no como prueba de un problema real de permisos del GitHub App.
+
 ### Falló la publicación estable
 
 - Revisa la tabla de validación de versiones en `_publish.yml`.

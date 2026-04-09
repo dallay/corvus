@@ -264,6 +264,7 @@ canonical stable tag, GitHub Release, and release notes.
 
 - Changes to release automation should land through a pull request, not by bypassing `main` protections.
 - Reserve direct pushes to `main` for explicit emergency recovery only.
+- If `release-please` fails with `Resource not accessible by integration`, inspect the merged release PR for a stale `autorelease: pending` label before rotating tokens or changing GitHub App permissions.
 
 **Secrets Required**:
 
