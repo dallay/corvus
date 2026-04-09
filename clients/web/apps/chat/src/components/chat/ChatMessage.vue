@@ -1,9 +1,21 @@
 <script setup lang="ts">
-defineProps<{
+import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
+
+const props = defineProps<{
   role: "assistant" | "user";
   content: string;
   status?: "streaming" | "complete" | "error";
+  recalledMemoryKeys?: string[];
 }>();
+
+const { t } = useI18n();
+
+const hasMemoryRecall = computed(
+  () => props.role === "assistant" && (props.recalledMemoryKeys?.length ?? 0) > 0
+);
+
+const expanded = ref(false);
 </script>
 
 <template>
@@ -33,6 +45,27 @@ defineProps<{
       :aria-live="role === 'assistant' && status === 'streaming' ? 'polite' : undefined"
     >
       <p class="bubble-text">{{ content }}<span v-if="status === 'streaming'" class="streaming-cursor" aria-hidden="true"></span></p>
+
+      <!-- Memory recall indicator -->
+      <div v-if="hasMemoryRecall" class="memory-recall-indicator" data-testid="memory-recall-indicator">
+        <button
+          type="button"
+          class="memory-recall-badge"
+          :aria-expanded="expanded"
+          :aria-label="t('chat.memoryRecallLabel')"
+          @click="expanded = !expanded"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <ellipse cx="12" cy="5" rx="9" ry="3" />
+            <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
+            <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3" />
+          </svg>
+          <span>{{ t("chat.memoryRecalled") }}</span>
+        </button>
+        <div v-if="expanded" class="memory-recall-detail" role="region" :aria-label="t('chat.memoryRecallLabel')">
+          <p class="memory-recall-detail-hint">{{ t("chat.memoryRecallHint") }}</p>
+        </div>
+      </div>
     </div>
 
     <!-- User Avatar -->
@@ -133,5 +166,49 @@ defineProps<{
   50% {
     opacity: 0;
   }
+}
+
+/* Memory recall indicator */
+.memory-recall-indicator {
+  margin-top: 8px;
+}
+
+.memory-recall-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 10px;
+  background: var(--corvus-color-accent-subtle);
+  color: var(--corvus-color-accent-default);
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.memory-recall-badge:hover,
+.memory-recall-badge:focus-visible {
+  background: var(--corvus-color-accent-muted, var(--corvus-color-accent-subtle));
+  outline: none;
+}
+
+.memory-recall-badge:focus-visible {
+  box-shadow: 0 0 0 2px var(--corvus-color-accent-default);
+}
+
+.memory-recall-detail {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: var(--corvus-radius-input);
+  border: 1px solid var(--corvus-color-border-default);
+  background: var(--corvus-color-bg-raised);
+  font-size: 12px;
+  color: var(--corvus-color-text-secondary);
+}
+
+.memory-recall-detail-hint {
+  margin: 0;
 }
 </style>

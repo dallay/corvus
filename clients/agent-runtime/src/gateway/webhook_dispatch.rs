@@ -52,6 +52,7 @@ pub struct WebhookTurnResult {
     pub outcome: WebhookTerminalOutcome,
     pub response_text: Option<String>,
     pub event_frames: Vec<String>,
+    pub tools_called: Vec<String>,
 }
 
 pub(crate) enum CanonicalWebhookResult {
@@ -179,12 +180,14 @@ pub(crate) fn map_canonical_result(
             };
             let response_text = agent_result.final_text.clone();
             let event_frames = event_frames_for_agent_result(request, &agent_result);
+            let tools_called = agent_result.tools_called.clone();
             WebhookTurnResult {
                 session_id: request.session_id.clone(),
                 model: model.to_string(),
                 outcome,
                 response_text,
                 event_frames,
+                tools_called,
             }
         }
         CanonicalWebhookResult::ApprovalRequired { tool, reason } => WebhookTurnResult {
@@ -200,6 +203,7 @@ pub(crate) fn map_canonical_result(
                 "approval_required",
                 Some(reason.as_str()),
             ),
+            tools_called: vec![],
         },
         CanonicalWebhookResult::BudgetExceeded {
             current_usd,
@@ -219,6 +223,7 @@ pub(crate) fn map_canonical_result(
                 "budget_exceeded",
                 Some("budget_exceeded"),
             ),
+            tools_called: vec![],
         },
         CanonicalWebhookResult::Blocking(BlockingOutcome::ApprovalRequired { tool }) => {
             let reason = approval_reason_for_tool(&tool);
@@ -235,6 +240,7 @@ pub(crate) fn map_canonical_result(
                     "approval_required",
                     Some(reason.as_str()),
                 ),
+                tools_called: vec![],
             }
         }
         CanonicalWebhookResult::Blocking(BlockingOutcome::TimeoutAborted) => WebhookTurnResult {
@@ -247,6 +253,7 @@ pub(crate) fn map_canonical_result(
                 "error",
                 Some("request aborted due to timeout semantics"),
             ),
+            tools_called: vec![],
         },
         CanonicalWebhookResult::Blocking(BlockingOutcome::Fallback { response }) => {
             WebhookTurnResult {
@@ -255,6 +262,7 @@ pub(crate) fn map_canonical_result(
                 outcome: WebhookTerminalOutcome::Fallback,
                 response_text: Some(response),
                 event_frames: event_frames_for_blocking_result(request, "complete", None),
+                tools_called: vec![],
             }
         }
         CanonicalWebhookResult::Error => WebhookTurnResult {
@@ -263,6 +271,7 @@ pub(crate) fn map_canonical_result(
             outcome: WebhookTerminalOutcome::Error,
             response_text: None,
             event_frames: event_frames_for_blocking_result(request, "error", Some("runtime_error")),
+            tools_called: vec![],
         },
     }
 }
@@ -519,6 +528,7 @@ mod tests {
                 terminal_outcome: AgentTurnOutcome::Completed,
                 approval_required: None,
                 event_log: vec![AgentTurnEvent::Prepared, AgentTurnEvent::Completed],
+                tools_called: vec![],
             }),
         );
 
@@ -671,6 +681,7 @@ mod tests {
                     "reason": "missing tool",
                 })),
                 event_log: vec![AgentTurnEvent::Prepared, AgentTurnEvent::Completed],
+                tools_called: vec![],
             },
         );
 
@@ -711,6 +722,7 @@ mod tests {
                 terminal_outcome: AgentTurnOutcome::Completed,
                 approval_required: None,
                 event_log: vec![AgentTurnEvent::Prepared, AgentTurnEvent::Completed],
+                tools_called: vec![],
             }),
         );
 

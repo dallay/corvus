@@ -28,6 +28,7 @@ interface Message {
   approvalId?: string;
   toolName?: string;
   reason?: string;
+  recalledMemoryKeys?: string[];
 }
 
 const MAX_PROMPT_LENGTH = 500;
@@ -86,13 +87,19 @@ function scrollChatToBottom(): void {
   chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
 }
 
-function updateAssistantMessage(messageId: number, content: string, status?: MessageStatus): void {
+function updateAssistantMessage(
+  messageId: number,
+  content: string,
+  status?: MessageStatus,
+  recalledMemoryKeys?: string[]
+): void {
   const messageIndex = messages.value.findIndex((item) => item.id === messageId);
   if (messageIndex >= 0) {
     messages.value[messageIndex] = {
       ...messages.value[messageIndex],
       content,
       status,
+      ...(recalledMemoryKeys !== undefined && { recalledMemoryKeys }),
     };
   }
 }
@@ -169,7 +176,7 @@ async function sendMessage(): Promise<void> {
     // Try streaming first
     let streamBuffer = "";
     updateAssistantMessage(assistantMessageId, "", "streaming");
-    await chat.streamMessage(
+    const doneEvent = await chat.streamMessage(
       normalizedText,
       (chunk) => {
         streamBuffer += chunk;
@@ -178,7 +185,12 @@ async function sendMessage(): Promise<void> {
       },
       requestId
     );
-    updateAssistantMessage(assistantMessageId, streamBuffer, "complete");
+    updateAssistantMessage(
+      assistantMessageId,
+      streamBuffer,
+      "complete",
+      doneEvent.recalled_memory_keys
+    );
   } catch (streamError: unknown) {
     // Rethrow auth/credential errors — do not mask with fallback.
     if (streamError instanceof Error && streamError.message === t("auth.credentialInvalid")) {
@@ -247,6 +259,7 @@ function persistMessages(): void {
       approvalId: m.approvalId,
       toolName: m.toolName,
       reason: m.reason,
+      recalledMemoryKeys: m.recalledMemoryKeys,
     }));
     sessionStorage.setItem(messagesStorageKey(), JSON.stringify(serializable));
   } catch {
@@ -285,7 +298,10 @@ function restoreMessages(): void {
         (message.status === undefined || validStatuses.includes(message.status as MessageStatus)) &&
         (message.approvalId === undefined || typeof message.approvalId === "string") &&
         (message.toolName === undefined || typeof message.toolName === "string") &&
-        (message.reason === undefined || typeof message.reason === "string")
+        (message.reason === undefined || typeof message.reason === "string") &&
+        (message.recalledMemoryKeys === undefined ||
+          (Array.isArray(message.recalledMemoryKeys) &&
+            message.recalledMemoryKeys.every((k) => typeof k === "string")))
       );
     };
 
@@ -576,6 +592,7 @@ onUnmounted(() => {
                     :role="message.role"
                     :content="message.content"
                     :status="message.status"
+                    :recalled-memory-keys="message.recalledMemoryKeys"
                   />
                 </template>
               </div>

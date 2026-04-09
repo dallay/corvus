@@ -3,6 +3,7 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   status?: "streaming" | "complete" | "error";
+  recalledMemoryKeys?: string[];
 }
 
 export interface StreamChunkEvent {
@@ -12,6 +13,7 @@ export interface StreamChunkEvent {
 export interface StreamDoneEvent {
   message_id: string;
   session_id?: string;
+  recalled_memory_keys?: string[];
 }
 
 export interface StreamErrorEvent {
