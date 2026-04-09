@@ -313,17 +313,31 @@
   "actions": {
     "close": "Cerrar"
   },
+  "nav": {
+    "config": "Configuración",
+    "sessions": "Sesiones",
+    "memory": "Memoria"
+  },
   "sessions": {
     "detail": "Detalle de la sesión",
+    "empty": "No se encontraron sesiones",
     "loading": "Cargando…",
     "colId": "ID de sesión",
     "colStatus": "Estado",
+    "colActions": "Acciones",
     "colStarted": "Inició",
     "colMessages": "Mensajes",
     "colLastActivity": "Última actividad",
     "endedAt": "Finalizó",
     "statusActive": "Activa",
     "statusEnded": "Finalizada",
+    "filterStatus": "Estado",
+    "filterAll": "Todas",
+    "sortBy": "Ordenar por",
+    "sortLastActivity": "Última actividad",
+    "sortStartedAt": "Fecha de inicio",
+    "selectSession": "Ver sesión",
+    "view": "Ver",
     "memorySummary": "Resumen de memoria",
     "noMemoryEntries": "0 entradas",
     "viewMemory": "Ver entradas de memoria"
@@ -367,6 +381,7 @@
     "searchPlaceholder": "Buscar contenido…"
   },
   "pagination": {
+    "perPage": "Filas por página",
     "prev": "Anterior",
     "page": "Página",
     "total": "total",
