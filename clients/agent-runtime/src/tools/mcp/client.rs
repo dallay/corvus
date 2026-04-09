@@ -790,7 +790,7 @@ mod tests {
         status: StatusCode,
         payload: serde_json::Value,
     ) -> (String, MockMcpState) {
-        async fn handler(
+        fn handler(
             State(state): State<MockMcpState>,
             headers: axum::http::HeaderMap,
             Json(body): Json<serde_json::Value>,
@@ -820,7 +820,8 @@ mod tests {
             let status = body["params"]
                 .get("status_code")
                 .and_then(|v| v.as_u64())
-                .unwrap_or(200) as u16;
+                .and_then(|value| u16::try_from(value).ok())
+                .unwrap_or(200);
             (
                 StatusCode::from_u16(status).unwrap_or(StatusCode::OK),
                 Json(
@@ -848,7 +849,7 @@ mod tests {
                             body["params"]["status_code"] =
                                 serde_json::Value::from(status.as_u16());
                             body["params"]["response_payload"] = payload;
-                            handler(State(state), headers, Json(body)).await
+                            handler(State(state), headers, Json(body))
                         }
                     },
                 ),
