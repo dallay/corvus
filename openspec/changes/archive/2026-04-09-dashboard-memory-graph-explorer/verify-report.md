@@ -12,7 +12,7 @@
 | Tasks complete | 12 |
 | Tasks incomplete | 0 |
 
-All tasks in `openspec/changes/dashboard-memory-graph-explorer/tasks.md` are marked complete.
+All tasks in `openspec/changes/archive/2026-04-09-dashboard-memory-graph-explorer/tasks.md` are marked complete.
 
 ## Execution Evidence
 
@@ -97,18 +97,22 @@ No build command was executed because the verification request explicitly said *
 ## Issues Found
 
 ### CRITICAL
+
 None.
 
 ### WARNING
+
 1. **Integrated category/relationship behavior is only partially proven by tests.** The code supports category focus and clear (`useLocalMemoryExplorer.ts:266-283`), but coverage is split across the composable and leaf components. There is no `LocalMemoryExplorerPanel.spec.ts` assertion that a real category click re-renders both the timeline and relationship explorer together.
 2. **Real `MemoryList` explorer handoff is not directly tested.** `MemoryList.vue:157-163` emits `open-explorer`, but `MemoryList.spec.ts` does not assert that event on the real component. `App.spec.ts` covers the browse→explorer transition through a stubbed `MemoryList`, which is useful but indirect.
 3. **Relationship navigation proof is panel-level partial, not end-to-end.** `LocalMemoryRelationshipExplorer.spec.ts` proves cluster selection emission, and `useLocalMemoryExplorer.spec.ts` proves derived intersections, but there is no integration test exercising a full session/category/cluster drill-in flow inside the mounted explorer panel.
 
 ### SUGGESTION
+
 1. Add one integration test for `LocalMemoryExplorerPanel.vue` that clicks a real category bar, verifies timeline filtering, then clicks a relationship cluster and verifies the visible entry subset.
 2. Add one `MemoryList.spec.ts` assertion for the real `open-explorer` emission payload.
 
 ## Verdict
+
 **PASS WITH WARNINGS**
 
 The implementation matches the spec/design intent and all requested relevant tests/checks passed, with solid evidence for local-vs-Cerebro separation, timeline grouping, inferred local data shaping, and empty/truncated states. The remaining gaps are test-integration gaps and one minor design-shape deviation, not shipping blockers.

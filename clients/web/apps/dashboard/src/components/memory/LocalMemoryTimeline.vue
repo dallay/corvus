@@ -1,5 +1,5 @@
-<script setup lang="ts">
-import type { LocalMemoryTimelineGroup } from "@/types/admin-sessions";
+<script lang="ts" setup>
+import type {LocalMemoryTimelineGroup} from "@/types/admin-sessions";
 
 const props = defineProps<{
   groups: LocalMemoryTimelineGroup[];
@@ -14,6 +14,11 @@ const emit = defineEmits<{
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function selectSession(sessionId?: string | null) {
   emit("select-session", sessionId ?? undefined);
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function isSelected(sessionId?: string | null) {
+  return props.activeSessionId === (sessionId ?? undefined);
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -37,23 +42,28 @@ function visibleEntries(group: LocalMemoryTimelineGroup) {
 
     <div class="timeline-groups">
       <article
-        v-for="group in groups"
-        :key="group.label"
-        class="timeline-group"
-        :class="{ 'timeline-group-active': activeSessionId === group.sessionId }"
-        data-testid="timeline-group"
+          v-for="group in groups"
+          :key="group.label"
+          :class="{ 'timeline-group-active': activeSessionId === group.sessionId }"
+          class="timeline-group"
+          data-testid="timeline-group"
       >
-        <button class="timeline-group-button" type="button" @click="selectSession(group.sessionId)">
+        <button
+            :aria-pressed="isSelected(group.sessionId)"
+            class="timeline-group-button"
+            type="button"
+            @click="selectSession(group.sessionId)"
+        >
           <span class="timeline-group-label">{{ group.label }}</span>
           <span class="timeline-group-meta">{{ group.entryCount }} entries</span>
         </button>
 
         <ol class="timeline-entry-list">
           <li
-            v-for="entry in visibleEntries(group)"
-            :key="entry.id"
-            class="timeline-entry"
-            data-testid="timeline-entry"
+              v-for="entry in visibleEntries(group)"
+              :key="entry.id"
+              class="timeline-entry"
+              data-testid="timeline-entry"
           >
             <span class="timeline-entry-time">{{ entry.timestamp }}</span>
             <span class="timeline-entry-key">{{ entry.key }}</span>
@@ -77,9 +87,9 @@ function visibleEntries(group: LocalMemoryTimelineGroup) {
 }
 
 .eyebrow {
+  color: var(--color-text-secondary);
   font-size: 11px;
   text-transform: uppercase;
-  color: var(--color-text-secondary);
 }
 
 .timeline-groups {
@@ -98,33 +108,33 @@ function visibleEntries(group: LocalMemoryTimelineGroup) {
 }
 
 .timeline-group-button {
-  display: flex;
-  width: 100%;
-  justify-content: space-between;
   align-items: center;
   background: transparent;
   border: 0;
-  padding: 0 0 8px;
-  cursor: pointer;
   color: inherit;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 0 8px;
+  width: 100%;
 }
 
 .timeline-entry-list {
+  display: grid;
+  gap: 6px;
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 6px;
 }
 
 .timeline-entry {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) auto;
-  gap: 8px;
-  font-size: 12px;
-  padding: 8px;
-  border-radius: 8px;
   background: color-mix(in srgb, var(--color-bg-secondary) 80%, transparent);
+  border-radius: 8px;
+  display: grid;
+  font-size: 12px;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) auto;
+  padding: 8px;
 }
 
 .timeline-entry-time,

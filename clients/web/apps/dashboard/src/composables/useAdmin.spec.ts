@@ -404,6 +404,15 @@ describe("useAdmin", () => {
       expect(parsed.searchParams.get("offset")).toBe("200");
       expect(parsed.searchParams.get("session_id")).toBe("sess-2");
     });
+
+    it("rethrows paged list failures so explorer callers can distinguish errors", async () => {
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }));
+
+      const admin = createAdmin();
+
+      await expect(admin.listMemoryEntries()).rejects.toThrow("HTTP 500");
+      expect(admin.error.value).toBe("HTTP 500");
+    });
   });
 
   describe("fetchMemoryStats", () => {

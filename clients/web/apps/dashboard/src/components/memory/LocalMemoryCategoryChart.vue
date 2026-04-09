@@ -1,5 +1,5 @@
-<script setup lang="ts">
-import type { LocalMemoryCategoryFacet } from "@/types/admin-sessions";
+<script lang="ts" setup>
+import type {LocalMemoryCategoryFacet} from "@/types/admin-sessions";
 
 defineProps<{
   facets: LocalMemoryCategoryFacet[];
@@ -20,10 +20,10 @@ const emit = defineEmits<{
         <h3>Category breakdown</h3>
       </div>
       <button
-        v-if="facets.some((facet) => facet.isActive)"
-        type="button"
-        class="clear-category-focus"
-        @click="emit('clear-category')"
+          v-if="facets.some((facet) => facet.isActive)"
+          class="clear-category-focus"
+          type="button"
+          @click="emit('clear-category')"
       >
         Clear focus
       </button>
@@ -31,15 +31,18 @@ const emit = defineEmits<{
 
     <div class="category-list">
       <button
-        v-for="facet in facets"
-        :key="facet.category"
-        type="button"
-        class="category-bar"
-        :class="{ 'category-bar-active': facet.isActive }"
-        @click="emit('select-category', facet.category)"
+          v-for="facet in facets"
+          :key="facet.category"
+          :class="{ 'category-bar-active': facet.isActive }"
+          class="category-bar"
+          type="button"
+          @click="emit('select-category', facet.category)"
       >
         <span class="category-label">{{ facet.category }}</span>
-        <span class="category-meta">{{ facet.total }} · {{ facet.sessionCount }} sessions</span>
+        <span class="category-meta"
+        >{{ facet.total }} · {{ facet.sessionCount }}
+          {{ facet.sessionCount === 1 ? "session" : "sessions" }}</span
+        >
       </button>
     </div>
   </section>
@@ -53,10 +56,10 @@ const emit = defineEmits<{
 }
 
 .panel-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
   align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
 }
 
 .panel-header h3,
@@ -65,25 +68,25 @@ const emit = defineEmits<{
 }
 
 .eyebrow {
+  color: var(--color-text-secondary);
   font-size: 11px;
   text-transform: uppercase;
-  color: var(--color-text-secondary);
 }
 
 .category-bar,
 .clear-category-focus {
+  background: transparent;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: transparent;
   color: inherit;
 }
 
 .category-bar {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
   cursor: pointer;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px 12px;
 }
 
 .category-bar-active {
@@ -96,7 +99,7 @@ const emit = defineEmits<{
 }
 
 .clear-category-focus {
-  padding: 6px 10px;
   cursor: pointer;
+  padding: 6px 10px;
 }
 </style>

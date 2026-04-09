@@ -672,7 +672,7 @@ And no raw JSON-RPC envelope fields MUST be present.
 
 ---
 
-### MEM-4: Local Visualization Data Boundary
+### MEM-7: Local Visualization Data Boundary
 
 The local memory visibility contract MUST support dashboard visualization v1 using existing local
 memory signals and MUST preserve a clear boundary from remote Cerebro semantics.

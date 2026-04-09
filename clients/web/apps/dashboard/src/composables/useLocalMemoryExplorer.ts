@@ -18,9 +18,15 @@ export const MEMORY_EXPLORER_MAX_ENTRIES = 600;
 const NO_SESSION_LABEL = "No Session";
 
 interface LocalMemoryExplorerApi {
-  listMemoryEntries(params?: MemoryListParams): Promise<AdminMemoryListResponse | null>;
+  listMemoryEntries(params?: MemoryListParams): Promise<AdminMemoryListResponse>;
   fetchMemoryStats(): Promise<AdminMemoryStats | null>;
 }
+
+type SelectionTarget = {
+  category?: string;
+  sessionId?: string | null;
+  session_id?: string | null;
+};
 
 function normalizeSessionId(sessionId?: string | null): string | undefined {
   if (!sessionId) {
@@ -56,6 +62,25 @@ function compareEntries(left: AdminMemoryEntry, right: AdminMemoryEntry): number
   return leftTimestamp - rightTimestamp;
 }
 
+function matchesSelection(
+  target: SelectionTarget,
+  activeSelection: LocalMemoryExplorerSelection
+): boolean {
+  const targetSessionId = normalizeSessionId(
+    "sessionId" in target ? target.sessionId : target.session_id
+  );
+
+  if (activeSelection.sessionId && targetSessionId !== activeSelection.sessionId) {
+    return false;
+  }
+
+  if (activeSelection.category && target.category !== activeSelection.category) {
+    return false;
+  }
+
+  return true;
+}
+
 export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
   const entries = ref<AdminMemoryEntry[]>([]);
   const stats = ref<AdminMemoryStats | null>(null);
@@ -69,42 +94,25 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
   const visibleEntries = computed(() => {
     const activeSelection = selection.value;
 
-    return [...entries.value].sort(compareEntries).filter((entry) => {
-      if (
-        activeSelection.sessionId &&
-        (entry.session_id ?? undefined) !== activeSelection.sessionId
-      ) {
-        return false;
-      }
-
-      if (activeSelection.category && entry.category !== activeSelection.category) {
-        return false;
-      }
-
-      return true;
-    });
+    return [...entries.value]
+      .sort(compareEntries)
+      .filter((entry) => matchesSelection(entry, activeSelection));
   });
 
   const timelineGroups = computed<LocalMemoryTimelineGroup[]>(() => {
-    const groupSource = [...entries.value].sort(compareEntries).filter((entry) => {
-      if (selection.value.category && entry.category !== selection.value.category) {
-        return false;
-      }
-
-      if (
-        selection.value.sessionId &&
-        (entry.session_id ?? undefined) !== selection.value.sessionId
-      ) {
-        return false;
-      }
-
-      return true;
-    });
+    const activeSelection = selection.value;
+    const groupSource = [...entries.value]
+      .sort(compareEntries)
+      .filter((entry) => matchesSelection(entry, activeSelection));
 
     const grouped = new Map<string, AdminMemoryEntry[]>();
     for (const entry of groupSource) {
       const key = toSessionKey(entry.session_id);
-      grouped.set(key, [...(grouped.get(key) ?? []), entry]);
+      const groupEntries = grouped.get(key) ?? [];
+      if (!grouped.has(key)) {
+        grouped.set(key, groupEntries);
+      }
+      groupEntries.push(entry);
     }
 
     return [...grouped.entries()]
@@ -160,25 +168,19 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
   });
 
   const relationshipClusters = computed<LocalMemoryRelationshipCluster[]>(() => {
-    const clusterSource = [...entries.value].sort(compareEntries).filter((entry) => {
-      if (selection.value.category && entry.category !== selection.value.category) {
-        return false;
-      }
-
-      if (
-        selection.value.sessionId &&
-        (entry.session_id ?? undefined) !== selection.value.sessionId
-      ) {
-        return false;
-      }
-
-      return true;
-    });
+    const activeSelection = selection.value;
+    const clusterSource = [...entries.value]
+      .sort(compareEntries)
+      .filter((entry) => matchesSelection(entry, activeSelection));
 
     const grouped = new Map<string, AdminMemoryEntry[]>();
     for (const entry of clusterSource) {
       const groupKey = `${toSessionKey(entry.session_id)}::${entry.category}`;
-      grouped.set(groupKey, [...(grouped.get(groupKey) ?? []), entry]);
+      const groupEntries = grouped.get(groupKey) ?? [];
+      if (!grouped.has(groupKey)) {
+        grouped.set(groupKey, groupEntries);
+      }
+      groupEntries.push(entry);
     }
 
     return [...grouped.values()]
@@ -188,11 +190,28 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
         count: groupEntries.length,
         entries: groupEntries,
       }))
-      .sort(
-        (left, right) =>
-          right.count - left.count ||
-          compareEntries(left.entries[0] as AdminMemoryEntry, right.entries[0] as AdminMemoryEntry)
-      );
+      .sort((left, right) => {
+        if (right.count !== left.count) {
+          return right.count - left.count;
+        }
+
+        const leftEntry = left.entries[0];
+        const rightEntry = right.entries[0];
+
+        if (!leftEntry && !rightEntry) {
+          return 0;
+        }
+
+        if (!leftEntry) {
+          return 1;
+        }
+
+        if (!rightEntry) {
+          return -1;
+        }
+
+        return compareEntries(leftEntry, rightEntry);
+      });
   });
 
   const snapshot = computed<LocalMemoryExplorerSnapshot>(() => ({
@@ -222,9 +241,6 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
 
       while (collectedEntries.length < MEMORY_EXPLORER_MAX_ENTRIES) {
         const response = await api.listMemoryEntries({ page, per_page: MEMORY_EXPLORER_PAGE_SIZE });
-        if (!response) {
-          break;
-        }
 
         currentTotal = response.total;
         collectedEntries.push(...response.entries);

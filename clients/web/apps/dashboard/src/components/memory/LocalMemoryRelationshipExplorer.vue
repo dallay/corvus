@@ -1,11 +1,11 @@
-<script setup lang="ts">
+<script lang="ts" setup>
 import type {
   AdminMemoryEntry,
   LocalMemoryExplorerSelection,
   LocalMemoryRelationshipCluster,
 } from "@/types/admin-sessions";
 
-defineProps<{
+const props = defineProps<{
   clusters: LocalMemoryRelationshipCluster[];
   visibleEntries: AdminMemoryEntry[];
   selection: LocalMemoryExplorerSelection;
@@ -17,6 +17,14 @@ const emit = defineEmits<{
   "clear-selection": [];
   "open-browse": [];
 }>();
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function isClusterSelected(cluster: LocalMemoryRelationshipCluster): boolean {
+  return (
+      (props.selection.sessionId ?? undefined) === (cluster.sessionId ?? undefined) &&
+      props.selection.category === cluster.category
+  );
+}
 </script>
 
 <template>
@@ -27,24 +35,28 @@ const emit = defineEmits<{
         <h3>Session ↔ category intersections</h3>
       </div>
       <div class="panel-actions">
-        <button v-if="selection.category || selection.sessionId" type="button" class="relationship-clear" @click="emit('clear-selection')">
+        <button v-if="selection.category || selection.sessionId" class="relationship-clear"
+                type="button" @click="emit('clear-selection')">
           Clear focus
         </button>
-        <button type="button" class="relationship-open-browse" @click="emit('open-browse')">
+        <button class="relationship-open-browse" type="button" @click="emit('open-browse')">
           Open in browse list
         </button>
       </div>
     </header>
 
-    <p class="helper">This view is inferred from local sessions and categories only, not Cerebro semantics.</p>
+    <p class="helper">This view is inferred from local sessions and categories only, not Cerebro
+      semantics.</p>
 
     <div class="relationship-clusters">
       <button
-        v-for="cluster in clusters"
-        :key="`${cluster.sessionId ?? 'no-session'}-${cluster.category}`"
-        type="button"
-        class="relationship-cluster"
-        @click="emit('select-cluster', cluster)"
+          v-for="cluster in clusters"
+          :key="`${cluster.sessionId ?? 'no-session'}-${cluster.category}`"
+          :aria-pressed="isClusterSelected(cluster)"
+          :class="{ 'relationship-cluster-active': isClusterSelected(cluster) }"
+          class="relationship-cluster"
+          type="button"
+          @click="emit('select-cluster', cluster)"
       >
         <span>{{ cluster.sessionId ?? "No Session" }}</span>
         <span>{{ cluster.category }}</span>
@@ -71,14 +83,14 @@ const emit = defineEmits<{
 
 .panel-header {
   display: flex;
-  justify-content: space-between;
   gap: 12px;
+  justify-content: space-between;
 }
 
 .panel-actions {
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
+  gap: 8px;
 }
 
 .panel-header h3,
@@ -99,24 +111,28 @@ const emit = defineEmits<{
 .relationship-clear,
 .relationship-open-browse,
 .relationship-cluster {
+  background: transparent;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: transparent;
   color: inherit;
 }
 
 .relationship-clear,
 .relationship-open-browse {
-  padding: 6px 10px;
   cursor: pointer;
+  padding: 6px 10px;
 }
 
 .relationship-cluster {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
-  gap: 8px;
-  padding: 10px 12px;
   cursor: pointer;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  padding: 10px 12px;
+}
+
+.relationship-cluster-active {
+  border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
 }
 
 .relationship-entries {
@@ -126,11 +142,11 @@ const emit = defineEmits<{
 }
 
 .relationship-entries li {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
   background: color-mix(in srgb, var(--color-bg-secondary) 80%, transparent);
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 8px 10px;
 }
 </style>

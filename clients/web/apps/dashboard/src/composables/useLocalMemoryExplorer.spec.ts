@@ -47,7 +47,7 @@ const stats: AdminMemoryStats = {
 describe("useLocalMemoryExplorer", () => {
   it("builds chronological timeline groups including the no-session fallback lane", async () => {
     const listMemoryEntries = vi
-      .fn<(...args: unknown[]) => Promise<AdminMemoryListResponse | null>>()
+      .fn<(...args: unknown[]) => Promise<AdminMemoryListResponse>>()
       .mockResolvedValue(
         createListResponse([
           createEntry("2", {
@@ -89,7 +89,7 @@ describe("useLocalMemoryExplorer", () => {
 
   it("supports category focus, clear focus, and session-category intersections without Cerebro data", async () => {
     const listMemoryEntries = vi
-      .fn<(...args: unknown[]) => Promise<AdminMemoryListResponse | null>>()
+      .fn<(...args: unknown[]) => Promise<AdminMemoryListResponse>>()
       .mockResolvedValue(
         createListResponse([
           createEntry("1", { session_id: "session-a", category: "Core" }),
@@ -135,7 +135,7 @@ describe("useLocalMemoryExplorer", () => {
     );
 
     const listMemoryEntries = vi
-      .fn<(...args: unknown[]) => Promise<AdminMemoryListResponse | null>>()
+      .fn<(...args: unknown[]) => Promise<AdminMemoryListResponse>>()
       .mockResolvedValueOnce(createListResponse(firstBatch, 800, 0))
       .mockResolvedValueOnce(createListResponse(secondBatch, 800, 200))
       .mockResolvedValueOnce(createListResponse(thirdBatch, 800, 400))
@@ -151,5 +151,21 @@ describe("useLocalMemoryExplorer", () => {
     expect(explorer.isTruncated.value).toBe(true);
     expect(explorer.entries.value).toHaveLength(MEMORY_EXPLORER_MAX_ENTRIES);
     expect(listMemoryEntries).toHaveBeenCalledTimes(3);
+  });
+
+  it("surfaces paged list failures as explorer errors instead of treating them as pagination completion", async () => {
+    const listMemoryEntries = vi
+      .fn<(...args: unknown[]) => Promise<AdminMemoryListResponse>>()
+      .mockRejectedValue(new Error("HTTP 500"));
+    const fetchMemoryStats = vi
+      .fn<() => Promise<AdminMemoryStats | null>>()
+      .mockResolvedValue(stats);
+
+    const explorer = useLocalMemoryExplorer({ listMemoryEntries, fetchMemoryStats });
+    await explorer.load();
+
+    expect(explorer.error.value).toBe("HTTP 500");
+    expect(explorer.entries.value).toEqual([]);
+    expect(explorer.totalEntries.value).toBe(0);
   });
 });

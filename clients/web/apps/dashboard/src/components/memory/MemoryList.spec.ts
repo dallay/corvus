@@ -1,9 +1,9 @@
-import { flushPromises, mount } from "@vue/test-utils";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createI18n } from "vue-i18n";
+import {flushPromises, mount} from "@vue/test-utils";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {createI18n} from "vue-i18n";
 
 import MemoryList from "@/components/memory/MemoryList.vue";
-import { i18nConfig } from "@/i18n";
+import {i18nConfig} from "@/i18n";
 
 const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
 
@@ -13,26 +13,26 @@ beforeEach(() => {
 });
 
 function mockMemoryResponse(
-  items: Array<{
-    id: string;
-    key: string;
-    content: string;
-    category: string;
-    timestamp: string;
-    session_id?: string | null;
-  }>,
-  total?: number
+    items: Array<{
+      id: string;
+      key: string;
+      content: string;
+      category: string;
+      timestamp: string;
+      session_id?: string | null;
+    }>,
+    total?: number
 ) {
   fetchMock.mockResolvedValueOnce(
-    new Response(
-      JSON.stringify({
-        entries: items,
-        total: total ?? items.length,
-        limit: 50,
-        offset: 0,
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    )
+      new Response(
+          JSON.stringify({
+            entries: items,
+            total: total ?? items.length,
+            limit: 50,
+            offset: 0,
+          }),
+          {status: 200, headers: {"Content-Type": "application/json"}}
+      )
   );
 }
 
@@ -41,11 +41,11 @@ function mountMemoryList(props?: Record<string, unknown>) {
     attachTo: document.body,
     props: {
       gatewayUrl: (path: string) => new URL(`http://localhost:3000/api${path}`).toString(),
-      authHeaders: () => ({ Authorization: "Bearer token" }),
+      authHeaders: () => ({Authorization: "Bearer token"}),
       ...props,
     },
     global: {
-      plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      plugins: [createI18n({...i18nConfig, locale: "en"})],
     },
   });
 }
@@ -96,15 +96,15 @@ describe("MemoryList", () => {
 
   it("shows pagination when total exceeds page size", async () => {
     mockMemoryResponse(
-      Array.from({ length: 25 }, (_, i) => ({
-        id: `m${i}`,
-        key: `key-${i}`,
-        content: "content",
-        category: "Core",
-        timestamp: "2026-01-01",
-        session_id: null,
-      })),
-      60
+        Array.from({length: 25}, (_, i) => ({
+          id: `m${i}`,
+          key: `key-${i}`,
+          content: "content",
+          category: "Core",
+          timestamp: "2026-01-01",
+          session_id: null,
+        })),
+        60
     );
 
     const wrapper = mountMemoryList();
@@ -128,10 +128,10 @@ describe("MemoryList", () => {
     expect(wrapper.find(".confirm-dialog").exists()).toBe(true);
     expect(wrapper.find(".confirm-dialog").attributes("aria-modal")).toBe("true");
     expect(wrapper.find(".confirm-dialog").attributes("aria-labelledby")).toBe(
-      "memory-delete-title"
+        "memory-delete-title"
     );
     expect(wrapper.find(".confirm-dialog").attributes("aria-describedby")).toBe(
-      "memory-delete-description"
+        "memory-delete-description"
     );
     expect(wrapper.text()).toContain("fact-1");
   });
@@ -145,7 +145,7 @@ describe("MemoryList", () => {
     await wrapper.find('[aria-label="Delete fact-1"]').trigger("click");
 
     // Mock DELETE response
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
+    fetchMock.mockResolvedValueOnce(new Response(null, {status: 200}));
     // Mock reload response after delete
     const remainingEntry = sampleEntries[1];
     expect(remainingEntry).toBeDefined();
@@ -155,7 +155,7 @@ describe("MemoryList", () => {
     await flushPromises();
 
     const deleteCall = fetchMock.mock.calls.find(
-      (entry) => (entry[1]?.method ?? "GET") === "DELETE"
+        (entry) => (entry[1]?.method ?? "GET") === "DELETE"
     );
     expect(deleteCall).toBeDefined();
     expect(deleteCall?.[0]).toContain("/web/admin/memory/fact-1");
@@ -194,7 +194,7 @@ describe("MemoryList", () => {
     await flushPromises();
 
     mockMemoryResponse(sampleEntries);
-    await wrapper.setProps({ [propName]: propValue });
+    await wrapper.setProps({[propName]: propValue});
     await flushPromises();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -226,5 +226,20 @@ describe("MemoryList", () => {
       ],
     ]);
     expect(wrapper.find("table.memory-table").exists()).toBe(true);
+  });
+
+  it("renders entries without a session as non-actionable", async () => {
+    mockMemoryResponse(sampleEntries);
+
+    const wrapper = mountMemoryList();
+    await flushPromises();
+
+    const sessionButtons = wrapper.findAll("button.session-link");
+    expect(sessionButtons[1]?.attributes("disabled")).toBeDefined();
+    expect(sessionButtons[1]?.attributes("aria-label")).toBe("No session");
+
+    await sessionButtons[1]?.trigger("click");
+
+    expect(wrapper.emitted("select-session")).toBeUndefined();
   });
 });

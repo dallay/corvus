@@ -1,9 +1,9 @@
-<script setup lang="ts">
-import { trimTrailingSlashes } from "@corvus/shared";
+<script lang="ts" setup>
+import {trimTrailingSlashes} from "@corvus/shared";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import { Button, Input } from "@corvus/ui";
-import { ref } from "vue";
-import { useI18n } from "vue-i18n";
+import {Button, Input} from "@corvus/ui";
+import {ref} from "vue";
+import {useI18n} from "vue-i18n";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import BrowserSettings from "@/components/config/BrowserSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
@@ -62,7 +62,7 @@ import SessionDetail from "@/components/sessions/SessionDetail.vue";
 import SessionFilters from "@/components/sessions/SessionFilters.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import SessionList from "@/components/sessions/SessionList.vue";
-import { useConfig } from "@/composables/useConfig";
+import {useConfig} from "@/composables/useConfig";
 import type {
   AdminCerebroSearchResult,
   AdminSessionView,
@@ -70,7 +70,7 @@ import type {
   LocalMemorySubview,
 } from "@/types/admin-sessions";
 
-const { t } = useI18n();
+const {t} = useI18n();
 
 const config = useConfig(t);
 
@@ -107,7 +107,7 @@ function adminGatewayUrl(path: string): string {
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function adminAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {"Content-Type": "application/json"};
   if (config.bearerToken.value.trim()) {
     headers.Authorization = `Bearer ${config.bearerToken.value.trim()}`;
   }
@@ -142,6 +142,8 @@ function openLocalExplorer(selection: LocalMemoryExplorerSelection = {}) {
     memorySessionIdFilter.value = selection.sessionId;
   }
 
+  // Merge drill-in state so explorer clicks can add category/session context without wiping
+  // an existing entry focus. That keeps operators anchored while they pivot inside the explorer.
   localExplorerSelection.value = {
     ...localExplorerSelection.value,
     ...selection,
@@ -159,6 +161,8 @@ function openLocalBrowse(selection: LocalMemoryExplorerSelection = localExplorer
   if (selection.sessionId !== undefined) {
     memorySessionIdFilter.value = selection.sessionId;
   }
+  // Replace the explorer selection when returning to browse so the list reflects one clean
+  // filter snapshot instead of preserving stale drill-in context that no longer matters there.
   localExplorerSelection.value = {
     ...selection,
   };
@@ -175,37 +179,41 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
   <main class="dashboard-shell">
     <header class="header-card">
       <div class="header-title-row">
-        <img src="/favicon-light.svg" alt="Corvus" width="32" height="32" class="header-logo" />
+        <img alt="Corvus" class="header-logo" height="32" src="/favicon-light.svg" width="32"/>
         <div>
           <h1>{{ t("app.title") }}</h1>
           <p>{{ t("app.subtitle") }}</p>
         </div>
       </div>
-      <nav v-if="config.isOperatorReady.value" class="nav-tabs" role="tablist" aria-label="Dashboard navigation">
+      <nav v-if="config.isOperatorReady.value" aria-label="Dashboard navigation" class="nav-tabs"
+           role="tablist">
         <button
-          role="tab"
-          class="nav-tab"
-          :class="{ 'nav-tab-active': currentPage === 'config' }"
-          :aria-selected="currentPage === 'config'"
-          @click="currentPage = 'config'"
+            :aria-selected="currentPage === 'config'"
+            :class="{ 'nav-tab-active': currentPage === 'config' }"
+            class="nav-tab"
+            data-testid="nav-config"
+            role="tab"
+            @click="currentPage = 'config'"
         >
           {{ t("nav.config", "Config") }}
         </button>
         <button
-          role="tab"
-          class="nav-tab"
-          :class="{ 'nav-tab-active': currentPage === 'sessions' }"
-          :aria-selected="currentPage === 'sessions'"
-          @click="currentPage = 'sessions'"
+            :aria-selected="currentPage === 'sessions'"
+            :class="{ 'nav-tab-active': currentPage === 'sessions' }"
+            class="nav-tab"
+            data-testid="nav-sessions"
+            role="tab"
+            @click="currentPage = 'sessions'"
         >
           {{ t("nav.sessions", "Sessions") }}
         </button>
         <button
-          role="tab"
-          class="nav-tab"
-          :class="{ 'nav-tab-active': currentPage === 'memory' }"
-          :aria-selected="currentPage === 'memory'"
-          @click="currentPage = 'memory'"
+            :aria-selected="currentPage === 'memory'"
+            :class="{ 'nav-tab-active': currentPage === 'memory' }"
+            class="nav-tab"
+            data-testid="nav-memory"
+            role="tab"
+            @click="currentPage = 'memory'"
         >
           {{ t("nav.memory", "Memory") }}
         </button>
@@ -216,12 +224,12 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
     <section class="card">
       <h2>{{ t("sections.auth") }}</h2>
       <p class="helper onboarding-intro">{{ t("onboarding.intro") }}</p>
-      <ol class="onboarding-steps" aria-label="Dashboard onboarding steps">
+      <ol aria-label="Dashboard onboarding steps" class="onboarding-steps">
         <li
-          v-for="step in config.onboardingSteps.value"
-          :key="step.key"
-          class="onboarding-step"
-          :data-step-status="step.status"
+            v-for="step in config.onboardingSteps.value"
+            :key="step.key"
+            :data-step-status="step.status"
+            class="onboarding-step"
         >
           <div class="onboarding-step-header">
             <div>
@@ -233,51 +241,61 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
         </li>
       </ol>
       <output
-        v-if="config.isOperatorReady.value"
-        class="onboarding-banner onboarding-banner-ready"
-        aria-live="polite"
+          v-if="config.isOperatorReady.value"
+          aria-live="polite"
+          class="onboarding-banner onboarding-banner-ready"
       >
         <span class="banner-title">{{ t("onboarding.ready.title") }}</span>
         <span class="banner-description">{{ t("onboarding.ready.description") }}</span>
       </output>
       <div
-        v-else-if="
+          v-else-if="
           config.onboardingState.value.state === 'blocked' && config.onboardingState.value.recoveryKind
         "
-        class="onboarding-banner onboarding-banner-blocked"
-        role="alert"
-        aria-live="assertive"
+          aria-live="assertive"
+          class="onboarding-banner onboarding-banner-blocked"
+          role="alert"
       >
         <p class="banner-title">
           {{ t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.title`) }}
         </p>
-        <p>{{ t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.description`) }}</p>
+        <p>{{
+            t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.description`)
+          }}</p>
       </div>
-      <output v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
+      <output
+          v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'"
+          aria-atomic="true" aria-live="polite" class="quick-pair-state">
         <span>{{ t("auth.quickPairValidating") }}</span>
       </output>
-      <output v-else-if="config.quickPairState.value === 'connecting'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
+      <output v-else-if="config.quickPairState.value === 'connecting'" aria-atomic="true"
+              aria-live="polite" class="quick-pair-state">
         <span>{{ t("auth.quickPairConnecting") }}</span>
       </output>
       <div v-else>
-        <p v-if="config.quickPairState.value === 'failed'" class="error" role="alert" aria-live="assertive" aria-atomic="true">{{ t("auth.quickPairFailed") }}</p>
+        <p v-if="config.quickPairState.value === 'failed'" aria-atomic="true" aria-live="assertive"
+           class="error" role="alert">{{ t("auth.quickPairFailed") }}</p>
         <div class="grid">
           <label>
             <span>{{ t("auth.baseUrl") }}</span>
-            <Input v-model="config.baseUrl.value" :placeholder="t('form.baseUrlPlaceholder')" />
+            <Input v-model="config.baseUrl.value" :placeholder="t('form.baseUrlPlaceholder')"/>
           </label>
           <label>
             <span>{{ t("auth.pairingCode") }}</span>
-            <Input v-model="config.pairingCode.value" type="password" />
+            <Input v-model="config.pairingCode.value" type="password"/>
           </label>
           <label>
             <span>{{ t("auth.bearerToken") }}</span>
-            <Input v-model="config.bearerToken.value" type="password" />
+            <Input v-model="config.bearerToken.value" type="password"/>
           </label>
         </div>
         <div class="actions">
-          <Button :disabled="config.loading.value" @click="config.pairGateway">{{ t("auth.pair") }}</Button>
-          <Button :disabled="config.loading.value" variant="secondary" @click="config.connectGateway">
+          <Button :disabled="config.loading.value" @click="config.pairGateway">{{
+              t("auth.pair")
+            }}
+          </Button>
+          <Button :disabled="config.loading.value" variant="secondary"
+                  @click="config.connectGateway">
             {{ t("auth.connect") }}
           </Button>
         </div>
@@ -291,48 +309,49 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
           <p class="section-kicker">Operational overview</p>
           <h2>Current system state</h2>
           <p class="helper section-copy">
-            Review runtime, scheduler, gateway, and reliability signals before changing configuration.
+            Review runtime, scheduler, gateway, and reliability signals before changing
+            configuration.
           </p>
         </div>
         <div class="overview-grid">
           <SchedulerStatus
-            :gateway-url="config.baseUrl.value"
-            :bearer-token="config.bearerToken.value"
+              :bearer-token="config.bearerToken.value"
+              :gateway-url="config.baseUrl.value"
           />
 
           <CostOverview
-            :gateway-url="config.baseUrl.value"
-            :bearer-token="config.bearerToken.value"
+              :bearer-token="config.bearerToken.value"
+              :gateway-url="config.baseUrl.value"
           />
 
           <TunnelOverview
-            :gateway-url="config.baseUrl.value"
-            :bearer-token="config.bearerToken.value"
+              :bearer-token="config.bearerToken.value"
+              :gateway-url="config.baseUrl.value"
           />
 
           <ReliabilityOverview
-            :gateway-url="config.baseUrl.value"
-            :bearer-token="config.bearerToken.value"
+              :bearer-token="config.bearerToken.value"
+              :gateway-url="config.baseUrl.value"
           />
 
           <HeartbeatOverview
-            :gateway-url="config.baseUrl.value"
-            :bearer-token="config.bearerToken.value"
+              :bearer-token="config.bearerToken.value"
+              :gateway-url="config.baseUrl.value"
           />
 
           <McpOverview
-            :gateway-url="config.baseUrl.value"
-            :bearer-token="config.bearerToken.value"
+              :bearer-token="config.bearerToken.value"
+              :gateway-url="config.baseUrl.value"
           />
 
           <ChannelsOverview
-            :gateway-url="config.baseUrl.value"
-            :bearer-token="config.bearerToken.value"
+              :bearer-token="config.bearerToken.value"
+              :gateway-url="config.baseUrl.value"
           />
 
           <HealthDashboard
-            :gateway-url="config.baseUrl.value"
-            :bearer-token="config.bearerToken.value"
+              :bearer-token="config.bearerToken.value"
+              :gateway-url="config.baseUrl.value"
           />
         </div>
       </section>
@@ -349,95 +368,95 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 
       <div class="config-stack">
         <GeneralSettings
-          :model-value="config.form"
-          :memory-backend-options="config.memoryBackendOptions.value"
-          :disabled="!config.canSave.value"
-          :saving="config.sectionSaving.general"
-          @update:model-value="Object.assign(config.form, $event)"
-          @save="config.saveSection('general')"
+            :disabled="!config.canSave.value"
+            :memory-backend-options="config.memoryBackendOptions.value"
+            :model-value="config.form"
+            :saving="config.sectionSaving.general"
+            @save="config.saveSection('general')"
+            @update:model-value="Object.assign(config.form, $event)"
         />
 
         <SecuritySettings
-          :model-value="config.form"
-          :autonomy-level-options="config.autonomyLevelOptions.value"
-          :disabled="!config.canSave.value"
-          :saving="config.sectionSaving.security"
-          @update:model-value="Object.assign(config.form, $event)"
-          @save="config.saveSection('security')"
+            :autonomy-level-options="config.autonomyLevelOptions.value"
+            :disabled="!config.canSave.value"
+            :model-value="config.form"
+            :saving="config.sectionSaving.security"
+            @save="config.saveSection('security')"
+            @update:model-value="Object.assign(config.form, $event)"
         />
 
         <ObservabilitySettings
-          :model-value="config.form"
-          :observability-backend-options="config.observabilityBackendOptions.value"
-          :disabled="!config.canSave.value"
-          :saving="config.sectionSaving.observability"
-          @update:model-value="Object.assign(config.form, $event)"
-          @save="config.saveSection('observability')"
+            :disabled="!config.canSave.value"
+            :model-value="config.form"
+            :observability-backend-options="config.observabilityBackendOptions.value"
+            :saving="config.sectionSaving.observability"
+            @save="config.saveSection('observability')"
+            @update:model-value="Object.assign(config.form, $event)"
         />
 
         <RuntimeSettings
-          :model-value="config.form"
-          :runtime-kind-options="config.runtimeKindOptions.value"
-          :disabled="!config.canSave.value"
-          :saving="config.sectionSaving.runtime"
-          @update:model-value="Object.assign(config.form, $event)"
-          @save="config.saveSection('runtime')"
+            :disabled="!config.canSave.value"
+            :model-value="config.form"
+            :runtime-kind-options="config.runtimeKindOptions.value"
+            :saving="config.sectionSaving.runtime"
+            @save="config.saveSection('runtime')"
+            @update:model-value="Object.assign(config.form, $event)"
         />
 
         <SchedulerSettings
-          :model-value="config.form"
-          :disabled="!config.canSave.value"
-          :saving="config.sectionSaving.scheduler"
-          @update:model-value="Object.assign(config.form, $event)"
-          @save="config.saveSection('scheduler')"
+            :disabled="!config.canSave.value"
+            :model-value="config.form"
+            :saving="config.sectionSaving.scheduler"
+            @save="config.saveSection('scheduler')"
+            @update:model-value="Object.assign(config.form, $event)"
         />
 
         <GatewaySettings
-          :model-value="config.form"
-          :disabled="!config.canSave.value"
-          :saving="config.sectionSaving.gateway"
-          @update:model-value="Object.assign(config.form, $event)"
-          @save="config.saveSection('gateway')"
+            :disabled="!config.canSave.value"
+            :model-value="config.form"
+            :saving="config.sectionSaving.gateway"
+            @save="config.saveSection('gateway')"
+            @update:model-value="Object.assign(config.form, $event)"
         />
 
         <WebhookSettings
-          :model-value="config.form"
-          :disabled="!config.canSave.value"
-          :saving="config.sectionSaving.webhook"
-          @update:model-value="Object.assign(config.form, $event)"
-          @save="config.saveSection('webhook')"
+            :disabled="!config.canSave.value"
+            :model-value="config.form"
+            :saving="config.sectionSaving.webhook"
+            @save="config.saveSection('webhook')"
+            @update:model-value="Object.assign(config.form, $event)"
         />
 
         <WebSearchSettings
-          :model-value="config.form"
-          :disabled="!config.canSave.value"
-          :saving="config.sectionSaving['web-search']"
-          @update:model-value="Object.assign(config.form, $event)"
-          @save="config.saveSection('web-search')"
+            :disabled="!config.canSave.value"
+            :model-value="config.form"
+            :saving="config.sectionSaving['web-search']"
+            @save="config.saveSection('web-search')"
+            @update:model-value="Object.assign(config.form, $event)"
         />
 
         <BrowserSettings
-          :model-value="config.form"
-          :disabled="!config.canSave.value"
-          :saving="config.sectionSaving.browser"
-          @update:model-value="Object.assign(config.form, $event)"
-          @save="config.saveSection('browser')"
+            :disabled="!config.canSave.value"
+            :model-value="config.form"
+            :saving="config.sectionSaving.browser"
+            @save="config.saveSection('browser')"
+            @update:model-value="Object.assign(config.form, $event)"
         />
 
         <ComposioSettings
-          :model-value="config.form"
-          :disabled="!config.canSave.value"
-          :saving="config.sectionSaving.composio"
-          @update:model-value="Object.assign(config.form, $event)"
-          @save="config.saveSection('composio')"
+            :disabled="!config.canSave.value"
+            :model-value="config.form"
+            :saving="config.sectionSaving.composio"
+            @save="config.saveSection('composio')"
+            @update:model-value="Object.assign(config.form, $event)"
         />
 
         <MemorySettings
-          :model-value="config.form"
-          :disabled="!config.canSave.value"
-          :saving="config.sectionSaving.memory"
-          @update:model-value="Object.assign(config.form, $event)"
-          @save="config.saveSection('memory')"
+            :disabled="!config.canSave.value"
+            :model-value="config.form"
+            :saving="config.sectionSaving.memory"
+            @save="config.saveSection('memory')"
+            @update:model-value="Object.assign(config.form, $event)"
         />
       </div>
 
@@ -450,24 +469,24 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
       <section class="card">
         <h2>{{ t("nav.sessions", "Sessions") }}</h2>
         <SessionFilters
-          @update:status="sessionStatusFilter = $event"
-          @update:sort="sessionSort = $event"
+            @update:status="sessionStatusFilter = $event"
+            @update:sort="sessionSort = $event"
         />
         <div class="sessions-layout">
           <SessionList
-            :gateway-url="adminGatewayUrl"
-            :auth-headers="adminAuthHeaders"
-            :status-filter="sessionStatusFilter"
-            :sort="sessionSort"
-            @select="onSelectSession"
+              :auth-headers="adminAuthHeaders"
+              :gateway-url="adminGatewayUrl"
+              :sort="sessionSort"
+              :status-filter="sessionStatusFilter"
+              @select="onSelectSession"
           />
           <SessionDetail
-            v-if="selectedSession"
-            :gateway-url="adminGatewayUrl"
-            :auth-headers="adminAuthHeaders"
-            :session-id="selectedSession.id"
-            @close="selectedSession = null"
-            @view-memory="onViewSessionMemory"
+              v-if="selectedSession"
+              :auth-headers="adminAuthHeaders"
+              :gateway-url="adminGatewayUrl"
+              :session-id="selectedSession.id"
+              @close="selectedSession = null"
+              @view-memory="onViewSessionMemory"
           />
         </div>
       </section>
@@ -478,28 +497,30 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
       <section class="card">
         <h2>{{ t("nav.memory", "Memory") }}</h2>
         <MemoryStats
-          :gateway-url="adminGatewayUrl"
-          :auth-headers="adminAuthHeaders"
-          @select-category="openLocalExplorer({ category: $event })"
+            :auth-headers="adminAuthHeaders"
+            :gateway-url="adminGatewayUrl"
+            @select-category="openLocalExplorer({ category: $event })"
         />
       </section>
       <section class="card">
-        <div class="memory-mode-tabs" role="tablist" aria-label="Memory mode">
+        <div aria-label="Memory mode" class="memory-mode-tabs" role="tablist">
           <button
-            role="tab"
-            class="nav-tab"
-            :class="{ 'nav-tab-active': memoryMode === 'local' }"
-            :aria-selected="memoryMode === 'local'"
-            @click="memoryMode = 'local'; selectedCerebroResult = null"
+              :aria-selected="memoryMode === 'local'"
+              :class="{ 'nav-tab-active': memoryMode === 'local' }"
+              class="nav-tab"
+              data-testid="memory-mode-local"
+              role="tab"
+              @click="memoryMode = 'local'; selectedCerebroResult = null"
           >
             Local Memory
           </button>
           <button
-            role="tab"
-            class="nav-tab"
-            :class="{ 'nav-tab-active': memoryMode === 'cerebro' }"
-            :aria-selected="memoryMode === 'cerebro'"
-            @click="memoryMode = 'cerebro'"
+              :aria-selected="memoryMode === 'cerebro'"
+              :class="{ 'nav-tab-active': memoryMode === 'cerebro' }"
+              class="nav-tab"
+              data-testid="memory-mode-cerebro"
+              role="tab"
+              @click="memoryMode = 'cerebro'"
           >
             Cerebro Memory
           </button>
@@ -507,69 +528,71 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 
         <template v-if="memoryMode === 'local'">
           <MemoryFilters
-            :initial-session-id="memorySessionIdFilter"
-            @update:category="memoryCategoryFilter = $event"
-            @update:session-id="memorySessionIdFilter = $event"
-            @update:search="memorySearchFilter = $event"
+              :initial-session-id="memorySessionIdFilter"
+              @update:category="memoryCategoryFilter = $event"
+              @update:session-id="memorySessionIdFilter = $event"
+              @update:search="memorySearchFilter = $event"
           />
-          <div class="memory-mode-tabs" role="tablist" aria-label="Local memory workspace">
+          <div aria-label="Local memory workspace" class="memory-mode-tabs" role="tablist">
             <button
-              role="tab"
-              class="nav-tab"
-              :class="{ 'nav-tab-active': localMemorySubview === 'browse' }"
-              :aria-selected="localMemorySubview === 'browse'"
-              @click="localMemorySubview = 'browse'"
+                :aria-selected="localMemorySubview === 'browse'"
+                :class="{ 'nav-tab-active': localMemorySubview === 'browse' }"
+                class="nav-tab"
+                data-testid="local-memory-browse"
+                role="tab"
+                @click="localMemorySubview = 'browse'"
             >
               Browse
             </button>
             <button
-              role="tab"
-              class="nav-tab"
-              :class="{ 'nav-tab-active': localMemorySubview === 'explorer' }"
-              :aria-selected="localMemorySubview === 'explorer'"
-              @click="localMemorySubview = 'explorer'"
+                :aria-selected="localMemorySubview === 'explorer'"
+                :class="{ 'nav-tab-active': localMemorySubview === 'explorer' }"
+                class="nav-tab"
+                data-testid="local-memory-explorer"
+                role="tab"
+                @click="localMemorySubview = 'explorer'"
             >
               Explorer
             </button>
           </div>
 
           <MemoryList
-            v-if="localMemorySubview === 'browse'"
-            :gateway-url="adminGatewayUrl"
-            :auth-headers="adminAuthHeaders"
-            :category-filter="memoryCategoryFilter"
-            :session-id-filter="memorySessionIdFilter"
-            :search-filter="memorySearchFilter"
-            @select-category="openLocalExplorer({ category: $event })"
-            @select-session="openLocalExplorer({ sessionId: $event })"
-            @open-explorer="openLocalExplorer($event)"
+              v-if="localMemorySubview === 'browse'"
+              :auth-headers="adminAuthHeaders"
+              :category-filter="memoryCategoryFilter"
+              :gateway-url="adminGatewayUrl"
+              :search-filter="memorySearchFilter"
+              :session-id-filter="memorySessionIdFilter"
+              @select-category="openLocalExplorer({ category: $event })"
+              @select-session="openLocalExplorer({ sessionId: $event })"
+              @open-explorer="openLocalExplorer($event)"
           />
           <LocalMemoryExplorerPanel
-            v-else
-            :gateway-url="adminGatewayUrl"
-            :auth-headers="adminAuthHeaders"
-            :selection="localExplorerSelection"
-            @selection-change="onLocalExplorerSelectionChange"
-            @open-browse="openLocalBrowse($event)"
+              v-else
+              :auth-headers="adminAuthHeaders"
+              :gateway-url="adminGatewayUrl"
+              :selection="localExplorerSelection"
+              @selection-change="onLocalExplorerSelectionChange"
+              @open-browse="openLocalBrowse($event)"
           />
         </template>
 
         <div v-else class="cerebro-memory-layout">
           <CerebroSearchPanel
-            :gateway-url="adminGatewayUrl"
-            :auth-headers="adminAuthHeaders"
-            :status="null"
-            @select="onSelectCerebroResult"
+              :auth-headers="adminAuthHeaders"
+              :gateway-url="adminGatewayUrl"
+              :status="null"
+              @select="onSelectCerebroResult"
           />
           <CerebroObservationDetail
-            :gateway-url="adminGatewayUrl"
-            :auth-headers="adminAuthHeaders"
-            :selected="selectedCerebroResult"
+              :auth-headers="adminAuthHeaders"
+              :gateway-url="adminGatewayUrl"
+              :selected="selectedCerebroResult"
           />
           <CerebroTimelinePanel
-            :gateway-url="adminGatewayUrl"
-            :auth-headers="adminAuthHeaders"
-            :selected="selectedCerebroResult"
+              :auth-headers="adminAuthHeaders"
+              :gateway-url="adminGatewayUrl"
+              :selected="selectedCerebroResult"
           />
         </div>
       </section>
@@ -580,8 +603,8 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
         {{
           t("webhook.secretStatus", {
             status: config.form.webhook_secret_exists
-              ? t("webhook.statusConfigured")
-              : t("webhook.statusNotConfigured"),
+                ? t("webhook.statusConfigured")
+                : t("webhook.statusNotConfigured"),
           })
         }}
       </p>
@@ -593,11 +616,11 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 
 <style scoped>
 .dashboard-shell {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 24px 24px 64px;
   display: grid;
   gap: 24px;
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 24px 24px 64px;
 }
 
 .header-card,
@@ -613,20 +636,20 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 }
 
 .header-card h1 {
-  margin: 0;
   font-size: clamp(28px, 4vw, 40px);
-  line-height: 0.98;
   letter-spacing: -0.03em;
+  line-height: 0.98;
+  margin: 0;
 }
 
 .header-card p {
-  margin: 6px 0 0;
   color: var(--corvus-color-text-secondary);
+  margin: 6px 0 0;
 }
 
 .header-title-row {
-  display: flex;
   align-items: center;
+  display: flex;
   gap: 12px;
 }
 
@@ -635,11 +658,11 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 }
 
 .nav-tabs {
+  border-top: 1px solid var(--corvus-color-border-default);
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 16px;
-  border-top: 1px solid var(--corvus-color-border-default);
   padding-top: 16px;
 }
 
@@ -655,17 +678,17 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 }
 
 .nav-tab {
-  padding: 8px 16px;
+  background: transparent;
   border: 1px solid var(--corvus-color-border-default);
   border-radius: var(--corvus-radius-pill);
-  background: transparent;
   color: var(--corvus-color-text-secondary);
   cursor: pointer;
+  font-family: inherit;
   font-size: 13px;
   font-weight: 500;
-  font-family: inherit;
+  padding: 8px 16px;
   transition: background var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default),
-    color var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
+  color var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
 }
 
 .nav-tab:hover {
@@ -674,14 +697,14 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 
 .nav-tab-active {
   background: var(--corvus-color-bg-raised);
-  color: var(--corvus-color-text-primary);
   border-color: var(--corvus-color-interactive-default);
+  color: var(--corvus-color-text-primary);
 }
 
 .sessions-layout {
   display: grid;
-  grid-template-columns: 1fr;
   gap: 20px;
+  grid-template-columns: 1fr;
 }
 
 @media (min-width: 768px) {
@@ -691,20 +714,20 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 }
 
 h2 {
-  margin: 0 0 14px;
   font-size: 20px;
   line-height: 1.1;
+  margin: 0 0 14px;
 }
 
 h3 {
-  margin: 0;
   font-size: 14px;
+  margin: 0;
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
 label {
@@ -714,25 +737,25 @@ label {
 }
 
 label span {
-  font-size: 12px;
   color: var(--corvus-color-text-secondary);
+  font-size: 12px;
 }
 
 .select-input {
-  height: 42px;
-  border-radius: var(--corvus-radius-input);
-  border: 1px solid var(--corvus-color-border-default);
   background: var(--corvus-color-bg-surface);
+  border: 1px solid var(--corvus-color-border-default);
+  border-radius: var(--corvus-radius-input);
   color: var(--corvus-color-text-primary);
   font-family: inherit;
+  height: 42px;
   padding: 0 10px;
 }
 
 .actions {
-  margin-top: 12px;
   display: flex;
-  gap: 10px;
   flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .overview-section,
@@ -753,12 +776,12 @@ label span {
 }
 
 .section-kicker {
-  margin: 0;
+  color: var(--corvus-color-text-secondary);
   font-family: var(--corvus-typography-font-mono);
   font-size: 11px;
   letter-spacing: 0.08em;
+  margin: 0;
   text-transform: uppercase;
-  color: var(--corvus-color-text-secondary);
 }
 
 .section-copy {
@@ -767,8 +790,8 @@ label span {
 
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 @media (min-width: 1100px) {
@@ -784,8 +807,8 @@ label span {
 }
 
 .switch-row {
-  flex-direction: row;
   align-items: center;
+  flex-direction: row;
   gap: 8px;
   margin-top: 20px;
 }
@@ -793,8 +816,8 @@ label span {
 .helper,
 .ok,
 .error {
-  margin: 10px 0 0;
   font-size: 13px;
+  margin: 10px 0 0;
 }
 
 .onboarding-intro {
@@ -803,25 +826,25 @@ label span {
 }
 
 .onboarding-steps {
-  list-style: none;
-  padding: 0;
-  margin: 16px 0;
   display: grid;
   gap: 10px;
+  list-style: none;
+  margin: 16px 0;
+  padding: 0;
 }
 
 .onboarding-step {
+  background: var(--corvus-color-bg-base);
   border: 1px solid var(--corvus-color-border-default);
   border-radius: var(--corvus-radius-card);
   padding: 14px 16px;
-  background: var(--corvus-color-bg-base);
 }
 
 .onboarding-step-header {
-  display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  display: flex;
   gap: 12px;
+  justify-content: space-between;
 }
 
 .onboarding-step p,
@@ -831,15 +854,15 @@ label span {
 }
 
 .step-badge {
-  flex-shrink: 0;
+  background: var(--corvus-color-bg-raised);
   border-radius: var(--corvus-radius-pill);
-  padding: 4px 10px;
+  color: var(--corvus-color-text-secondary);
+  flex-shrink: 0;
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.04em;
-  background: var(--corvus-color-bg-raised);
-  color: var(--corvus-color-text-secondary);
+  padding: 4px 10px;
+  text-transform: uppercase;
 }
 
 .onboarding-step[data-step-status="complete"] {
@@ -856,18 +879,18 @@ label span {
 
 .onboarding-banner {
   border-radius: var(--corvus-radius-card);
-  padding: 14px 16px;
   margin: 0 0 18px;
+  padding: 14px 16px;
 }
 
 .onboarding-banner-ready {
-  border: 1px solid var(--corvus-color-status-success);
   background: var(--corvus-color-bg-surface);
+  border: 1px solid var(--corvus-color-status-success);
 }
 
 .onboarding-banner-blocked {
-  border: 1px solid var(--corvus-color-status-error);
   background: var(--corvus-color-bg-surface);
+  border: 1px solid var(--corvus-color-status-error);
 }
 
 .banner-title {
@@ -888,9 +911,9 @@ label span {
 }
 
 .quick-pair-state span {
-  display: block;
-  margin: 10px 0;
-  font-size: 14px;
   color: var(--corvus-color-text-secondary);
+  display: block;
+  font-size: 14px;
+  margin: 10px 0;
 }
 </style>

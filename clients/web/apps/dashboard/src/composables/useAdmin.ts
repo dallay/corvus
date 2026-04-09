@@ -310,7 +310,7 @@ export function useAdmin(
 
   async function listMemoryEntries(
     params: MemoryListParams = {}
-  ): Promise<AdminMemoryListResponse | null> {
+  ): Promise<AdminMemoryListResponse> {
     try {
       return await fetchJson<AdminMemoryListResponse>(
         "memoryEntries",
@@ -326,7 +326,7 @@ export function useAdmin(
       );
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e);
-      return null;
+      throw e;
     }
   }
 

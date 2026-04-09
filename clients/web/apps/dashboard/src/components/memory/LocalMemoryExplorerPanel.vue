@@ -1,15 +1,33 @@
-<script setup lang="ts">
-import { onMounted, watch } from "vue";
+<script lang="ts" setup>
+import {onMounted, watch} from "vue";
 
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import LocalMemoryCategoryChart from "@/components/memory/LocalMemoryCategoryChart.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import LocalMemoryRelationshipExplorer from "@/components/memory/LocalMemoryRelationshipExplorer.vue";
+import LocalMemoryRelationshipExplorer
+  from "@/components/memory/LocalMemoryRelationshipExplorer.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import LocalMemoryTimeline from "@/components/memory/LocalMemoryTimeline.vue";
-import { useAdmin } from "@/composables/useAdmin";
-import { useLocalMemoryExplorer } from "@/composables/useLocalMemoryExplorer";
-import type { LocalMemoryExplorerSelection } from "@/types/admin-sessions";
+import {useAdmin} from "@/composables/useAdmin";
+import {useLocalMemoryExplorer} from "@/composables/useLocalMemoryExplorer";
+import type {LocalMemoryExplorerSelection} from "@/types/admin-sessions";
+
+function normalizeSelection(
+    selection: LocalMemoryExplorerSelection = {}
+): LocalMemoryExplorerSelection {
+  return {
+    sessionId: selection.sessionId?.trim() || undefined,
+    category: selection.category?.trim() || undefined,
+    entryId: selection.entryId?.trim() || undefined,
+  };
+}
+
+function selectionsEqual(
+    left: LocalMemoryExplorerSelection = {},
+    right: LocalMemoryExplorerSelection = {}
+): boolean {
+  return JSON.stringify(normalizeSelection(left)) === JSON.stringify(normalizeSelection(right));
+}
 
 const props = defineProps<{
   gatewayUrl: (path: string) => string;
@@ -29,19 +47,30 @@ const explorer = useLocalMemoryExplorer({
 });
 
 watch(
-  () => props.selection,
-  (nextSelection) => {
-    explorer.setSelection(nextSelection ?? {});
-  },
-  { deep: true }
+    () => props.selection,
+    (nextSelection, previousSelection) => {
+      const normalizedNextSelection = normalizeSelection(nextSelection ?? {});
+
+      if (
+          selectionsEqual(nextSelection ?? {}, previousSelection ?? {}) ||
+          selectionsEqual(normalizedNextSelection, explorer.selection.value)
+      ) {
+        return;
+      }
+
+      explorer.setSelection(normalizedNextSelection);
+    }
 );
 
 watch(
-  () => explorer.selection.value,
-  (nextSelection) => {
-    emit("selection-change", { ...nextSelection });
-  },
-  { deep: true }
+    () => explorer.selection.value,
+    (nextSelection, previousSelection) => {
+      if (selectionsEqual(nextSelection, previousSelection ?? {})) {
+        return;
+      }
+
+      emit("selection-change", {...nextSelection});
+    }
 );
 
 onMounted(async () => {
@@ -56,41 +85,45 @@ onMounted(async () => {
         <p class="eyebrow">Local Memory Visualization</p>
         <h3>Explore timeline, categories, and inferred local relationships</h3>
       </div>
-      <p class="helper">This surface is derived from local sessions and categories only — not a Cerebro relationship graph.</p>
+      <p class="helper">This surface is derived from local sessions and categories only — not a
+        Cerebro relationship graph.</p>
     </header>
 
-    <p v-if="explorer.isLoading.value" class="helper" role="status">Loading local memory visualization…</p>
+    <p v-if="explorer.isLoading.value" class="helper" role="status">Loading local memory
+      visualization…</p>
     <p v-else-if="explorer.error.value" class="error" role="alert">{{ explorer.error.value }}</p>
     <div v-else-if="explorer.snapshot.value.totalEntries === 0" class="empty-state">
       <p>No local memory entries are available to visualize yet.</p>
-      <p class="helper">The local visualization remains derived from local sessions and categories only.</p>
+      <p class="helper">The local visualization remains derived from local sessions and categories
+        only.</p>
     </div>
     <template v-else>
       <p v-if="explorer.isTruncated.value" class="helper truncation-notice">
-        Showing {{ explorer.snapshot.value.loadedEntries }} of {{ explorer.snapshot.value.totalEntries }} local entries.
+        Showing {{ explorer.snapshot.value.loadedEntries }} of
+        {{ explorer.snapshot.value.totalEntries }} local entries.
       </p>
 
       <div class="explorer-grid">
         <LocalMemoryCategoryChart
-          :facets="explorer.categoryFacets.value"
-          @select-category="explorer.selectCategory"
-          @clear-category="explorer.clearFocus"
+            :facets="explorer.categoryFacets.value"
+            @select-category="explorer.selectCategory"
+            @clear-category="explorer.clearFocus"
         />
         <LocalMemoryTimeline
-          :groups="explorer.timelineGroups.value"
-          :active-session-id="explorer.selection.value.sessionId"
-          :active-category="explorer.selection.value.category"
-          @select-session="explorer.selectSession"
+            :active-category="explorer.selection.value.category"
+            :active-session-id="explorer.selection.value.sessionId"
+            :groups="explorer.timelineGroups.value"
+            @select-session="explorer.selectSession"
         />
       </div>
 
       <LocalMemoryRelationshipExplorer
-        :clusters="explorer.relationshipClusters.value"
-        :visible-entries="explorer.visibleEntries.value"
-        :selection="explorer.selection.value"
-        @select-cluster="explorer.selectCluster"
-        @clear-selection="explorer.clearFocus"
-        @open-browse="emit('open-browse', { ...explorer.selection.value })"
+          :clusters="explorer.relationshipClusters.value"
+          :selection="explorer.selection.value"
+          :visible-entries="explorer.visibleEntries.value"
+          @select-cluster="explorer.selectCluster"
+          @clear-selection="explorer.clearFocus"
+          @open-browse="emit('open-browse', { ...explorer.selection.value })"
       />
     </template>
   </section>
@@ -105,10 +138,10 @@ onMounted(async () => {
 }
 
 .explorer-header {
-  display: flex;
-  justify-content: space-between;
   align-items: flex-start;
+  display: flex;
   gap: 12px;
+  justify-content: space-between;
 }
 
 .explorer-header h3,
@@ -118,9 +151,9 @@ onMounted(async () => {
 }
 
 .eyebrow {
+  color: var(--color-text-secondary);
   font-size: 11px;
   text-transform: uppercase;
-  color: var(--color-text-secondary);
 }
 
 .helper {
@@ -138,8 +171,8 @@ onMounted(async () => {
 @media (max-width: 900px) {
   .explorer-grid,
   .explorer-header {
-    grid-template-columns: 1fr;
     display: grid;
+    grid-template-columns: 1fr;
   }
 }
 </style>

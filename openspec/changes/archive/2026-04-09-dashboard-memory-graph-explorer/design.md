@@ -23,16 +23,19 @@ At design time, no delta spec artifact was present under `openspec/changes/dashb
 ## Alternatives and Recommendation
 
 ### Option A — Dashboard-local inferred explorer (recommended)
+
 - **What**: Fetch local entries + stats, derive timeline groups and session/category relationships in the dashboard.
 - **Pros**: No backend change, low risk, matches proposal, easy rollback, preserves local/remote boundary.
 - **Cons**: Requires client-side pagination and data shaping; relationship graph remains intentionally inferred.
 
 ### Option B — Add a new backend graph endpoint
+
 - **What**: Introduce a runtime endpoint that returns pre-shaped session/category/entry graph data.
 - **Pros**: Simpler frontend state, fewer client transforms.
 - **Cons**: Violates stated preference for dashboard-local shaping, expands gateway contract, raises testing and long-term maintenance cost, and risks implying semantics the local store does not actually own.
 
 ### Option C — Add a third-party graph/chart library for the full v1 experience
+
 - **What**: Use a dependency such as Cytoscape/ECharts/VisX for graph and chart rendering.
 - **Pros**: Rich interaction faster in the short term if requirements expand.
 - **Cons**: No such dependency exists in the dashboard package today, bundle/runtime cost goes up, testing becomes heavier, and the current v1 problem can be solved with native Vue + HTML/SVG.
