@@ -264,14 +264,14 @@ describe("useCostGovernance", () => {
 
     expect(overrideCall?.[1]).toMatchObject({
       method: "POST",
-      headers: expect.objectContaining({ Authorization: "Bearer test-token" }),
       body: JSON.stringify({ scope: "next_request" }),
     });
+    expect(new Headers(overrideCall?.[1]?.headers).get("Authorization")).toBe("Bearer test-token");
     expect(resetCall?.[1]).toMatchObject({
       method: "POST",
-      headers: expect.objectContaining({ Authorization: "Bearer test-token" }),
       body: JSON.stringify({ scope: "session" }),
     });
+    expect(new Headers(resetCall?.[1]?.headers).get("Authorization")).toBe("Bearer test-token");
 
     stop();
   });

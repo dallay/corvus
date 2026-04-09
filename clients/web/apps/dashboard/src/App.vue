@@ -43,6 +43,12 @@ import WebhookSettings from "@/components/config/WebhookSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import WebSearchSettings from "@/components/config/WebSearchSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import CerebroObservationDetail from "@/components/memory/CerebroObservationDetail.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import CerebroSearchPanel from "@/components/memory/CerebroSearchPanel.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import CerebroTimelinePanel from "@/components/memory/CerebroTimelinePanel.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import MemoryFilters from "@/components/memory/MemoryFilters.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import MemoryList from "@/components/memory/MemoryList.vue";
@@ -55,7 +61,7 @@ import SessionFilters from "@/components/sessions/SessionFilters.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import SessionList from "@/components/sessions/SessionList.vue";
 import { useConfig } from "@/composables/useConfig";
-import type { AdminSessionView } from "@/types/admin-sessions";
+import type { AdminCerebroSearchResult, AdminSessionView } from "@/types/admin-sessions";
 
 const { t } = useI18n();
 
@@ -77,6 +83,8 @@ const memoryCategoryFilter = ref<string | undefined>(undefined);
 const memorySessionIdFilter = ref<string | undefined>(undefined);
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const memorySearchFilter = ref<string | undefined>(undefined);
+const memoryMode = ref<"local" | "cerebro">("local");
+const selectedCerebroResult = ref<AdminCerebroSearchResult | null>(null);
 
 // Gateway URL builder and auth headers for useAdmin composable
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -106,8 +114,14 @@ function onSelectSession(session: AdminSessionView) {
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function onViewSessionMemory(sessionId: string) {
   memorySessionIdFilter.value = sessionId;
+  memoryMode.value = "local";
   currentPage.value = "memory";
   selectedSession.value = null;
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function onSelectCerebroResult(result: AdminCerebroSearchResult) {
+  selectedCerebroResult.value = result;
 }
 </script>
 
@@ -423,19 +437,61 @@ function onViewSessionMemory(sessionId: string) {
         />
       </section>
       <section class="card">
-        <MemoryFilters
-          :initial-session-id="memorySessionIdFilter"
-          @update:category="memoryCategoryFilter = $event"
-          @update:session-id="memorySessionIdFilter = $event"
-          @update:search="memorySearchFilter = $event"
-        />
-        <MemoryList
-          :gateway-url="adminGatewayUrl"
-          :auth-headers="adminAuthHeaders"
-          :category-filter="memoryCategoryFilter"
-          :session-id-filter="memorySessionIdFilter"
-          :search-filter="memorySearchFilter"
-        />
+        <div class="memory-mode-tabs" role="tablist" aria-label="Memory mode">
+          <button
+            role="tab"
+            class="nav-tab"
+            :class="{ 'nav-tab-active': memoryMode === 'local' }"
+            :aria-selected="memoryMode === 'local'"
+            @click="memoryMode = 'local'; selectedCerebroResult = null"
+          >
+            Local Memory
+          </button>
+          <button
+            role="tab"
+            class="nav-tab"
+            :class="{ 'nav-tab-active': memoryMode === 'cerebro' }"
+            :aria-selected="memoryMode === 'cerebro'"
+            @click="memoryMode = 'cerebro'"
+          >
+            Cerebro Memory
+          </button>
+        </div>
+
+        <template v-if="memoryMode === 'local'">
+          <MemoryFilters
+            :initial-session-id="memorySessionIdFilter"
+            @update:category="memoryCategoryFilter = $event"
+            @update:session-id="memorySessionIdFilter = $event"
+            @update:search="memorySearchFilter = $event"
+          />
+          <MemoryList
+            :gateway-url="adminGatewayUrl"
+            :auth-headers="adminAuthHeaders"
+            :category-filter="memoryCategoryFilter"
+            :session-id-filter="memorySessionIdFilter"
+            :search-filter="memorySearchFilter"
+          />
+        </template>
+
+        <div v-else class="cerebro-memory-layout">
+          <CerebroSearchPanel
+            :gateway-url="adminGatewayUrl"
+            :auth-headers="adminAuthHeaders"
+            :status="null"
+            @select="onSelectCerebroResult"
+          />
+          <CerebroObservationDetail
+            :gateway-url="adminGatewayUrl"
+            :auth-headers="adminAuthHeaders"
+            :selected="selectedCerebroResult"
+          />
+          <CerebroTimelinePanel
+            :gateway-url="adminGatewayUrl"
+            :auth-headers="adminAuthHeaders"
+            :selected="selectedCerebroResult"
+          />
+        </div>
       </section>
     </template>
 
@@ -505,6 +561,17 @@ function onViewSessionMemory(sessionId: string) {
   margin-top: 16px;
   border-top: 1px solid var(--corvus-color-border-default);
   padding-top: 16px;
+}
+
+.memory-mode-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.cerebro-memory-layout {
+  display: grid;
+  gap: 12px;
 }
 
 .nav-tab {
