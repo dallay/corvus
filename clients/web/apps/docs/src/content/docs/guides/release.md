@@ -137,6 +137,13 @@ Use this procedure when the manifest, tags, or GitHub Releases drift:
 - Confirm `release-please` created the release with the expected permissions and token.
 - Confirm the `publish-release.yml` trigger saw `release.published` for the same `vX.Y.Z` tag.
 
+### `release-please` fails with `Resource not accessible by integration`
+
+- Verify the workflow token can call the GitHub Releases API before changing app permissions.
+- Check the merged release PR for stale `release-please` labels.
+- If the merged release PR still has `autorelease: pending`, remove that label and rerun `release-please`.
+- Treat a stale `autorelease: pending` label as release state drift, not as proof of a GitHub App permission problem.
+
 ### Stable publish failed
 
 - Review the shipped-artifact version check table in `_publish.yml`.
