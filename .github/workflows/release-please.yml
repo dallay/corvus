@@ -38,20 +38,9 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: 🔍 Debug release endpoint access
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          set -euo pipefail
-          echo "GET releases endpoint"
-          gh api -i "repos/${GITHUB_REPOSITORY}/releases?per_page=1" || true
-          echo
-          echo "POST releases endpoint without payload (should be 422 if authorized)"
-          gh api -i -X POST "repos/${GITHUB_REPOSITORY}/releases" || true
-
       - name: 🤖 Run release-please
         id: release-please
-        uses: googleapis/release-please-action@c3fc4de07084f75a2b61a5b933069bda6edf3d5c # v4.4.0
+        uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4.4.0
         with:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
