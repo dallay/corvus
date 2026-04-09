@@ -9,12 +9,15 @@ const props = defineProps<{
   recalledMemoryKeys?: string[];
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const hasMemoryRecall = computed(
   () => props.role === "assistant" && (props.recalledMemoryKeys?.length ?? 0) > 0
 );
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const expanded = ref(false);
 </script>
 

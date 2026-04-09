@@ -3020,6 +3020,7 @@ mod tests {
                 outcome: webhook_dispatch::WebhookTerminalOutcome::Completed,
                 response_text: Some("mcp seam completed".into()),
                 event_frames: vec!["id: seam\nevent: complete\ndata: {}\n\n".into()],
+                tools_called: vec![],
             });
 
         assert_eq!(status, StatusCode::OK);
@@ -3046,6 +3047,7 @@ mod tests {
                 outcome: webhook_dispatch::WebhookTerminalOutcome::Error,
                 response_text: Some("ignored".into()),
                 event_frames: Vec::new(),
+                tools_called: vec![],
             });
 
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
