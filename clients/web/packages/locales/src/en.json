@@ -311,7 +311,8 @@
     "apiKeyValue": "New API key"
   },
   "actions": {
-    "close": "Close"
+    "close": "Close",
+    "delete": "Delete"
   },
   "nav": {
     "config": "Config",
