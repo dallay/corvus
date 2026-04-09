@@ -70,7 +70,10 @@ describe("CerebroSessionActions", () => {
     const wrapper = mountActions();
     await flushPromises();
 
-    await wrapper.findAll("button").find((button) => button.text() === "Run")?.trigger("click");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Run")
+      ?.trigger("click");
     await flushPromises();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);

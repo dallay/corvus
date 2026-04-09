@@ -11,6 +11,7 @@ const props = defineProps<{
 
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const sessionTools: Array<{ tool: CerebroToolName; label: string }> = [
   { tool: "mem_session_start", label: "Session Start" },
   { tool: "mem_session_end", label: "Session End" },
@@ -18,12 +19,16 @@ const sessionTools: Array<{ tool: CerebroToolName; label: string }> = [
   { tool: "mem_context", label: "Context Lookup" },
 ];
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function invoke(tool: CerebroToolName) {
   if (tool === "mem_context") {
     await admin.invokeCerebroContext({ session_id: props.sessionId, limit: 5 });
     return;
   }
-  await admin.invokeCerebroSessionAction(tool as "mem_session_start" | "mem_session_end" | "mem_session_summary", props.sessionId);
+  await admin.invokeCerebroSessionAction(
+    tool as "mem_session_start" | "mem_session_end" | "mem_session_summary",
+    props.sessionId
+  );
 }
 </script>
 

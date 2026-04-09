@@ -33,7 +33,9 @@ function queueDefaultRequests(options?: { remoteUnavailable?: boolean }) {
           service_state: options?.remoteUnavailable ? "unreachable" : "available",
           tools: {
             mem_search: { state: options?.remoteUnavailable ? "unreachable" : "available" },
-            mem_get_observation: { state: options?.remoteUnavailable ? "unreachable" : "available" },
+            mem_get_observation: {
+              state: options?.remoteUnavailable ? "unreachable" : "available",
+            },
             mem_timeline: { state: options?.remoteUnavailable ? "unreachable" : "available" },
             mem_stats: { state: options?.remoteUnavailable ? "unreachable" : "available" },
             mem_save: { state: "available" },

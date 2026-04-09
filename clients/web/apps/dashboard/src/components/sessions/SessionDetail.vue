@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { watch } from "vue";
 import { useI18n } from "vue-i18n";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import CerebroSessionActions from "@/components/sessions/CerebroSessionActions.vue";
 import { useAdmin } from "@/composables/useAdmin";
 

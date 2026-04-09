@@ -9,12 +9,12 @@ const props = defineProps<{
   status: AdminCerebroStatusResponse | null;
 }>();
 
-const emit = defineEmits<{
-  (e: "select", result: AdminCerebroSearchResult): void;
-}>();
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const emit = defineEmits<(e: "select", result: AdminCerebroSearchResult) => void>();
 
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 const query = ref("");
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const effectiveStatus = computed(() => props.status ?? admin.cerebroStatus.value);
 
 onMounted(async () => {
@@ -23,6 +23,7 @@ onMounted(async () => {
   }
 });
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function submitSearch() {
   if (!query.value.trim()) {
     return;

@@ -84,15 +84,12 @@ export function useAdmin(
   const cerebroStatus = ref<AdminCerebroStatusResponse | null>(null);
   const cerebroStats = ref<AdminCerebroActionResponse<AdminCerebroStatsResponse> | null>(null);
   const cerebroSearch = ref<AdminCerebroActionResponse<AdminCerebroSearchResponse> | null>(null);
-  const cerebroObservation = ref<AdminCerebroActionResponse<AdminCerebroObservationResponse> | null>(
-    null
-  );
+  const cerebroObservation =
+    ref<AdminCerebroActionResponse<AdminCerebroObservationResponse> | null>(null);
   const cerebroTimeline = ref<AdminCerebroActionResponse<AdminCerebroTimelineResponse> | null>(
     null
   );
-  const cerebroLastAction = ref<
-    AdminCerebroActionResponse<AdminCerebroActionSuccess> | null
-  >(null);
+  const cerebroLastAction = ref<AdminCerebroActionResponse<AdminCerebroActionSuccess> | null>(null);
   const costConfig = ref<AdminCostView | null>(null);
   const costSummary = ref<AdminCostSummaryView | null>(null);
   const costHistory = ref<AdminCostHistoryView | null>(null);
@@ -306,7 +303,10 @@ export function useAdmin(
 
   async function fetchMemoryStats(): Promise<void> {
     try {
-      memoryStats.value = await fetchJson<AdminMemoryStats>("memoryStats", "/web/admin/memory/stats");
+      memoryStats.value = await fetchJson<AdminMemoryStats>(
+        "memoryStats",
+        "/web/admin/memory/stats"
+      );
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e);
       memoryStats.value = null;
@@ -328,7 +328,9 @@ export function useAdmin(
     }
   }
 
-  async function fetchCerebroStats(): Promise<AdminCerebroActionResponse<AdminCerebroStatsResponse>> {
+  async function fetchCerebroStats(): Promise<
+    AdminCerebroActionResponse<AdminCerebroStatsResponse>
+  > {
     const response = await fetchCerebroJson<AdminCerebroStatsResponse>(
       "cerebroStats",
       "/web/admin/cerebro/stats"

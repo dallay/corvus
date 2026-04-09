@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import type { AdminCerebroStatusResponse, CerebroToolName } from "@/types/admin-sessions";
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const props = defineProps<{
   status: AdminCerebroStatusResponse | null;
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const orderedTools: CerebroToolName[] = [
   "mem_search",
   "mem_get_observation",

@@ -43,17 +43,17 @@ import WebhookSettings from "@/components/config/WebhookSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import WebSearchSettings from "@/components/config/WebSearchSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import MemoryFilters from "@/components/memory/MemoryFilters.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import MemoryList from "@/components/memory/MemoryList.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import MemoryStats from "@/components/memory/MemoryStats.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import CerebroObservationDetail from "@/components/memory/CerebroObservationDetail.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import CerebroSearchPanel from "@/components/memory/CerebroSearchPanel.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import CerebroTimelinePanel from "@/components/memory/CerebroTimelinePanel.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import MemoryFilters from "@/components/memory/MemoryFilters.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import MemoryList from "@/components/memory/MemoryList.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import MemoryStats from "@/components/memory/MemoryStats.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import SessionDetail from "@/components/sessions/SessionDetail.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
@@ -119,6 +119,7 @@ function onViewSessionMemory(sessionId: string) {
   selectedSession.value = null;
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function onSelectCerebroResult(result: AdminCerebroSearchResult) {
   selectedCerebroResult.value = result;
 }

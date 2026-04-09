@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
 import { useI18n } from "vue-i18n";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import CerebroStatusCard from "@/components/memory/CerebroStatusCard.vue";
 import { useAdmin } from "@/composables/useAdmin";
 
@@ -14,7 +15,11 @@ const { t } = useI18n();
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 
 onMounted(async () => {
-  await Promise.all([admin.fetchMemoryStats(), admin.fetchCerebroStatus(), admin.fetchCerebroStats()]);
+  await Promise.all([
+    admin.fetchMemoryStats(),
+    admin.fetchCerebroStatus(),
+    admin.fetchCerebroStats(),
+  ]);
 });
 </script>
 
