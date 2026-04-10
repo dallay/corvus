@@ -8,6 +8,7 @@ defineProps<{
 
 const { t } = useI18n();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function formatToggle(value: boolean | undefined): string {
   if (value === true) {
     return t("updates.yes");

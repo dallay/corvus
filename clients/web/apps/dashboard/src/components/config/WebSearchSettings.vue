@@ -14,9 +14,11 @@ const emit = defineEmits<{
   save: [];
 }>();
 
-const WEB_SEARCH_BRAVE_API_KEY_MODES = new Set<
-  AdminConfigForm["web_search_brave_api_key_mode"]
->(["unchanged", "replace", "clear"]);
+const WEB_SEARCH_BRAVE_API_KEY_MODES = new Set<AdminConfigForm["web_search_brave_api_key_mode"]>([
+  "unchanged",
+  "replace",
+  "clear",
+]);
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function updateField<Key extends keyof AdminConfigForm>(
@@ -51,7 +53,9 @@ function updateSecretMode(mode: AdminConfigForm["web_search_brave_api_key_mode"]
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleSecretModeChange(event: Event): void {
   const value = (event.target as HTMLSelectElement).value;
-  if (WEB_SEARCH_BRAVE_API_KEY_MODES.has(value as AdminConfigForm["web_search_brave_api_key_mode"])) {
+  if (
+    WEB_SEARCH_BRAVE_API_KEY_MODES.has(value as AdminConfigForm["web_search_brave_api_key_mode"])
+  ) {
     updateSecretMode(value as AdminConfigForm["web_search_brave_api_key_mode"]);
   }
 }

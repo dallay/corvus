@@ -467,9 +467,7 @@ describe("useChat", () => {
       })
     );
 
-    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow(
-      "gateway exploded"
-    );
+    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow("gateway exploded");
   });
 
   it("streamMessage throws connectBeforeChat when gateway is not ready", async () => {
