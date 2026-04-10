@@ -1156,6 +1156,7 @@ dependencies = [
  "clap",
  "console",
  "const-oid",
+ "corvus-traits",
  "criterion",
  "cron",
  "dialoguer",
@@ -1242,6 +1243,17 @@ dependencies = [
  "tokio-test",
  "toml 1.1.2+spec-1.1.0",
  "tracing",
+]
+
+[[package]]
+name = "corvus-traits"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
