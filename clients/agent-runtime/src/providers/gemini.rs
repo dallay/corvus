@@ -917,4 +917,62 @@ mod tests {
         assert!(json.contains("\"mime_type\":\"image/png\""));
         assert!(json.contains("\"data\":\"iVBOR\""));
     }
+
+    #[test]
+    fn build_gemini_contents_preserves_all_images_in_order() {
+        use crate::channels::media::{AllowedImageMime, ImageTransportForm, StagedImage};
+        use std::io::Write;
+
+        let mut first = tempfile::NamedTempFile::new().unwrap();
+        let first_bytes = b"first-gemini-image";
+        first.write_all(first_bytes).unwrap();
+        first.flush().unwrap();
+
+        let mut second = tempfile::NamedTempFile::new().unwrap();
+        let second_bytes = b"second-gemini-image";
+        second.write_all(second_bytes).unwrap();
+        second.flush().unwrap();
+
+        let images = vec![
+            StagedImage {
+                sha256: "1".repeat(64),
+                mime_type: AllowedImageMime::Jpeg,
+                byte_len: first_bytes.len() as u64,
+                temp_path: first.path().to_path_buf(),
+                transport_form: ImageTransportForm::InlineBytes,
+                channel_origin: "test".into(),
+            },
+            StagedImage {
+                sha256: "2".repeat(64),
+                mime_type: AllowedImageMime::Png,
+                byte_len: second_bytes.len() as u64,
+                temp_path: second.path().to_path_buf(),
+                transport_form: ImageTransportForm::InlineBytes,
+                channel_origin: "test".into(),
+            },
+        ];
+
+        let messages = vec![
+            crate::providers::traits::ChatMessage::assistant("prior"),
+            crate::providers::traits::ChatMessage::user("describe both"),
+        ];
+
+        let contents = build_gemini_contents(&messages, &images).unwrap();
+        assert_eq!(contents.len(), 2);
+        assert_eq!(contents[1].parts.len(), 3);
+        match &contents[1].parts[1] {
+            Part::InlineData { inline_data } => {
+                assert_eq!(inline_data.mime_type, "image/jpeg");
+                assert_eq!(inline_data.data, base64_encode(first_bytes));
+            }
+            Part::Text { .. } => panic!("expected first inline image"),
+        }
+        match &contents[1].parts[2] {
+            Part::InlineData { inline_data } => {
+                assert_eq!(inline_data.mime_type, "image/png");
+                assert_eq!(inline_data.data, base64_encode(second_bytes));
+            }
+            Part::Text { .. } => panic!("expected second inline image"),
+        }
+    }
 }

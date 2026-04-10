@@ -1869,6 +1869,61 @@ mod tests {
         assert_eq!(encoded, "SGVsbG8sIFdvcmxkIQ==");
     }
 
+    #[test]
+    fn build_multimodal_api_messages_preserves_all_images_in_order() {
+        use crate::channels::media::{AllowedImageMime, ImageTransportForm, StagedImage};
+        use std::io::Write;
+
+        let mut first = tempfile::NamedTempFile::new().unwrap();
+        let first_bytes = b"first-image";
+        first.write_all(first_bytes).unwrap();
+        first.flush().unwrap();
+
+        let mut second = tempfile::NamedTempFile::new().unwrap();
+        let second_bytes = b"second-image";
+        second.write_all(second_bytes).unwrap();
+        second.flush().unwrap();
+
+        let images = vec![
+            StagedImage {
+                sha256: "a".repeat(64),
+                mime_type: AllowedImageMime::Jpeg,
+                byte_len: first_bytes.len() as u64,
+                temp_path: first.path().to_path_buf(),
+                transport_form: ImageTransportForm::InlineBytes,
+                channel_origin: "test".into(),
+            },
+            StagedImage {
+                sha256: "b".repeat(64),
+                mime_type: AllowedImageMime::Png,
+                byte_len: second_bytes.len() as u64,
+                temp_path: second.path().to_path_buf(),
+                transport_form: ImageTransportForm::InlineBytes,
+                channel_origin: "test".into(),
+            },
+        ];
+
+        let messages = vec![
+            ChatMessage::assistant("earlier"),
+            ChatMessage::user("describe these"),
+        ];
+
+        let built = build_multimodal_api_messages(&messages, &images).unwrap();
+        let content = built[1]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 3);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[1]["type"], "image_url");
+        assert_eq!(content[2]["type"], "image_url");
+        assert!(content[1]["image_url"]["url"]
+            .as_str()
+            .unwrap()
+            .contains(&base64_encode(first_bytes)));
+        assert!(content[2]["image_url"]["url"]
+            .as_str()
+            .unwrap()
+            .contains(&base64_encode(second_bytes)));
+    }
+
     #[tokio::test]
     async fn chat_multimodal_fails_without_key() {
         let p = make_provider("TestProvider", "https://example.com", None);

@@ -1,8 +1,10 @@
 # Cross.toml - cross-compilation configuration for clients/agent-runtime
 #
-# aws-lc-sys (used transitively for TLS) requires CMake and C build tools that
-# must be available for the target architecture. The pre-build hook installs the
-# minimal toolchain headers needed for aarch64-unknown-linux-gnu cross-compilation.
+# NOTE: aarch64-unknown-linux-gnu now builds natively on ARM64 runners.
+# This file is retained for local development with `cross` if needed.
+#
+# aws-lc-sys (TLS) needs CMake and C build tools; surrealdb-librocksdb-sys
+# (via cerebro) needs clang/libclang-dev for bindgen and g++ for C++ sources.
 #
 # Ref: https://github.com/cross-rs/cross/wiki/Configuration
 
@@ -10,5 +12,5 @@
 pre-build = [
   "dpkg --add-architecture arm64",
   "apt-get update -qq",
-  "apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross cmake",
+  "apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross cmake clang libclang-dev",
 ]

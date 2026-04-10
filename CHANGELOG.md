@@ -1,6 +1,33 @@
 # Changelog
 
-## [2.0.0](https://github.com/dallay/corvus/compare/v1.0.0...v2.0.0) (2026-04-09)
+## [2.2.0](https://github.com/dallay/corvus/compare/v2.1.0...v2.2.0) (2026-04-10)
+
+
+### Features
+
+* **agent-runtime:** support multiple images per turn ([#472](https://github.com/dallay/corvus/issues/472)) ([5afd58b](https://github.com/dallay/corvus/commit/5afd58b515f255e66371e1964730b1ba98b27109))
+
+## [2.1.0](https://github.com/dallay/corvus/compare/v2.0.0...v2.1.0) (2026-04-09)
+
+
+### Features
+
+* cerebro memory enhancement layer ([#466](https://github.com/dallay/corvus/issues/466)) ([cd5838f](https://github.com/dallay/corvus/commit/cd5838f0d46a61b9042e7ff3c11adf4f4ed9031c))
+* **cerebro:** add dashboard and gateway memory enhancement layer ([e96f68d](https://github.com/dallay/corvus/commit/e96f68d1fdf307447173423f69980d16da08f3d0))
+* **dashboard:** add local memory explorer ([#469](https://github.com/dallay/corvus/issues/469)) ([3fd197a](https://github.com/dallay/corvus/commit/3fd197a63e32d014a6c8d8b4fbf2105065deb20d))
+* **i18n:** add delete action to English and Spanish translations ([35d3bdd](https://github.com/dallay/corvus/commit/35d3bdd1b5da29ca3919ad9674dfe493c50ac9c0))
+
+
+### Bug Fixes
+
+* **cerebro:** format runtime files for push checks ([7daf8e7](https://github.com/dallay/corvus/commit/7daf8e78a0092e10e827e1cb9a02e2152b9fff2a))
+* **cerebro:** harden gateway contracts and dashboard guards ([eea1fc5](https://github.com/dallay/corvus/commit/eea1fc523ce232a03ddcc00715ebb24e0ba2e7ba))
+* **cerebro:** satisfy runtime push lint checks ([6bf3590](https://github.com/dallay/corvus/commit/6bf3590ec0633b08cf8336a04e938845a5088dc6))
+* **contributor-report:** correct formatting in pull request types and trusted users list ([adf2e51](https://github.com/dallay/corvus/commit/adf2e5105b77ef0563e70e3b9737d6abb530be18))
+* **dashboard:** align cost governance tests and locale keys ([3500dc7](https://github.com/dallay/corvus/commit/3500dc76f2318e6f15aa1d99db0ad9f041d4d606))
+* **dashboard:** satisfy cerebro web push checks ([6db38c3](https://github.com/dallay/corvus/commit/6db38c390cc81ec3b1d3526fe47027175b5e1a66))
+
+## [2.0.0](https://github.com/dallay/corvus/compare/v0.5.0...v2.0.0) (2026-04-09)
 
 
 ### ⚠ BREAKING CHANGES

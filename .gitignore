@@ -37,6 +37,7 @@ Icon?
 /.recommenders/
 /bin/
 **/bin/
+!**/src/bin/
 /build/
 .classpath
 .factorypath

@@ -11,5 +11,5 @@
 pre-build = [
   "dpkg --add-architecture arm64",
   "apt-get update -qq",
-  "apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross clang libclang-dev",
+  "apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross cmake clang libclang-dev",
 ]

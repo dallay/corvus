@@ -65,6 +65,7 @@ impl TurnContext {
 struct StepOutcome {
     final_text: Option<String>,
     approval_required: Option<serde_json::Value>,
+    tools_called: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +75,7 @@ pub struct AgentTurnResult {
     pub terminal_outcome: AgentTurnOutcome,
     pub approval_required: Option<serde_json::Value>,
     pub event_log: Vec<AgentTurnEvent>,
+    pub tools_called: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1478,6 +1480,7 @@ impl Agent {
             .await?;
         let mut approval_required = None;
         let mut event_log = vec![AgentTurnEvent::Prepared];
+        let mut all_tools_called: Vec<String> = Vec::new();
 
         for _ in 0..self.config.max_tool_iterations {
             let outcome = self
@@ -1486,6 +1489,7 @@ impl Agent {
             if approval_required.is_none() {
                 approval_required = outcome.approval_required.clone();
             }
+            all_tools_called.extend(outcome.tools_called);
             if let Some(final_text) = outcome.final_text {
                 event_log.push(AgentTurnEvent::Completed);
                 return Ok(AgentTurnResult {
@@ -1494,6 +1498,7 @@ impl Agent {
                     terminal_outcome: AgentTurnOutcome::Completed,
                     approval_required,
                     event_log,
+                    tools_called: all_tools_called,
                 });
             }
         }
@@ -2107,6 +2112,7 @@ impl Agent {
             return Ok(StepOutcome {
                 final_text,
                 approval_required: None,
+                tools_called: vec![],
             });
         }
 
@@ -2125,6 +2131,7 @@ impl Agent {
             anyhow::bail!("mission_policy_denied: delegated tool action denied")
         }
 
+        let tools_called: Vec<String> = calls.iter().map(|c| c.name.clone()).collect();
         self.record_tool_response(text, response.text, &calls);
         let gated_results = self.execute_gated_tool_calls(&calls).await;
         let approval_required = Self::approval_denial_from_results(&calls, &gated_results);
@@ -2136,6 +2143,7 @@ impl Agent {
         Ok(StepOutcome {
             final_text: None,
             approval_required,
+            tools_called,
         })
     }
 

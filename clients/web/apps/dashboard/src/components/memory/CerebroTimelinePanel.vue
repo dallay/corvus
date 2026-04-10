@@ -34,7 +34,7 @@ watch(
 
 <template>
   <section class="panel">
-    <h4>Timeline</h4>
+    <h4>Cerebro Timeline (remote)</h4>
     <p v-if="!selected" class="helper">Timeline becomes available after you pick an observation.</p>
     <p v-else-if="admin.loadingBuckets.value.cerebroTimeline" class="helper">Loading timeline…</p>
     <p

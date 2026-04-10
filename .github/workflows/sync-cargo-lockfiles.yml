@@ -1,0 +1,85 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Sync Cargo Lockfiles
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "clients/agent-runtime/Cargo.toml"
+      - "modules/cerebro/Cargo.toml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  sync-cargo-lockfiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 🔐 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: ✈ Checkout PR branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 1
+
+      - name: 🦀 Resolve Rust channel
+        id: rust-channel
+        shell: python
+        run: |
+          import os
+          import pathlib
+          import tomllib
+
+          toolchain_file = pathlib.Path("clients/agent-runtime/rust-toolchain.toml")
+          data = tomllib.loads(toolchain_file.read_text(encoding="utf-8"))
+          channel = data.get("toolchain", {}).get("channel")
+
+          if not channel:
+              raise SystemExit(
+                  "Failed to resolve [toolchain].channel from "
+                  "clients/agent-runtime/rust-toolchain.toml",
+              )
+
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"channel={channel}\n")
+
+      - name: 🦀 Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
+        with:
+          toolchain: ${{ steps.rust-channel.outputs.channel }}
+
+      - name: 🔄 Regenerate Cargo.lock files
+        run: |
+          set -euo pipefail
+          echo "Regenerating clients/agent-runtime/Cargo.lock..."
+          cargo generate-lockfile --manifest-path clients/agent-runtime/Cargo.toml
+          echo "Regenerating modules/cerebro/Cargo.lock..."
+          cargo generate-lockfile --manifest-path modules/cerebro/Cargo.toml
+
+      - name: 💾 Commit updated lockfiles
+        env:
+          SKIP_GIT_HOOKS: "1"
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add clients/agent-runtime/Cargo.lock modules/cerebro/Cargo.lock
+          if git diff --cached --quiet; then
+            echo "Cargo.lock files are already up to date"
+          else
+            git commit -m "chore: sync Cargo.lock files after version bump"
+            git push
+          fi

@@ -115,4 +115,16 @@ describe("MemoryStats", () => {
     expect(wrapper.text()).toContain("Cerebro is currently unreachable.");
     expect(wrapper.text()).toContain("unreachable");
   });
+
+  it("emits a local category drill-in event without touching Cerebro cards", async () => {
+    queueDefaultRequests();
+
+    const wrapper = mountStats();
+    await flushPromises();
+
+    await wrapper.findAll("button.category-item")[0]?.trigger("click");
+
+    expect(wrapper.emitted("select-category")).toEqual([["Core"]]);
+    expect(wrapper.text()).toContain("Cerebro Memory");
+  });
 });

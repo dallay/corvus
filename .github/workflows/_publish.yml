@@ -688,7 +688,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Uploading assets to existing GitHub Release ${RELEASE_ID} (${RELEASE_TAG})"
-          gh release upload "$RELEASE_TAG" dist/corvus/corvus-* dist/cerebro/cerebro-* --clobber
+          gh release upload "$RELEASE_TAG" dist/corvus/corvus-* dist/cerebro/cerebro-* --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: 📄 Summarize GitHub Release publication
         if: ${{ always() }}

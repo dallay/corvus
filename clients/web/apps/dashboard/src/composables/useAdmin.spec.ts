@@ -329,6 +329,90 @@ describe("useAdmin", () => {
       expect(admin.totalMemoryEntries.value).toBe(0);
       expect(admin.error.value).toBe("HTTP 500");
     });
+
+    it("returns paged results from listMemoryEntries without mutating browse refs", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            entries: [
+              {
+                id: "m-paged",
+                key: "fact-paged",
+                content: "paged",
+                category: "Core",
+                timestamp: "2026-01-02T00:00:00Z",
+                session_id: "sess-2",
+              },
+            ],
+            total: 450,
+            limit: 200,
+            offset: 200,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      const admin = createAdmin();
+      admin.memoryEntries.value = [
+        {
+          id: "existing",
+          key: "existing",
+          content: "keep existing browse state",
+          category: "Conversation",
+          timestamp: "2026-01-01T00:00:00Z",
+          session_id: null,
+        },
+      ];
+      admin.totalMemoryEntries.value = 1;
+
+      const response = await admin.listMemoryEntries({
+        page: 2,
+        per_page: 200,
+        session_id: "sess-2",
+      });
+
+      expect(response).toEqual({
+        entries: [
+          {
+            id: "m-paged",
+            key: "fact-paged",
+            content: "paged",
+            category: "Core",
+            timestamp: "2026-01-02T00:00:00Z",
+            session_id: "sess-2",
+          },
+        ],
+        total: 450,
+        limit: 200,
+        offset: 200,
+      });
+      expect(admin.memoryEntries.value).toEqual([
+        {
+          id: "existing",
+          key: "existing",
+          content: "keep existing browse state",
+          category: "Conversation",
+          timestamp: "2026-01-01T00:00:00Z",
+          session_id: null,
+        },
+      ]);
+      expect(admin.totalMemoryEntries.value).toBe(1);
+
+      const [url] = fetchMock.mock.calls[0] ?? [];
+      const parsed = new URL(url as string);
+      expect(parsed.searchParams.get("limit")).toBe("200");
+      expect(parsed.searchParams.get("offset")).toBe("200");
+      expect(parsed.searchParams.get("session_id")).toBe("sess-2");
+    });
+
+    it("rethrows paged list failures so explorer callers can distinguish errors", async () => {
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }));
+
+      const admin = createAdmin();
+
+      await expect(admin.listMemoryEntries()).rejects.toThrow("HTTP 500");
+      expect(admin.error.value).toBe("HTTP 500");
+    });
   });
 
   describe("fetchMemoryStats", () => {
@@ -348,10 +432,18 @@ describe("useAdmin", () => {
       );
 
       const admin = createAdmin();
-      await admin.fetchMemoryStats();
+      const response = await admin.fetchMemoryStats();
 
       const [url] = fetchMock.mock.calls[0] ?? [];
       expect(url).toContain("/web/admin/memory/stats");
+      expect(response).toEqual({
+        total_entries: 50,
+        by_category: { Core: 20, Conversation: 15, Daily: 10, Custom: 5 },
+        total_sessions: 8,
+        active_sessions: 3,
+        backend: "sqlite",
+        cerebro_configured: false,
+      });
       expect(admin.memoryStats.value).toEqual({
         total_entries: 50,
         by_category: { Core: 20, Conversation: 15, Daily: 10, Custom: 5 },
@@ -366,8 +458,9 @@ describe("useAdmin", () => {
       fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }));
 
       const admin = createAdmin();
-      await admin.fetchMemoryStats();
+      const response = await admin.fetchMemoryStats();
 
+      expect(response).toBeNull();
       expect(admin.memoryStats.value).toBeNull();
       expect(admin.error.value).toBe("HTTP 500");
     });

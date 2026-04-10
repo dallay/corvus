@@ -1,0 +1,12 @@
+change: multi-image-per-turn-ingestion
+current_phase: archive
+completed:
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+  - archive
+next: none
+updated: 2026-04-10T00:00:00Z

@@ -51,6 +51,12 @@ impl std::fmt::Display for ImageIngressReason {
 ///
 /// Never includes raw image bytes, channel URLs, tokens,
 /// or base64 payloads — only routing and sizing metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageIngressImageMeta {
+    pub mime_type: String,
+    pub byte_len: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct ImageIngressEvent {
     pub channel: String,
@@ -59,6 +65,9 @@ pub struct ImageIngressEvent {
     pub outcome: ImageIngressOutcome,
     pub reason: Option<ImageIngressReason>,
     pub image_count: usize,
+    pub max_images_per_turn: Option<usize>,
+    pub images: Vec<ImageIngressImageMeta>,
+    pub total_byte_len: Option<u64>,
     pub mime_type: Option<String>,
     pub byte_len: Option<u64>,
 }
@@ -555,18 +564,33 @@ mod tests {
             model: Some("gemini-2.0-flash".into()),
             outcome: ImageIngressOutcome::Admitted,
             reason: None,
-            image_count: 1,
-            mime_type: Some("image/jpeg".into()),
-            byte_len: Some(204_800),
+            image_count: 2,
+            max_images_per_turn: None,
+            images: vec![
+                ImageIngressImageMeta {
+                    mime_type: "image/jpeg".into(),
+                    byte_len: 204_800,
+                },
+                ImageIngressImageMeta {
+                    mime_type: "image/png".into(),
+                    byte_len: 102_400,
+                },
+            ],
+            total_byte_len: Some(307_200),
+            mime_type: None,
+            byte_len: None,
         };
         assert_eq!(event.channel, "telegram");
         assert_eq!(event.provider.as_deref(), Some("gemini"));
         assert_eq!(event.model.as_deref(), Some("gemini-2.0-flash"));
         assert_eq!(event.outcome, ImageIngressOutcome::Admitted);
         assert!(event.reason.is_none());
-        assert_eq!(event.image_count, 1);
-        assert_eq!(event.mime_type.as_deref(), Some("image/jpeg"));
-        assert_eq!(event.byte_len, Some(204_800));
+        assert_eq!(event.image_count, 2);
+        assert_eq!(event.images.len(), 2);
+        assert_eq!(event.images[1].mime_type, "image/png");
+        assert_eq!(event.total_byte_len, Some(307_200));
+        assert!(event.mime_type.is_none());
+        assert!(event.byte_len.is_none());
     }
 
     #[test]
@@ -577,7 +601,10 @@ mod tests {
             model: None,
             outcome: ImageIngressOutcome::Rejected,
             reason: Some(ImageIngressReason::Disabled),
-            image_count: 1,
+            image_count: 4,
+            max_images_per_turn: None,
+            images: Vec::new(),
+            total_byte_len: None,
             mime_type: None,
             byte_len: None,
         };
@@ -603,12 +630,21 @@ mod tests {
             outcome: ImageIngressOutcome::ProviderError,
             reason: Some(ImageIngressReason::ProviderError),
             image_count: 1,
-            mime_type: None,
-            byte_len: None,
+            max_images_per_turn: None,
+            images: vec![ImageIngressImageMeta {
+                mime_type: "image/webp".into(),
+                byte_len: 333,
+            }],
+            total_byte_len: Some(333),
+            mime_type: Some("image/webp".into()),
+            byte_len: Some(333),
         };
         let cloned = event.clone();
         assert_eq!(cloned.channel, "telegram");
         assert_eq!(cloned.outcome, ImageIngressOutcome::ProviderError);
+        assert_eq!(cloned.images.len(), 1);
+        assert_eq!(cloned.mime_type.as_deref(), Some("image/webp"));
+        assert_eq!(cloned.byte_len, Some(333));
     }
 
     #[test]
@@ -620,6 +656,9 @@ mod tests {
             outcome: ImageIngressOutcome::Rejected,
             reason: Some(ImageIngressReason::ChannelNotAllowed),
             image_count: 1,
+            max_images_per_turn: None,
+            images: Vec::new(),
+            total_byte_len: None,
             mime_type: None,
             byte_len: None,
         });
@@ -754,11 +793,71 @@ mod tests {
             outcome: ImageIngressOutcome::Rejected,
             reason: Some(ImageIngressReason::Disabled),
             image_count: 1,
+            max_images_per_turn: None,
+            images: Vec::new(),
+            total_byte_len: None,
             mime_type: None,
             byte_len: None,
         };
         observer.on_image_ingress(&event);
         // Default forwards to record_event
         assert_eq!(*observer.events.lock(), 1);
+    }
+
+    #[test]
+    fn image_ingress_multi_image_turn_uses_turn_level_fields() {
+        let event = ImageIngressEvent {
+            channel: "telegram".into(),
+            provider: Some("compatible".into()),
+            model: Some("vision-model".into()),
+            outcome: ImageIngressOutcome::ProviderSent,
+            reason: None,
+            image_count: 3,
+            max_images_per_turn: None,
+            images: vec![
+                ImageIngressImageMeta {
+                    mime_type: "image/jpeg".into(),
+                    byte_len: 100,
+                },
+                ImageIngressImageMeta {
+                    mime_type: "image/png".into(),
+                    byte_len: 200,
+                },
+                ImageIngressImageMeta {
+                    mime_type: "image/webp".into(),
+                    byte_len: 300,
+                },
+            ],
+            total_byte_len: Some(600),
+            mime_type: None,
+            byte_len: None,
+        };
+
+        assert_eq!(event.image_count, 3);
+        assert_eq!(event.images[0].mime_type, "image/jpeg");
+        assert_eq!(event.images[2].byte_len, 300);
+        assert_eq!(event.total_byte_len, Some(600));
+        assert!(event.mime_type.is_none());
+        assert!(event.byte_len.is_none());
+    }
+
+    #[test]
+    fn image_ingress_rejected_turn_can_include_effective_limit() {
+        let event = ImageIngressEvent {
+            channel: "telegram".into(),
+            provider: None,
+            model: None,
+            outcome: ImageIngressOutcome::Rejected,
+            reason: Some(ImageIngressReason::TooManyImages),
+            image_count: 6,
+            max_images_per_turn: Some(4),
+            images: Vec::new(),
+            total_byte_len: None,
+            mime_type: None,
+            byte_len: None,
+        };
+
+        assert_eq!(event.image_count, 6);
+        assert_eq!(event.max_images_per_turn, Some(4));
     }
 }
