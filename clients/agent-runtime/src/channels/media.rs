@@ -11,8 +11,11 @@ pub const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 /// Prevents operator misconfiguration from accepting arbitrarily large images.
 pub const MAX_IMAGE_BYTES_CEILING: u64 = 52_428_800;
 
-/// Maximum images allowed per turn for MVP.
-pub const MAX_IMAGES_PER_TURN: usize = 1;
+/// Default images allowed per turn when config omits the limit.
+pub const DEFAULT_MAX_IMAGES_PER_TURN: usize = 4;
+
+/// Hard ceiling for `max_images_per_turn` config override.
+pub const MAX_IMAGES_PER_TURN_CEILING: usize = 8;
 
 /// Default startup-only reaper threshold for stale staged images.
 pub const DEFAULT_STAGED_IMAGE_REAPER_THRESHOLD_MINUTES: u64 = 30;
@@ -370,8 +373,11 @@ pub fn validate_size(byte_len: u64, max_bytes: u64) -> Result<(), ImageRejection
 }
 
 /// Validate that the image count does not exceed the per-turn limit.
-pub fn validate_image_count(count: usize) -> Result<(), ImageRejectionReason> {
-    if count > MAX_IMAGES_PER_TURN {
+pub fn validate_image_count(
+    count: usize,
+    max_images_per_turn: usize,
+) -> Result<(), ImageRejectionReason> {
+    if count > max_images_per_turn {
         Err(ImageRejectionReason::TooManyImages)
     } else {
         Ok(())
@@ -616,14 +622,19 @@ mod tests {
 
     #[test]
     fn validate_image_count_accepts_within_limit() {
-        assert!(validate_image_count(0).is_ok());
-        assert!(validate_image_count(1).is_ok());
+        assert!(validate_image_count(0, DEFAULT_MAX_IMAGES_PER_TURN).is_ok());
+        assert!(validate_image_count(4, DEFAULT_MAX_IMAGES_PER_TURN).is_ok());
+        assert!(validate_image_count(8, MAX_IMAGES_PER_TURN_CEILING).is_ok());
     }
 
     #[test]
     fn validate_image_count_rejects_over_limit() {
         assert_eq!(
-            validate_image_count(2),
+            validate_image_count(5, DEFAULT_MAX_IMAGES_PER_TURN),
+            Err(ImageRejectionReason::TooManyImages)
+        );
+        assert_eq!(
+            validate_image_count(9, MAX_IMAGES_PER_TURN_CEILING),
             Err(ImageRejectionReason::TooManyImages)
         );
     }
@@ -669,7 +680,8 @@ mod tests {
     #[test]
     fn constants_match_design() {
         assert_eq!(MAX_IMAGE_BYTES, 10 * 1024 * 1024);
-        assert_eq!(MAX_IMAGES_PER_TURN, 1);
+        assert_eq!(DEFAULT_MAX_IMAGES_PER_TURN, 4);
+        assert_eq!(MAX_IMAGES_PER_TURN_CEILING, 8);
     }
 
     // ── stream_validate_and_stage ─────────────────────────────

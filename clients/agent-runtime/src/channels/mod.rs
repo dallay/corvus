@@ -235,6 +235,9 @@ fn emit_image_ingress(
     outcome: crate::observability::ImageIngressOutcome,
     reason: Option<media::ImageRejectionReason>,
     image_count: usize,
+    max_images_per_turn: Option<usize>,
+    images: Vec<crate::observability::ImageIngressImageMeta>,
+    total_byte_len: Option<u64>,
     mime_type: Option<String>,
     byte_len: Option<u64>,
 ) {
@@ -245,9 +248,41 @@ fn emit_image_ingress(
         outcome,
         reason: reason.as_ref().map(rejection_to_ingress_reason),
         image_count,
+        max_images_per_turn,
+        images,
+        total_byte_len,
         mime_type,
         byte_len,
     });
+}
+
+fn image_ingress_metadata(
+    staged: &[media::StagedImage],
+) -> (
+    Vec<crate::observability::ImageIngressImageMeta>,
+    Option<u64>,
+    Option<String>,
+    Option<u64>,
+) {
+    let images: Vec<crate::observability::ImageIngressImageMeta> = staged
+        .iter()
+        .map(|image| crate::observability::ImageIngressImageMeta {
+            mime_type: image.mime_type.as_str().to_string(),
+            byte_len: image.byte_len,
+        })
+        .collect();
+    let total_byte_len =
+        (!images.is_empty()).then(|| staged.iter().map(|image| image.byte_len).sum::<u64>());
+    let (mime_type, byte_len) = if staged.len() == 1 {
+        (
+            Some(staged[0].mime_type.as_str().to_string()),
+            Some(staged[0].byte_len),
+        )
+    } else {
+        (None, None)
+    };
+
+    (images, total_byte_len, mime_type, byte_len)
 }
 
 fn execution_model_for_turn<'a>(
@@ -885,6 +920,7 @@ async fn enrich_with_memory(
 }
 
 /// Send an image rejection: emit observability event and notify user.
+#[allow(clippy::too_many_arguments)]
 async fn reject_image_turn(
     ctx: &ChannelRuntimeContext,
     msg: &traits::ChannelMessage,
@@ -892,6 +928,7 @@ async fn reject_image_turn(
     route: Option<&ResolvedImageRoute>,
     reason: media::ImageRejectionReason,
     image_count: usize,
+    max_images_per_turn: Option<usize>,
     rejection_text: String,
 ) {
     emit_image_ingress(
@@ -902,6 +939,9 @@ async fn reject_image_turn(
         crate::observability::ImageIngressOutcome::Rejected,
         Some(reason),
         image_count,
+        max_images_per_turn,
+        Vec::new(),
+        None,
         None,
         None,
     );
@@ -936,6 +976,7 @@ async fn gate_multimodal_config(
             None,
             media::ImageRejectionReason::Disabled,
             img_count,
+            None,
             format!("[session:{session_id}] ⚠️ Image input is currently disabled."),
         )
         .await;
@@ -950,6 +991,7 @@ async fn gate_multimodal_config(
             None,
             media::ImageRejectionReason::ChannelNotAllowed,
             img_count,
+            None,
             format!("[session:{session_id}] ⚠️ Image input is not enabled for this channel."),
         )
         .await;
@@ -960,7 +1002,17 @@ async fn gate_multimodal_config(
         Ok(route) => Ok(Some(route)),
         Err(reason) => {
             let text = image_route_rejection_text(session_id, &reason);
-            reject_image_turn(ctx, msg, target_channel, None, reason, img_count, text).await;
+            reject_image_turn(
+                ctx,
+                msg,
+                target_channel,
+                None,
+                reason,
+                img_count,
+                None,
+                text,
+            )
+            .await;
             Err(())
         }
     }
@@ -994,7 +1046,9 @@ async fn gate_and_stage_images(
 
     let image_count = msg.image_parts().len();
 
-    if media::validate_image_count(image_count).is_err() {
+    let max_images_per_turn = ctx.config.multimodal.effective_max_images_per_turn();
+
+    if media::validate_image_count(image_count, max_images_per_turn).is_err() {
         reject_image_turn(
             ctx,
             msg,
@@ -1002,10 +1056,11 @@ async fn gate_and_stage_images(
             route,
             media::ImageRejectionReason::TooManyImages,
             image_count,
+            Some(max_images_per_turn),
             format!(
                 "[session:{session_id}] ⚠️ Too many images \
                  ({image_count}). Maximum {} per message.",
-                media::MAX_IMAGES_PER_TURN,
+                max_images_per_turn,
             ),
         )
         .await;
@@ -1016,7 +1071,17 @@ async fn gate_and_stage_images(
         Ok(s) => s,
         Err(reason) => {
             let text = staging_rejection_text(session_id, &reason);
-            reject_image_turn(ctx, msg, target_channel, route, reason, image_count, text).await;
+            reject_image_turn(
+                ctx,
+                msg,
+                target_channel,
+                route,
+                reason,
+                image_count,
+                None,
+                text,
+            )
+            .await;
             return Err(());
         }
     };
@@ -1032,6 +1097,7 @@ async fn gate_and_stage_images(
             route,
             media::ImageRejectionReason::ChannelNotSupported,
             image_count,
+            None,
             format!(
                 "[session:{session_id}] ⚠️ Image input is not \
                  yet supported for this channel."
@@ -1545,18 +1611,11 @@ fn emit_image_provider_outcome(
     reason: Option<media::ImageRejectionReason>,
 ) {
     let Some(route) = route else { return };
-    let (count, mime, bytes) = if reason.is_none() {
-        match staged.first() {
-            Some(first) => (
-                staged.len(),
-                Some(first.mime_type.as_str().to_string()),
-                Some(first.byte_len),
-            ),
-            None => return,
-        }
-    } else {
-        (msg.image_parts().len(), None, None)
-    };
+    if staged.is_empty() {
+        return;
+    }
+
+    let (images, total_byte_len, mime_type, byte_len) = image_ingress_metadata(staged);
     emit_image_ingress(
         ctx.observer.as_ref(),
         &msg.channel,
@@ -1564,9 +1623,12 @@ fn emit_image_provider_outcome(
         Some(route.model.clone()),
         outcome,
         reason,
-        count,
-        mime,
-        bytes,
+        staged.len(),
+        None,
+        images,
+        total_byte_len,
+        mime_type,
+        byte_len,
     );
 }
 
@@ -1590,38 +1652,106 @@ async fn stage_channel_images(
             continue;
         };
 
-        let image = match msg.channel.as_str() {
+        let image_result = match msg.channel.as_str() {
             "telegram" => {
                 build_telegram_channel(config)
                     .ok_or(media::ImageRejectionReason::FetchFailed)?
                     .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
-                    .await?
+                    .await
             }
             "whatsapp" => {
                 build_whatsapp_channel(config)
                     .ok_or(media::ImageRejectionReason::FetchFailed)?
                     .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
-                    .await?
+                    .await
             }
             "discord" => {
                 build_discord_channel(config)
                     .ok_or(media::ImageRejectionReason::FetchFailed)?
                     .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
-                    .await?
+                    .await
             }
             "slack" => {
                 build_slack_channel(config)
                     .ok_or(media::ImageRejectionReason::FetchFailed)?
                     .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
-                    .await?
+                    .await
+            }
+            #[cfg(test)]
+            "test-channel" => {
+                stage_test_channel_image(channel_handle, declared_mime.as_deref(), max_bytes).await
             }
             _ => return Ok(Vec::new()),
         };
 
-        staged.push(image);
+        match image_result {
+            Ok(image) => staged.push(image),
+            Err(reason) => {
+                for image in &staged {
+                    image.cleanup();
+                }
+                return Err(reason);
+            }
+        }
     }
 
     Ok(staged)
+}
+
+#[cfg(test)]
+fn test_channel_image_temp_path(channel_handle: &str, sha256: &str) -> std::path::PathBuf {
+    let suffix = if let Some(stable_name) = channel_handle.strip_prefix("__stable__:") {
+        stable_name.to_string()
+    } else {
+        uuid::Uuid::new_v4().simple().to_string()[..8].to_string()
+    };
+
+    std::env::temp_dir().join(format!(
+        "corvus-test-channel-img-{}-{}.jpg",
+        &sha256[..16],
+        suffix
+    ))
+}
+
+#[cfg(test)]
+async fn stage_test_channel_image(
+    channel_handle: &str,
+    declared_mime: Option<&str>,
+    max_bytes: u64,
+) -> Result<media::StagedImage, media::ImageRejectionReason> {
+    if channel_handle == "__reject_fetch__" {
+        return Err(media::ImageRejectionReason::FetchFailed);
+    }
+    if channel_handle == "__reject_mime__" {
+        return Err(media::ImageRejectionReason::MimeRejected);
+    }
+    if channel_handle == "__reject_oversize__" {
+        return Err(media::ImageRejectionReason::Oversize);
+    }
+
+    let bytes = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46];
+    media::validate_size(bytes.len() as u64, max_bytes)?;
+    let mime = media::validate_mime(declared_mime, &bytes)?;
+    use sha2::Digest;
+    let sha256 = {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(&bytes);
+        hasher.update(channel_handle.as_bytes());
+        hex::encode(hasher.finalize())
+    };
+    let temp_path = test_channel_image_temp_path(channel_handle, &sha256);
+    tokio::fs::write(&temp_path, &bytes)
+        .await
+        .map_err(|_| media::ImageRejectionReason::FetchFailed)?;
+
+    Ok(media::StagedImage {
+        sha256,
+        mime_type: mime,
+        byte_len: bytes.len() as u64,
+        temp_path,
+        transport_form: media::ImageTransportForm::InlineBytes,
+        channel_origin: "test-channel".into(),
+    })
 }
 
 fn build_history(
@@ -3315,6 +3445,38 @@ mod tests {
         }
     }
 
+    struct FailingImageProvider;
+
+    #[async_trait::async_trait]
+    impl Provider for FailingImageProvider {
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities {
+                image_input: true,
+                image_transport_forms: vec![media::ImageTransportForm::InlineBytes],
+                ..Default::default()
+            }
+        }
+
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok("unused".to_string())
+        }
+
+        async fn chat(
+            &self,
+            _request: ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            Err(anyhow::anyhow!("provider failure"))
+        }
+    }
+
     #[async_trait::async_trait]
     impl Tool for MockPriceTool {
         fn name(&self) -> &str {
@@ -4586,15 +4748,45 @@ mod tests {
         }
     }
 
+    fn make_multimodal_runtime_ctx(
+        config: Config,
+        provider: Arc<dyn Provider>,
+        observer: Arc<dyn Observer>,
+        channel: Arc<dyn Channel>,
+    ) -> Arc<ChannelRuntimeContext> {
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        Arc::new(ChannelRuntimeContext {
+            config: Arc::new(config),
+            channels_by_name: Arc::new(channels_by_name),
+            provider,
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer,
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("default-text-model".into()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            transcriber: None,
+        })
+    }
+
     #[tokio::test]
     async fn process_rejects_too_many_images() {
         let channel_impl = Arc::new(RecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
         let mut channels_by_name = HashMap::new();
         channels_by_name.insert(channel.name().to_string(), channel);
+        let mut config = make_multimodal_test_config("test-channel");
+        config.multimodal.max_images_per_turn = Some(1);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
-            config: Arc::new(make_multimodal_test_config("test-channel")),
+            config: Arc::new(config),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(SlowProvider {
                 delay: Duration::from_millis(1),
@@ -4634,6 +4826,244 @@ mod tests {
             "expected too-many-images rejection, got: {}",
             sent[0]
         );
+    }
+
+    #[tokio::test]
+    async fn process_admits_four_images_and_preserves_provider_order() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let observer_impl = Arc::new(RecordingObserver::default());
+        let observer: Arc<dyn Observer> = observer_impl.clone();
+        let provider_impl = Arc::new(ImageAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let runtime_ctx = make_multimodal_runtime_ctx(
+            make_multimodal_test_config("test-channel"),
+            provider,
+            observer,
+            channel,
+        );
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-four".into(),
+                sender: "alice".into(),
+                reply_target: "chat-img-four".into(),
+                content: "four photos".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![
+                    make_image_part("img-a"),
+                    make_image_part("img-b"),
+                    make_image_part("img-c"),
+                    make_image_part("img-d"),
+                ],
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            provider_impl
+                .image_counts
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_slice(),
+            &[4]
+        );
+
+        let events = observer_impl
+            .image_events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert!(events.iter().any(|event| {
+            event.outcome == ImageIngressOutcome::ProviderSent
+                && event.image_count == 4
+                && event.images.len() == 4
+                && event.images[0].mime_type == "image/jpeg"
+                && event.total_byte_len.is_some()
+        }));
+    }
+
+    #[tokio::test]
+    async fn process_rejects_when_image_count_exceeds_configured_limit() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let observer_impl = Arc::new(RecordingObserver::default());
+        let observer: Arc<dyn Observer> = observer_impl.clone();
+        let provider_impl = Arc::new(ImageAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = make_multimodal_test_config("test-channel");
+        config.multimodal.max_images_per_turn = Some(2);
+
+        let runtime_ctx = make_multimodal_runtime_ctx(config, provider, observer, channel);
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-config-limit".into(),
+                sender: "alice".into(),
+                reply_target: "chat-limit".into(),
+                content: "three photos".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![
+                    make_image_part("img-a"),
+                    make_image_part("img-b"),
+                    make_image_part("img-c"),
+                ],
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("Too many images (3). Maximum 2 per message."));
+
+        let events = observer_impl
+            .image_events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert!(events.iter().any(|event| {
+            event.outcome == ImageIngressOutcome::Rejected
+                && event.reason == Some(crate::observability::ImageIngressReason::TooManyImages)
+                && event.image_count == 3
+                && event.max_images_per_turn == Some(2)
+        }));
+    }
+
+    #[tokio::test]
+    async fn process_rejects_five_images_when_default_limit_is_omitted() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let observer_impl = Arc::new(RecordingObserver::default());
+        let observer: Arc<dyn Observer> = observer_impl.clone();
+        let provider_impl = Arc::new(ImageAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let runtime_ctx = make_multimodal_runtime_ctx(
+            make_multimodal_test_config("test-channel"),
+            provider,
+            observer,
+            channel,
+        );
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-default-limit-five".into(),
+                sender: "alice".into(),
+                reply_target: "chat-default-limit-five".into(),
+                content: "five photos".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![
+                    make_image_part("img-a"),
+                    make_image_part("img-b"),
+                    make_image_part("img-c"),
+                    make_image_part("img-d"),
+                    make_image_part("img-e"),
+                ],
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("Too many images (5). Maximum 4 per message."));
+
+        let events = observer_impl
+            .image_events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert!(events.iter().any(|event| {
+            event.outcome == ImageIngressOutcome::Rejected
+                && event.reason == Some(crate::observability::ImageIngressReason::TooManyImages)
+                && event.image_count == 5
+                && event.max_images_per_turn == Some(4)
+                && event.images.is_empty()
+                && event.total_byte_len.is_none()
+        }));
+    }
+
+    #[tokio::test]
+    async fn stage_channel_images_cleans_up_partial_staging_on_failure() {
+        let config = make_multimodal_test_config("test-channel");
+        let first_handle = "__stable__:partial-cleanup-first";
+        let first_staged =
+            stage_test_channel_image(first_handle, Some("image/jpeg"), media::MAX_IMAGE_BYTES)
+                .await
+                .unwrap();
+        let first_path = first_staged.temp_path.clone();
+        first_staged.cleanup();
+
+        let message = traits::ChannelMessage {
+            id: "img-partial-cleanup".into(),
+            sender: "alice".into(),
+            reply_target: "chat-partial-cleanup".into(),
+            content: "cleanup".into(),
+            channel: "test-channel".into(),
+            timestamp: 1,
+            parts: vec![
+                make_image_part(first_handle),
+                make_image_part("__reject_fetch__"),
+            ],
+        };
+
+        let err = stage_channel_images(&config, &message).await.unwrap_err();
+        assert_eq!(err, media::ImageRejectionReason::FetchFailed);
+        assert!(
+            !first_path.exists(),
+            "partial staging should remove the first staged temp file: {}",
+            first_path.display()
+        );
+    }
+
+    #[tokio::test]
+    async fn process_emits_provider_error_with_full_multi_image_metadata() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let observer_impl = Arc::new(RecordingObserver::default());
+        let observer: Arc<dyn Observer> = observer_impl.clone();
+        let provider: Arc<dyn Provider> = Arc::new(FailingImageProvider);
+
+        let runtime_ctx = make_multimodal_runtime_ctx(
+            make_multimodal_test_config("test-channel"),
+            provider,
+            observer,
+            channel,
+        );
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-provider-error".into(),
+                sender: "alice".into(),
+                reply_target: "chat-provider-error".into(),
+                content: "two photos".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![make_image_part("img-a"), make_image_part("img-b")],
+            },
+        )
+        .await;
+
+        let events = observer_impl
+            .image_events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert!(events.iter().any(|event| {
+            event.outcome == ImageIngressOutcome::ProviderError
+                && event.reason == Some(crate::observability::ImageIngressReason::ProviderError)
+                && event.image_count == 2
+                && event.images.len() == 2
+                && event.total_byte_len.is_some()
+                && event.mime_type.is_none()
+                && event.byte_len.is_none()
+        }));
     }
 
     #[tokio::test]

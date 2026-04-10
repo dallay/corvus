@@ -236,6 +236,9 @@ impl Observer for LogObserver {
                     outcome = ?event.outcome,
                     reason = ?event.reason,
                     image_count = event.image_count,
+                    max_images_per_turn = ?event.max_images_per_turn,
+                    images = ?event.images,
+                    total_byte_len = ?event.total_byte_len,
                     mime_type = ?event.mime_type,
                     byte_len = ?event.byte_len,
                     "image.ingress"
@@ -505,8 +508,14 @@ mod tests {
             outcome: ImageIngressOutcome::Admitted,
             reason: None,
             image_count: 2,
-            mime_type: Some("image/png".into()),
-            byte_len: Some(102_400),
+            max_images_per_turn: None,
+            images: vec![super::super::traits::ImageIngressImageMeta {
+                mime_type: "image/png".into(),
+                byte_len: 102_400,
+            }],
+            total_byte_len: Some(102_400),
+            mime_type: None,
+            byte_len: None,
         }));
     }
 
@@ -520,9 +529,12 @@ mod tests {
             model: None,
             outcome: ImageIngressOutcome::Rejected,
             reason: Some(ImageIngressReason::MimeRejected),
-            image_count: 1,
-            mime_type: Some("image/webp".into()),
-            byte_len: Some(500_000),
+            image_count: 3,
+            max_images_per_turn: Some(4),
+            images: Vec::new(),
+            total_byte_len: None,
+            mime_type: None,
+            byte_len: None,
         }));
     }
 
@@ -537,6 +549,12 @@ mod tests {
             outcome: ImageIngressOutcome::ProviderSent,
             reason: None,
             image_count: 1,
+            max_images_per_turn: None,
+            images: vec![super::super::traits::ImageIngressImageMeta {
+                mime_type: "image/jpeg".into(),
+                byte_len: 128,
+            }],
+            total_byte_len: Some(128),
             mime_type: None,
             byte_len: None,
         };
