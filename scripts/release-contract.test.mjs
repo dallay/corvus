@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import test from "node:test";
 import fs from "node:fs";
+import path from "node:path";
+import test from "node:test";
+
+const stableStringCollator = new Intl.Collator("en", {
+  numeric: true,
+  sensitivity: "base",
+});
+
+function sortStrings(values) {
+  return [...values].sort((left, right) => stableStringCollator.compare(left, right));
+}
 
 function readJson(path) {
   return JSON.parse(fs.readFileSync(path, "utf8"));
@@ -17,6 +27,68 @@ function assertIncludesAll(text, patterns, label) {
   }
 }
 
+function assertContainsInOrder(text, snippets, label) {
+  let cursor = 0;
+  for (const snippet of snippets) {
+    const nextIndex = text.indexOf(snippet, cursor);
+    assert.notEqual(nextIndex, -1, `${label} is missing ${snippet}`);
+    cursor = nextIndex + snippet.length;
+  }
+}
+
+function trustedExecutableDirs() {
+  return [
+    process.env.HOME && path.join(process.env.HOME, ".cargo", "bin"),
+    "/usr/bin",
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+  ].filter(Boolean);
+}
+
+function isTrustedExecutablePath(candidatePath) {
+  return trustedExecutableDirs().some((trustedDir) => {
+    const relativePath = path.relative(trustedDir, candidatePath);
+    return relativePath === path.basename(candidatePath) ||
+      (relativePath && !relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+  });
+}
+
+function resolveExecutable(executableName) {
+  const configuredPath = process.env[executableName.toUpperCase()];
+  const configuredCandidates =
+    typeof configuredPath === "string" && configuredPath.trim()
+      ? path.isAbsolute(configuredPath)
+        ? isTrustedExecutablePath(configuredPath)
+          ? [configuredPath]
+          : []
+        : !configuredPath.includes(path.sep) && !configuredPath.includes("/")
+          ? trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, configuredPath))
+          : []
+      : [];
+  const candidatePaths = [
+    ...configuredCandidates,
+    ...trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, executableName)),
+  ].filter(Boolean);
+
+  return candidatePaths.find((candidatePath) => {
+    if (!path.isAbsolute(candidatePath) || !isTrustedExecutablePath(candidatePath)) {
+      return false;
+    }
+
+    try {
+      if (!fs.statSync(candidatePath).isFile()) {
+        return false;
+      }
+      fs.accessSync(candidatePath, fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+const cargoExecutable = resolveExecutable("cargo");
+
 const contractDocs = [
   ".github/workflows/README.md",
   "clients/web/apps/docs/src/content/docs/guides/release.md",
@@ -29,21 +101,25 @@ const contractDocs = [
 test("release-please fan-out only includes shipped stable artifacts", () => {
   const config = readJson("release-please-config.json");
   const extraFiles = config.packages["."]["extra-files"];
-  const filePaths = extraFiles.map((entry) => entry.path);
-  const cargoTomlTargets = extraFiles
+  const filePaths = new Set(extraFiles.map((entry) => entry.path));
+  const cargoTomlTargets = new Set(
+    extraFiles
     .filter((entry) => entry.path === "clients/agent-runtime/Cargo.toml")
-    .map((entry) => entry.jsonpath);
-  const optionalDependencyPins = extraFiles
+    .map((entry) => entry.jsonpath),
+  );
+  const optionalDependencyPins = new Set(
+    extraFiles
     .filter((entry) => entry.path === "clients/agent-runtime/npm/corvus/package.json")
-    .map((entry) => entry.jsonpath);
+    .map((entry) => entry.jsonpath),
+  );
 
   assert.equal(config["bootstrap-sha"], undefined);
   assert.equal(config["skip-github-release"], undefined);
   assert.equal(config["skip-changelog"], undefined);
-  assert.ok(!filePaths.includes("clients/web/**/package.json"));
-  assert.ok(!filePaths.includes("clients/agent-runtime/npm/**/package.json"));
-  assert.ok(!filePaths.includes("clients/agent-runtime/npm/corvus-cli/package.json"));
-  assert.ok(!filePaths.includes("clients/agent-runtime/npm/corvus-windows-arm64/package.json"));
+  assert.ok(!filePaths.has("clients/web/**/package.json"));
+  assert.ok(!filePaths.has("clients/agent-runtime/npm/**/package.json"));
+  assert.ok(!filePaths.has("clients/agent-runtime/npm/corvus-cli/package.json"));
+  assert.ok(!filePaths.has("clients/agent-runtime/npm/corvus-windows-arm64/package.json"));
 
   for (const expectedPath of [
     "gradle.properties",
@@ -57,27 +133,35 @@ test("release-please fan-out only includes shipped stable artifacts", () => {
     "clients/agent-runtime/npm/corvus-linux-arm64/package.json",
     "clients/agent-runtime/npm/corvus-windows-x64/package.json",
   ]) {
-    assert.ok(filePaths.includes(expectedPath), `missing version target: ${expectedPath}`);
+    assert.ok(filePaths.has(expectedPath), `missing version target: ${expectedPath}`);
   }
 
   assert.ok(
-    !optionalDependencyPins.includes(
+    !optionalDependencyPins.has(
       "$.optionalDependencies['@dallay/corvus-windows-arm64']",
     ),
   );
-  assert.ok(cargoTomlTargets.includes("$.package.version"));
-  assert.ok(cargoTomlTargets.includes("$.dependencies.cerebro.version"));
+  assert.ok(cargoTomlTargets.has("$.package.version"));
+  assert.ok(cargoTomlTargets.has("$.dependencies.cerebro.version"));
 });
 
 test("runtime npm metadata only advertises supported shipped platforms", () => {
   const pkg = readJson("clients/agent-runtime/npm/corvus/package.json");
 
-  assert.deepEqual(Object.keys(pkg.optionalDependencies).sort(), [
+  assert.deepEqual(sortStrings(Object.keys(pkg.optionalDependencies)), [
     "@dallay/corvus-darwin-arm64",
     "@dallay/corvus-darwin-x64",
     "@dallay/corvus-linux-arm64",
     "@dallay/corvus-linux-x64",
     "@dallay/corvus-windows-x64",
+  ]);
+});
+
+test("sortStrings uses an explicit stable comparator", () => {
+  assert.deepEqual(sortStrings(["pkg-2", "pkg-10", "pkg-1"]), [
+    "pkg-1",
+    "pkg-2",
+    "pkg-10",
   ]);
 });
 
@@ -98,6 +182,30 @@ test("release workflows encode release-please-owned stable governance", () => {
     ],
     "release-please workflow",
   );
+  assertContainsInOrder(
+    releasePlease,
+    [
+      "release-please:",
+      "permissions:",
+      "contents: write",
+      "pull-requests: write",
+      "issues: write",
+    ],
+    "release-please workflow",
+  );
+  assertContainsInOrder(
+    releasePlease,
+    ["publish-release:", "permissions:", "contents: write", "packages: write"],
+    "release-please workflow",
+  );
+  const jobsSectionIndex = releasePlease.indexOf("jobs:\n");
+  assert.notEqual(jobsSectionIndex, -1, "release-please workflow is missing jobs section");
+  assert.equal(
+    releasePlease.slice(0, jobsSectionIndex).includes("permissions:"),
+    false,
+    "release-please workflow should not declare top-level permissions",
+  );
+  assert.doesNotMatch(releasePlease, /secrets:\s+inherit/);
 
   assertIncludesAll(
     publishRelease,
@@ -108,21 +216,29 @@ test("release workflows encode release-please-owned stable governance", () => {
       /release_tag: \$\{\{ github\.event\.release\.tag_name \}\}/,
       /release_id: \$\{\{ github\.event\.release\.id \}\}/,
       /attach artifacts to the existing canonical GitHub Release/i,
+      /permissions:\s+contents: write\s+packages: write/s,
+      /secrets:\s+SIGNING_IN_MEMORY_KEY:/,
+      /DOCKERHUB_TOKEN:/,
     ],
     "publish-release workflow",
   );
   assert.doesNotMatch(publishRelease, /push:\s*tags:/s);
   assert.doesNotMatch(publishRelease, /changelog:\s*true/);
+  assert.doesNotMatch(publishRelease, /secrets:\s+inherit/);
 
   assertIncludesAll(
     publishSnapshot,
     [
       /Snapshots stay outside stable GitHub Release ownership/,
       /release: false/,
+      /permissions:\s+contents: read\s+packages: write/s,
+      /secrets:\s+SIGNING_IN_MEMORY_KEY:/,
+      /DOCKERHUB_TOKEN:/,
     ],
     "publish-snapshot workflow",
   );
   assert.doesNotMatch(publishSnapshot, /changelog:/);
+  assert.doesNotMatch(publishSnapshot, /secrets:\s+inherit/);
 
   assertIncludesAll(
     publishWorkflow,
@@ -153,9 +269,17 @@ test("cargo publish contract keeps local cerebro path and release version aligne
   );
 });
 
-test("rust lockfiles stay valid for --locked release commands", () => {
+test("rust lockfiles stay valid for --locked release commands", (t) => {
+  if (!cargoExecutable) {
+    if (process.env.CI) {
+      assert.fail("cargo executable not found in trusted absolute paths during CI");
+    }
+    t.skip("cargo executable not found in trusted absolute paths");
+    return;
+  }
+
   for (const cwd of ["clients/agent-runtime", "modules/cerebro"]) {
-    execFileSync("cargo", ["metadata", "--locked", "--format-version", "1"], {
+    execFileSync(cargoExecutable, ["metadata", "--locked", "--format-version", "1"], {
       cwd,
       stdio: "ignore",
     });

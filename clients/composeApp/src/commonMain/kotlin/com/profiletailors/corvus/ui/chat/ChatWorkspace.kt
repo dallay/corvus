@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.profiletailors.corvus.runtime.RuntimeApprovalRequest
 import com.profiletailors.corvus.runtime.RuntimeSession
+import com.profiletailors.corvus.ui.theme.CorvusColorPalette
 import com.profiletailors.corvus.ui.theme.CorvusTheme
 
 @Immutable
@@ -110,6 +111,17 @@ data class ChatWorkspaceActions(
   val bridge: BridgeActions,
 )
 
+@Stable
+data class ChatWorkspaceContent(
+  val bridgeSnapshot: MobileBridgeSnapshot,
+  val platformName: String,
+  val messages: List<ChatMessage>,
+  val resumableSessions: List<RuntimeSession>,
+  val pendingApproval: RuntimeApprovalRequest?,
+  val targetLabel: String?,
+  val activeSessionId: String?,
+)
+
 object ChatWorkspaceDefaults {
   const val DefaultAgentName = "Corvus"
 
@@ -124,21 +136,9 @@ object ChatWorkspaceDefaults {
 
 @Composable
 fun ChatWorkspace(
-  bridgeSnapshot: MobileBridgeSnapshot,
-  platformName: String,
-  messages: List<ChatMessage>,
-  resumableSessions: List<RuntimeSession>,
-  pendingApproval: RuntimeApprovalRequest?,
-  targetLabel: String?,
-  activeSessionId: String?,
-  onRetryBridge: () -> Unit,
-  onLinkSurface: () -> Unit,
-  onStartSession: () -> Unit,
-  onResumeSession: (String) -> Unit,
+  content: ChatWorkspaceContent,
+  bridgeActions: BridgeActions,
   onSendMessage: (String) -> Unit,
-  onDisconnectReset: () -> Unit,
-  onApprove: () -> Unit,
-  onDeny: () -> Unit,
   modifier: Modifier = Modifier,
   state: ChatWorkspaceState = ChatWorkspaceDefaults.state(),
 ) {
@@ -146,8 +146,8 @@ fun ChatWorkspace(
   var showConfig by rememberSaveable { mutableStateOf(false) }
 
   val bridgeState =
-    remember(platformName, bridgeSnapshot) {
-      MobileBridgeUiState(platformName = platformName, snapshot = bridgeSnapshot)
+    remember(content.platformName, content.bridgeSnapshot) {
+      MobileBridgeUiState(platformName = content.platformName, snapshot = content.bridgeSnapshot)
     }
 
   fun sendMessage(prompt: String) {
@@ -158,39 +158,21 @@ fun ChatWorkspace(
   }
 
   val displayMessages =
-    remember(messages, state.welcomeMessage) {
-      if (messages.isEmpty()) {
+    remember(content.messages, state.welcomeMessage) {
+      if (content.messages.isEmpty()) {
         listOf(ChatMessage(id = 0, role = ChatRole.Assistant, content = state.welcomeMessage))
       } else {
-        messages
+        content.messages
       }
     }
 
   val actions =
-    remember(
-      bridgeState,
-      onRetryBridge,
-      onLinkSurface,
-      onStartSession,
-      onResumeSession,
-      onDisconnectReset,
-      onApprove,
-      onDeny,
-    ) {
+    remember(bridgeState, bridgeActions, onSendMessage) {
       ChatWorkspaceActions(
         onQueryChange = { query = it },
         onSend = ::sendMessage,
         onToggleConfig = { showConfig = !showConfig },
-        bridge =
-          BridgeActions(
-            onRetryBridge = onRetryBridge,
-            onLinkSurface = onLinkSurface,
-            onStartSession = onStartSession,
-            onResumeSession = onResumeSession,
-            onDisconnectReset = onDisconnectReset,
-            onApprove = onApprove,
-            onDeny = onDeny,
-          ),
+        bridge = bridgeActions,
       )
     }
 
@@ -199,10 +181,10 @@ fun ChatWorkspace(
       workspaceState = state,
       bridgeState = bridgeState,
       messages = displayMessages,
-      resumableSessions = resumableSessions,
-      pendingApproval = pendingApproval,
-      targetLabel = targetLabel,
-      activeSessionId = activeSessionId,
+      resumableSessions = content.resumableSessions,
+      pendingApproval = content.pendingApproval,
+      targetLabel = content.targetLabel,
+      activeSessionId = content.activeSessionId,
       query = query,
       showConfig = showConfig,
     )
@@ -238,52 +220,73 @@ private fun ChatWorkspaceScreen(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    Box(
-      modifier =
-        Modifier.fillMaxWidth()
-          .height(1.dp)
-          .background(
-            brush =
-              Brush.horizontalGradient(
-                listOf(
-                  Color.Transparent,
-                  corvusColors.glowPurple.copy(alpha = 0.5f),
-                  corvusColors.glowCyan.copy(alpha = 0.5f),
-                  Color.Transparent,
-                )
-              )
-          )
-    )
+    WorkspaceDivider(corvusColors = corvusColors)
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    if (shouldShowConfig) {
-      ConfigPanel(
+    WorkspaceBody(
+      uiState = uiState,
+      actions = actions,
+      shouldShowConfig = shouldShowConfig,
+      modifier = Modifier.weight(1f),
+    )
+  }
+}
+
+@Composable
+private fun WorkspaceDivider(corvusColors: CorvusColorPalette) {
+  Box(
+    modifier =
+      Modifier.fillMaxWidth()
+        .height(1.dp)
+        .background(
+          brush =
+            Brush.horizontalGradient(
+              listOf(
+                Color.Transparent,
+                corvusColors.glowPurple.copy(alpha = 0.5f),
+                corvusColors.glowCyan.copy(alpha = 0.5f),
+                Color.Transparent,
+              )
+            )
+        )
+  )
+}
+
+@Composable
+private fun WorkspaceBody(
+  uiState: ChatUiState,
+  actions: ChatWorkspaceActions,
+  shouldShowConfig: Boolean,
+  modifier: Modifier = Modifier,
+) {
+  if (shouldShowConfig) {
+    ConfigPanel(
+      bridgeState = uiState.bridgeState,
+      resumableSessions = uiState.resumableSessions,
+      activeSessionId = uiState.activeSessionId,
+      targetLabel = uiState.targetLabel,
+      actions = actions,
+      modifier = modifier,
+    )
+    return
+  }
+
+  val panelState =
+    remember(uiState.workspaceState, uiState.bridgeState, uiState.pendingApproval) {
+      ChatPanelState(
+        workspaceState = uiState.workspaceState,
         bridgeState = uiState.bridgeState,
-        resumableSessions = uiState.resumableSessions,
-        activeSessionId = uiState.activeSessionId,
-        targetLabel = uiState.targetLabel,
-        actions = actions,
-        modifier = Modifier.weight(1f),
-      )
-    } else {
-      val panelState =
-        remember(uiState.workspaceState, uiState.bridgeState, uiState.pendingApproval) {
-          ChatPanelState(
-            workspaceState = uiState.workspaceState,
-            bridgeState = uiState.bridgeState,
-            pendingApproval = uiState.pendingApproval,
-          )
-        }
-      ChatPanel(
-        panelState = panelState,
-        messages = uiState.messages,
-        query = uiState.query,
-        actions = actions,
-        modifier = Modifier.weight(1f),
+        pendingApproval = uiState.pendingApproval,
       )
     }
-  }
+  ChatPanel(
+    panelState = panelState,
+    messages = uiState.messages,
+    query = uiState.query,
+    actions = actions,
+    modifier = modifier,
+  )
 }
 
 @Immutable

@@ -442,7 +442,10 @@ fn refresh_fails_fast_when_index_db_is_locked() {
         "expected fail-fast lock handling, got {elapsed:?}"
     );
     assert!(
-        error_text.contains("locked") || error_text.contains("busy"),
+        error_text.contains("locked")
+            || error_text.contains("busy")
+            || error_text.contains("lock held")
+            || error_text.contains("temporarily unavailable"),
         "expected lock-related error, got {error:?}"
     );
 }

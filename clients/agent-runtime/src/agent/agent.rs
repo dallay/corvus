@@ -741,59 +741,136 @@ impl Agent {
             tracing::debug!(tool = %call.name, "Agent executing MCP tool call");
         }
 
-        let (result, success) = if let Some(tool) =
-            self.tools.iter().find(|t| t.name() == call.name)
-        {
-            match tool.execute(call.arguments.clone()).await {
-                Ok(r) => {
-                    if call.name == "shell" {
-                        if let Err(e) = self.log_shell_audit_event(call, &r, start.elapsed()) {
-                            return ToolExecutionResult {
-                                name: call.name.clone(),
-                                output: format!("{}\n\n[AUDIT ERROR: {e}]", r.output),
-                                success: r.success,
-                                tool_call_id: call.tool_call_id.clone(),
-                                action: DispatchAction::ApprovalRequired(format!(
-                                    "Audit logging failed: {e}"
-                                )),
-                            };
-                        }
-                    } else if call.name == "browser" {
-                        self.log_browser_security_event(&r);
-                    }
-                    if call.name.starts_with("mcp.") && !r.success {
-                        tracing::warn!(tool = %call.name, "MCP tool call returned failure status");
-                    }
+        let Some(tool) = self.tools.iter().find(|tool| tool.name() == call.name) else {
+            return self.finalize_tool_execution(
+                call,
+                start.elapsed(),
+                format!("Unknown tool: {}", call.name),
+                false,
+                DispatchAction::Execute,
+            );
+        };
+
+        let (result, success) = match tool.execute(call.arguments.clone()).await {
+            Ok(result) => match self.handle_tool_result(call, &result, start.elapsed()) {
+                Ok(output) => (output, result.success),
+                Err(audit_error_result) => {
+                    // Record the observer event before returning the audit error.
                     self.observer.record_event(&ObserverEvent::ToolCall {
                         tool: call.name.clone(),
                         duration: start.elapsed(),
-                        success: r.success,
+                        success: audit_error_result.success,
                     });
-                    if r.success {
-                        (r.output, true)
-                    } else {
-                        (format!("Error: {}", r.error.unwrap_or(r.output)), false)
-                    }
+                    return audit_error_result;
                 }
-                Err(e) => {
-                    self.observer.record_event(&ObserverEvent::ToolCall {
-                        tool: call.name.clone(),
-                        duration: start.elapsed(),
+            },
+            Err(error) => {
+                if call.name == "shell" {
+                    let failed_result = crate::tools::ToolResult {
                         success: false,
-                    });
-                    (format!("Error executing {}: {e}", call.name), false)
+                        output: String::new(),
+                        error: Some(format!("Error executing {}: {error}", call.name)),
+                        structured: None,
+                    };
+                    match self.handle_tool_result(call, &failed_result, start.elapsed()) {
+                        Ok(output) => (output, false),
+                        Err(audit_error_result) => {
+                            self.observer.record_event(&ObserverEvent::ToolCall {
+                                tool: call.name.clone(),
+                                duration: start.elapsed(),
+                                success: audit_error_result.success,
+                            });
+                            return audit_error_result;
+                        }
+                    }
+                } else {
+                    (format!("Error executing {}: {error}", call.name), false)
                 }
             }
-        } else {
-            (format!("Unknown tool: {}", call.name), false)
         };
+
+        self.finalize_tool_execution(
+            call,
+            start.elapsed(),
+            result,
+            success,
+            DispatchAction::Execute,
+        )
+    }
+
+    fn handle_tool_result(
+        &self,
+        call: &ParsedToolCall,
+        result: &crate::tools::ToolResult,
+        duration: Duration,
+    ) -> std::result::Result<String, ToolExecutionResult> {
+        if call.name == "shell" {
+            if let Err(error) = self.log_shell_audit_event(call, result, duration) {
+                let base_output = if result.success {
+                    result.output.clone()
+                } else {
+                    format!(
+                        "Error: {}",
+                        result
+                            .error
+                            .clone()
+                            .unwrap_or_else(|| result.output.clone())
+                    )
+                };
+                let audit_message = if let Some(original_error) = &result.error {
+                    format!("Audit logging failed: {error}; original shell error: {original_error}")
+                } else {
+                    format!("Audit logging failed: {error}")
+                };
+                return Err(ToolExecutionResult {
+                    name: call.name.clone(),
+                    output: format!("{base_output}\n\n[AUDIT ERROR: {error}]"),
+                    success: result.success,
+                    tool_call_id: call.tool_call_id.clone(),
+                    action: DispatchAction::ApprovalRequired(audit_message),
+                });
+            }
+        } else if call.name == "browser" {
+            self.log_browser_security_event(result);
+        }
+
+        if call.name.starts_with("mcp.") && !result.success {
+            tracing::warn!(tool = %call.name, "MCP tool call returned failure status");
+        }
+
+        Ok(if result.success {
+            result.output.clone()
+        } else {
+            format!(
+                "Error: {}",
+                result
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| result.output.clone())
+            )
+        })
+    }
+
+    fn finalize_tool_execution(
+        &self,
+        call: &ParsedToolCall,
+        duration: Duration,
+        output: String,
+        success: bool,
+        action: DispatchAction,
+    ) -> ToolExecutionResult {
+        self.observer.record_event(&ObserverEvent::ToolCall {
+            tool: call.name.clone(),
+            duration,
+            success,
+        });
 
         ToolExecutionResult {
             name: call.name.clone(),
-            output: result,
+            output,
             success,
             tool_call_id: call.tool_call_id.clone(),
-            action: crate::agent::dispatcher::DispatchAction::Execute,
+            action,
         }
     }
 

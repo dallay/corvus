@@ -504,6 +504,37 @@ describe("Dashboard App", () => {
     expect(wrapper.text()).toContain("dashboard completó el emparejamiento");
   });
 
+  it("supports keyboard navigation across the unified dashboard tabs", async () => {
+    const { wrapper } = mountApp(createMockConfig({ isOperatorReady: true }));
+
+    const configTab = wrapper.get('[data-testid="nav-config"]');
+    const sessionsTab = wrapper.get('[data-testid="nav-sessions"]');
+    const memoryTab = wrapper.get('[data-testid="nav-memory"]');
+    const chatTab = wrapper.get('[data-testid="nav-chat"]');
+
+    await configTab.trigger("keydown", { key: "ArrowRight", preventDefault() {} });
+    expect((sessionsTab.element as HTMLButtonElement).getAttribute("aria-selected")).toBe("true");
+
+    await sessionsTab.trigger("keydown", { key: "End", preventDefault() {} });
+    expect((chatTab.element as HTMLButtonElement).getAttribute("aria-selected")).toBe("true");
+
+    await chatTab.trigger("keydown", { key: "Home", preventDefault() {} });
+    expect((configTab.element as HTMLButtonElement).getAttribute("aria-selected")).toBe("true");
+
+    await configTab.trigger("keydown", { key: "ArrowLeft", preventDefault() {} });
+    expect((chatTab.element as HTMLButtonElement).getAttribute("aria-selected")).toBe("true");
+    expect((memoryTab.element as HTMLButtonElement).getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("does not expose config tabpanel semantics before operator readiness", () => {
+    const { wrapper } = mountApp(createMockConfig({ isOperatorReady: false }));
+
+    const configPanel = wrapper.get("#dashboard-panel-config");
+    expect(configPanel.attributes("role")).toBeUndefined();
+    expect(configPanel.attributes("aria-labelledby")).toBeUndefined();
+    expect(wrapper.find('[data-testid="nav-config"]').exists()).toBe(false);
+  });
+
   it("switches to the local explorer from browse drill-ins and preserves local filters", async () => {
     const { wrapper } = mountApp(createMockConfig({ isOperatorReady: true }));
 

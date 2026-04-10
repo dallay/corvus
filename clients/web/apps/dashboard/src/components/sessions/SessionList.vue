@@ -21,6 +21,7 @@ const page = ref(1);
 const perPage = ref(25);
 
 const PER_PAGE_OPTIONS = [25, 50, 100] as const;
+const PER_PAGE_OPTIONS_SET = new Set<number>(PER_PAGE_OPTIONS);
 
 async function load() {
   const params: SessionListParams = {
@@ -47,9 +48,7 @@ function goToPage(p: number) {
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function onPerPageChange(event: Event) {
   const value = Number((event.target as HTMLSelectElement | null)?.value);
-  perPage.value = PER_PAGE_OPTIONS.includes(value as (typeof PER_PAGE_OPTIONS)[number])
-    ? value
-    : 25;
+  perPage.value = PER_PAGE_OPTIONS_SET.has(value) ? value : 25;
   if (page.value === 1) {
     load();
   } else {
@@ -72,10 +71,10 @@ onMounted(() => load());
 
 <template>
   <div class="session-list">
-    <p v-if="admin.loading.value" class="helper" aria-live="polite" role="status">
+    <p v-if="admin.loading.value" class="helper" aria-live="polite">
       {{ t("sessions.loading", "Loading sessions…") }}
     </p>
-    <p v-else-if="admin.error.value" class="error" aria-live="assertive" role="alert">
+    <p v-else-if="admin.error.value" class="error" aria-live="assertive">
       {{ admin.error.value }}
     </p>
     <template v-else>

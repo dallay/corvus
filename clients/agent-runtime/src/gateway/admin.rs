@@ -673,178 +673,255 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
         api_url: cfg.api_url.clone(),
         default_temperature: cfg.default_temperature,
         memory_backend: cfg.memory.backend.clone(),
-        provider: AdminProviderView {
-            has_api_key: has_secret(cfg.api_key.as_deref()),
+        provider: admin_provider_view(cfg),
+        observability: admin_observability_view(cfg),
+        runtime: admin_runtime_view(cfg),
+        autonomy: admin_autonomy_view(cfg),
+        identity: admin_identity_view(cfg),
+        scheduler: admin_scheduler_view(cfg),
+        gateway: admin_gateway_view(cfg),
+        channels: admin_channels_config_view(cfg, webhook),
+        composio: admin_composio_view(cfg),
+        web_search: admin_web_search_view(cfg),
+        memory: admin_memory_view(cfg),
+        browser: admin_browser_view(cfg),
+        updates: admin_updates_view(cfg),
+        cost: admin_cost_view(cfg),
+        mcp: admin_mcp_view(cfg),
+        tunnel: admin_tunnel_view(cfg),
+        reliability: admin_reliability_view(cfg),
+        heartbeat: admin_heartbeat_view(cfg),
+    }
+}
+
+fn admin_provider_view(cfg: &Config) -> AdminProviderView {
+    AdminProviderView {
+        has_api_key: has_secret(cfg.api_key.as_deref()),
+    }
+}
+
+fn admin_observability_view(cfg: &Config) -> AdminObservabilityView {
+    AdminObservabilityView {
+        backend: cfg.observability.backend.clone(),
+        otel_endpoint: cfg.observability.otel_endpoint.clone(),
+        otel_service_name: cfg.observability.otel_service_name.clone(),
+    }
+}
+
+fn admin_runtime_view(cfg: &Config) -> AdminRuntimeView {
+    AdminRuntimeView {
+        kind: cfg.runtime.kind.clone(),
+    }
+}
+
+fn admin_autonomy_view(cfg: &Config) -> AdminAutonomyView {
+    AdminAutonomyView {
+        level: cfg.autonomy.level,
+        workspace_only: cfg.autonomy.workspace_only,
+        max_actions_per_hour: cfg.autonomy.max_actions_per_hour,
+        require_approval_for_medium_risk: cfg.autonomy.require_approval_for_medium_risk,
+        block_high_risk_commands: cfg.autonomy.block_high_risk_commands,
+        auto_approve: cfg.autonomy.auto_approve.clone(),
+        always_ask: cfg.autonomy.always_ask.clone(),
+        deprecated_fields: cfg.autonomy.deprecated_fields().to_vec(),
+    }
+}
+
+fn admin_identity_view(cfg: &Config) -> AdminIdentityView {
+    AdminIdentityView {
+        format: cfg.identity.format.clone(),
+        aieos_path: cfg.identity.aieos_path.clone(),
+        has_aieos_inline: has_secret(cfg.identity.aieos_inline.as_deref()),
+    }
+}
+
+fn admin_scheduler_view(cfg: &Config) -> AdminSchedulerView {
+    AdminSchedulerView {
+        enabled: cfg.scheduler.enabled,
+        max_tasks: cfg.scheduler.max_tasks,
+        max_concurrent: cfg.scheduler.max_concurrent,
+    }
+}
+
+fn admin_gateway_view(cfg: &Config) -> AdminGatewayView {
+    AdminGatewayView {
+        port: cfg.gateway.port,
+        host: cfg.gateway.host.clone(),
+        require_pairing: cfg.gateway.require_pairing,
+        allow_public_bind: cfg.gateway.allow_public_bind,
+        allow_unpaired_session_scopes: cfg.gateway.allow_unpaired_session_scopes,
+        pair_rate_limit_per_minute: cfg.gateway.pair_rate_limit_per_minute,
+        webhook_rate_limit_per_minute: cfg.gateway.webhook_rate_limit_per_minute,
+        trust_forwarded_headers: cfg.gateway.trust_forwarded_headers,
+        rate_limit_max_keys: cfg.gateway.rate_limit_max_keys,
+        idempotency_ttl_secs: cfg.gateway.idempotency_ttl_secs,
+        idempotency_max_keys: cfg.gateway.idempotency_max_keys,
+        paired_tokens_count: cfg.gateway.paired_tokens.len(),
+    }
+}
+
+fn admin_channels_config_view(
+    cfg: &Config,
+    webhook: Option<&crate::config::schema::WebhookConfig>,
+) -> AdminChannelsView {
+    const DEFAULT_WEBHOOK_PORT: u16 = 3_000;
+
+    AdminChannelsView {
+        cli: cfg.channels_config.cli,
+        webhook: AdminWebhookView {
+            enabled: webhook.is_some(),
+            port: webhook
+                .map(|value| value.port)
+                .unwrap_or(DEFAULT_WEBHOOK_PORT),
+            has_secret: has_secret(webhook.and_then(|value| value.secret.as_deref())),
         },
-        observability: AdminObservabilityView {
-            backend: cfg.observability.backend.clone(),
-            otel_endpoint: cfg.observability.otel_endpoint.clone(),
-            otel_service_name: cfg.observability.otel_service_name.clone(),
+    }
+}
+
+fn admin_composio_view(cfg: &Config) -> AdminComposioView {
+    AdminComposioView {
+        enabled: cfg.composio.enabled,
+        entity_id: cfg.composio.entity_id.clone(),
+        has_api_key: has_secret(cfg.composio.api_key.as_deref()),
+    }
+}
+
+fn admin_web_search_view(cfg: &Config) -> AdminWebSearchView {
+    AdminWebSearchView {
+        enabled: cfg.web_search.enabled,
+        provider: cfg.web_search.provider.clone(),
+        max_results: cfg.web_search.max_results,
+        timeout_secs: cfg.web_search.timeout_secs,
+        has_brave_api_key: has_secret(cfg.web_search.brave_api_key.as_deref()),
+    }
+}
+
+fn admin_memory_view(cfg: &Config) -> AdminMemoryView {
+    AdminMemoryView {
+        backend: cfg.memory.backend.clone(),
+        cerebro: AdminCerebroMemoryView {
+            endpoint: cfg.memory.cerebro.endpoint.clone(),
+            has_auth_token: has_secret(cfg.memory.cerebro.auth_token.as_deref()),
+            request_timeout_ms: cfg.memory.cerebro.request_timeout_ms,
+            allow_insecure_loopback: cfg.memory.cerebro.allow_insecure_loopback,
         },
-        runtime: AdminRuntimeView {
-            kind: cfg.runtime.kind.clone(),
-        },
-        autonomy: AdminAutonomyView {
-            level: cfg.autonomy.level,
-            workspace_only: cfg.autonomy.workspace_only,
-            max_actions_per_hour: cfg.autonomy.max_actions_per_hour,
-            require_approval_for_medium_risk: cfg.autonomy.require_approval_for_medium_risk,
-            block_high_risk_commands: cfg.autonomy.block_high_risk_commands,
-            auto_approve: cfg.autonomy.auto_approve.clone(),
-            always_ask: cfg.autonomy.always_ask.clone(),
-            deprecated_fields: cfg.autonomy.deprecated_fields().to_vec(),
-        },
-        identity: AdminIdentityView {
-            format: cfg.identity.format.clone(),
-            aieos_path: cfg.identity.aieos_path.clone(),
-            has_aieos_inline: has_secret(cfg.identity.aieos_inline.as_deref()),
-        },
-        scheduler: AdminSchedulerView {
-            enabled: cfg.scheduler.enabled,
-            max_tasks: cfg.scheduler.max_tasks,
-            max_concurrent: cfg.scheduler.max_concurrent,
-        },
-        gateway: AdminGatewayView {
-            port: cfg.gateway.port,
-            host: cfg.gateway.host.clone(),
-            require_pairing: cfg.gateway.require_pairing,
-            allow_public_bind: cfg.gateway.allow_public_bind,
-            allow_unpaired_session_scopes: cfg.gateway.allow_unpaired_session_scopes,
-            pair_rate_limit_per_minute: cfg.gateway.pair_rate_limit_per_minute,
-            webhook_rate_limit_per_minute: cfg.gateway.webhook_rate_limit_per_minute,
-            trust_forwarded_headers: cfg.gateway.trust_forwarded_headers,
-            rate_limit_max_keys: cfg.gateway.rate_limit_max_keys,
-            idempotency_ttl_secs: cfg.gateway.idempotency_ttl_secs,
-            idempotency_max_keys: cfg.gateway.idempotency_max_keys,
-            paired_tokens_count: cfg.gateway.paired_tokens.len(),
-        },
-        channels: AdminChannelsView {
-            cli: cfg.channels_config.cli,
-            webhook: AdminWebhookView {
-                enabled: webhook.is_some(),
-                port: webhook.map(|w| w.port).unwrap_or(3000),
-                has_secret: has_secret(webhook.and_then(|w| w.secret.as_deref())),
-            },
-        },
-        composio: AdminComposioView {
-            enabled: cfg.composio.enabled,
-            entity_id: cfg.composio.entity_id.clone(),
-            has_api_key: has_secret(cfg.composio.api_key.as_deref()),
-        },
-        web_search: AdminWebSearchView {
-            enabled: cfg.web_search.enabled,
-            provider: cfg.web_search.provider.clone(),
-            max_results: cfg.web_search.max_results,
-            timeout_secs: cfg.web_search.timeout_secs,
-            has_brave_api_key: has_secret(cfg.web_search.brave_api_key.as_deref()),
-        },
-        memory: AdminMemoryView {
-            backend: cfg.memory.backend.clone(),
-            cerebro: AdminCerebroMemoryView {
-                endpoint: cfg.memory.cerebro.endpoint.clone(),
-                has_auth_token: has_secret(cfg.memory.cerebro.auth_token.as_deref()),
-                request_timeout_ms: cfg.memory.cerebro.request_timeout_ms,
-                allow_insecure_loopback: cfg.memory.cerebro.allow_insecure_loopback,
-            },
-        },
-        browser: AdminBrowserView {
-            has_computer_use_api_key: has_secret(cfg.browser.computer_use.api_key.as_deref()),
-        },
-        updates: {
-            let status = update::get_update_status(cfg, env!("CARGO_PKG_VERSION")).ok();
-            AdminUpdatesView {
-                enabled: cfg.updates.enabled,
-                auto_install_enabled: cfg.updates.auto_install_enabled,
-                channel_visibility_enabled: cfg.updates.channel_visibility_enabled,
-                cli_startup_notice_enabled: cfg.updates.cli_startup_notice_enabled,
-                install_method_override: cfg.updates.install_method_override.clone(),
-                restart_policy: cfg.updates.restart_policy.clone(),
-                status: AdminUpdateStatusView {
-                    current_version: status
-                        .as_ref()
-                        .map(|view| view.current_version.clone())
-                        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
-                    latest_version: status.as_ref().and_then(|view| view.latest_version.clone()),
-                    update_available: status.as_ref().is_some_and(|view| view.update_available),
-                    last_check_at_unix: status.as_ref().and_then(|view| view.last_check_at_unix),
-                    last_check_outcome: status
-                        .as_ref()
-                        .and_then(|view| view.last_check_outcome.clone()),
-                    effective_install_method: status
-                        .as_ref()
-                        .map(|view| view.effective_install_method.clone())
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    install_method_source: status
-                        .as_ref()
-                        .map(|view| view.install_method_source.clone())
-                        .unwrap_or_else(|| "unknown".to_string()),
-                },
-            }
-        },
-        cost: AdminCostView {
-            enabled: cfg.cost.enabled,
-            session_limit_usd: cfg.cost.session_limit_usd,
-            daily_limit_usd: cfg.cost.daily_limit_usd,
-            monthly_limit_usd: cfg.cost.monthly_limit_usd,
-            warn_at_percent: cfg.cost.warn_at_percent,
-            allow_override: cfg.cost.allow_override,
-        },
-        mcp: AdminMcpView {
-            enabled: cfg.mcp.enabled,
-            servers: cfg
-                .mcp
-                .servers
-                .iter()
-                .map(|s| AdminMcpServerView {
-                    name: s.name.clone(),
-                    enabled: s.enabled,
-                    command: s.command.clone(),
-                    capabilities: s.capabilities.clone(),
-                    startup_timeout_ms: s.startup_timeout_ms,
-                    call_timeout_ms: s.call_timeout_ms,
-                    output_limit_bytes: s.output_limit_bytes,
-                })
-                .collect(),
-        },
-        tunnel: AdminTunnelView {
-            provider: cfg.tunnel.provider.clone(),
-            has_cloudflare_token: cfg
-                .tunnel
-                .cloudflare
+    }
+}
+
+fn admin_browser_view(cfg: &Config) -> AdminBrowserView {
+    AdminBrowserView {
+        has_computer_use_api_key: has_secret(cfg.browser.computer_use.api_key.as_deref()),
+    }
+}
+
+fn admin_updates_view(cfg: &Config) -> AdminUpdatesView {
+    let status = update::get_update_status(cfg, env!("CARGO_PKG_VERSION")).ok();
+    AdminUpdatesView {
+        enabled: cfg.updates.enabled,
+        auto_install_enabled: cfg.updates.auto_install_enabled,
+        channel_visibility_enabled: cfg.updates.channel_visibility_enabled,
+        cli_startup_notice_enabled: cfg.updates.cli_startup_notice_enabled,
+        install_method_override: cfg.updates.install_method_override.clone(),
+        restart_policy: cfg.updates.restart_policy.clone(),
+        status: AdminUpdateStatusView {
+            current_version: status
                 .as_ref()
-                .is_some_and(|cf| has_secret(Some(cf.token.as_str()))),
-            tailscale_funnel: cfg.tunnel.tailscale.as_ref().map(|ts| ts.funnel),
-            tailscale_hostname: cfg
-                .tunnel
-                .tailscale
+                .map(|view| view.current_version.clone())
+                .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
+            latest_version: status.as_ref().and_then(|view| view.latest_version.clone()),
+            update_available: status.as_ref().is_some_and(|view| view.update_available),
+            last_check_at_unix: status.as_ref().and_then(|view| view.last_check_at_unix),
+            last_check_outcome: status
                 .as_ref()
-                .and_then(|ts| ts.hostname.clone()),
-            has_ngrok_auth_token: cfg
-                .tunnel
-                .ngrok
+                .and_then(|view| view.last_check_outcome.clone()),
+            effective_install_method: status
                 .as_ref()
-                .is_some_and(|ng| has_secret(Some(ng.auth_token.as_str()))),
-            ngrok_domain: cfg.tunnel.ngrok.as_ref().and_then(|ng| ng.domain.clone()),
-            custom_health_url: cfg
-                .tunnel
-                .custom
+                .map(|view| view.effective_install_method.clone())
+                .unwrap_or_else(|| "unknown".to_string()),
+            install_method_source: status
                 .as_ref()
-                .and_then(|c| c.health_url.clone()),
+                .map(|view| view.install_method_source.clone())
+                .unwrap_or_else(|| "unknown".to_string()),
         },
-        reliability: AdminReliabilityView {
-            provider_retries: cfg.reliability.provider_retries,
-            provider_backoff_ms: cfg.reliability.provider_backoff_ms,
-            fallback_providers: cfg.reliability.fallback_providers.clone(),
-            model_fallbacks: cfg.reliability.model_fallbacks.clone(),
-            channel_initial_backoff_secs: cfg.reliability.channel_initial_backoff_secs,
-            channel_max_backoff_secs: cfg.reliability.channel_max_backoff_secs,
-            scheduler_poll_secs: cfg.reliability.scheduler_poll_secs,
-            scheduler_retries: cfg.reliability.scheduler_retries,
-        },
-        heartbeat: AdminHeartbeatView {
-            enabled: cfg.heartbeat.enabled,
-            interval_minutes: cfg.heartbeat.interval_minutes,
-        },
+    }
+}
+
+fn admin_cost_view(cfg: &Config) -> AdminCostView {
+    AdminCostView {
+        enabled: cfg.cost.enabled,
+        session_limit_usd: cfg.cost.session_limit_usd,
+        daily_limit_usd: cfg.cost.daily_limit_usd,
+        monthly_limit_usd: cfg.cost.monthly_limit_usd,
+        warn_at_percent: cfg.cost.warn_at_percent,
+        allow_override: cfg.cost.allow_override,
+    }
+}
+
+fn admin_mcp_view(cfg: &Config) -> AdminMcpView {
+    AdminMcpView {
+        enabled: cfg.mcp.enabled,
+        servers: cfg
+            .mcp
+            .servers
+            .iter()
+            .map(|server| AdminMcpServerView {
+                name: server.name.clone(),
+                enabled: server.enabled,
+                command: server.command.clone(),
+                capabilities: server.capabilities.clone(),
+                startup_timeout_ms: server.startup_timeout_ms,
+                call_timeout_ms: server.call_timeout_ms,
+                output_limit_bytes: server.output_limit_bytes,
+            })
+            .collect(),
+    }
+}
+
+fn admin_tunnel_view(cfg: &Config) -> AdminTunnelView {
+    AdminTunnelView {
+        provider: cfg.tunnel.provider.clone(),
+        has_cloudflare_token: cfg
+            .tunnel
+            .cloudflare
+            .as_ref()
+            .is_some_and(|cf| has_secret(Some(cf.token.as_str()))),
+        tailscale_funnel: cfg.tunnel.tailscale.as_ref().map(|ts| ts.funnel),
+        tailscale_hostname: cfg
+            .tunnel
+            .tailscale
+            .as_ref()
+            .and_then(|ts| ts.hostname.clone()),
+        has_ngrok_auth_token: cfg
+            .tunnel
+            .ngrok
+            .as_ref()
+            .is_some_and(|ng| has_secret(Some(ng.auth_token.as_str()))),
+        ngrok_domain: cfg.tunnel.ngrok.as_ref().and_then(|ng| ng.domain.clone()),
+        custom_health_url: cfg
+            .tunnel
+            .custom
+            .as_ref()
+            .and_then(|custom| custom.health_url.clone()),
+    }
+}
+
+fn admin_reliability_view(cfg: &Config) -> AdminReliabilityView {
+    AdminReliabilityView {
+        provider_retries: cfg.reliability.provider_retries,
+        provider_backoff_ms: cfg.reliability.provider_backoff_ms,
+        fallback_providers: cfg.reliability.fallback_providers.clone(),
+        model_fallbacks: cfg.reliability.model_fallbacks.clone(),
+        channel_initial_backoff_secs: cfg.reliability.channel_initial_backoff_secs,
+        channel_max_backoff_secs: cfg.reliability.channel_max_backoff_secs,
+        scheduler_poll_secs: cfg.reliability.scheduler_poll_secs,
+        scheduler_retries: cfg.reliability.scheduler_retries,
+    }
+}
+
+fn admin_heartbeat_view(cfg: &Config) -> AdminHeartbeatView {
+    AdminHeartbeatView {
+        enabled: cfg.heartbeat.enabled,
+        interval_minutes: cfg.heartbeat.interval_minutes,
     }
 }
 

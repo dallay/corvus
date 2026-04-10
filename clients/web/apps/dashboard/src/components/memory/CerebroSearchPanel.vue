@@ -59,7 +59,6 @@ async function submitSearch() {
       v-else-if="admin.loadingBuckets.value.cerebroSearch"
       class="helper"
       aria-live="polite"
-      role="status"
     >
       Searching Cerebro…
     </p>

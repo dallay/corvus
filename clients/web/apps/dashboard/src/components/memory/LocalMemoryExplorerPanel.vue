@@ -88,9 +88,9 @@ onMounted(async () => {
         Cerebro relationship graph.</p>
     </header>
 
-    <p v-if="explorer.isLoading.value" class="helper" role="status">Loading local memory
+    <p v-if="explorer.isLoading.value" aria-live="polite" class="helper">Loading local memory
       visualization…</p>
-    <p v-else-if="explorer.error.value" class="error" role="alert">{{ explorer.error.value }}</p>
+    <p v-else-if="explorer.error.value" aria-live="assertive" class="error">{{ explorer.error.value }}</p>
     <div v-else-if="explorer.snapshot.value.totalEntries === 0" class="empty-state">
       <p>No local memory entries are available to visualize yet.</p>
       <p class="helper">The local visualization remains derived from local sessions and categories

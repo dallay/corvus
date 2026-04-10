@@ -2945,19 +2945,7 @@ impl Config {
     }
 
     pub fn load_or_init() -> Result<Self> {
-        let (default_corvus_dir, default_workspace_dir) = default_config_and_workspace_dirs()?;
-
-        // Resolution priority:
-        // 1. CORVUS_WORKSPACE env override
-        // 2. Persisted active workspace marker from onboarding/custom profile
-        // 3. Default ~/.corvus layout
-        let (corvus_dir, workspace_dir) = match std::env::var("CORVUS_WORKSPACE") {
-            Ok(custom_workspace) if !custom_workspace.is_empty() => {
-                resolve_config_dir_for_workspace(&PathBuf::from(custom_workspace))
-            }
-            _ => load_persisted_workspace_dirs(&default_corvus_dir)?
-                .unwrap_or((default_corvus_dir, default_workspace_dir)),
-        };
+        let (corvus_dir, workspace_dir) = resolve_default_runtime_dirs()?;
 
         let config_path = corvus_dir.join("config.toml");
 
@@ -2965,56 +2953,7 @@ impl Config {
         fs::create_dir_all(&workspace_dir).context("Failed to create workspace directory")?;
 
         if config_path.exists() {
-            enforce_secure_config_permissions(&config_path)?;
-
-            let contents =
-                fs::read_to_string(&config_path).context("Failed to read config file")?;
-            let mut config: Config =
-                toml::from_str(&contents).context("Failed to parse config file")?;
-            // Set computed paths that are skipped during serialization
-            config.config_path = config_path.clone();
-            config.workspace_dir = workspace_dir;
-            let store = crate::security::SecretStore::new(&corvus_dir, config.secrets.encrypt);
-            decrypt_optional_secret(&store, &mut config.api_key, "config.api_key")?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.composio.api_key,
-                "config.composio.api_key",
-            )?;
-
-            decrypt_optional_secret(
-                &store,
-                &mut config.browser.computer_use.api_key,
-                "config.browser.computer_use.api_key",
-            )?;
-
-            decrypt_optional_secret(
-                &store,
-                &mut config.web_search.brave_api_key,
-                "config.web_search.brave_api_key",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.memory.cerebro.auth_token,
-                "config.memory.cerebro.auth_token",
-            )?;
-
-            for agent in config.agents.values_mut() {
-                decrypt_optional_secret(&store, &mut agent.api_key, "config.agents.*.api_key")?;
-            }
-
-            for (provider, pool) in &mut config.reliability.account_pools {
-                for (idx, account) in pool.accounts.iter_mut().enumerate() {
-                    decrypt_required_secret(
-                        &store,
-                        &mut account.api_key,
-                        &format!(
-                            "config.reliability.account_pools.{provider}.accounts[{idx}].api_key"
-                        ),
-                    )?;
-                }
-            }
-
+            let mut config = load_existing_config(&corvus_dir, &workspace_dir, &config_path)?;
             config.apply_env_overrides();
             config.emit_deprecation_warnings();
             config.validate_for_runtime()?;
@@ -3094,6 +3033,7 @@ impl Config {
 
     fn apply_workspace_override(&mut self) {
         if let Ok(workspace) = std::env::var("CORVUS_WORKSPACE") {
+            let workspace = workspace.trim();
             if !workspace.is_empty() {
                 let (config_dir, workspace_dir) =
                     resolve_config_dir_for_workspace(&PathBuf::from(workspace));
@@ -3873,6 +3813,79 @@ impl Config {
 
         Ok(())
     }
+}
+
+fn resolve_default_runtime_dirs() -> Result<(PathBuf, PathBuf)> {
+    let (default_corvus_dir, default_workspace_dir) = default_config_and_workspace_dirs()?;
+
+    // Resolution priority:
+    // 1. CORVUS_WORKSPACE env override
+    // 2. Persisted active workspace marker from onboarding/custom profile
+    // 3. Default ~/.corvus layout
+    Ok(match std::env::var("CORVUS_WORKSPACE") {
+        Ok(custom_workspace) if !custom_workspace.trim().is_empty() => {
+            resolve_config_dir_for_workspace(&PathBuf::from(custom_workspace.trim()))
+        }
+        _ => load_persisted_workspace_dirs(&default_corvus_dir)?
+            .unwrap_or((default_corvus_dir, default_workspace_dir)),
+    })
+}
+
+fn load_existing_config(
+    corvus_dir: &Path,
+    workspace_dir: &Path,
+    config_path: &Path,
+) -> Result<Config> {
+    enforce_secure_config_permissions(config_path)?;
+
+    let contents = fs::read_to_string(config_path).context("Failed to read config file")?;
+    let mut config: Config = toml::from_str(&contents).context("Failed to parse config file")?;
+    config.config_path = config_path.to_path_buf();
+    config.workspace_dir = workspace_dir.to_path_buf();
+
+    let store = crate::security::SecretStore::new(corvus_dir, config.secrets.encrypt);
+    decrypt_config_secrets(&store, &mut config)?;
+    Ok(config)
+}
+
+fn decrypt_config_secrets(store: &crate::security::SecretStore, config: &mut Config) -> Result<()> {
+    decrypt_optional_secret(store, &mut config.api_key, "config.api_key")?;
+    decrypt_optional_secret(
+        store,
+        &mut config.composio.api_key,
+        "config.composio.api_key",
+    )?;
+    decrypt_optional_secret(
+        store,
+        &mut config.browser.computer_use.api_key,
+        "config.browser.computer_use.api_key",
+    )?;
+    decrypt_optional_secret(
+        store,
+        &mut config.web_search.brave_api_key,
+        "config.web_search.brave_api_key",
+    )?;
+    decrypt_optional_secret(
+        store,
+        &mut config.memory.cerebro.auth_token,
+        "config.memory.cerebro.auth_token",
+    )?;
+
+    for agent in config.agents.values_mut() {
+        decrypt_optional_secret(store, &mut agent.api_key, "config.agents.*.api_key")?;
+    }
+
+    for (provider, pool) in &mut config.reliability.account_pools {
+        for (idx, account) in pool.accounts.iter_mut().enumerate() {
+            decrypt_required_secret(
+                store,
+                &mut account.api_key,
+                &format!("config.reliability.account_pools.{provider}.accounts[{idx}].api_key"),
+            )?;
+        }
+    }
+
+    Ok(())
 }
 
 fn enforce_secure_config_permissions(path: &Path) -> Result<()> {

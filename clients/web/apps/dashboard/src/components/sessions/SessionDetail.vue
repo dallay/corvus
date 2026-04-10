@@ -48,10 +48,10 @@ watch(() => props.sessionId, load, { immediate: true });
       </button>
     </div>
 
-    <p v-if="admin.loadingBuckets.value.sessionDetail" class="helper" aria-live="polite" role="status">
+    <p v-if="admin.loadingBuckets.value.sessionDetail" class="helper" aria-live="polite">
       {{ t("sessions.loading", "Loading…") }}
     </p>
-    <p v-else-if="admin.error.value" class="error" aria-live="assertive" role="alert">
+    <p v-else-if="admin.error.value" class="error" aria-live="assertive">
       {{ admin.error.value }}
     </p>
     <template v-else-if="admin.sessionDetail.value">

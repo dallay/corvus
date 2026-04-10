@@ -819,7 +819,6 @@ async fn main() -> Result<()> {
 async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
     match command {
         Commands::Onboard { .. } => anyhow::bail!("Onboard command should not reach dispatch"),
-
         Commands::Agent {
             message,
             provider,
@@ -828,7 +827,7 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
             peripheral,
             override_budget,
         } => {
-            Box::pin(handle_agent_command(
+            dispatch_agent_command(
                 config,
                 message,
                 provider,
@@ -836,10 +835,9 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
                 temperature,
                 peripheral,
                 override_budget,
-            ))
+            )
             .await
         }
-
         Commands::Code {
             message,
             provider,
@@ -847,14 +845,14 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
             temperature,
             override_budget,
         } => {
-            Box::pin(handle_code_command(
+            dispatch_code_command(
                 config,
                 message,
                 provider,
                 model,
                 temperature,
                 override_budget,
-            ))
+            )
             .await
         }
 
@@ -913,6 +911,46 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
 
         Commands::Cost { cost_command } => handle_cost_command(config, cost_command),
     }
+}
+
+async fn dispatch_agent_command(
+    config: Config,
+    message: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
+    temperature: f64,
+    peripheral: Vec<String>,
+    override_budget: bool,
+) -> Result<()> {
+    Box::pin(handle_agent_command(
+        config,
+        message,
+        provider,
+        model,
+        temperature,
+        peripheral,
+        override_budget,
+    ))
+    .await
+}
+
+async fn dispatch_code_command(
+    config: Config,
+    message: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
+    temperature: f64,
+    override_budget: bool,
+) -> Result<()> {
+    Box::pin(handle_code_command(
+        config,
+        message,
+        provider,
+        model,
+        temperature,
+        override_budget,
+    ))
+    .await
 }
 
 fn handle_cost_command(config: Config, command: CostCommands) -> Result<()> {

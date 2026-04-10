@@ -28,10 +28,10 @@ onMounted(async () => {
 
 <template>
   <div class="memory-stats">
-    <p v-if="admin.loadingBuckets.value.memoryStats" class="helper" aria-live="polite" role="status">
+    <p v-if="admin.loadingBuckets.value.memoryStats" class="helper" aria-live="polite">
       {{ t("memory.statsLoading", "Loading stats…") }}
     </p>
-    <p v-else-if="admin.error.value && !admin.memoryStats.value" class="error" aria-live="assertive" role="alert">
+    <p v-else-if="admin.error.value && !admin.memoryStats.value" class="error" aria-live="assertive">
       {{ admin.error.value }}
     </p>
     <template v-else-if="admin.memoryStats.value">

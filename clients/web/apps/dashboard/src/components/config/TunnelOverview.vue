@@ -60,8 +60,8 @@ onBeforeUnmount(() => abortController?.abort());
 <template>
   <section class="card">
     <h2>{{ t("sections.tunnel") }}</h2>
-    <p v-if="loading" class="helper" aria-live="polite" role="status">{{ t("tunnel.loading") }}</p>
-    <p v-else-if="error" class="error" aria-live="assertive" role="alert">{{ error }}</p>
+    <p v-if="loading" class="helper" aria-live="polite">{{ t("tunnel.loading") }}</p>
+    <p v-else-if="error" class="error" aria-live="assertive">{{ error }}</p>
     <p v-else-if="!tunnel" class="helper">{{ t("tunnel.noData") }}</p>
     <div v-else class="status-grid" data-testid="tunnel-overview">
       <div class="status-item">

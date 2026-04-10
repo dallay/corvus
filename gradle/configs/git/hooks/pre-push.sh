@@ -35,6 +35,7 @@ for f in $CHANGED_FILES; do
         clients/web/*) HAS_WEB=1 ;;
         *.md|*.mdx|docs/*) HAS_DOCS=1 ;;
         gradle/build-logic/*|*.gradle.kts|settings.gradle*|gradle.properties|gradle/libs.versions.toml) HAS_GRADLE_CONFIG=1 ;;
+        *) : ;;
     esac
 done
 
@@ -82,13 +83,23 @@ fi
 
 # ── Documentation link check ─────────────────────────────────
 if [ "$HAS_DOCS" = "1" ]; then
-    if command -v lychee >/dev/null 2>&1; then
-        echo "📖 Running doc link check (changed docs detected)..."
-        DOC_FILES=$(echo "$CHANGED_FILES" | grep -E '\.(md|mdx)$' || true)
-        if [ -n "$DOC_FILES" ]; then
-            lychee --config "lychee.toml" --offline --no-progress $DOC_FILES || true
+    DOC_FILES=$(printf '%s\n' "$CHANGED_FILES" | grep -E '\.(md|mdx)$' || true)
+    if [ -n "$DOC_FILES" ]; then
+        old_ifs=$IFS
+        IFS='
+'
+        set -f
+        set -- $DOC_FILES
+        IFS=$old_ifs
+        set +f
+
+        if command -v lychee >/dev/null 2>&1; then
+            echo "📖 Running doc link check (changed docs detected)..."
+            lychee --config "lychee.toml" --offline --no-progress "$@" || true
+            CHECKS_RUN=$((CHECKS_RUN + 1))
+        else
+            echo "⚠️  lychee not installed — skipping doc link check"
         fi
-        CHECKS_RUN=$((CHECKS_RUN + 1))
     fi
 fi
 

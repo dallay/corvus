@@ -1145,14 +1145,7 @@ fn print_pairing_info(display_addr: &str, tunnel_url: Option<&String>, pairing: 
 #[allow(clippy::too_many_lines)]
 pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     // ── Security: refuse public bind without tunnel or explicit opt-in ──
-    if is_public_bind(host) && config.tunnel.provider == "none" && !config.gateway.allow_public_bind
-    {
-        anyhow::bail!(
-            "🛑 Refusing to bind to {host} — gateway would be exposed to the internet.\n\
-             Fix: use --host 127.0.0.1 (default), configure a tunnel, or set\n\
-             [gateway] allow_public_bind = true in config.toml (NOT recommended)."
-        );
-    }
+    ensure_safe_gateway_bind(host, &config)?;
     let config_state = Arc::new(Mutex::new(config.clone()));
 
     let addr: SocketAddr = format!("{host}:{port}").parse()?;
@@ -1171,15 +1164,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         config.cost.clone(),
         &config.workspace_dir,
     )?));
-    // Extract webhook secret for authentication
-    let webhook_secret_hash: Option<Arc<str>> =
-        config.channels_config.webhook.as_ref().and_then(|webhook| {
-            webhook.secret.as_ref().and_then(|raw_secret| {
-                let trimmed_secret = raw_secret.trim();
-                (!trimmed_secret.is_empty())
-                    .then(|| Arc::<str>::from(hash_webhook_secret(trimmed_secret)))
-            })
-        });
+    let webhook_secret_hash = webhook_secret_hash(&config);
 
     // WhatsApp channel (if configured)
     let whatsapp_channel: Option<Arc<WhatsAppChannel>> =
@@ -1190,24 +1175,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         None
     };
 
-    // WhatsApp app secret for webhook signature verification
-    // Priority: environment variable > config file
-    let whatsapp_app_secret: Option<Arc<str>> = std::env::var("CORVUS_WHATSAPP_APP_SECRET")
-        .ok()
-        .and_then(|secret| {
-            let secret = secret.trim();
-            (!secret.is_empty()).then(|| secret.to_owned())
-        })
-        .or_else(|| {
-            config.channels_config.whatsapp.as_ref().and_then(|wa| {
-                wa.app_secret
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|secret| !secret.is_empty())
-                    .map(ToOwned::to_owned)
-            })
-        })
-        .map(Arc::from);
+    let whatsapp_app_secret = resolve_whatsapp_app_secret(&config);
 
     // ── Pairing guard ──────────────────────────────────────
     let pairing = Arc::new(PairingGuard::new(
@@ -1403,6 +1371,52 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     .await?;
 
     Ok(())
+}
+
+fn ensure_safe_gateway_bind(host: &str, config: &Config) -> Result<()> {
+    if is_public_bind(host) && config.tunnel.provider == "none" && !config.gateway.allow_public_bind
+    {
+        anyhow::bail!(
+            "🛑 Refusing to bind to {host} — gateway would be exposed to the internet.\n\
+             Fix: use --host 127.0.0.1 (default), configure a tunnel, or set\n\
+             [gateway] allow_public_bind = true in config.toml (NOT recommended)."
+        );
+    }
+    Ok(())
+}
+
+fn webhook_secret_hash(config: &Config) -> Option<Arc<str>> {
+    config.channels_config.webhook.as_ref().and_then(|webhook| {
+        webhook.secret.as_ref().and_then(|raw_secret| {
+            let trimmed_secret = raw_secret.trim();
+            (!trimmed_secret.is_empty())
+                .then(|| Arc::<str>::from(hash_webhook_secret(trimmed_secret)))
+        })
+    })
+}
+
+fn resolve_whatsapp_app_secret(config: &Config) -> Option<Arc<str>> {
+    std::env::var("CORVUS_WHATSAPP_APP_SECRET")
+        .ok()
+        .and_then(|secret| {
+            let secret = secret.trim();
+            (!secret.is_empty()).then(|| secret.to_owned())
+        })
+        .or_else(|| {
+            config
+                .channels_config
+                .whatsapp
+                .as_ref()
+                .and_then(|whatsapp| {
+                    whatsapp
+                        .app_secret
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|secret| !secret.is_empty())
+                        .map(ToOwned::to_owned)
+                })
+        })
+        .map(Arc::from)
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

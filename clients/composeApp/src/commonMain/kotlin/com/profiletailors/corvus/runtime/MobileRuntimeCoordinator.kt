@@ -188,7 +188,12 @@ class MobileRuntimeCoordinator(
 
   fun sendMessage(prompt: String) {
     val activeSessionId = state.activeSessionId ?: return
-    val userMessage = ChatMessage(id = nextMessageId(), role = ChatRole.User, content = prompt)
+    val userMessage =
+      ChatMessage(
+        id = computeNextMessageId(state.messages.size),
+        role = ChatRole.User,
+        content = prompt,
+      )
     state = state.copy(messages = state.messages + userMessage)
     applyTurnResult(facade.sendMessage(activeSessionId, prompt))
   }
@@ -224,29 +229,18 @@ class MobileRuntimeCoordinator(
     var pendingApproval: RuntimeApprovalRequest? = state.pendingApproval
     result.events.forEach { event ->
       when (event) {
-        is RuntimeEvent.AssistantChunk -> {
+        is RuntimeEvent.AssistantChunk ->
           assistantMessages +=
-            ChatMessage(
-              id = nextMessageId(assistantMessages.size),
-              role = ChatRole.Assistant,
-              content = event.text,
-            )
-        }
-
-        is RuntimeEvent.AssistantMessage -> {
+            assistantChatMessage(state.messages.size, event.text, assistantMessages.size)
+        is RuntimeEvent.AssistantMessage ->
           assistantMessages +=
-            ChatMessage(
-              id = nextMessageId(assistantMessages.size),
-              role = ChatRole.Assistant,
-              content = event.text,
-            )
-        }
+            assistantChatMessage(state.messages.size, event.text, assistantMessages.size)
 
         is RuntimeEvent.ApprovalPending -> pendingApproval = event.request
         is RuntimeEvent.Failure -> {
           assistantMessages +=
             ChatMessage(
-              id = nextMessageId(assistantMessages.size),
+              id = computeNextMessageId(state.messages.size, assistantMessages.size),
               role = ChatRole.Assistant,
               content = event.message,
             )
@@ -256,12 +250,15 @@ class MobileRuntimeCoordinator(
     state =
       state.copy(messages = state.messages + assistantMessages, pendingApproval = pendingApproval)
   }
-
-  private fun nextMessageId(offset: Int = 0): Int =
-    computeNextMessageId(state.messages.size, offset)
 }
 
-// Top-level helper for message ID generation
+private fun assistantChatMessage(currentSize: Int, text: String, offset: Int): ChatMessage =
+  ChatMessage(
+    id = computeNextMessageId(currentSize, offset),
+    role = ChatRole.Assistant,
+    content = text,
+  )
+
 private fun computeNextMessageId(currentSize: Int, offset: Int = 0): Int = currentSize + offset + 1
 
 class InMemoryMobileRuntimePersistence(

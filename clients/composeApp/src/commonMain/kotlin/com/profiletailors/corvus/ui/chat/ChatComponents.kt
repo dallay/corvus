@@ -50,12 +50,23 @@ internal val ConfigPanelShape = RoundedCornerShape(20.dp)
 internal val DiagnosticsCardShape = RoundedCornerShape(16.dp)
 internal val ChatBubbleShape = RoundedCornerShape(18.dp)
 
+private const val SETTINGS_CONTENT_DESCRIPTION = "Settings"
+
 @Immutable data class ChatMessage(val id: Int, val role: ChatRole, val content: String)
 
 enum class ChatRole {
   User,
   Assistant,
 }
+
+@Immutable
+private data class ChatBubblePalette(
+  val background: Color,
+  val accent: Color,
+  val shadow: Color,
+  val content: Color,
+  val title: Color,
+)
 
 @Composable
 fun GlassSurface(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -124,6 +135,19 @@ fun GradientButton(
 fun ChatBubble(message: ChatMessage, modelName: String) {
   val isUser = message.role == ChatRole.User
   val corvusColors = CorvusTheme.colors
+  val contentColor = MaterialTheme.colorScheme.onSurface
+  val bubblePalette =
+    remember(isUser, corvusColors, contentColor) {
+      ChatBubblePalette(
+        background = if (isUser) corvusColors.userBubbleBackground else corvusColors.glassSurface,
+        accent = if (isUser) corvusColors.glowPurple else corvusColors.glowCyan,
+        shadow =
+          if (isUser) corvusColors.glowPurple.copy(alpha = 0.2f)
+          else corvusColors.glowCyan.copy(alpha = 0.2f),
+        content = contentColor,
+        title = if (isUser) corvusColors.glowPurple else corvusColors.glowCyan,
+      )
+    }
 
   Row(
     modifier = Modifier.fillMaxWidth(),
@@ -138,8 +162,7 @@ fun ChatBubble(message: ChatMessage, modelName: String) {
       isUser = isUser,
       modelName = modelName,
       message = message,
-      contentColor = MaterialTheme.colorScheme.onSurface,
-      corvusColors = corvusColors,
+      bubblePalette = bubblePalette,
     )
   }
 }
@@ -170,12 +193,12 @@ private fun AvatarWithGlow(corvusColors: CorvusColorPalette) {
 }
 
 @Composable
-private fun ChatBubbleHeader(isUser: Boolean, modelName: String, corvusColors: CorvusColorPalette) {
+private fun ChatBubbleHeader(isUser: Boolean, modelName: String, titleColor: Color) {
   Text(
     text = if (isUser) "You" else modelName,
     style = MaterialTheme.typography.labelSmall,
     fontWeight = FontWeight.Medium,
-    color = if (isUser) corvusColors.glowPurple else corvusColors.glowCyan,
+    color = titleColor,
   )
 }
 
@@ -184,8 +207,7 @@ private fun ChatBubbleBody(
   isUser: Boolean,
   modelName: String,
   message: ChatMessage,
-  contentColor: Color,
-  corvusColors: CorvusColorPalette,
+  bubblePalette: ChatBubblePalette,
 ) {
   Box(
     modifier =
@@ -193,34 +215,28 @@ private fun ChatBubbleBody(
         .shadow(
           elevation = if (isUser) 6.dp else 4.dp,
           shape = ChatBubbleShape,
-          spotColor =
-            if (isUser) corvusColors.glowPurple.copy(alpha = 0.2f)
-            else corvusColors.glowCyan.copy(alpha = 0.2f),
+          spotColor = bubblePalette.shadow,
         )
   ) {
     Surface(
       shape = ChatBubbleShape,
-      color = if (isUser) corvusColors.userBubbleBackground else corvusColors.glassSurface,
+      color = bubblePalette.background,
       border =
         BorderStroke(
           width = 1.dp,
           brush =
             Brush.horizontalGradient(
-              listOf(
-                if (isUser) corvusColors.glowPurple.copy(alpha = 0.3f)
-                else corvusColors.glowCyan.copy(alpha = 0.3f),
-                Color.Transparent,
-              )
+              listOf(bubblePalette.accent.copy(alpha = 0.3f), Color.Transparent)
             ),
         ),
     ) {
       Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-        ChatBubbleHeader(isUser = isUser, modelName = modelName, corvusColors = corvusColors)
+        ChatBubbleHeader(isUser = isUser, modelName = modelName, titleColor = bubblePalette.title)
         Spacer(modifier = Modifier.height(4.dp))
         Text(
           text = message.content,
           style = MaterialTheme.typography.bodyMedium,
-          color = contentColor,
+          color = bubblePalette.content,
         )
       }
     }
@@ -301,7 +317,7 @@ fun ChatHeader(
     ) {
       Icon(
         imageVector = Icons.Default.Settings,
-        contentDescription = "Settings",
+        contentDescription = SETTINGS_CONTENT_DESCRIPTION,
         tint = Color.White,
         modifier = Modifier.size(22.dp),
       )
@@ -465,77 +481,3 @@ fun diagnosticsCard(
     }
   }
 }
-
-internal fun onboardingStateLabel(onboardingState: MobileOnboardingState): String =
-  when (onboardingState.status) {
-    MobileOnboardingStatus.TARGET_SELECTED -> "Target selected"
-    MobileOnboardingStatus.RECOVERY -> "Recovery required"
-    MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED -> "Runtime available"
-    MobileOnboardingStatus.TRUST_PENDING -> "Trust this surface"
-    MobileOnboardingStatus.TRANSPORT_CONNECTING -> "Connect to runtime"
-    MobileOnboardingStatus.SESSION_PENDING -> "Session pending"
-    MobileOnboardingStatus.SESSION_READY -> "Session ready"
-    MobileOnboardingStatus.BLOCKED -> "Recovery required"
-  }
-
-internal fun bridgeStateHeadline(bridgeState: MobileBridgeUiState): String =
-  when (bridgeState.onboardingState.status) {
-    MobileOnboardingStatus.TARGET_SELECTED -> "Target selected"
-    MobileOnboardingStatus.RECOVERY -> "Recovery required"
-    // Client-first: Connect to an existing runtime, not local bridge
-    MobileOnboardingStatus.TRUST_PENDING -> "Connect to runtime endpoint"
-    MobileOnboardingStatus.SESSION_PENDING -> "Runtime connected. Start or resume a session next."
-    MobileOnboardingStatus.SESSION_READY -> "Session ready on ${bridgeState.platformName}"
-    // Client-first: Don't use "bridge" terminology
-    MobileOnboardingStatus.BLOCKED -> "Connection attention needed on ${bridgeState.platformName}"
-    MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED -> "Runtime endpoint configured"
-    MobileOnboardingStatus.TRANSPORT_CONNECTING -> "Connecting to runtime"
-  }
-
-internal fun bridgeStateDescription(bridgeState: MobileBridgeUiState): String =
-  when (bridgeState.onboardingState.status) {
-    // Client-first: Connect to an existing runtime, not "linking" mobile
-    MobileOnboardingStatus.TRUST_PENDING ->
-      "Configure connection to an existing runtime before starting a session."
-    MobileOnboardingStatus.SESSION_PENDING ->
-      "The runtime endpoint is reachable. Create or resume a chat session to continue."
-    // Client-first: Describe as runtime connection, not CLI bridge
-    MobileOnboardingStatus.SESSION_READY ->
-      "Messages now flow through the configured runtime connection."
-    MobileOnboardingStatus.BLOCKED -> bridgeStateRecovery(bridgeState)
-    else -> "Corvus keeps connection, transport, and session steps separate."
-  }
-
-internal fun bridgeStateRecovery(bridgeState: MobileBridgeUiState): String =
-  when (bridgeState.onboardingState.recoveryKind) {
-    // Client-first: Guide user to configure target/endpoint
-    MobileRecoveryKind.NO_TARGET_CONFIGURED ->
-      "Select a connection target first. Choose endpoint URL, trusted companion, or another supported method."
-    MobileRecoveryKind.TARGET_NOT_REACHABLE ->
-      "The selected target is not reachable. Check your network connection and try again."
-    MobileRecoveryKind.TRUST_NOT_ESTABLISHED ->
-      "Trust has not been established. Complete the pairing or companion authentication first."
-    // Client-first: Don't mention CLI, describe as runtime connection
-    MobileRecoveryKind.RUNTIME_UNAVAILABLE ->
-      "Make sure the runtime is running and reachable, then retry."
-    MobileRecoveryKind.TRANSPORT_UNAVAILABLE ->
-      "The connection transport is unavailable. Retry first, or reconfigure the connection target."
-    MobileRecoveryKind.LINKED_BUT_NOT_SESSION_READY ->
-      "The runtime is connected, but session operations are unavailable. Retry the connection check."
-    MobileRecoveryKind.SESSION_UNAVAILABLE ->
-      "Your last session is no longer resumable. Start a new session or choose another available session."
-    MobileRecoveryKind.ENVIRONMENT_UNSUPPORTED ->
-      "This environment requires a supported connection method. Check your platform's available options."
-    null ->
-      when (bridgeState.onboardingState.status) {
-        MobileOnboardingStatus.TARGET_SELECTED ->
-          "A target is selected but not yet configured. Complete the connection setup."
-        MobileOnboardingStatus.RECOVERY -> "Recovery is needed. Follow the on-screen instructions."
-        // Client-first: Don't mention "linking"
-        MobileOnboardingStatus.TRUST_PENDING ->
-          "Configure the connection to your runtime endpoint first."
-        MobileOnboardingStatus.SESSION_PENDING ->
-          "Start a session after the runtime connection is confirmed reachable."
-        else -> "No recovery action needed."
-      }
-  }

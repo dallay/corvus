@@ -66,8 +66,8 @@ onUnmounted(() => {
 <template>
   <section class="card">
     <h2>{{ t("sections.mcp") }}</h2>
-    <p v-if="loading" class="helper" aria-live="polite" role="status">{{ t("mcp.loading") }}</p>
-    <p v-else-if="error" class="error" aria-live="assertive" role="alert">{{ error }}</p>
+    <p v-if="loading" class="helper" aria-live="polite">{{ t("mcp.loading") }}</p>
+    <p v-else-if="error" class="error" aria-live="assertive">{{ error }}</p>
     <template v-else-if="mcp">
       <div class="status-grid">
         <div class="status-item">

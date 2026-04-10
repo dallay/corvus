@@ -66,6 +66,56 @@ impl ShellTool {
         self.timeout = timeout;
         self
     }
+
+    fn build_runtime_command(&self, command: &str) -> anyhow::Result<tokio::process::Command> {
+        self.runtime
+            .build_shell_command(command, &self.security.workspace_dir)
+    }
+
+    fn sanitized_command_from_runtime(
+        &self,
+        tokio_cmd: &tokio::process::Command,
+    ) -> std::process::Command {
+        let program = tokio_cmd.as_std().get_program().to_os_string();
+        let args: Vec<_> = tokio_cmd
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_os_string())
+            .collect();
+
+        let mut std_cmd = std::process::Command::new(&program);
+        std_cmd.args(&args);
+        std_cmd.current_dir(&self.security.workspace_dir);
+        std_cmd.env_clear();
+        for var in SAFE_ENV_VARS {
+            if let Ok(val) = std::env::var(var) {
+                std_cmd.env(var, val);
+            }
+        }
+        std_cmd
+    }
+
+    fn execution_metadata(
+        &self,
+        risk_level: CommandRiskLevel,
+        approved: bool,
+    ) -> serde_json::Value {
+        shell_execution_metadata(self.sandbox.name(), risk_level, approved)
+    }
+
+    fn tool_error(
+        &self,
+        error: impl Into<String>,
+        risk_level: CommandRiskLevel,
+        approved: bool,
+    ) -> ToolResult {
+        ToolResult {
+            success: false,
+            output: String::new(),
+            error: Some(error.into()),
+            structured: Some(self.execution_metadata(risk_level, approved)),
+        }
+    }
 }
 
 #[async_trait]
@@ -139,53 +189,29 @@ impl Tool for ShellTool {
         // Execute with timeout to prevent hanging commands.
         // Build the command via the runtime adapter, then extract program+args
         // so we can apply OS-level sandbox wrapping on a std::process::Command.
-        let tokio_cmd = match self
-            .runtime
-            .build_shell_command(command, &self.security.workspace_dir)
-        {
+        let tokio_cmd = match self.build_runtime_command(command) {
             Ok(cmd) => cmd,
             Err(e) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(format!("Failed to build runtime command: {e}")),
-                    structured: None,
-                });
+                return Ok(self.tool_error(
+                    format!("Failed to build runtime command: {e}"),
+                    risk_level,
+                    approved,
+                ))
             }
         };
 
         // Build std::process::Command for env sanitization + sandbox wrapping.
         // Clear the environment to prevent leaking API keys and other secrets
         // (CWE-200), then re-add only safe, functional variables.
-        let program = tokio_cmd.as_std().get_program().to_os_string();
-        let args: Vec<_> = tokio_cmd
-            .as_std()
-            .get_args()
-            .map(|a| a.to_os_string())
-            .collect();
-        let mut std_cmd = std::process::Command::new(&program);
-        std_cmd.args(&args);
-        std_cmd.current_dir(&self.security.workspace_dir);
-        std_cmd.env_clear();
-
-        for var in SAFE_ENV_VARS {
-            if let Ok(val) = std::env::var(var) {
-                std_cmd.env(var, val);
-            }
-        }
+        let mut std_cmd = self.sanitized_command_from_runtime(&tokio_cmd);
 
         // OS-level sandbox wrapping (defense in depth)
         if let Err(e) = self.sandbox.wrap_command(&mut std_cmd) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Sandbox wrapping failed: {e}")),
-                structured: Some(shell_execution_metadata(
-                    self.sandbox.name(),
-                    risk_level,
-                    approved,
-                )),
-            });
+            return Ok(self.tool_error(
+                format!("Sandbox wrapping failed: {e}"),
+                risk_level,
+                approved,
+            ));
         }
 
         if should_warn_for_noop_sandbox(self.security.as_ref(), self.sandbox.as_ref(), command) {
@@ -229,31 +255,20 @@ impl Tool for ShellTool {
                 })
             }
             Ok(Err(e)) => Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Failed to execute command: {e}")),
-                structured: Some(shell_execution_metadata(
-                    self.sandbox.name(),
+                ..self.tool_error(
+                    format!("Failed to execute command: {e}"),
                     risk_level,
                     approved,
-                )),
+                )
             }),
-            Err(_) => {
-                // If it times out, tokio's child process is dropped and killed.
-                Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(format!(
-                        "Command timed out after {}ms and was killed.",
-                        self.timeout.as_millis()
-                    )),
-                    structured: Some(shell_execution_metadata(
-                        self.sandbox.name(),
-                        risk_level,
-                        approved,
-                    )),
-                })
-            }
+            Err(_) => Ok(self.tool_error(
+                format!(
+                    "Command timed out after {}ms and was killed.",
+                    self.timeout.as_millis()
+                ),
+                risk_level,
+                approved,
+            )),
         }
     }
 }
