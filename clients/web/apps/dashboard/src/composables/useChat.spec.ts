@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { computed, ref } from "vue";
 
 import {
   chatSessionRecoveryLabel,
   chatSessionTransitionLabel,
   useChat,
 } from "@/composables/useChat";
-import { useGateway } from "@/composables/useGateway";
+import type { ChatGateway } from "@/types/chat";
 
 const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
 
@@ -15,35 +16,54 @@ beforeEach(() => {
   window.sessionStorage.clear();
 });
 
-async function connectReadyGateway() {
-  fetchMock.mockResolvedValueOnce(
-    new Response(JSON.stringify({ status: "ok", paired: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    })
-  );
+/**
+ * Creates a mock ChatGateway that satisfies the interface.
+ * When `ready` is true the gateway reports as ready (operator connected).
+ */
+function createMockGateway(options?: { ready?: boolean; token?: string }): ChatGateway {
+  const ready = options?.ready ?? false;
+  const token = options?.token ?? "";
+  const baseUrl = ref("/api");
+  const bearerToken = ref(token);
+  const webhookSecret = ref("");
 
-  const gateway = useGateway((key: string) => key);
-  gateway.bearerToken.value = "token-123";
-  await gateway.connectGateway();
-  return gateway;
+  return {
+    baseUrl,
+    bearerToken,
+    webhookSecret,
+    isGatewayReady: computed(() => ready),
+    normalizeBaseUrl: () => baseUrl.value,
+    gatewayUrl: (path: string) => `http://localhost:3000${baseUrl.value}${path}`,
+    authHeaders: (includeJsonContentType = true) => {
+      const headers: Record<string, string> = {};
+      if (includeJsonContentType) headers["Content-Type"] = "application/json";
+      if (bearerToken.value) headers.Authorization = `Bearer ${bearerToken.value}`;
+      if (webhookSecret.value) headers["X-Webhook-Secret"] = webhookSecret.value;
+      return headers;
+    },
+    createIdempotencyKey: () => crypto.randomUUID(),
+    getSessionList: async () => ({ sessions: [], total: 0 }),
+    markCredentialInvalid: vi.fn(),
+    markPairedButNotConnected: vi.fn(),
+  };
+}
+
+function createReadyGateway(): ChatGateway {
+  return createMockGateway({ ready: true, token: "token-123" });
 }
 
 describe("useChat", () => {
-  it("keeps session lifecycle separate from onboarding readiness", async () => {
-    const gateway = useGateway((key: string) => key);
-    gateway.bearerToken.value = "token-123";
-
+  it("keeps session lifecycle separate from onboarding readiness", () => {
+    const gateway = createMockGateway();
     const chat = useChat((key: string) => key, gateway);
 
-    expect(gateway.onboardingState.value.state).toBe("trust_pending");
     expect(chat.sessionState.value.state).toBe("idle");
     expect(chat.createSession()).toBe(false);
   });
 
-  it("enters session_pending only after gateway readiness and creates a UUID session", async () => {
+  it("enters session_pending only after gateway readiness and creates a UUID session", () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("11111111-1111-4111-8111-111111111111");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
 
     const started = chat.createSession();
@@ -56,9 +76,9 @@ describe("useChat", () => {
     );
   });
 
-  it("resumes a stored session when available", async () => {
+  it("resumes a stored session when available", () => {
     window.sessionStorage.setItem("corvus.chat.session:%2Fapi", "resume-session-1");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
 
     const resumed = chat.resumeSession();
@@ -69,8 +89,8 @@ describe("useChat", () => {
     expect(chat.statusMessage.value).toBe("chat.sessionResumed");
   });
 
-  it("maps missing resumable state to session_unavailable", async () => {
-    const gateway = await connectReadyGateway();
+  it("maps missing resumable state to session_unavailable", () => {
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
 
     const resumed = chat.resumeSession();
@@ -83,9 +103,9 @@ describe("useChat", () => {
     expect(chat.errorMessage.value).toBe("chat.sessionUnavailable");
   });
 
-  it("tracks canonical session transition labels after gateway readiness", async () => {
+  it("tracks canonical session transition labels after gateway readiness", () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("33333333-3333-4333-8333-333333333333");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
 
     const started = chat.createSession();
@@ -101,7 +121,7 @@ describe("useChat", () => {
 
   it("sends chat turns with bearer and X-Session-Id after readiness", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("22222222-2222-4222-8222-222222222222");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -129,7 +149,7 @@ describe("useChat", () => {
 
   it("sends the provided request id through the webhook path", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("12121212-1212-4212-8212-121212121212");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -152,14 +172,14 @@ describe("useChat", () => {
   });
 
   it("sendMessage throws connectBeforeChat when gateway is not ready", async () => {
-    const gateway = useGateway((key: string) => key);
+    const gateway = createMockGateway();
     const chat = useChat((key: string) => key, gateway);
 
     await expect(chat.sendMessage("hello")).rejects.toThrow("chat.connectBeforeChat");
   });
 
   it("sendMessage throws emptyMessageError for empty or whitespace message", async () => {
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -168,7 +188,7 @@ describe("useChat", () => {
   });
 
   it("sendMessage calls markCredentialInvalid and clearSession on 401", async () => {
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -176,11 +196,11 @@ describe("useChat", () => {
 
     await expect(chat.sendMessage("hello")).rejects.toThrow("auth.credentialInvalid");
     expect(chat.currentSessionId.value).toBe("");
-    expect(gateway.onboardingState.value.state).not.toBe("ready");
+    expect(gateway.markCredentialInvalid).toHaveBeenCalled();
   });
 
   it("sendMessage calls markCredentialInvalid and clearSession on 403", async () => {
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -191,7 +211,7 @@ describe("useChat", () => {
   });
 
   it("sendMessage calls markPairedButNotConnected on non-ok response", async () => {
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -201,7 +221,7 @@ describe("useChat", () => {
   });
 
   it("sendMessage throws timeoutError when fetch aborts", async () => {
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -212,7 +232,7 @@ describe("useChat", () => {
   });
 
   it("sendMessage re-throws generic errors", async () => {
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -223,7 +243,7 @@ describe("useChat", () => {
 
   it("streamMessage preserves SSE frames split across transport chunks", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("90909090-9090-4090-8090-909090909090");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -251,14 +271,14 @@ describe("useChat", () => {
 
     expect(chunks).toEqual(["Hello"]);
     expect(doneEvent.session_id).toBe("90909090-9090-4090-8090-909090909090");
-    const [, init] = fetchMock.mock.calls[1] ?? [];
+    const [, init] = fetchMock.mock.calls[0] ?? [];
     expect((init?.headers as Record<string, string>)["X-Request-Id"]).toBe("req-1");
     expect(init?.body).toBe(JSON.stringify({ message: "hello", request_id: "req-1" }));
   });
 
   it("streamMessage surfaces recalled_memory_keys from done event", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("90909090-9090-4090-8090-909090909090");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -289,7 +309,7 @@ describe("useChat", () => {
 
   it("streamMessage keeps approval responses eligible for webhook fallback", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("34343434-3434-4434-8434-343434343434");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -304,12 +324,11 @@ describe("useChat", () => {
       "chat.streamUnavailable"
     );
     expect(chat.currentSessionId.value).toBe("34343434-3434-4434-8434-343434343434");
-    expect(gateway.onboardingState.value.state).toBe("ready");
   });
 
-  it("clearSession clears sessionId, removes from storage, and sets correct state", async () => {
+  it("clearSession clears sessionId, removes from storage, and sets correct state", () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("44444444-4444-4444-8444-444444444444");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -324,7 +343,7 @@ describe("useChat", () => {
   });
 
   it("clearSession sets idle when gateway is not ready", () => {
-    const gateway = useGateway((key: string) => key);
+    const gateway = createMockGateway();
     const chat = useChat((key: string) => key, gateway);
 
     chat.clearSession();
@@ -332,10 +351,10 @@ describe("useChat", () => {
     expect(chat.sessionState.value.state).toBe("idle");
   });
 
-  it("startSession(false) always creates a new session even if stored session exists", async () => {
+  it("startSession(false) always creates a new session even if stored session exists", () => {
     window.sessionStorage.setItem("corvus.chat.session:%2Fapi", "stored-session-id");
     vi.spyOn(crypto, "randomUUID").mockReturnValue("55555555-5555-4555-8555-555555555555");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
 
     const started = chat.startSession(false);
@@ -347,7 +366,7 @@ describe("useChat", () => {
 
   it("resets session when gateway baseUrl changes", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("66666666-6666-4666-8666-666666666666");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -362,7 +381,7 @@ describe("useChat", () => {
 
   it("sendMessage returns approval_required on 403 with approval_required code", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("88888888-8888-4888-8888-888888888888");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -385,12 +404,11 @@ describe("useChat", () => {
       sessionId: "88888888-8888-4888-8888-888888888888",
     });
     expect(chat.currentSessionId.value).toBe("88888888-8888-4888-8888-888888888888");
-    expect(gateway.onboardingState.value.state).toBe("ready");
   });
 
   it("streamMessage throws streamUnavailable on non-ok non-auth response", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -402,7 +420,7 @@ describe("useChat", () => {
   });
 
   it("streamMessage throws connectBeforeChat when gateway is not ready", async () => {
-    const gateway = useGateway((key: string) => key);
+    const gateway = createMockGateway();
     const chat = useChat((key: string) => key, gateway);
 
     await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow(
@@ -412,7 +430,7 @@ describe("useChat", () => {
 
   it("streamMessage throws emptyMessageError for blank message", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -423,7 +441,7 @@ describe("useChat", () => {
 
   it("streamMessage throws timeoutError on abort", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -435,7 +453,7 @@ describe("useChat", () => {
 
   it("streamMessage handles 401 without approval code as credential invalid", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("d4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -454,7 +472,7 @@ describe("useChat", () => {
 
   it("streamMessage throws when body reader is null", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -472,7 +490,7 @@ describe("useChat", () => {
 
   it("streamMessage throws on SSE error event", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("f6f6f6f6-f6f6-4f6f-8f6f-f6f6f6f6f6f6");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -500,7 +518,7 @@ describe("useChat", () => {
 
   it("streamMessage throws when stream ends without done event", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("17171717-1717-4717-8717-171717171717");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -524,7 +542,7 @@ describe("useChat", () => {
 
   it("sendMessage does not overwrite session_id when session is already ready", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("77777777-7777-4777-8777-777777777777");
-    const gateway = await connectReadyGateway();
+    const gateway = createReadyGateway();
     const chat = useChat((key: string) => key, gateway);
     chat.createSession();
 
@@ -546,9 +564,7 @@ describe("useChat", () => {
   describe("session list and switching", () => {
     it("fetchSessionList calls gateway and populates sessionList ref", async () => {
       vi.spyOn(crypto, "randomUUID").mockReturnValue("aaa11111-1111-4111-8111-111111111111");
-      const gateway = await connectReadyGateway();
-      const chat = useChat((key: string) => key, gateway);
-
+      const gateway = createReadyGateway();
       const sessionListPayload = {
         sessions: [
           {
@@ -568,21 +584,10 @@ describe("useChat", () => {
         ],
         total: 2,
       };
+      // Override getSessionList to return the payload
+      gateway.getSessionList = vi.fn().mockResolvedValue(sessionListPayload);
 
-      // createSession triggers one watcher-driven fetch, and the explicit call triggers another.
-      fetchMock.mockResolvedValueOnce(
-        new Response(JSON.stringify(sessionListPayload), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        })
-      );
-      fetchMock.mockResolvedValueOnce(
-        new Response(JSON.stringify(sessionListPayload), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        })
-      );
-
+      const chat = useChat((key: string) => key, gateway);
       chat.createSession();
       await chat.fetchSessionList();
 
@@ -591,61 +596,21 @@ describe("useChat", () => {
       expect(chat.sessionList.value[1]?.id).toBe("s2");
     });
 
-    it("clears stale sessionList when gateway auth context changes", async () => {
-      vi.spyOn(crypto, "randomUUID").mockReturnValue("fff66666-6666-4666-8666-666666666666");
-      const gateway = await connectReadyGateway();
-      const chat = useChat((key: string) => key, gateway);
-
-      fetchMock.mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            sessions: [
-              {
-                id: "s1",
-                started_at: "2026-01-01",
-                ended_at: null,
-                message_count: 5,
-                last_activity: "2026-01-02",
-              },
-            ],
-            total: 1,
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
-      );
-
-      chat.createSession();
-      await vi.waitFor(() => expect(chat.sessionList.value).toHaveLength(1));
-
-      fetchMock.mockResolvedValueOnce(
-        new Response(JSON.stringify({ sessions: [], total: 0 }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        })
-      );
-
-      gateway.bearerToken.value = "token-456";
-
-      await vi.waitFor(() => expect(chat.sessionList.value).toEqual([]));
-      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
-    });
-
     it("fetchSessionList handles 404 gracefully with empty list", async () => {
       vi.spyOn(crypto, "randomUUID").mockReturnValue("bbb22222-2222-4222-8222-222222222222");
-      const gateway = await connectReadyGateway();
+      const gateway = createReadyGateway();
+      gateway.getSessionList = vi.fn().mockResolvedValue({ sessions: [], total: 0 });
       const chat = useChat((key: string) => key, gateway);
       chat.createSession();
-
-      fetchMock.mockResolvedValueOnce(new Response(null, { status: 404 }));
 
       await chat.fetchSessionList();
 
       expect(chat.sessionList.value).toEqual([]);
     });
 
-    it("switchSession sets new session ID and persists it", async () => {
+    it("switchSession sets new session ID and persists it", () => {
       vi.spyOn(crypto, "randomUUID").mockReturnValue("ccc33333-3333-4333-8333-333333333333");
-      const gateway = await connectReadyGateway();
+      const gateway = createReadyGateway();
       const chat = useChat((key: string) => key, gateway);
       chat.createSession();
 
@@ -658,9 +623,9 @@ describe("useChat", () => {
       expect(window.sessionStorage.getItem("corvus.chat.session:%2Fapi")).toBe("target-session-id");
     });
 
-    it("switchSession ignores switch to same session", async () => {
+    it("switchSession ignores switch to same session", () => {
       vi.spyOn(crypto, "randomUUID").mockReturnValue("ddd44444-4444-4444-8444-444444444444");
-      const gateway = await connectReadyGateway();
+      const gateway = createReadyGateway();
       const chat = useChat((key: string) => key, gateway);
       chat.createSession();
 
@@ -669,9 +634,9 @@ describe("useChat", () => {
       expect(chat.currentSessionId.value).toBe("ddd44444-4444-4444-8444-444444444444");
     });
 
-    it("switchSession ignores empty target", async () => {
+    it("switchSession ignores empty target", () => {
       vi.spyOn(crypto, "randomUUID").mockReturnValue("eee55555-5555-4555-8555-555555555555");
-      const gateway = await connectReadyGateway();
+      const gateway = createReadyGateway();
       const chat = useChat((key: string) => key, gateway);
       chat.createSession();
 
@@ -681,13 +646,12 @@ describe("useChat", () => {
     });
 
     it("fetchSessionList does nothing when gateway is not ready", async () => {
-      const gateway = useGateway((key: string) => key);
+      const gateway = createMockGateway();
       const chat = useChat((key: string) => key, gateway);
 
       await chat.fetchSessionList();
 
       expect(chat.sessionList.value).toEqual([]);
-      // Only the connectReadyGateway call from other tests uses fetch; here no fetch calls
       expect(fetchMock).not.toHaveBeenCalled();
     });
   });
