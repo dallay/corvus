@@ -5,6 +5,8 @@ import { Button, Input } from "@corvus/ui";
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import ChatWorkspace from "@/components/chat/ChatWorkspace.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import BrowserSettings from "@/components/config/BrowserSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ChannelsOverview from "@/components/config/ChannelsOverview.vue";
@@ -74,7 +76,7 @@ const { t } = useI18n();
 
 const config = useConfig(t);
 
-type DashboardPage = "config" | "sessions" | "memory";
+type DashboardPage = "config" | "sessions" | "memory" | "chat";
 const currentPage = ref<DashboardPage>("config");
 
 // Session view state
@@ -216,6 +218,16 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
             @click="currentPage = 'memory'"
         >
           {{ t("nav.memory", "Memory") }}
+        </button>
+        <button
+            :aria-selected="currentPage === 'chat'"
+            :class="{ 'nav-tab-active': currentPage === 'chat' }"
+            class="nav-tab"
+            data-testid="nav-chat"
+            role="tab"
+            @click="currentPage = 'chat'"
+        >
+          {{ t("nav.chat", "Chat") }}
         </button>
       </nav>
     </header>
@@ -598,6 +610,13 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
       </section>
     </template>
 
+    <!-- Chat page -->
+    <template v-if="currentPage === 'chat' && config.isOperatorReady.value">
+      <section class="chat-section">
+        <ChatWorkspace :config="config" />
+      </section>
+    </template>
+
     <section v-if="currentPage === 'config'" class="card">
       <p class="helper">
         {{
@@ -915,5 +934,11 @@ label span {
   display: block;
   font-size: 14px;
   margin: 10px 0;
+}
+
+.chat-section {
+  display: flex;
+  min-height: 520px;
+  max-height: 75vh;
 }
 </style>

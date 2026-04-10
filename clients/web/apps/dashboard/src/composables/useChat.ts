@@ -1,7 +1,6 @@
 import { computed, onScopeDispose, ref, watch } from "vue";
 
-import type { useGateway } from "@/composables/useGateway";
-import type { SessionListItem, StreamDoneEvent, StreamErrorEvent } from "@/types/chat";
+import type { ChatGateway, SessionListItem, StreamDoneEvent, StreamErrorEvent } from "@/types/chat";
 
 export type ChatSessionRecoveryKind = "session_unavailable";
 export type ChatSessionStatus = "idle" | "session_pending" | "session_ready" | "blocked";
@@ -20,8 +19,6 @@ export function chatSessionTransitionLabel(from: ChatSessionStatus, to: ChatSess
 export function chatSessionRecoveryLabel(recoveryKind: ChatSessionRecoveryKind): string {
   return recoveryKind;
 }
-
-type ChatGateway = ReturnType<typeof useGateway>;
 
 type ChatResponse = {
   message?: string;
@@ -586,8 +583,6 @@ export function useChat(
       return;
     }
 
-    // The current session's messages are persisted by App.vue's debounced watcher.
-    // Set the new session ID — App.vue's watcher on currentSessionId will restore messages.
     setSessionReady(targetSessionId);
   }
 
