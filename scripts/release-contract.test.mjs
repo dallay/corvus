@@ -27,10 +27,6 @@ function assertIncludesAll(text, patterns, label) {
   }
 }
 
-function assertContains(text, snippet, label) {
-  assert.ok(text.includes(snippet), `${label} is missing ${snippet}`);
-}
-
 function assertContainsInOrder(text, snippets, label) {
   let cursor = 0;
   for (const snippet of snippets) {
