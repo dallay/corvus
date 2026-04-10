@@ -1,6 +1,6 @@
 # Corvus Web Monorepo
 
-Monorepo for Corvus web apps, including docs, marketing, chat, and dashboard.
+Monorepo for Corvus web apps, including docs, marketing, and dashboard.
 
 ## Structure
 
@@ -9,8 +9,7 @@ clients/web/
 ├── apps/
 │   ├── docs/           # Documentation (Astro + Starlight)
 │   ├── marketing/      # Marketing landing and campaign pages (Astro)
-│   ├── chat/           # ChatGPT-style conversational chat (Vue 3 + Vite)
-│   └── dashboard/      # Secure gateway dashboard (Vue 3 + Vite)
+│   └── dashboard/      # Secure gateway dashboard with chat (Vue 3 + Vite)
 ├── packages/
 │   └── shared/         # Shared utilities
 ├── biome.json          # Single Biome config for the whole monorepo

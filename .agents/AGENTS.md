@@ -134,7 +134,7 @@ If using Gradle directly for Rust tasks, include `-PenableRustTasks=true`.
 ### Formatting / lint / coverage
 
 - `make format`, `make check-format`, `make lint-kotlin`, `make lint-rust`, `make lint-android`
-- `make docs-check`, `make chat-check`, `make dashboard-check`, `make marketing-check`
+- `make docs-check`, `make dashboard-check`, `make marketing-check`
 - `make test-coverage`, `make rust-coverage`, `make link-check`, `make link-check-local`
 
 ## Code style

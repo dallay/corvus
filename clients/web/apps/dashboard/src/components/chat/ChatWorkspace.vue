@@ -115,6 +115,7 @@ async function beginSession(preferResume: boolean): Promise<void> {
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function startNewSession(): Promise<void> {
+  persistMessages();
   chat.clearSession();
   await beginSession(false);
 }
@@ -212,7 +213,7 @@ async function sendMessage(): Promise<void> {
           id: nextMessageId(),
           role: "assistant",
           content: "",
-          approvalId: result.sessionId,
+          approvalId: gateway.createIdempotencyKey(),
           toolName: result.tool,
           reason: result.reason,
         });
@@ -240,7 +241,7 @@ watch(
 );
 
 function messagesStorageKey(): string {
-  return `corvus-chat-messages-${chat.currentSessionId.value}`;
+  return `corvus-chat-messages-${encodeURIComponent(gateway.normalizeBaseUrl())}:${chat.currentSessionId.value}`;
 }
 
 function persistMessages(): void {
@@ -356,6 +357,20 @@ watch(
   () => chat.currentSessionId.value,
   (sessionId) => {
     if (sessionId) restoreMessages();
+  }
+);
+
+watch(
+  () => gateway.bearerToken.value,
+  () => {
+    if (chat.currentSessionId.value) {
+      try {
+        sessionStorage.removeItem(messagesStorageKey());
+      } catch {
+        // Ignore storage failures.
+      }
+      resetMessagesForSession();
+    }
   }
 );
 

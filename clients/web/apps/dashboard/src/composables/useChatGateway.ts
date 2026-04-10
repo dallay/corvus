@@ -92,19 +92,30 @@ export function useChatGateway(
         return { sessions: [], total: 0 };
       }
 
-      const data = (await response.json()) as {
-        sessions: Array<{
+      const data = (await response.json()) as Record<string, unknown>;
+      const rawSessions = Array.isArray(data.sessions) ? data.sessions : [];
+      const sessions = rawSessions.filter(
+        (
+          s
+        ): s is {
           id: string;
           started_at: string;
           ended_at: string | null;
           message_count: number;
           last_activity: string;
-        }>;
-        total: number;
-      };
+        } =>
+          s != null &&
+          typeof s === "object" &&
+          typeof (s as Record<string, unknown>).id === "string" &&
+          typeof (s as Record<string, unknown>).started_at === "string" &&
+          ((s as Record<string, unknown>).ended_at === null ||
+            typeof (s as Record<string, unknown>).ended_at === "string") &&
+          typeof (s as Record<string, unknown>).message_count === "number" &&
+          typeof (s as Record<string, unknown>).last_activity === "string"
+      );
       return {
-        sessions: Array.isArray(data.sessions) ? data.sessions : [],
-        total: typeof data.total === "number" ? data.total : 0,
+        sessions,
+        total: Math.max(0, Math.floor(Number(data.total) || 0)),
       };
     } catch (error) {
       if (error instanceof Error && error.message === t("auth.credentialInvalid")) {
