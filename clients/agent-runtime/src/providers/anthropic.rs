@@ -1435,4 +1435,66 @@ mod tests {
 
         assert!(err.contains("last non-system message to be a user message"));
     }
+
+    #[tokio::test]
+    async fn image_blocks_preserve_multiple_images_in_order() {
+        use crate::channels::media::{AllowedImageMime, ImageTransportForm, StagedImage};
+        use std::io::Write;
+
+        let mut first = tempfile::NamedTempFile::new().unwrap();
+        let first_bytes = b"first-anthropic-image";
+        first.write_all(first_bytes).unwrap();
+        first.flush().unwrap();
+
+        let mut second = tempfile::NamedTempFile::new().unwrap();
+        let second_bytes = b"second-anthropic-image";
+        second.write_all(second_bytes).unwrap();
+        second.flush().unwrap();
+
+        let images = vec![
+            StagedImage {
+                sha256: "1".repeat(64),
+                mime_type: AllowedImageMime::Jpeg,
+                byte_len: first_bytes.len() as u64,
+                temp_path: first.path().to_path_buf(),
+                transport_form: ImageTransportForm::InlineBytes,
+                channel_origin: "test".into(),
+            },
+            StagedImage {
+                sha256: "2".repeat(64),
+                mime_type: AllowedImageMime::Png,
+                byte_len: second_bytes.len() as u64,
+                temp_path: second.path().to_path_buf(),
+                transport_form: ImageTransportForm::InlineBytes,
+                channel_origin: "test".into(),
+            },
+        ];
+
+        let messages = vec![ChatMessage::user("describe both")];
+        let (_, mut native_messages) = AnthropicProvider::convert_messages(&messages);
+
+        AnthropicProvider::attach_images_to_last_user_message(
+            &messages,
+            &mut native_messages,
+            &images,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(native_messages[0].content.len(), 3);
+        match &native_messages[0].content[1] {
+            NativeContentOut::Image { source } => {
+                assert_eq!(source.media_type, "image/jpeg");
+                assert_eq!(source.data, base64_encode(first_bytes));
+            }
+            _ => panic!("expected first image block"),
+        }
+        match &native_messages[0].content[2] {
+            NativeContentOut::Image { source } => {
+                assert_eq!(source.media_type, "image/png");
+                assert_eq!(source.data, base64_encode(second_bytes));
+            }
+            _ => panic!("expected second image block"),
+        }
+    }
 }

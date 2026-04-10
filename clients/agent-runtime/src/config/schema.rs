@@ -294,12 +294,20 @@ pub struct MultimodalConfig {
     /// Operator override for the default 10 MiB limit.
     #[serde(default)]
     pub max_image_bytes: Option<u64>,
+    /// Operator override for the default per-turn image count limit.
+    #[serde(default)]
+    pub max_images_per_turn: Option<usize>,
     /// Startup-only stale staged-image reaper threshold in minutes.
     #[serde(default)]
     pub staged_image_reaper_threshold_minutes: Option<u64>,
 }
 
 impl MultimodalConfig {
+    pub fn effective_max_images_per_turn(&self) -> usize {
+        self.max_images_per_turn
+            .unwrap_or(crate::channels::media::DEFAULT_MAX_IMAGES_PER_TURN)
+    }
+
     pub fn effective_staged_image_reaper_threshold_minutes(&self) -> u64 {
         self.staged_image_reaper_threshold_minutes
             .unwrap_or(crate::channels::media::DEFAULT_STAGED_IMAGE_REAPER_THRESHOLD_MINUTES)
@@ -3399,6 +3407,19 @@ impl Config {
             }
         }
 
+        if let Some(max_images_per_turn) = mm.max_images_per_turn {
+            if max_images_per_turn == 0 {
+                anyhow::bail!("multimodal.max_images_per_turn must be greater than 0");
+            }
+            if max_images_per_turn > crate::channels::media::MAX_IMAGES_PER_TURN_CEILING {
+                anyhow::bail!(
+                    "multimodal.max_images_per_turn={} exceeds the ceiling ({})",
+                    max_images_per_turn,
+                    crate::channels::media::MAX_IMAGES_PER_TURN_CEILING,
+                );
+            }
+        }
+
         if let Some(threshold_minutes) = mm.staged_image_reaper_threshold_minutes {
             if threshold_minutes == 0 {
                 anyhow::bail!(
@@ -3446,14 +3467,29 @@ impl Config {
             }
         }
 
-        // Log effective max_image_bytes
-        let effective = mm
+        // Log effective multimodal limits
+        let effective_max_image_bytes = mm
             .max_image_bytes
             .unwrap_or(crate::channels::media::MAX_IMAGE_BYTES);
+        let effective_max_images_per_turn = mm.effective_max_images_per_turn();
         if mm.max_image_bytes.is_some() {
-            tracing::info!("Multimodal enabled: max_image_bytes={effective} (config override)");
+            tracing::info!(
+                "Multimodal enabled: max_image_bytes={effective_max_image_bytes} (config override), max_images_per_turn={effective_max_images_per_turn}{}",
+                if mm.max_images_per_turn.is_some() {
+                    " (config override)"
+                } else {
+                    " (default)"
+                }
+            );
         } else {
-            tracing::info!("Multimodal enabled: max_image_bytes={effective} (default)");
+            tracing::info!(
+                "Multimodal enabled: max_image_bytes={effective_max_image_bytes} (default), max_images_per_turn={effective_max_images_per_turn}{}",
+                if mm.max_images_per_turn.is_some() {
+                    " (config override)"
+                } else {
+                    " (default)"
+                }
+            );
         }
 
         Ok(())
@@ -6513,6 +6549,7 @@ default_model = "legacy-model"
         assert!(mm.allowed_channels.is_empty());
         assert!(mm.vision_model_hint.is_none());
         assert!(mm.max_image_bytes.is_none());
+        assert!(mm.max_images_per_turn.is_none());
         assert!(mm.staged_image_reaper_threshold_minutes.is_none());
     }
 
@@ -6526,10 +6563,12 @@ default_temperature = 0.7
         assert!(parsed.multimodal.allowed_channels.is_empty());
         assert!(parsed.multimodal.vision_model_hint.is_none());
         assert!(parsed.multimodal.max_image_bytes.is_none());
+        assert!(parsed.multimodal.max_images_per_turn.is_none());
         assert!(parsed
             .multimodal
             .staged_image_reaper_threshold_minutes
             .is_none());
+        assert_eq!(parsed.multimodal.effective_max_images_per_turn(), 4);
         assert_eq!(
             parsed
                 .multimodal
@@ -6548,6 +6587,7 @@ enabled = true
 allowed_channels = ["telegram", "whatsapp", "discord", "slack"]
 vision_model_hint = "vision"
 max_image_bytes = 5242880
+max_images_per_turn = 6
 staged_image_reaper_threshold_minutes = 90
 "#;
         let parsed: Config = toml::from_str(toml_str).unwrap();
@@ -6561,10 +6601,12 @@ staged_image_reaper_threshold_minutes = 90
             Some("vision")
         );
         assert_eq!(parsed.multimodal.max_image_bytes, Some(5_242_880));
+        assert_eq!(parsed.multimodal.max_images_per_turn, Some(6));
         assert_eq!(
             parsed.multimodal.staged_image_reaper_threshold_minutes,
             Some(90)
         );
+        assert_eq!(parsed.multimodal.effective_max_images_per_turn(), 6);
         assert_eq!(
             parsed
                 .multimodal
@@ -6586,6 +6628,7 @@ enabled = true
         assert!(parsed.multimodal.allowed_channels.is_empty());
         assert!(parsed.multimodal.vision_model_hint.is_none());
         assert!(parsed.multimodal.max_image_bytes.is_none());
+        assert_eq!(parsed.multimodal.effective_max_images_per_turn(), 4);
     }
 
     #[test]
@@ -6814,6 +6857,56 @@ allow_image_input = true
             },
             ..Config::default()
         };
+        assert!(config.validate_multimodal_config().is_ok());
+    }
+
+    #[test]
+    fn multimodal_max_images_per_turn_zero_rejected() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: false,
+                max_images_per_turn: Some(0),
+                ..Default::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_multimodal_config().unwrap_err();
+        assert!(
+            err.to_string().contains("max_images_per_turn")
+                && err.to_string().contains("greater than 0"),
+            "expected max_images_per_turn > 0 error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn multimodal_max_images_per_turn_exceeds_ceiling_rejected() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: false,
+                max_images_per_turn: Some(9),
+                ..Default::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_multimodal_config().unwrap_err();
+        assert!(
+            err.to_string().contains("max_images_per_turn=9")
+                && err.to_string().contains("ceiling"),
+            "expected max_images_per_turn ceiling error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn multimodal_max_images_per_turn_valid_override_accepted() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: false,
+                max_images_per_turn: Some(3),
+                ..Default::default()
+            },
+            ..Config::default()
+        };
+        assert_eq!(config.multimodal.effective_max_images_per_turn(), 3);
         assert!(config.validate_multimodal_config().is_ok());
     }
 
