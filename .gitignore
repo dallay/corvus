@@ -217,4 +217,5 @@ build/spotless-prettier-node-modules-*/serve.js
 /GEMINI.md
 /GEMINI.md.bak
 /opencode.json
+/opencode.json.bak
 # END AI Agent Symlinks
