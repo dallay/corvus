@@ -110,12 +110,16 @@ const showResetAction = computed(() => hasOperationalData.value);
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const showActionPanel = computed(() => showOverrideAction.value || showResetAction.value);
 
-void governance.reload();
+function refreshGovernance(): void {
+  governance.reload().catch(() => undefined);
+}
+
+refreshGovernance();
 
 watch(
   () => [props.gatewayUrl, props.bearerToken],
   () => {
-    void governance.reload();
+    refreshGovernance();
   },
   { deep: false }
 );
@@ -125,10 +129,10 @@ watch(
   <section class="card">
     <h2>{{ t("sections.cost") }}</h2>
 
-    <p v-if="loading" class="helper" aria-live="polite" role="status">
+    <p v-if="loading" class="helper" aria-live="polite">
       {{ t("cost.loading") }}
     </p>
-    <p v-else-if="error" class="error" aria-live="assertive" role="alert">
+    <p v-else-if="error" class="error" aria-live="assertive">
       {{ error }}
     </p>
     <div v-else-if="config" class="panel" data-testid="cost-overview">
@@ -287,7 +291,7 @@ watch(
         <p v-if="actionMessage" class="helper" aria-live="polite">
           {{ actionMessage }}
         </p>
-        <p v-if="actionError" class="error" aria-live="assertive" role="alert">
+        <p v-if="actionError" class="error" aria-live="assertive">
           {{ actionError }}
         </p>
       </div>

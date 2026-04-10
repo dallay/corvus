@@ -270,7 +270,7 @@ export function useAdmin(
       sessionDetail.value = {
         ...data.session,
         memory_summary: data.memory_summary,
-      } as AdminSessionDetail;
+      };
     } catch (e: unknown) {
       if (requestId !== sessionDetailRequestId) {
         return;

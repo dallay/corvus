@@ -120,7 +120,7 @@ export interface AdminCerebroStatsResponse {
 export interface AdminCerebroActionSuccess {
   state: "available";
   tool: CerebroToolName;
-  data: Record<string, unknown> | Array<unknown> | string | number | boolean | null;
+  data: Record<string, unknown> | unknown[] | string | number | boolean | null;
 }
 
 export type AdminCerebroActionResponse<T> = T | AdminCerebroActionError;

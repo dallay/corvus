@@ -245,13 +245,7 @@ impl SecurityPolicy {
 
     /// Classify command risk. Any high-risk segment marks the whole command high.
     pub fn command_risk_level(&self, command: &str) -> CommandRiskLevel {
-        let mut normalized = command.to_string();
-        for sep in ["&&", "||"] {
-            normalized = normalized.replace(sep, "\x00");
-        }
-        for sep in ['\n', ';', '|', '&'] {
-            normalized = normalized.replace(sep, "\x00");
-        }
+        let normalized = normalize_risk_segments(command);
 
         let mut saw_medium = false;
 
@@ -268,88 +262,14 @@ impl SecurityPolicy {
             };
 
             let base = base_raw.to_ascii_lowercase();
-
             let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
             let joined_segment = cmd_part.to_ascii_lowercase();
 
-            // High-risk commands
-            if matches!(
-                base.as_str(),
-                "rm" | "mkfs"
-                    | "dd"
-                    | "shutdown"
-                    | "reboot"
-                    | "halt"
-                    | "poweroff"
-                    | "sudo"
-                    | "su"
-                    | "chown"
-                    | "chmod"
-                    | "useradd"
-                    | "userdel"
-                    | "usermod"
-                    | "passwd"
-                    | "mount"
-                    | "umount"
-                    | "iptables"
-                    | "ufw"
-                    | "firewall-cmd"
-                    | "curl"
-                    | "wget"
-                    | "nc"
-                    | "ncat"
-                    | "netcat"
-                    | "scp"
-                    | "ssh"
-                    | "ftp"
-                    | "telnet"
-            ) {
+            if is_high_risk_base_command(&base) || contains_high_risk_snippet(&joined_segment) {
                 return CommandRiskLevel::High;
             }
 
-            if joined_segment.contains("rm -rf /")
-                || joined_segment.contains("rm -fr /")
-                || joined_segment.contains(":(){:|:&};:")
-            {
-                return CommandRiskLevel::High;
-            }
-
-            // Medium-risk commands (state-changing, but not inherently destructive)
-            let medium = match base.as_str() {
-                "git" => args.first().is_some_and(|verb| {
-                    matches!(
-                        verb.as_str(),
-                        "commit"
-                            | "push"
-                            | "reset"
-                            | "clean"
-                            | "rebase"
-                            | "merge"
-                            | "cherry-pick"
-                            | "revert"
-                            | "branch"
-                            | "checkout"
-                            | "switch"
-                            | "tag"
-                    )
-                }),
-                "npm" | "pnpm" | "yarn" => args.first().is_some_and(|verb| {
-                    matches!(
-                        verb.as_str(),
-                        "install" | "add" | "remove" | "uninstall" | "update" | "publish"
-                    )
-                }),
-                "cargo" => args.first().is_some_and(|verb| {
-                    matches!(
-                        verb.as_str(),
-                        "add" | "remove" | "install" | "clean" | "publish"
-                    )
-                }),
-                "touch" | "mkdir" | "mv" | "cp" | "ln" => true,
-                _ => false,
-            };
-
-            saw_medium |= medium;
+            saw_medium |= is_medium_risk_command(&base, &args);
         }
 
         if saw_medium {
@@ -689,6 +609,91 @@ impl SecurityPolicy {
             block_high_risk_commands: autonomy_config.block_high_risk_commands,
             tracker: ActionTracker::new(),
         }
+    }
+}
+
+fn normalize_risk_segments(command: &str) -> String {
+    let mut normalized = command.to_string();
+    for sep in ["&&", "||"] {
+        normalized = normalized.replace(sep, "\x00");
+    }
+    for sep in ['\n', ';', '|', '&'] {
+        normalized = normalized.replace(sep, "\x00");
+    }
+    normalized
+}
+
+fn is_high_risk_base_command(base: &str) -> bool {
+    matches!(
+        base,
+        "rm" | "mkfs"
+            | "dd"
+            | "shutdown"
+            | "reboot"
+            | "halt"
+            | "poweroff"
+            | "sudo"
+            | "su"
+            | "chown"
+            | "chmod"
+            | "useradd"
+            | "userdel"
+            | "usermod"
+            | "passwd"
+            | "mount"
+            | "umount"
+            | "iptables"
+            | "ufw"
+            | "firewall-cmd"
+            | "curl"
+            | "wget"
+            | "nc"
+            | "ncat"
+            | "netcat"
+            | "scp"
+            | "ssh"
+            | "ftp"
+            | "telnet"
+    )
+}
+
+fn contains_high_risk_snippet(segment: &str) -> bool {
+    segment.contains("rm -rf /") || segment.contains("rm -fr /") || segment.contains(":(){:|:&};:")
+}
+
+fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
+    match base {
+        "git" => args.first().is_some_and(|verb| {
+            matches!(
+                verb.as_str(),
+                "commit"
+                    | "push"
+                    | "reset"
+                    | "clean"
+                    | "rebase"
+                    | "merge"
+                    | "cherry-pick"
+                    | "revert"
+                    | "branch"
+                    | "checkout"
+                    | "switch"
+                    | "tag"
+            )
+        }),
+        "npm" | "pnpm" | "yarn" => args.first().is_some_and(|verb| {
+            matches!(
+                verb.as_str(),
+                "install" | "add" | "remove" | "uninstall" | "update" | "publish"
+            )
+        }),
+        "cargo" => args.first().is_some_and(|verb| {
+            matches!(
+                verb.as_str(),
+                "add" | "remove" | "install" | "clean" | "publish"
+            )
+        }),
+        "touch" | "mkdir" | "mv" | "cp" | "ln" => true,
+        _ => false,
     }
 }
 

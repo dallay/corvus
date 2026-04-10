@@ -13,12 +13,16 @@ import com.profiletailors.corvus.runtime.MobileRuntimeCoordinator
 import com.profiletailors.corvus.runtime.RuntimeApprovalDecision
 import com.profiletailors.corvus.runtime.RuntimeSessionId
 import com.profiletailors.corvus.runtime.rememberPlatformRuntimeDependencies
+import com.profiletailors.corvus.ui.chat.BridgeActions
 import com.profiletailors.corvus.ui.chat.ChatWorkspace
+import com.profiletailors.corvus.ui.chat.ChatWorkspaceContent
 import com.profiletailors.corvus.ui.chat.ChatWorkspaceDefaults
 import com.profiletailors.corvus.ui.chat.MobileBridgeSnapshot
 import com.profiletailors.corvus.ui.chat.MobileOnboardingState
 import com.profiletailors.corvus.ui.chat.MobileOnboardingStatus
 import com.profiletailors.corvus.ui.onboarding.OnboardingScreen
+import com.profiletailors.corvus.ui.onboarding.OnboardingScreenActions
+import com.profiletailors.corvus.ui.onboarding.OnboardingScreenState
 import com.profiletailors.corvus.ui.onboarding.runtimeOnboardingStep
 import com.profiletailors.corvus.ui.theme.CorvusTheme
 import kotlin.uuid.ExperimentalUuidApi
@@ -112,13 +116,14 @@ private fun AppOnboardingContent(
 ) {
   val step = runtimeOnboardingStep(onboardingState)
   OnboardingScreen(
-    step = step,
-    currentStepIndex = step.progressIndex,
-    totalSteps = step.totalSteps,
-    isLastStep = step.isTerminal,
-    primaryActionLabel = step.actionLabel,
-    onSkip = onSkip,
-    onNext = onPrimaryAction,
+    state =
+      OnboardingScreenState(
+        step = step,
+        currentStepIndex = step.progressIndex,
+        totalSteps = step.totalSteps,
+        primaryActionLabel = step.actionLabel,
+      ),
+    actions = OnboardingScreenActions(onSkip = onSkip, onNext = onPrimaryAction),
   )
 }
 
@@ -126,21 +131,27 @@ private fun AppOnboardingContent(
 private fun AppChatContent(platform: Platform, bindings: ChatBindings) {
   ChatWorkspace(
     state = ChatWorkspaceDefaults.state(modelName = AGENT_NAME),
-    bridgeSnapshot = bindings.coordinatorState.bridgeSnapshot,
-    platformName = platform.name,
-    messages = bindings.coordinatorState.messages,
-    pendingApproval = bindings.coordinatorState.pendingApproval,
-    resumableSessions = bindings.coordinatorState.resumableSessions,
-    targetLabel = bindings.coordinatorState.targetLabel,
-    activeSessionId = bindings.coordinatorState.activeSessionId?.value,
-    onRetryBridge = bindings.onRetryBridge,
-    onLinkSurface = bindings.onLinkSurface,
-    onStartSession = bindings.onStartSession,
-    onResumeSession = bindings.onResumeSession,
+    content =
+      ChatWorkspaceContent(
+        bridgeSnapshot = bindings.coordinatorState.bridgeSnapshot,
+        platformName = platform.name,
+        messages = bindings.coordinatorState.messages,
+        resumableSessions = bindings.coordinatorState.resumableSessions,
+        pendingApproval = bindings.coordinatorState.pendingApproval,
+        targetLabel = bindings.coordinatorState.targetLabel,
+        activeSessionId = bindings.coordinatorState.activeSessionId?.value,
+      ),
+    bridgeActions =
+      BridgeActions(
+        onRetryBridge = bindings.onRetryBridge,
+        onLinkSurface = bindings.onLinkSurface,
+        onStartSession = bindings.onStartSession,
+        onResumeSession = bindings.onResumeSession,
+        onDisconnectReset = bindings.onDisconnectReset,
+        onApprove = bindings.onApprove,
+        onDeny = bindings.onDeny,
+      ),
     onSendMessage = bindings.onSendMessage,
-    onDisconnectReset = bindings.onDisconnectReset,
-    onApprove = bindings.onApprove,
-    onDeny = bindings.onDeny,
   )
 }
 

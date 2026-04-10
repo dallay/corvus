@@ -77,78 +77,17 @@ impl CliChannel {
     ) -> Result<(), ReceiverClosed> {
         let started_at = std::time::Instant::now();
 
-        // ── Gate 1: audio globally enabled ───────────────────
-        if !self.audio_config.enabled {
-            println!("Audio input is currently disabled.");
-            self.emit_rejected(&AudioRejectionReason::Disabled, None, None);
+        let Some(transcriber) = self.ensure_audio_command_ready() else {
             return Ok(());
-        }
-
-        // ── Gate 2: "cli" in allowed_channels ────────────────
-        if !self
-            .audio_config
-            .allowed_channels
-            .iter()
-            .any(|c| c == "cli")
-        {
-            println!("Audio input is not enabled for CLI.");
-            self.emit_rejected(&AudioRejectionReason::ChannelNotAllowed, None, None);
-            return Ok(());
-        }
-
-        // ── Gate 3: transcriber available ────────────────────
-        let transcriber = match &self.transcriber {
-            Some(t) => Arc::clone(t),
-            None => {
-                println!(
-                    "Audio transcription is not available on this agent. \
-                     Please send text instead."
-                );
-                self.emit_rejected(&AudioRejectionReason::TranscriberUnavailable, None, None);
-                return Ok(());
-            }
         };
 
         // ── Pre-check: file open + metadata (avoid TOCTOU) ───────
-        let file = match tokio::fs::File::open(path).await {
-            Ok(f) => f,
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    println!("File not found: {path}");
-                } else {
-                    println!("Cannot read file: {path}");
-                }
-                return Ok(());
-            }
-        };
-
-        let metadata = match file.metadata().await {
-            Ok(m) => m,
-            Err(_) => {
-                println!("Cannot read file metadata: {path}");
-                return Ok(());
-            }
-        };
-
-        if !metadata.file_type().is_file() {
-            println!("Not a regular file: {path}");
+        let Some((bytes, bytes_read)) = self.read_audio_bytes(path).await else {
             return Ok(());
-        }
-
-        // ── Read with capped reader to detect oversize before allocating ──
-        let max_size = self.audio_config.max_audio_bytes;
-        let mut capped_reader = tokio::io::AsyncReadExt::take(file, max_size + 1);
-        let mut bytes = Vec::new();
-        let bytes_read =
-            match tokio::io::AsyncReadExt::read_to_end(&mut capped_reader, &mut bytes).await {
-                Ok(n) => n,
-                Err(_) => {
-                    println!("Cannot read file: {path}");
-                    return Ok(());
-                }
-            };
+        };
 
         // Check if file was larger than max_size (capped read returned max+1 bytes)
+        let max_size = self.audio_config.max_audio_bytes;
         if bytes_read > usize::try_from(max_size).unwrap_or(usize::MAX) {
             let reason = AudioRejectionReason::Oversize;
             println!(
@@ -262,6 +201,70 @@ impl CliChannel {
             return Err(ReceiverClosed);
         }
         Ok(())
+    }
+
+    fn ensure_audio_command_ready(&self) -> Option<Arc<dyn Transcriber>> {
+        if !self.audio_config.enabled {
+            println!("Audio input is currently disabled.");
+            self.emit_rejected(&AudioRejectionReason::Disabled, None, None);
+            return None;
+        }
+
+        if !self.audio_config.allowed_channels.iter().any(|channel| channel == "cli") {
+            println!("Audio input is not enabled for CLI.");
+            self.emit_rejected(&AudioRejectionReason::ChannelNotAllowed, None, None);
+            return None;
+        }
+
+        match &self.transcriber {
+            Some(transcriber) => Some(Arc::clone(transcriber)),
+            None => {
+                println!(
+                    "Audio transcription is not available on this agent. \
+                     Please send text instead."
+                );
+                self.emit_rejected(&AudioRejectionReason::TranscriberUnavailable, None, None);
+                None
+            }
+        }
+    }
+
+    async fn read_audio_bytes(&self, path: &str) -> Option<(Vec<u8>, usize)> {
+        let file = match tokio::fs::File::open(path).await {
+            Ok(file) => file,
+            Err(error) => {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    println!("File not found: {path}");
+                } else {
+                    println!("Cannot read file: {path}");
+                }
+                return None;
+            }
+        };
+
+        let metadata = match file.metadata().await {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                println!("Cannot read file metadata: {path}");
+                return None;
+            }
+        };
+
+        if !metadata.file_type().is_file() {
+            println!("Not a regular file: {path}");
+            return None;
+        }
+
+        let max_size = self.audio_config.max_audio_bytes;
+        let mut capped_reader = tokio::io::AsyncReadExt::take(file, max_size + 1);
+        let mut bytes = Vec::new();
+        match tokio::io::AsyncReadExt::read_to_end(&mut capped_reader, &mut bytes).await {
+            Ok(bytes_read) => Some((bytes, bytes_read)),
+            Err(_) => {
+                println!("Cannot read file: {path}");
+                None
+            }
+        }
     }
 
     /// Emit a rejected `AudioIngressEvent` through the observer.

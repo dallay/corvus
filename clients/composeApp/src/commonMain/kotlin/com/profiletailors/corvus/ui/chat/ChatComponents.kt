@@ -50,12 +50,19 @@ internal val ConfigPanelShape = RoundedCornerShape(20.dp)
 internal val DiagnosticsCardShape = RoundedCornerShape(16.dp)
 internal val ChatBubbleShape = RoundedCornerShape(18.dp)
 
+private const val SETTINGS_CONTENT_DESCRIPTION = "Settings"
+private const val RECOVERY_REQUIRED_LABEL = "Recovery required"
+private const val TARGET_SELECTED_LABEL = "Target selected"
+
 @Immutable data class ChatMessage(val id: Int, val role: ChatRole, val content: String)
 
 enum class ChatRole {
   User,
   Assistant,
 }
+
+@Immutable
+private data class ChatBubblePalette(val background: Color, val accent: Color, val shadow: Color)
 
 @Composable
 fun GlassSurface(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -124,6 +131,16 @@ fun GradientButton(
 fun ChatBubble(message: ChatMessage, modelName: String) {
   val isUser = message.role == ChatRole.User
   val corvusColors = CorvusTheme.colors
+  val bubblePalette =
+    remember(isUser, corvusColors) {
+      ChatBubblePalette(
+        background = if (isUser) corvusColors.userBubbleBackground else corvusColors.glassSurface,
+        accent = if (isUser) corvusColors.glowPurple else corvusColors.glowCyan,
+        shadow =
+          if (isUser) corvusColors.glowPurple.copy(alpha = 0.2f)
+          else corvusColors.glowCyan.copy(alpha = 0.2f),
+      )
+    }
 
   Row(
     modifier = Modifier.fillMaxWidth(),
@@ -140,6 +157,7 @@ fun ChatBubble(message: ChatMessage, modelName: String) {
       message = message,
       contentColor = MaterialTheme.colorScheme.onSurface,
       corvusColors = corvusColors,
+      bubblePalette = bubblePalette,
     )
   }
 }
@@ -186,6 +204,7 @@ private fun ChatBubbleBody(
   message: ChatMessage,
   contentColor: Color,
   corvusColors: CorvusColorPalette,
+  bubblePalette: ChatBubblePalette,
 ) {
   Box(
     modifier =
@@ -193,24 +212,18 @@ private fun ChatBubbleBody(
         .shadow(
           elevation = if (isUser) 6.dp else 4.dp,
           shape = ChatBubbleShape,
-          spotColor =
-            if (isUser) corvusColors.glowPurple.copy(alpha = 0.2f)
-            else corvusColors.glowCyan.copy(alpha = 0.2f),
+          spotColor = bubblePalette.shadow,
         )
   ) {
     Surface(
       shape = ChatBubbleShape,
-      color = if (isUser) corvusColors.userBubbleBackground else corvusColors.glassSurface,
+      color = bubblePalette.background,
       border =
         BorderStroke(
           width = 1.dp,
           brush =
             Brush.horizontalGradient(
-              listOf(
-                if (isUser) corvusColors.glowPurple.copy(alpha = 0.3f)
-                else corvusColors.glowCyan.copy(alpha = 0.3f),
-                Color.Transparent,
-              )
+              listOf(bubblePalette.accent.copy(alpha = 0.3f), Color.Transparent)
             ),
         ),
     ) {
@@ -301,7 +314,7 @@ fun ChatHeader(
     ) {
       Icon(
         imageVector = Icons.Default.Settings,
-        contentDescription = "Settings",
+        contentDescription = SETTINGS_CONTENT_DESCRIPTION,
         tint = Color.White,
         modifier = Modifier.size(22.dp),
       )
@@ -468,20 +481,20 @@ fun diagnosticsCard(
 
 internal fun onboardingStateLabel(onboardingState: MobileOnboardingState): String =
   when (onboardingState.status) {
-    MobileOnboardingStatus.TARGET_SELECTED -> "Target selected"
-    MobileOnboardingStatus.RECOVERY -> "Recovery required"
+    MobileOnboardingStatus.TARGET_SELECTED -> TARGET_SELECTED_LABEL
+    MobileOnboardingStatus.RECOVERY -> RECOVERY_REQUIRED_LABEL
     MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED -> "Runtime available"
     MobileOnboardingStatus.TRUST_PENDING -> "Trust this surface"
     MobileOnboardingStatus.TRANSPORT_CONNECTING -> "Connect to runtime"
     MobileOnboardingStatus.SESSION_PENDING -> "Session pending"
     MobileOnboardingStatus.SESSION_READY -> "Session ready"
-    MobileOnboardingStatus.BLOCKED -> "Recovery required"
+    MobileOnboardingStatus.BLOCKED -> RECOVERY_REQUIRED_LABEL
   }
 
 internal fun bridgeStateHeadline(bridgeState: MobileBridgeUiState): String =
   when (bridgeState.onboardingState.status) {
-    MobileOnboardingStatus.TARGET_SELECTED -> "Target selected"
-    MobileOnboardingStatus.RECOVERY -> "Recovery required"
+    MobileOnboardingStatus.TARGET_SELECTED -> TARGET_SELECTED_LABEL
+    MobileOnboardingStatus.RECOVERY -> RECOVERY_REQUIRED_LABEL
     // Client-first: Connect to an existing runtime, not local bridge
     MobileOnboardingStatus.TRUST_PENDING -> "Connect to runtime endpoint"
     MobileOnboardingStatus.SESSION_PENDING -> "Runtime connected. Start or resume a session next."

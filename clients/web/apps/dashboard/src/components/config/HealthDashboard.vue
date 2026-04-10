@@ -112,8 +112,8 @@ onUnmounted(() => {
 <template>
   <section class="card">
     <h2>{{ t("sections.health") }}</h2>
-    <p v-if="loading" class="helper" aria-live="polite" role="status">{{ t("health.loading") }}</p>
-    <p v-else-if="error" class="error" aria-live="assertive" role="alert">{{ error }}</p>
+    <p v-if="loading" class="helper" aria-live="polite">{{ t("health.loading") }}</p>
+    <p v-else-if="error" class="error" aria-live="assertive">{{ error }}</p>
     <template v-else-if="health">
       <div class="health-summary">
         <span class="health-indicator" :class="overallStatus" aria-hidden="true" />

@@ -159,31 +159,8 @@ pub fn discover_searchable_files_with_stats(
     rules: DiscoveryRules,
 ) -> anyhow::Result<DiscoveryResult> {
     let (workspace_root, search_root) = validate_search_root(security, relative_root)?;
-    let mut builder = WalkBuilder::new(&search_root);
-    builder.standard_filters(true);
-    builder.git_ignore(true);
-    builder.git_global(!rules.use_workspace_local_ignores_only);
-    builder.git_exclude(!rules.use_workspace_local_ignores_only);
-    builder.parents(!rules.use_workspace_local_ignores_only);
-    builder.follow_links(rules.follow_links);
-    builder.hidden(!rules.include_hidden);
-    builder.require_git(false);
-
-    if !include.is_empty() || !exclude.is_empty() {
-        let mut overrides = OverrideBuilder::new(&search_root);
-        for pattern in include {
-            overrides
-                .add(pattern)
-                .with_context(|| format!("Invalid include glob '{pattern}'"))?;
-        }
-        for pattern in exclude {
-            overrides
-                .add(&format!("!{pattern}"))
-                .with_context(|| format!("Invalid exclude glob '{pattern}'"))?;
-        }
-        let overrides = overrides.build().context("Invalid search glob override")?;
-        builder.overrides(overrides);
-    }
+    let mut builder = configured_walk_builder(&search_root, rules);
+    apply_overrides(&mut builder, &search_root, include, exclude)?;
 
     let mut discovered = Vec::new();
     let mut visited_files = 0usize;
@@ -245,33 +222,13 @@ pub fn discover_indexable_path(
         return Ok(None);
     }
 
-    let workspace_root = security
-        .workspace_dir
-        .canonicalize()
-        .unwrap_or_else(|_| security.workspace_dir.clone());
+    let workspace_root = workspace_root_for(security);
     let full_path = security.workspace_dir.join(relative_path);
-    let metadata = match fs::metadata(&full_path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("failed to inspect indexable path '{relative_path}'"));
-        }
-    };
-
-    if !metadata.is_file() {
+    if !indexable_path_exists(&full_path, relative_path)? {
         return Ok(None);
     }
 
-    let mut builder = WalkBuilder::new(&full_path);
-    builder.standard_filters(true);
-    builder.git_ignore(true);
-    builder.git_global(!rules.use_workspace_local_ignores_only);
-    builder.git_exclude(!rules.use_workspace_local_ignores_only);
-    builder.parents(!rules.use_workspace_local_ignores_only);
-    builder.follow_links(rules.follow_links);
-    builder.hidden(!rules.include_hidden);
-    builder.require_git(false);
+    let builder = configured_walk_builder(&full_path, rules);
 
     for entry in builder.build() {
         let entry = match entry {
@@ -305,6 +262,64 @@ pub fn discover_indexable_path(
     }
 
     Ok(None)
+}
+
+fn workspace_root_for(security: &SecurityPolicy) -> PathBuf {
+    security
+        .workspace_dir
+        .canonicalize()
+        .unwrap_or_else(|_| security.workspace_dir.clone())
+}
+
+fn configured_walk_builder(root: &Path, rules: DiscoveryRules) -> WalkBuilder {
+    let mut builder = WalkBuilder::new(root);
+    builder.standard_filters(true);
+    builder.git_ignore(true);
+    builder.git_global(!rules.use_workspace_local_ignores_only);
+    builder.git_exclude(!rules.use_workspace_local_ignores_only);
+    builder.parents(!rules.use_workspace_local_ignores_only);
+    builder.follow_links(rules.follow_links);
+    builder.hidden(!rules.include_hidden);
+    builder.require_git(false);
+    builder
+}
+
+fn apply_overrides(
+    builder: &mut WalkBuilder,
+    search_root: &Path,
+    include: &[String],
+    exclude: &[String],
+) -> anyhow::Result<()> {
+    if include.is_empty() && exclude.is_empty() {
+        return Ok(());
+    }
+
+    let mut overrides = OverrideBuilder::new(search_root);
+    for pattern in include {
+        overrides
+            .add(pattern)
+            .with_context(|| format!("Invalid include glob '{pattern}'"))?;
+    }
+    for pattern in exclude {
+        overrides
+            .add(&format!("!{pattern}"))
+            .with_context(|| format!("Invalid exclude glob '{pattern}'"))?;
+    }
+    let overrides = overrides.build().context("Invalid search glob override")?;
+    builder.overrides(overrides);
+    Ok(())
+}
+
+fn indexable_path_exists(full_path: &Path, relative_path: &str) -> anyhow::Result<bool> {
+    let metadata = match fs::metadata(full_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to inspect indexable path '{relative_path}'"));
+        }
+    };
+    Ok(metadata.is_file())
 }
 
 pub fn discover_indexable_files(

@@ -53,6 +53,20 @@ export type ChatApprovalResult = {
 
 export type ChatSendResult = ChatMessageResult | ChatApprovalResult;
 
+type PreparedChatRequest = {
+  normalizedMessage: string;
+  controller: AbortController;
+  timeoutId: ReturnType<typeof setTimeout>;
+  effectiveRequestId: string;
+};
+
+type StreamEventState = {
+  currentEvent: string;
+  currentData: string;
+};
+
+const APPROVAL_REQUIRED_TYPES = new Set(["approval_required", "approval_contract"]);
+
 function createSessionState(
   state: ChatSessionStatus,
   recoveryKind: ChatSessionRecoveryKind | null = null,
@@ -107,6 +121,37 @@ async function readJsonPayload(response: Response): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+function isApprovalRequiredType(errorType: string | null): boolean {
+  return errorType !== null && APPROVAL_REQUIRED_TYPES.has(errorType);
+}
+
+function normalizeStreamChunk(value: string): string {
+  return value.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+}
+
+function resetStreamEventState(state: StreamEventState): void {
+  state.currentEvent = "";
+  state.currentData = "";
+}
+
+function processStreamBuffer(
+  buffer: string,
+  state: StreamEventState,
+  onLine: (line: string, state: StreamEventState) => void
+): string {
+  let remaining = buffer;
+  let newlineIndex = remaining.indexOf("\n");
+
+  while (newlineIndex >= 0) {
+    const line = remaining.slice(0, newlineIndex);
+    remaining = remaining.slice(newlineIndex + 1);
+    onLine(line, state);
+    newlineIndex = remaining.indexOf("\n");
+  }
+
+  return remaining;
 }
 
 export function useChat(
@@ -252,6 +297,96 @@ export function useChat(
     errorMessage.value = t("chat.sessionUnavailable");
   }
 
+  function normalizeOutgoingMessage(message: string): string {
+    if (!gateway.isGatewayReady.value) {
+      throw new Error(t("chat.connectBeforeChat"));
+    }
+
+    if (!isSessionReady.value && !startSession(true)) {
+      throw new Error(errorMessage.value || t("chat.sessionUnavailable"));
+    }
+
+    const normalizedMessage = message.trim();
+    if (!normalizedMessage) {
+      throw new Error(t("chat.emptyMessageError"));
+    }
+
+    return normalizedMessage;
+  }
+
+  function beginRequest(
+    message: string,
+    timeoutMs: number,
+    requestId: string | undefined,
+    isStreamingRequest: boolean
+  ): PreparedChatRequest {
+    const normalizedMessage = normalizeOutgoingMessage(message);
+
+    sending.value = true;
+    streaming.value = isStreamingRequest;
+    statusMessage.value = "";
+    errorMessage.value = "";
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    return {
+      normalizedMessage,
+      controller,
+      timeoutId,
+      effectiveRequestId: requestId ?? gateway.createIdempotencyKey(),
+    };
+  }
+
+  function throwCredentialInvalid(): never {
+    gateway.markCredentialInvalid();
+    clearSession();
+    throw new Error(t("auth.credentialInvalid"));
+  }
+
+  function createApprovalRequiredResult(errorData: unknown): ChatApprovalResult {
+    const payload = errorData as ApprovalErrorPayload;
+    const errorObj = typeof payload?.error === "object" ? payload.error : null;
+
+    return {
+      type: "approval_required",
+      tool: errorObj?.tool ?? "",
+      reason: errorObj?.reason ?? "",
+      sessionId:
+        (errorData as Record<string, unknown>)?.session_id?.toString() ?? currentSessionId.value,
+    };
+  }
+
+  async function handleWebhookAuthFailure(response: Response): Promise<ChatApprovalResult | null> {
+    if (response.status === 401) {
+      throwCredentialInvalid();
+    }
+
+    if (response.status !== 403) {
+      return null;
+    }
+
+    const errorData = await readJsonPayload(response);
+    const errorType = parseApprovalErrorType(errorData);
+
+    if (isApprovalRequiredType(errorType)) {
+      return createApprovalRequiredResult(errorData);
+    }
+
+    throwCredentialInvalid();
+  }
+
+  async function handleStreamAuthFailure(response: Response): Promise<void> {
+    const errorData = await readJsonPayload(response);
+    const errorType = parseApprovalErrorType(errorData);
+
+    if (isApprovalRequiredType(errorType)) {
+      throw new Error(t("chat.streamUnavailable"));
+    }
+
+    throwCredentialInvalid();
+  }
+
   function createSession(): boolean {
     if (!gateway.isGatewayReady.value) {
       return false;
@@ -305,26 +440,12 @@ export function useChat(
   }
 
   async function sendMessage(message: string, requestId?: string): Promise<ChatSendResult> {
-    if (!gateway.isGatewayReady.value) {
-      throw new Error(t("chat.connectBeforeChat"));
-    }
-
-    if (!isSessionReady.value && !startSession(true)) {
-      throw new Error(errorMessage.value || t("chat.sessionUnavailable"));
-    }
-
-    const normalizedMessage = message.trim();
-    if (!normalizedMessage) {
-      throw new Error(t("chat.emptyMessageError"));
-    }
-
-    sending.value = true;
-    statusMessage.value = "";
-    errorMessage.value = "";
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-    const effectiveRequestId = requestId ?? gateway.createIdempotencyKey();
+    const { controller, effectiveRequestId, normalizedMessage, timeoutId } = beginRequest(
+      message,
+      15000,
+      requestId,
+      false
+    );
 
     try {
       const response = await fetch(gateway.gatewayUrl("/webhook"), {
@@ -341,30 +462,9 @@ export function useChat(
         signal: controller.signal,
       });
 
-      if (response.status === 403) {
-        const errorData = await readJsonPayload(response);
-        const errorType = parseApprovalErrorType(errorData);
-        if (errorType === "approval_required" || errorType === "approval_contract") {
-          const payload = errorData as ApprovalErrorPayload;
-          const errorObj = typeof payload?.error === "object" ? payload.error : null;
-          return {
-            type: "approval_required" as const,
-            tool: errorObj?.tool ?? "",
-            reason: errorObj?.reason ?? "",
-            sessionId:
-              (errorData as Record<string, unknown>)?.session_id?.toString() ??
-              currentSessionId.value,
-          };
-        }
-        gateway.markCredentialInvalid();
-        clearSession();
-        throw new Error(t("auth.credentialInvalid"));
-      }
-
-      if (response.status === 401) {
-        gateway.markCredentialInvalid();
-        clearSession();
-        throw new Error(t("auth.credentialInvalid"));
+      const approvalResult = await handleWebhookAuthFailure(response);
+      if (approvalResult) {
+        return approvalResult;
       }
 
       if (!response.ok) {
@@ -379,7 +479,7 @@ export function useChat(
 
       const assistantText = data.response ?? data.message ?? data.text ?? t("chat.emptyResponse");
       statusMessage.value = t("chat.sessionActive", { sessionId: currentSessionId.value });
-      return { type: "message" as const, content: assistantText };
+      return { type: "message", content: assistantText };
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         throw new Error(t("chat.timeoutError"));
@@ -401,27 +501,12 @@ export function useChat(
     onChunk: (text: string) => void,
     requestId?: string
   ): Promise<StreamDoneEvent> {
-    if (!gateway.isGatewayReady.value) {
-      throw new Error(t("chat.connectBeforeChat"));
-    }
-
-    if (!isSessionReady.value && !startSession(true)) {
-      throw new Error(errorMessage.value || t("chat.sessionUnavailable"));
-    }
-
-    const normalizedMessage = message.trim();
-    if (!normalizedMessage) {
-      throw new Error(t("chat.emptyMessageError"));
-    }
-
-    sending.value = true;
-    streaming.value = true;
-    statusMessage.value = "";
-    errorMessage.value = "";
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60_000);
-    const effectiveRequestId = requestId ?? gateway.createIdempotencyKey();
+    const { controller, effectiveRequestId, normalizedMessage, timeoutId } = beginRequest(
+      message,
+      60_000,
+      requestId,
+      true
+    );
 
     try {
       const response = await fetch(gateway.gatewayUrl("/web/chat/stream"), {
@@ -437,16 +522,9 @@ export function useChat(
 
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
-          const errorData = await readJsonPayload(response);
-          const errorType = parseApprovalErrorType(errorData);
-          if (errorType === "approval_required" || errorType === "approval_contract") {
-            throw new Error(t("chat.streamUnavailable"));
-          }
-
-          gateway.markCredentialInvalid();
-          clearSession();
-          throw new Error(t("auth.credentialInvalid"));
+          await handleStreamAuthFailure(response);
         }
+
         throw new Error(t("chat.streamUnavailable"));
       }
 
@@ -457,18 +535,17 @@ export function useChat(
 
       const decoder = new TextDecoder();
       let buffer = "";
-      let currentEvent = "";
-      let currentData = "";
+      const streamEventState: StreamEventState = { currentEvent: "", currentData: "" };
       let doneEvent: StreamDoneEvent | null = null;
 
-      const processLine = (line: string): void => {
+      const processLine = (line: string, state: StreamEventState): void => {
         if (line.startsWith("event: ")) {
-          currentEvent = line.slice(7).trim();
+          state.currentEvent = line.slice(7).trim();
           return;
         }
 
         if (line.startsWith("data: ")) {
-          currentData += (currentData ? "\n" : "") + line.slice(6);
+          state.currentData += (state.currentData ? "\n" : "") + line.slice(6);
           return;
         }
 
@@ -476,57 +553,57 @@ export function useChat(
           return;
         }
 
-        if (currentEvent && currentData) {
-          if (currentEvent === "chunk") {
-            onChunk(currentData);
-          } else if (currentEvent === "done") {
-            try {
-              doneEvent = JSON.parse(currentData) as StreamDoneEvent;
-            } catch {
-              throw new Error(t("chat.requestError", { text: normalizedMessage }));
-            }
-            if (doneEvent.session_id && !isSessionReady.value) {
-              setSessionReady(doneEvent.session_id);
-            }
-          } else if (currentEvent === "error") {
-            let errorEvt: StreamErrorEvent;
-            try {
-              errorEvt = JSON.parse(currentData) as StreamErrorEvent;
-            } catch {
-              throw new Error(t("chat.requestError", { text: normalizedMessage }));
-            }
-            throw new Error(
-              errorEvt.message || t("chat.requestError", { text: normalizedMessage })
-            );
+        if (!state.currentEvent || !state.currentData) {
+          resetStreamEventState(state);
+          return;
+        }
+
+        if (state.currentEvent === "chunk") {
+          onChunk(state.currentData);
+          resetStreamEventState(state);
+          return;
+        }
+
+        if (state.currentEvent === "done") {
+          try {
+            doneEvent = JSON.parse(state.currentData) as StreamDoneEvent;
+          } catch {
+            throw new Error(t("chat.requestError", { text: normalizedMessage }));
           }
+
+          if (doneEvent.session_id && !isSessionReady.value) {
+            setSessionReady(doneEvent.session_id);
+          }
+          resetStreamEventState(state);
+          return;
         }
 
-        currentEvent = "";
-        currentData = "";
-      };
+        if (state.currentEvent === "error") {
+          let errorEvt: StreamErrorEvent;
+          try {
+            errorEvt = JSON.parse(state.currentData) as StreamErrorEvent;
+          } catch {
+            throw new Error(t("chat.requestError", { text: normalizedMessage }));
+          }
 
-      const processBuffer = (): void => {
-        let newlineIndex = buffer.indexOf("\n");
-        while (newlineIndex >= 0) {
-          const line = buffer.slice(0, newlineIndex);
-          buffer = buffer.slice(newlineIndex + 1);
-          processLine(line);
-          newlineIndex = buffer.indexOf("\n");
+          throw new Error(errorEvt.message || t("chat.requestError", { text: normalizedMessage }));
         }
+
+        resetStreamEventState(state);
       };
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        buffer = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-        processBuffer();
+        buffer += normalizeStreamChunk(decoder.decode(value, { stream: true }));
+        buffer = processStreamBuffer(buffer, streamEventState, processLine);
       }
 
-      buffer += decoder.decode();
-      buffer = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-      processBuffer();
+      buffer += normalizeStreamChunk(decoder.decode());
+      if (buffer) {
+        buffer = processStreamBuffer(`${buffer}\n\n`, streamEventState, processLine);
+      }
 
       if (!doneEvent) {
         throw new Error(t("chat.requestError", { text: normalizedMessage }));

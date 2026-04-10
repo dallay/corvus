@@ -110,6 +110,17 @@ data class ChatWorkspaceActions(
   val bridge: BridgeActions,
 )
 
+@Stable
+data class ChatWorkspaceContent(
+  val bridgeSnapshot: MobileBridgeSnapshot,
+  val platformName: String,
+  val messages: List<ChatMessage>,
+  val resumableSessions: List<RuntimeSession>,
+  val pendingApproval: RuntimeApprovalRequest?,
+  val targetLabel: String?,
+  val activeSessionId: String?,
+)
+
 object ChatWorkspaceDefaults {
   const val DefaultAgentName = "Corvus"
 
@@ -124,21 +135,9 @@ object ChatWorkspaceDefaults {
 
 @Composable
 fun ChatWorkspace(
-  bridgeSnapshot: MobileBridgeSnapshot,
-  platformName: String,
-  messages: List<ChatMessage>,
-  resumableSessions: List<RuntimeSession>,
-  pendingApproval: RuntimeApprovalRequest?,
-  targetLabel: String?,
-  activeSessionId: String?,
-  onRetryBridge: () -> Unit,
-  onLinkSurface: () -> Unit,
-  onStartSession: () -> Unit,
-  onResumeSession: (String) -> Unit,
+  content: ChatWorkspaceContent,
+  bridgeActions: BridgeActions,
   onSendMessage: (String) -> Unit,
-  onDisconnectReset: () -> Unit,
-  onApprove: () -> Unit,
-  onDeny: () -> Unit,
   modifier: Modifier = Modifier,
   state: ChatWorkspaceState = ChatWorkspaceDefaults.state(),
 ) {
@@ -146,8 +145,8 @@ fun ChatWorkspace(
   var showConfig by rememberSaveable { mutableStateOf(false) }
 
   val bridgeState =
-    remember(platformName, bridgeSnapshot) {
-      MobileBridgeUiState(platformName = platformName, snapshot = bridgeSnapshot)
+    remember(content.platformName, content.bridgeSnapshot) {
+      MobileBridgeUiState(platformName = content.platformName, snapshot = content.bridgeSnapshot)
     }
 
   fun sendMessage(prompt: String) {
@@ -158,39 +157,21 @@ fun ChatWorkspace(
   }
 
   val displayMessages =
-    remember(messages, state.welcomeMessage) {
-      if (messages.isEmpty()) {
+    remember(content.messages, state.welcomeMessage) {
+      if (content.messages.isEmpty()) {
         listOf(ChatMessage(id = 0, role = ChatRole.Assistant, content = state.welcomeMessage))
       } else {
-        messages
+        content.messages
       }
     }
 
   val actions =
-    remember(
-      bridgeState,
-      onRetryBridge,
-      onLinkSurface,
-      onStartSession,
-      onResumeSession,
-      onDisconnectReset,
-      onApprove,
-      onDeny,
-    ) {
+    remember(bridgeState, bridgeActions) {
       ChatWorkspaceActions(
         onQueryChange = { query = it },
         onSend = ::sendMessage,
         onToggleConfig = { showConfig = !showConfig },
-        bridge =
-          BridgeActions(
-            onRetryBridge = onRetryBridge,
-            onLinkSurface = onLinkSurface,
-            onStartSession = onStartSession,
-            onResumeSession = onResumeSession,
-            onDisconnectReset = onDisconnectReset,
-            onApprove = onApprove,
-            onDeny = onDeny,
-          ),
+        bridge = bridgeActions,
       )
     }
 
@@ -199,10 +180,10 @@ fun ChatWorkspace(
       workspaceState = state,
       bridgeState = bridgeState,
       messages = displayMessages,
-      resumableSessions = resumableSessions,
-      pendingApproval = pendingApproval,
-      targetLabel = targetLabel,
-      activeSessionId = activeSessionId,
+      resumableSessions = content.resumableSessions,
+      pendingApproval = content.pendingApproval,
+      targetLabel = content.targetLabel,
+      activeSessionId = content.activeSessionId,
       query = query,
       showConfig = showConfig,
     )

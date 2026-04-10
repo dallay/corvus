@@ -56,91 +56,130 @@ impl CapabilityRegistry {
 
     pub fn validate_descriptor(descriptor: &CapabilityDescriptor) -> Result<(), CapabilityError> {
         let id = Some(descriptor.id.as_str());
-        if descriptor.id.trim().is_empty() {
-            return Err(CapabilityError::missing_field("id", None));
-        }
-        if descriptor.namespace.trim().is_empty() {
-            return Err(CapabilityError::missing_field("namespace", id));
-        }
-        if descriptor.version.trim().is_empty() {
-            return Err(CapabilityError::missing_field("version", id));
-        }
-        if descriptor.metadata.description.trim().is_empty() {
-            return Err(CapabilityError::missing_field("metadata.description", id));
-        }
-        if descriptor.security.policy_scope.trim().is_empty() {
-            return Err(CapabilityError::missing_field("security.policy_scope", id));
-        }
-        if descriptor.security.audit_namespace.trim().is_empty() {
-            return Err(CapabilityError::missing_field(
-                "security.audit_namespace",
-                id,
-            ));
-        }
-        if descriptor.compatibility.runtime_contracts.is_empty() {
-            return Err(CapabilityError::missing_field(
-                "compatibility.runtime_contracts",
-                id,
-            ));
-        }
-        if descriptor.compatibility.entrypoint_parity_scope.is_empty() {
-            return Err(CapabilityError::missing_field(
-                "compatibility.entrypoint_parity_scope",
-                id,
-            ));
-        }
-        if !descriptor.metadata.parameters_schema.is_object() {
-            return Err(CapabilityError::InvalidMetadata {
-                id: descriptor.id.clone(),
-                reason: "parameters schema must be a JSON object".to_string(),
-            });
-        }
-
-        if descriptor.family != CapabilityFamily::Tool {
-            return Err(CapabilityError::InvalidFamilyForM2 {
-                id: descriptor.id.clone(),
-                family: format!("{:?}", descriptor.family),
-            });
-        }
-        if descriptor.kind != CapabilityKind::Executable {
-            return Err(CapabilityError::InvalidKindForM2 {
-                id: descriptor.id.clone(),
-                kind: format!("{:?}", descriptor.kind),
-            });
-        }
-
-        let valid_namespace = matches!(
-            descriptor.namespace.as_str(),
-            "native.tool" | "mcp.tool" | "mcp.resource" | "mcp.prompt"
-        );
-        if !valid_namespace {
-            return Err(CapabilityError::InvalidNamespace {
-                id: descriptor.id.clone(),
-                namespace: descriptor.namespace.clone(),
-            });
-        }
-
-        if descriptor.namespace.starts_with("mcp.") {
-            let mcp = descriptor
-                .metadata
-                .mcp
-                .as_ref()
-                .ok_or_else(|| CapabilityError::missing_field("metadata.mcp", id))?;
-            if mcp.server.trim().is_empty() {
-                return Err(CapabilityError::missing_field("metadata.mcp.server", id));
-            }
-            if descriptor.namespace == "mcp.resource"
-                && mcp.resource_uri.as_deref().unwrap_or("").trim().is_empty()
-            {
-                return Err(CapabilityError::missing_field(
-                    "metadata.mcp.resource_uri",
-                    id,
-                ));
-            }
-        }
+        validate_required_fields(descriptor, id)?;
+        validate_metadata_shape(descriptor)?;
+        validate_m2_contract(descriptor)?;
+        validate_namespace(descriptor)?;
+        validate_mcp_metadata(descriptor, id)?;
 
         Ok(())
     }
+}
+
+fn validate_required_fields(
+    descriptor: &CapabilityDescriptor,
+    id: Option<&str>,
+) -> Result<(), CapabilityError> {
+    for (value, field, field_id) in [
+        (descriptor.id.trim(), "id", None),
+        (descriptor.namespace.trim(), "namespace", id),
+        (descriptor.version.trim(), "version", id),
+        (
+            descriptor.metadata.description.trim(),
+            "metadata.description",
+            id,
+        ),
+        (
+            descriptor.security.policy_scope.trim(),
+            "security.policy_scope",
+            id,
+        ),
+        (
+            descriptor.security.audit_namespace.trim(),
+            "security.audit_namespace",
+            id,
+        ),
+    ] {
+        if value.is_empty() {
+            return Err(CapabilityError::missing_field(field, field_id));
+        }
+    }
+
+    for (items, field) in [
+        (
+            descriptor.compatibility.runtime_contracts.as_slice(),
+            "compatibility.runtime_contracts",
+        ),
+        (
+            descriptor.compatibility.entrypoint_parity_scope.as_slice(),
+            "compatibility.entrypoint_parity_scope",
+        ),
+    ] {
+        if items.is_empty() {
+            return Err(CapabilityError::missing_field(field, id));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_metadata_shape(descriptor: &CapabilityDescriptor) -> Result<(), CapabilityError> {
+    if descriptor.metadata.parameters_schema.is_object() {
+        return Ok(());
+    }
+
+    Err(CapabilityError::InvalidMetadata {
+        id: descriptor.id.clone(),
+        reason: "parameters schema must be a JSON object".to_string(),
+    })
+}
+
+fn validate_m2_contract(descriptor: &CapabilityDescriptor) -> Result<(), CapabilityError> {
+    if descriptor.family != CapabilityFamily::Tool {
+        return Err(CapabilityError::InvalidFamilyForM2 {
+            id: descriptor.id.clone(),
+            family: format!("{:?}", descriptor.family),
+        });
+    }
+    if descriptor.kind != CapabilityKind::Executable {
+        return Err(CapabilityError::InvalidKindForM2 {
+            id: descriptor.id.clone(),
+            kind: format!("{:?}", descriptor.kind),
+        });
+    }
+    Ok(())
+}
+
+fn validate_namespace(descriptor: &CapabilityDescriptor) -> Result<(), CapabilityError> {
+    let valid_namespace = matches!(
+        descriptor.namespace.as_str(),
+        "native.tool" | "mcp.tool" | "mcp.resource" | "mcp.prompt"
+    );
+    if valid_namespace {
+        Ok(())
+    } else {
+        Err(CapabilityError::InvalidNamespace {
+            id: descriptor.id.clone(),
+            namespace: descriptor.namespace.clone(),
+        })
+    }
+}
+
+fn validate_mcp_metadata(
+    descriptor: &CapabilityDescriptor,
+    id: Option<&str>,
+) -> Result<(), CapabilityError> {
+    if !descriptor.namespace.starts_with("mcp.") {
+        return Ok(());
+    }
+
+    let mcp = descriptor
+        .metadata
+        .mcp
+        .as_ref()
+        .ok_or_else(|| CapabilityError::missing_field("metadata.mcp", id))?;
+    if mcp.server.trim().is_empty() {
+        return Err(CapabilityError::missing_field("metadata.mcp.server", id));
+    }
+    if descriptor.namespace == "mcp.resource"
+        && mcp.resource_uri.as_deref().unwrap_or("").trim().is_empty()
+    {
+        return Err(CapabilityError::missing_field(
+            "metadata.mcp.resource_uri",
+            id,
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

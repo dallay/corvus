@@ -187,13 +187,15 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
           <p>{{ t("app.subtitle") }}</p>
         </div>
       </div>
-      <nav v-if="config.isOperatorReady.value" aria-label="Dashboard navigation" class="nav-tabs"
-           role="tablist">
+      <div v-if="config.isOperatorReady.value" aria-label="Dashboard sections" class="nav-tabs" role="tablist">
         <button
             :aria-selected="currentPage === 'config'"
             :class="{ 'nav-tab-active': currentPage === 'config' }"
+            :tabindex="currentPage === 'config' ? 0 : -1"
+            aria-controls="dashboard-panel-config"
             class="nav-tab"
             data-testid="nav-config"
+            id="dashboard-tab-config"
             role="tab"
             @click="currentPage = 'config'"
         >
@@ -202,8 +204,11 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
         <button
             :aria-selected="currentPage === 'sessions'"
             :class="{ 'nav-tab-active': currentPage === 'sessions' }"
+            :tabindex="currentPage === 'sessions' ? 0 : -1"
+            aria-controls="dashboard-panel-sessions"
             class="nav-tab"
             data-testid="nav-sessions"
+            id="dashboard-tab-sessions"
             role="tab"
             @click="currentPage = 'sessions'"
         >
@@ -212,8 +217,11 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
         <button
             :aria-selected="currentPage === 'memory'"
             :class="{ 'nav-tab-active': currentPage === 'memory' }"
+            :tabindex="currentPage === 'memory' ? 0 : -1"
+            aria-controls="dashboard-panel-memory"
             class="nav-tab"
             data-testid="nav-memory"
+            id="dashboard-tab-memory"
             role="tab"
             @click="currentPage = 'memory'"
         >
@@ -222,14 +230,17 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
         <button
             :aria-selected="currentPage === 'chat'"
             :class="{ 'nav-tab-active': currentPage === 'chat' }"
+            :tabindex="currentPage === 'chat' ? 0 : -1"
+            aria-controls="dashboard-panel-chat"
             class="nav-tab"
             data-testid="nav-chat"
+            id="dashboard-tab-chat"
             role="tab"
             @click="currentPage = 'chat'"
         >
           {{ t("nav.chat", "Chat") }}
         </button>
-      </nav>
+      </div>
     </header>
 
     <!-- Auth / Onboarding section — always visible -->
@@ -252,22 +263,21 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
           </div>
         </li>
       </ol>
-      <output
-          v-if="config.isOperatorReady.value"
-          aria-live="polite"
-          class="onboarding-banner onboarding-banner-ready"
-      >
+      <p
+           v-if="config.isOperatorReady.value"
+           aria-live="polite"
+           class="onboarding-banner onboarding-banner-ready"
+       >
         <span class="banner-title">{{ t("onboarding.ready.title") }}</span>
         <span class="banner-description">{{ t("onboarding.ready.description") }}</span>
-      </output>
+      </p>
       <div
-          v-else-if="
-          config.onboardingState.value.state === 'blocked' && config.onboardingState.value.recoveryKind
-        "
-          aria-live="assertive"
-          class="onboarding-banner onboarding-banner-blocked"
-          role="alert"
-      >
+           v-else-if="
+           config.onboardingState.value.state === 'blocked' && config.onboardingState.value.recoveryKind
+         "
+           aria-live="assertive"
+           class="onboarding-banner onboarding-banner-blocked"
+       >
         <p class="banner-title">
           {{ t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.title`) }}
         </p>
@@ -275,18 +285,18 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
             t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.description`)
           }}</p>
       </div>
-      <output
-          v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'"
-          aria-atomic="true" aria-live="polite" class="quick-pair-state">
+      <p
+           v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'"
+           aria-atomic="true" aria-live="polite" class="quick-pair-state">
         <span>{{ t("auth.quickPairValidating") }}</span>
-      </output>
-      <output v-else-if="config.quickPairState.value === 'connecting'" aria-atomic="true"
-              aria-live="polite" class="quick-pair-state">
+      </p>
+      <p v-else-if="config.quickPairState.value === 'connecting'" aria-atomic="true"
+               aria-live="polite" class="quick-pair-state">
         <span>{{ t("auth.quickPairConnecting") }}</span>
-      </output>
+      </p>
       <div v-else>
         <p v-if="config.quickPairState.value === 'failed'" aria-atomic="true" aria-live="assertive"
-           class="error" role="alert">{{ t("auth.quickPairFailed") }}</p>
+           class="error">{{ t("auth.quickPairFailed") }}</p>
         <div class="grid">
           <label>
             <span>{{ t("auth.baseUrl") }}</span>
@@ -316,6 +326,7 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 
     <!-- Config page (existing content) -->
     <template v-if="currentPage === 'config'">
+      <section id="dashboard-panel-config" aria-labelledby="dashboard-tab-config" role="tabpanel">
       <section v-if="config.isOperatorReady.value" class="overview-section">
         <div class="section-intro">
           <p class="section-kicker">Operational overview</p>
@@ -471,14 +482,13 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
             @update:model-value="Object.assign(config.form, $event)"
         />
       </div>
+      </section>
 
-      <!-- TODO: Wire UpdateSettings when raw AdminConfigView is exposed from useConfig
-           (UpdateSettings expects AdminConfigView, not AdminConfigForm) -->
     </template>
 
     <!-- Sessions page -->
     <template v-if="currentPage === 'sessions' && config.isOperatorReady.value">
-      <section class="card">
+      <section id="dashboard-panel-sessions" aria-labelledby="dashboard-tab-sessions" class="card" role="tabpanel">
         <h2>{{ t("nav.sessions", "Sessions") }}</h2>
         <SessionFilters
             @update:status="sessionStatusFilter = $event"
@@ -506,7 +516,7 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 
     <!-- Memory page -->
     <template v-if="currentPage === 'memory' && config.isOperatorReady.value">
-      <section class="card">
+      <section id="dashboard-panel-memory" aria-labelledby="dashboard-tab-memory" class="card" role="tabpanel">
         <h2>{{ t("nav.memory", "Memory") }}</h2>
         <MemoryStats
             :auth-headers="adminAuthHeaders"
@@ -515,12 +525,15 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
         />
       </section>
       <section class="card">
-        <div aria-label="Memory mode" class="memory-mode-tabs" role="tablist">
+        <div aria-label="Memory backends" class="memory-mode-tabs" role="tablist">
           <button
               :aria-selected="memoryMode === 'local'"
               :class="{ 'nav-tab-active': memoryMode === 'local' }"
+              :tabindex="memoryMode === 'local' ? 0 : -1"
+              aria-controls="memory-mode-panel-local"
               class="nav-tab"
               data-testid="memory-mode-local"
+              id="memory-mode-tab-local"
               role="tab"
               @click="memoryMode = 'local'; selectedCerebroResult = null"
           >
@@ -529,8 +542,11 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
           <button
               :aria-selected="memoryMode === 'cerebro'"
               :class="{ 'nav-tab-active': memoryMode === 'cerebro' }"
+              :tabindex="memoryMode === 'cerebro' ? 0 : -1"
+              aria-controls="memory-mode-panel-cerebro"
               class="nav-tab"
               data-testid="memory-mode-cerebro"
+              id="memory-mode-tab-cerebro"
               role="tab"
               @click="memoryMode = 'cerebro'"
           >
@@ -539,18 +555,22 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
         </div>
 
         <template v-if="memoryMode === 'local'">
+          <section id="memory-mode-panel-local" aria-labelledby="memory-mode-tab-local" role="tabpanel">
           <MemoryFilters
               :initial-session-id="memorySessionIdFilter"
               @update:category="memoryCategoryFilter = $event"
               @update:session-id="memorySessionIdFilter = $event"
               @update:search="memorySearchFilter = $event"
           />
-          <div aria-label="Local memory workspace" class="memory-mode-tabs" role="tablist">
+          <div aria-label="Local memory views" class="memory-mode-tabs" role="tablist">
             <button
                 :aria-selected="localMemorySubview === 'browse'"
                 :class="{ 'nav-tab-active': localMemorySubview === 'browse' }"
+                :tabindex="localMemorySubview === 'browse' ? 0 : -1"
+                aria-controls="local-memory-panel-browse"
                 class="nav-tab"
                 data-testid="local-memory-browse"
+                id="local-memory-tab-browse"
                 role="tab"
                 @click="localMemorySubview = 'browse'"
             >
@@ -559,8 +579,11 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
             <button
                 :aria-selected="localMemorySubview === 'explorer'"
                 :class="{ 'nav-tab-active': localMemorySubview === 'explorer' }"
+                :tabindex="localMemorySubview === 'explorer' ? 0 : -1"
+                aria-controls="local-memory-panel-explorer"
                 class="nav-tab"
                 data-testid="local-memory-explorer"
+                id="local-memory-tab-explorer"
                 role="tab"
                 @click="localMemorySubview = 'explorer'"
             >
@@ -568,28 +591,31 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
             </button>
           </div>
 
-          <MemoryList
-              v-if="localMemorySubview === 'browse'"
-              :auth-headers="adminAuthHeaders"
-              :category-filter="memoryCategoryFilter"
-              :gateway-url="adminGatewayUrl"
-              :search-filter="memorySearchFilter"
-              :session-id-filter="memorySessionIdFilter"
-              @select-category="openLocalExplorer({ category: $event })"
-              @select-session="openLocalExplorer({ sessionId: $event })"
-              @open-explorer="openLocalExplorer($event)"
-          />
-          <LocalMemoryExplorerPanel
-              v-else
-              :auth-headers="adminAuthHeaders"
-              :gateway-url="adminGatewayUrl"
-              :selection="localExplorerSelection"
-              @selection-change="onLocalExplorerSelectionChange"
-              @open-browse="openLocalBrowse($event)"
-          />
+          <div v-if="localMemorySubview === 'browse'" id="local-memory-panel-browse" aria-labelledby="local-memory-tab-browse" role="tabpanel">
+            <MemoryList
+                :auth-headers="adminAuthHeaders"
+                :category-filter="memoryCategoryFilter"
+                :gateway-url="adminGatewayUrl"
+                :search-filter="memorySearchFilter"
+                :session-id-filter="memorySessionIdFilter"
+                @select-category="openLocalExplorer({ category: $event })"
+                @select-session="openLocalExplorer({ sessionId: $event })"
+                @open-explorer="openLocalExplorer($event)"
+            />
+          </div>
+          <div v-else id="local-memory-panel-explorer" aria-labelledby="local-memory-tab-explorer" role="tabpanel">
+            <LocalMemoryExplorerPanel
+                :auth-headers="adminAuthHeaders"
+                :gateway-url="adminGatewayUrl"
+                :selection="localExplorerSelection"
+                @selection-change="onLocalExplorerSelectionChange"
+                @open-browse="openLocalBrowse($event)"
+            />
+          </div>
+          </section>
         </template>
 
-        <div v-else class="cerebro-memory-layout">
+        <div v-else id="memory-mode-panel-cerebro" aria-labelledby="memory-mode-tab-cerebro" class="cerebro-memory-layout" role="tabpanel">
           <CerebroSearchPanel
               :auth-headers="adminAuthHeaders"
               :gateway-url="adminGatewayUrl"
@@ -612,7 +638,7 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 
     <!-- Chat page -->
     <template v-if="currentPage === 'chat' && config.isOperatorReady.value">
-      <section class="chat-section">
+      <section id="dashboard-panel-chat" aria-labelledby="dashboard-tab-chat" class="chat-section" role="tabpanel">
         <ChatWorkspace :config="config" />
       </section>
     </template>

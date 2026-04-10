@@ -406,6 +406,31 @@ describe("useChat", () => {
     expect(chat.currentSessionId.value).toBe("88888888-8888-4888-8888-888888888888");
   });
 
+  it("sendMessage returns approval_required on 403 with approval_contract type", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("78787878-7878-4878-8878-787878787878");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          type: "approval_contract",
+          error: { tool: "shell_exec", reason: "confirmation needed" },
+          session_id: chat.currentSessionId.value,
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    await expect(chat.sendMessage("run diagnostics")).resolves.toEqual({
+      type: "approval_required",
+      tool: "shell_exec",
+      reason: "confirmation needed",
+      sessionId: "78787878-7878-4878-8878-787878787878",
+    });
+  });
+
   it("streamMessage throws streamUnavailable on non-ok non-auth response", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1");
     const gateway = createReadyGateway();
@@ -416,6 +441,34 @@ describe("useChat", () => {
 
     await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow(
       "chat.streamUnavailable"
+    );
+  });
+
+  it("streamMessage surfaces structured SSE error events", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('event: error\r\ndata: {"message":"gateway exploded"}\r\n\r\n')
+        );
+        controller.close();
+      },
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      })
+    );
+
+    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow(
+      "gateway exploded"
     );
   });
 

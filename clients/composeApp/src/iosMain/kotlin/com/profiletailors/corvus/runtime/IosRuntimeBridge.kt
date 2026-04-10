@@ -2,7 +2,7 @@ package com.profiletailors.corvus.runtime
 
 internal val IOS_COMPANION_CLIENT_UNAVAILABLE = iosCompanionUnavailableMessage()
 
-internal interface IosRuntimeCompanionClientProvider {
+internal fun interface IosRuntimeCompanionClientProvider {
   fun current(): IosRuntimeCompanionClient?
 }
 

@@ -1,57 +1,85 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
 import type { AdminConfigView } from "@/types/admin-config";
 
 defineProps<{
   config: AdminConfigView;
 }>();
+
+const { t } = useI18n();
+
+function formatToggle(value: boolean | undefined): string {
+  if (value === true) {
+    return t("updates.yes");
+  }
+
+  if (value === false) {
+    return t("updates.no");
+  }
+
+  return t("updates.unknown");
+}
 </script>
 
 <template>
   <section class="card">
     <h2>{{ $t("sections.updates") }}</h2>
     <div class="grid">
-      <label>
+      <div class="display-field">
         <span>{{ $t("updates.currentVersion") }}</span>
         <p data-testid="updates_current_version">
           {{ config.updates?.status?.current_version ?? "—" }}
         </p>
-      </label>
-      <label>
+      </div>
+      <div class="display-field">
         <span>{{ $t("updates.latestVersion") }}</span>
         <p data-testid="updates_latest_version">
           {{ config.updates?.status?.latest_version ?? $t("updates.unknown") }}
         </p>
-      </label>
-      <label>
+      </div>
+      <div class="display-field">
         <span>{{ $t("updates.updateAvailable") }}</span>
         <p data-testid="updates_update_available">
-          {{ config.updates?.status?.update_available === true ? $t("updates.yes") : config.updates?.status?.update_available === false ? $t("updates.no") : $t("updates.unknown") }}
+          {{ formatToggle(config.updates?.status?.update_available) }}
         </p>
-      </label>
-      <label>
+      </div>
+      <div class="display-field">
         <span>{{ $t("updates.autoInstallEnabled") }}</span>
         <p data-testid="updates_auto_install_enabled">
-          {{ config.updates?.auto_install_enabled === true ? $t("updates.yes") : config.updates?.auto_install_enabled === false ? $t("updates.no") : $t("updates.unknown") }}
+          {{ formatToggle(config.updates?.auto_install_enabled) }}
         </p>
-      </label>
-      <label>
+      </div>
+      <div class="display-field">
         <span>{{ $t("updates.restartPolicy") }}</span>
         <p data-testid="updates_restart_policy">
           {{ config.updates?.restart_policy ?? "—" }}
         </p>
-      </label>
-      <label>
+      </div>
+      <div class="display-field">
         <span>{{ $t("updates.lastCheckOutcome") }}</span>
         <p data-testid="updates_last_check_outcome">
           {{ config.updates?.status?.last_check_outcome ?? $t("updates.never") }}
         </p>
-      </label>
-      <label>
+      </div>
+      <div class="display-field">
         <span>{{ $t("updates.effectiveInstallMethod") }}</span>
         <p data-testid="updates_effective_install_method">
           {{ config.updates?.status?.effective_install_method ?? "—" }}
         </p>
-      </label>
+      </div>
     </div>
   </section>
 </template>
+
+<style scoped>
+.display-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.display-field p,
+.display-field span {
+  margin: 0;
+}
+</style>

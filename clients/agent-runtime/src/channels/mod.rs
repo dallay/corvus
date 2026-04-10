@@ -675,43 +675,16 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
     let session_id = channel_session_id(&msg);
     let started_at = Instant::now();
 
-    // ── Audio pipeline (before memory enrichment) ────────
-    let audio_history_metas = if msg.has_audio_parts() {
-        if gate_audio_config(&ctx, &msg, &session_id, target_channel.as_ref())
-            .await
-            .is_err()
-        {
-            return;
-        }
-
-        let audio_guard =
-            match gate_and_stage_audio(&ctx, &msg, &session_id, target_channel.as_ref()).await {
-                Ok(guard) => guard,
-                Err(()) => return,
-            };
-
-        let transcriptions = match transcribe_audio(
-            &ctx,
-            &audio_guard.0,
-            &session_id,
-            target_channel.as_ref(),
-            &msg,
-        )
-        .await
-        {
-            Ok(t) => t,
-            Err(()) => return,
-        };
-
-        // Emit admitted event
-        for (audio, tx) in audio_guard.0.iter().zip(transcriptions.iter()) {
-            emit_audio_admission(ctx.observer.as_ref(), &msg.channel, audio, tx);
-        }
-
-        // audio_guard drops at end of this block, cleaning up temp files
-        inject_transcription(&mut msg, &audio_guard.0, &transcriptions)
-    } else {
-        Vec::new()
+    let audio_history_metas = match preprocess_audio_message(
+        ctx.as_ref(),
+        &target_channel,
+        &session_id,
+        &mut msg,
+    )
+    .await
+    {
+        Ok(metas) => metas,
+        Err(()) => return,
     };
 
     let user_text = extract_user_text(&msg);
@@ -739,23 +712,15 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
         return;
     }
 
-    // ── Image pipeline gating ────────────────────────────
-    let image_route_metadata =
-        match gate_multimodal_config(&ctx, &msg, &session_id, target_channel.as_ref()).await {
-            Ok(route) => route,
-            Err(()) => return,
-        };
-
-    let staged_guard = match gate_and_stage_images(
-        &ctx,
+    let (image_route_metadata, staged_guard) = match prepare_image_turn(
+        ctx.as_ref(),
         &msg,
         &session_id,
         target_channel.as_ref(),
-        image_route_metadata.as_ref(),
     )
     .await
     {
-        Ok(guard) => guard,
+        Ok(prepared) => prepared,
         Err(()) => return,
     };
 
@@ -871,6 +836,52 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
             handle_timeout(session_id, started_at, response_ctx).await;
         }
     }
+}
+
+async fn preprocess_audio_message(
+    ctx: &ChannelRuntimeContext,
+    target_channel: &Option<Arc<dyn Channel>>,
+    session_id: &str,
+    msg: &mut traits::ChannelMessage,
+) -> Result<Vec<crate::channels::audio_media::AudioHistoryMeta>, ()> {
+    if !msg.has_audio_parts() {
+        return Ok(Vec::new());
+    }
+
+    gate_audio_config(ctx, msg, session_id, target_channel.as_ref()).await?;
+    let audio_guard = gate_and_stage_audio(ctx, msg, session_id, target_channel.as_ref()).await?;
+    let transcriptions = transcribe_audio(
+        ctx,
+        &audio_guard.0,
+        session_id,
+        target_channel.as_ref(),
+        msg,
+    )
+    .await?;
+
+    for (audio, transcription) in audio_guard.0.iter().zip(transcriptions.iter()) {
+        emit_audio_admission(ctx.observer.as_ref(), &msg.channel, audio, transcription);
+    }
+
+    Ok(inject_transcription(msg, &audio_guard.0, &transcriptions))
+}
+
+async fn prepare_image_turn(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    session_id: &str,
+    target_channel: Option<&Arc<dyn Channel>>,
+) -> Result<(Option<ResolvedImageRoute>, StagedImageGuard), ()> {
+    let image_route_metadata = gate_multimodal_config(ctx, msg, session_id, target_channel).await?;
+    let staged_guard = gate_and_stage_images(
+        ctx,
+        msg,
+        session_id,
+        target_channel,
+        image_route_metadata.as_ref(),
+    )
+    .await?;
+    Ok((image_route_metadata, staged_guard))
 }
 
 /// Extract the user-visible text from a channel message, preferring canonical

@@ -69,8 +69,8 @@ onUnmounted(() => {
 <template>
   <section class="card">
     <h2>{{ t("sections.reliability") }}</h2>
-    <p v-if="loading" class="helper" aria-live="polite" role="status">{{ t("reliability.loading") }}</p>
-    <p v-else-if="error" class="error" aria-live="assertive" role="alert">{{ error }}</p>
+    <p v-if="loading" class="helper" aria-live="polite">{{ t("reliability.loading") }}</p>
+    <p v-else-if="error" class="error" aria-live="assertive">{{ error }}</p>
     <div v-else-if="reliability" class="status-grid" data-testid="reliability-overview">
       <div class="status-item">
         <span class="status-label">{{ t("reliability.providerRetries") }}</span>

@@ -117,6 +117,16 @@ object OnboardingDefaults {
     )
 }
 
+@Immutable
+data class OnboardingScreenState(
+  val step: OnboardingStep,
+  val currentStepIndex: Int,
+  val totalSteps: Int,
+  val primaryActionLabel: StringResource,
+)
+
+@Immutable data class OnboardingScreenActions(val onSkip: () -> Unit, val onNext: () -> Unit)
+
 fun runtimeOnboardingStep(state: MobileOnboardingState): OnboardingStep =
   when (state.status) {
     MobileOnboardingStatus.TARGET_SELECTED -> OnboardingDefaults.steps[0]
@@ -150,14 +160,8 @@ fun runtimeOnboardingStep(state: MobileOnboardingState): OnboardingStep =
 
 @Composable
 fun OnboardingScreen(
-  step: OnboardingStep,
-  currentStepIndex: Int,
-  totalSteps: Int,
-  isLastStep: Boolean,
-  primaryActionLabel: StringResource =
-    if (isLastStep) Res.string.button_start else Res.string.button_next,
-  onSkip: () -> Unit,
-  onNext: () -> Unit,
+  state: OnboardingScreenState,
+  actions: OnboardingScreenActions,
   modifier: Modifier = Modifier,
 ) {
   val colors = MaterialTheme.colorScheme
@@ -186,7 +190,7 @@ fun OnboardingScreen(
         color = colors.onSurfaceVariant.copy(alpha = 0.7f),
         modifier =
           Modifier.clip(RoundedCornerShape(8.dp))
-            .clickable(role = Role.Button, onClick = onSkip)
+            .clickable(role = Role.Button, onClick = actions.onSkip)
             .background(Color.Transparent)
             .padding(8.dp),
       )
@@ -201,7 +205,7 @@ fun OnboardingScreen(
       Spacer(modifier = Modifier.height(48.dp))
 
       // Animated Icon with Glow
-      OnboardingIconDisplay(icon = step.icon)
+      OnboardingIconDisplay(icon = state.step.icon)
 
       Spacer(modifier = Modifier.height(48.dp))
 
@@ -215,7 +219,7 @@ fun OnboardingScreen(
           )
       ) {
         Text(
-          text = stringResource(step.titleRes),
+          text = stringResource(state.step.titleRes),
           style = MaterialTheme.typography.displaySmall,
           fontWeight = FontWeight.Bold,
           color = colors.onBackground,
@@ -228,7 +232,7 @@ fun OnboardingScreen(
 
       // Description
       Text(
-        text = stringResource(step.descriptionRes),
+        text = stringResource(state.step.descriptionRes),
         style = MaterialTheme.typography.bodyLarge,
         color = colors.onSurfaceVariant,
         textAlign = TextAlign.Center,
@@ -239,14 +243,17 @@ fun OnboardingScreen(
     // Bottom Section
     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
       // Progress Indicator
-      FuturisticProgressIndicator(currentStep = currentStepIndex, totalSteps = totalSteps)
+      FuturisticProgressIndicator(
+        currentStep = state.currentStepIndex,
+        totalSteps = state.totalSteps,
+      )
 
       Spacer(modifier = Modifier.height(32.dp))
 
       // Next/Start Button
       GradientButton(
-        text = stringResource(primaryActionLabel),
-        onClick = onNext,
+        text = stringResource(state.primaryActionLabel),
+        onClick = actions.onNext,
         modifier = Modifier.fillMaxWidth().height(56.dp),
       )
     }

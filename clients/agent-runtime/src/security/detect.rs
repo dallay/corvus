@@ -16,13 +16,7 @@ pub fn create_sandbox(config: &SecurityConfig) -> Result<Arc<dyn Sandbox>> {
 
     // If explicitly disabled or backend=None, return noop or error
     if matches!(backend, SandboxBackend::None) || config.sandbox.enabled == Some(false) {
-        if require {
-            return Err(anyhow!(
-                "Sandbox required but configuration disables it \
-                 (backend=none or enabled=false)"
-            ));
-        }
-        return Ok(Arc::new(super::traits::NoopSandbox));
+        return disabled_sandbox_result(require);
     }
 
     // If specific backend requested, try that
@@ -37,17 +31,11 @@ pub fn create_sandbox(config: &SecurityConfig) -> Result<Arc<dyn Sandbox>> {
                     }
                 }
             }
-            if require {
-                return Err(anyhow!(
-                    "Sandbox required but Landlock backend is not available \
-                     on this platform"
-                ));
-            }
-            tracing::warn!(
-                "Landlock requested but not available, \
-                 falling back to application-layer"
-            );
-            Ok(Arc::new(super::traits::NoopSandbox))
+            unavailable_backend_result(
+                require,
+                "Sandbox required but Landlock backend is not available on this platform",
+                "Landlock requested but not available, falling back to application-layer",
+            )
         }
         SandboxBackend::Firejail => {
             #[cfg(target_os = "linux")]
@@ -56,16 +44,11 @@ pub fn create_sandbox(config: &SecurityConfig) -> Result<Arc<dyn Sandbox>> {
                     return Ok(Arc::new(sandbox));
                 }
             }
-            if require {
-                return Err(anyhow!(
-                    "Sandbox required but Firejail backend is not available"
-                ));
-            }
-            tracing::warn!(
-                "Firejail requested but not available, \
-                 falling back to application-layer"
-            );
-            Ok(Arc::new(super::traits::NoopSandbox))
+            unavailable_backend_result(
+                require,
+                "Sandbox required but Firejail backend is not available",
+                "Firejail requested but not available, falling back to application-layer",
+            )
         }
         SandboxBackend::Bubblewrap => {
             #[cfg(feature = "sandbox-bubblewrap")]
@@ -77,36 +60,49 @@ pub fn create_sandbox(config: &SecurityConfig) -> Result<Arc<dyn Sandbox>> {
                     }
                 }
             }
-            if require {
-                return Err(anyhow!(
-                    "Sandbox required but Bubblewrap backend is not available"
-                ));
-            }
-            tracing::warn!(
-                "Bubblewrap requested but not available, \
-                 falling back to application-layer"
-            );
-            Ok(Arc::new(super::traits::NoopSandbox))
+            unavailable_backend_result(
+                require,
+                "Sandbox required but Bubblewrap backend is not available",
+                "Bubblewrap requested but not available, falling back to application-layer",
+            )
         }
         SandboxBackend::Docker => {
             if let Ok(sandbox) = super::docker::DockerSandbox::new() {
                 return Ok(Arc::new(sandbox));
             }
-            if require {
-                return Err(anyhow!(
-                    "Sandbox required but Docker backend is not available"
-                ));
-            }
-            tracing::warn!(
-                "Docker requested but not available, \
-                 falling back to application-layer"
-            );
-            Ok(Arc::new(super::traits::NoopSandbox))
+            unavailable_backend_result(
+                require,
+                "Sandbox required but Docker backend is not available",
+                "Docker requested but not available, falling back to application-layer",
+            )
         }
         SandboxBackend::Auto | SandboxBackend::None => {
             // Auto-detect best available
             detect_best_sandbox(require)
         }
+    }
+}
+
+fn disabled_sandbox_result(require: bool) -> Result<Arc<dyn Sandbox>> {
+    if require {
+        Err(anyhow!(
+            "Sandbox required but configuration disables it (backend=none or enabled=false)"
+        ))
+    } else {
+        Ok(Arc::new(super::traits::NoopSandbox))
+    }
+}
+
+fn unavailable_backend_result(
+    require: bool,
+    required_message: &'static str,
+    fallback_warning: &'static str,
+) -> Result<Arc<dyn Sandbox>> {
+    if require {
+        Err(anyhow!(required_message))
+    } else {
+        tracing::warn!(fallback_warning);
+        Ok(Arc::new(super::traits::NoopSandbox))
     }
 }
 

@@ -79,8 +79,8 @@ onUnmounted(() => {
 <template>
   <section class="card">
     <h2>{{ t("sections.channels") }}</h2>
-    <p v-if="loading" class="helper" aria-live="polite" role="status">{{ t("channels.loading") }}</p>
-    <p v-else-if="error" class="error" aria-live="assertive" role="alert">{{ error }}</p>
+    <p v-if="loading" class="helper" aria-live="polite">{{ t("channels.loading") }}</p>
+    <p v-else-if="error" class="error" aria-live="assertive">{{ error }}</p>
     <div v-else class="channel-list">
       <div
         v-for="ch in channels"
