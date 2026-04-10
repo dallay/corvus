@@ -182,16 +182,6 @@ docs-check: ## Lint/Format check Docs (Biome)
 docs-format: ## Format Docs (Biome)
 	@$(GRADLEW) $(WEB_MODULE):docsFormat
 
-# Chat app
-chat-dev: ## Run Chat app dev server
-	@$(GRADLEW) $(WEB_MODULE):chatDev
-chat-build: ## Build Chat app
-	@$(GRADLEW) $(WEB_MODULE):chatBuild
-chat-check: ## Check Chat app
-	@$(GRADLEW) $(WEB_MODULE):chatCheck
-chat-test: ## Run Chat app tests
-	@$(GRADLEW) $(WEB_MODULE):chatTestCoverage
-
 # Dashboard
 dashboard-dev: ## Run Dashboard dev server
 	@$(GRADLEW) $(WEB_MODULE):dashboardDev
@@ -221,7 +211,6 @@ web-test-all: ## Run all web application tests
 
 web-check-all: ## Run all web application checks
 	@$(GRADLEW) $(WEB_MODULE):docsCheck
-	@$(GRADLEW) $(WEB_MODULE):chatCheck
 	@$(GRADLEW) $(WEB_MODULE):dashboardCheck
 	@$(GRADLEW) $(WEB_MODULE):marketingCheck
 
@@ -394,7 +383,7 @@ sync-version: ## Sync VERSION with git tag
         android-build android-lint rust-check rust-test rust-clippy rust-fmt rust-build \
         cerebro-check cerebro-test cerebro-clippy cerebro-fmt cerebro-build \
         web-install docs-dev docs-build docs-check docs-format \
-        chat-dev chat-build chat-check chat-test dashboard-dev dashboard-build dashboard-check dashboard-test \
+        dashboard-dev dashboard-build dashboard-check dashboard-test \
         marketing-dev marketing-build marketing-check web-build-all web-clean-all web-test-all web-check-all \
         format check-format check lint-kotlin lint-rust lint-android lint-all \
         test test-app test-core test-verbose test-coverage rust-coverage test-all check-all docs-code \

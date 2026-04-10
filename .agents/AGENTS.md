@@ -123,21 +123,18 @@ If using Gradle directly for Rust tasks, include `-PenableRustTasks=true`.
 
 - `make web-install`, `make web-build-all`, `make web-test-all`, `make web-check-all`
 - `make docs-dev` / `make docs-build` / `make docs-check`
-- `make chat-dev` / `make chat-build` / `make chat-check` / `make chat-test`
 - `make dashboard-dev` / `make dashboard-build` / `make dashboard-check` / `make dashboard-test`
 - `make marketing-dev` / `make marketing-build` / `make marketing-check`
   Direct pnpm examples from `clients/web`:
-- `pnpm test`, `pnpm test:chat`, `pnpm test:dashboard`, `pnpm test:dashboard:e2e`
+- `pnpm test`, `pnpm test:dashboard`, `pnpm test:dashboard:e2e`
   Single web test examples:
-- `pnpm --dir clients/web --filter @corvus/chat test -- src/path/to/file.test.ts`
-- `pnpm --dir clients/web --filter @corvus/chat test -- src/path/to/file.test.ts -t "case name"`
 - `pnpm --dir clients/web --filter @corvus/dashboard test -- src/path/to/file.test.ts`
 - `pnpm --dir clients/web --filter @corvus/dashboard exec playwright test e2e/file.spec.ts --grep "case name"`
 
 ### Formatting / lint / coverage
 
 - `make format`, `make check-format`, `make lint-kotlin`, `make lint-rust`, `make lint-android`
-- `make docs-check`, `make chat-check`, `make dashboard-check`, `make marketing-check`
+- `make docs-check`, `make dashboard-check`, `make marketing-check`
 - `make test-coverage`, `make rust-coverage`, `make link-check`, `make link-check-local`
 
 ## Code style

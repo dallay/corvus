@@ -2,7 +2,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createI18n } from "vue-i18n";
 
-import HealthIndicator from "@/components/HealthIndicator.vue";
+import HealthIndicator from "@/components/chat/HealthIndicator.vue";
 import { i18nConfig } from "@/i18n";
 
 const testI18n = createI18n(i18nConfig);

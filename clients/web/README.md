@@ -1,6 +1,6 @@
 # Corvus Web Monorepo
 
-Monorepo for Corvus web apps, including docs, marketing, chat, and dashboard.
+Monorepo for Corvus web apps, including docs, marketing, and dashboard.
 
 ## Structure
 
@@ -9,8 +9,7 @@ clients/web/
 ├── apps/
 │   ├── docs/           # Documentation (Astro + Starlight)
 │   ├── marketing/      # Marketing landing and campaign pages (Astro)
-│   ├── chat/           # ChatGPT-style conversational chat (Vue 3 + Vite)
-│   └── dashboard/      # Secure gateway dashboard (Vue 3 + Vite)
+│   └── dashboard/      # Secure gateway dashboard with chat (Vue 3 + Vite)
 ├── packages/
 │   └── shared/         # Shared utilities
 ├── biome.json          # Single Biome config for the whole monorepo
@@ -34,19 +33,13 @@ clients/web/
 - URL configurable with `MARKETING_URL` (dev fallback: `http://localhost:9988`)
 - Includes public install script at `/install`
 
-### chat
-
-- Framework: Vue 3 + Vite + Tailwind + shadcn-vue style components
-- Portless dev URL: `http://chat.localhost:1355`
-- Legacy dev port (PORTLESS=0): 4323
-- ChatGPT-style conversational interface
-
 ### dashboard
 
-- Framework: Vue 3 + Vite
+- Framework: Vue 3 + Vite + Tailwind + shadcn-vue style components
 - Portless dev URL: `http://dashboard.localhost:1355`
 - Legacy dev port (PORTLESS=0): 4324
 - Secure admin panel for `GET/PUT /web/admin/config`
+- Includes a Chat section with streaming conversational interface (previously the standalone `@corvus/chat` app)
 - `GET/PUT /web/admin/config` require auth when pairing is enabled (`[gateway] require_pairing = true` in `clients/agent-runtime/config.toml`)
 - Supported mechanism: bearer token (`Authorization: Bearer <token>`)
 - Obtain token by calling `POST /pair` with header `X-Pairing-Code`; the dashboard exposes this in its Auth section for local development
@@ -71,7 +64,6 @@ pnpm build
 # Build individual apps
 pnpm build:docs
 pnpm build:marketing
-pnpm build:chat
 pnpm build:dashboard
 
 # Compatibility (legacy alias)
@@ -80,11 +72,7 @@ pnpm build:landing
 # Development
 pnpm dev
 pnpm dev:marketing
-pnpm dev:chat
 pnpm dev:dashboard
-
-# Run without portless (uses legacy localhost ports)
-PORTLESS=0 pnpm dev:chat
 
 # Compatibility (legacy alias)
 pnpm dev:landing
@@ -93,7 +81,6 @@ pnpm dev:landing
 pnpm format
 pnpm check
 pnpm test
-pnpm test:chat
 pnpm test:dashboard
 
 ```

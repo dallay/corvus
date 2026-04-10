@@ -3,7 +3,7 @@ import { mount } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createI18n } from "vue-i18n";
 
-import SessionSidebar from "@/components/SessionSidebar.vue";
+import SessionSidebar from "@/components/chat/SessionSidebar.vue";
 
 function createI18nPlugin() {
   return createI18n({
