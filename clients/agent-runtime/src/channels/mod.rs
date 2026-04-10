@@ -5071,10 +5071,10 @@ mod tests {
         let channel_impl = Arc::new(RecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
         let mut channels_by_name = HashMap::new();
-        channels_by_name.insert(channel.name().to_string(), channel);
+        channels_by_name.insert("unsupported-channel".to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
-            config: Arc::new(make_multimodal_test_config("test-channel")),
+            config: Arc::new(make_multimodal_test_config("unsupported-channel")),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(SlowProvider {
                 delay: Duration::from_millis(1),
@@ -5100,7 +5100,7 @@ mod tests {
                 sender: "bob".into(),
                 reply_target: "chat-img2".into(),
                 content: "one photo".into(),
-                channel: "test-channel".into(),
+                channel: "unsupported-channel".into(),
                 timestamp: 1,
                 parts: vec![make_image_part("f1")],
             },
