@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: multi-image-per-turn-ingestion
 **Version**: N/A

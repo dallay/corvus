@@ -7,6 +7,7 @@ Corvus currently hard-rejects image turns after the first image even though the 
 ## Scope
 
 ### In Scope
+
 - Raise the default image-per-turn limit from 1 to 4 and expose it as `multimodal.max_images_per_turn` with startup validation and an effective default.
 - Update channel/runtime handoff so image turns preserve all admitted images through staging and provider request construction.
 - Evolve `ImageIngressEvent` and related logging/observer flows so telemetry reports multi-image turns without collapsing metadata to the first image.
@@ -14,6 +15,7 @@ Corvus currently hard-rejects image turns after the first image even though the 
 - Update OpenSpec deltas for `channel-image-ingestion` and `runtime-image-pipeline`.
 
 ### Out of Scope
+
 - Increasing per-image byte limits or changing supported MIME formats.
 - Deduplication, image batching across turns, or persistence of raw image bytes in history.
 - New channel integrations beyond the channels already covered by the current ingestion pipeline.

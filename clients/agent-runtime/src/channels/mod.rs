@@ -1616,6 +1616,7 @@ fn emit_image_provider_outcome(
     }
 
     let (images, total_byte_len, mime_type, byte_len) = image_ingress_metadata(staged);
+    let max_images_per_turn = ctx.config.multimodal.effective_max_images_per_turn();
     emit_image_ingress(
         ctx.observer.as_ref(),
         &msg.channel,
@@ -1624,12 +1625,57 @@ fn emit_image_provider_outcome(
         outcome,
         reason,
         staged.len(),
-        None,
+        Some(max_images_per_turn),
         images,
         total_byte_len,
         mime_type,
         byte_len,
     );
+}
+
+enum ChannelImageFetcher {
+    Telegram(Arc<TelegramChannel>),
+    WhatsApp(Arc<WhatsAppChannel>),
+    Discord(Arc<DiscordChannel>),
+    Slack(Arc<SlackChannel>),
+    #[cfg(test)]
+    TestChannel,
+}
+
+impl ChannelImageFetcher {
+    async fn fetch_and_stage_image(
+        &self,
+        channel_handle: &str,
+        declared_mime: Option<&str>,
+        max_bytes: u64,
+    ) -> Result<media::StagedImage, media::ImageRejectionReason> {
+        match self {
+            Self::Telegram(channel) => {
+                channel
+                    .fetch_and_stage_image(channel_handle, declared_mime, max_bytes)
+                    .await
+            }
+            Self::WhatsApp(channel) => {
+                channel
+                    .fetch_and_stage_image(channel_handle, declared_mime, max_bytes)
+                    .await
+            }
+            Self::Discord(channel) => {
+                channel
+                    .fetch_and_stage_image(channel_handle, declared_mime, max_bytes)
+                    .await
+            }
+            Self::Slack(channel) => {
+                channel
+                    .fetch_and_stage_image(channel_handle, declared_mime, max_bytes)
+                    .await
+            }
+            #[cfg(test)]
+            Self::TestChannel => {
+                stage_test_channel_image(channel_handle, declared_mime, max_bytes).await
+            }
+        }
+    }
 }
 
 async fn stage_channel_images(
@@ -1641,6 +1687,23 @@ async fn stage_channel_images(
         .max_image_bytes
         .unwrap_or(media::MAX_IMAGE_BYTES);
     let mut staged = Vec::with_capacity(msg.image_parts().len());
+    let fetcher = match msg.channel.as_str() {
+        "telegram" => ChannelImageFetcher::Telegram(
+            build_telegram_channel(config).ok_or(media::ImageRejectionReason::FetchFailed)?,
+        ),
+        "whatsapp" => ChannelImageFetcher::WhatsApp(
+            build_whatsapp_channel(config).ok_or(media::ImageRejectionReason::FetchFailed)?,
+        ),
+        "discord" => ChannelImageFetcher::Discord(
+            build_discord_channel(config).ok_or(media::ImageRejectionReason::FetchFailed)?,
+        ),
+        "slack" => ChannelImageFetcher::Slack(
+            build_slack_channel(config).ok_or(media::ImageRejectionReason::FetchFailed)?,
+        ),
+        #[cfg(test)]
+        "test-channel" => ChannelImageFetcher::TestChannel,
+        _ => return Ok(Vec::new()),
+    };
 
     for part in msg.image_parts() {
         let traits::ContentPart::Image {
@@ -1652,37 +1715,9 @@ async fn stage_channel_images(
             continue;
         };
 
-        let image_result = match msg.channel.as_str() {
-            "telegram" => {
-                build_telegram_channel(config)
-                    .ok_or(media::ImageRejectionReason::FetchFailed)?
-                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
-                    .await
-            }
-            "whatsapp" => {
-                build_whatsapp_channel(config)
-                    .ok_or(media::ImageRejectionReason::FetchFailed)?
-                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
-                    .await
-            }
-            "discord" => {
-                build_discord_channel(config)
-                    .ok_or(media::ImageRejectionReason::FetchFailed)?
-                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
-                    .await
-            }
-            "slack" => {
-                build_slack_channel(config)
-                    .ok_or(media::ImageRejectionReason::FetchFailed)?
-                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
-                    .await
-            }
-            #[cfg(test)]
-            "test-channel" => {
-                stage_test_channel_image(channel_handle, declared_mime.as_deref(), max_bytes).await
-            }
-            _ => return Ok(Vec::new()),
-        };
+        let image_result = fetcher
+            .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
+            .await;
 
         match image_result {
             Ok(image) => staged.push(image),
@@ -3372,7 +3407,19 @@ mod tests {
     struct ImageAwareProvider {
         calls: AtomicUsize,
         image_counts: std::sync::Mutex<Vec<usize>>,
+        image_sequences: std::sync::Mutex<Vec<Vec<String>>>,
         models: std::sync::Mutex<Vec<String>>,
+    }
+
+    fn recorded_image_id(image: &media::StagedImage) -> String {
+        let Some(stem) = image.temp_path.file_stem().and_then(|stem| stem.to_str()) else {
+            return image.sha256.clone();
+        };
+
+        stem.strip_prefix("corvus-test-channel-img-")
+            .and_then(|remainder| remainder.split_once('-'))
+            .map(|(_, suffix)| suffix.to_string())
+            .unwrap_or_else(|| image.sha256.clone())
     }
 
     #[async_trait::async_trait]
@@ -3406,6 +3453,10 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .push(request.images.len());
+            self.image_sequences
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(request.images.iter().map(recorded_image_id).collect());
             self.models
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -4854,10 +4905,10 @@ mod tests {
                 channel: "test-channel".into(),
                 timestamp: 1,
                 parts: vec![
-                    make_image_part("img-a"),
-                    make_image_part("img-b"),
-                    make_image_part("img-c"),
-                    make_image_part("img-d"),
+                    make_image_part("__stable__:img-a"),
+                    make_image_part("__stable__:img-b"),
+                    make_image_part("__stable__:img-c"),
+                    make_image_part("__stable__:img-d"),
                 ],
             },
         )
@@ -4872,6 +4923,19 @@ mod tests {
                 .as_slice(),
             &[4]
         );
+        assert_eq!(
+            provider_impl
+                .image_sequences
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_slice(),
+            &[vec![
+                "img-a".to_string(),
+                "img-b".to_string(),
+                "img-c".to_string(),
+                "img-d".to_string(),
+            ]]
+        );
 
         let events = observer_impl
             .image_events
@@ -4880,6 +4944,7 @@ mod tests {
         assert!(events.iter().any(|event| {
             event.outcome == ImageIngressOutcome::ProviderSent
                 && event.image_count == 4
+                && event.max_images_per_turn == Some(4)
                 && event.images.len() == 4
                 && event.images[0].mime_type == "image/jpeg"
                 && event.total_byte_len.is_some()

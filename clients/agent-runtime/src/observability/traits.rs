@@ -577,8 +577,8 @@ mod tests {
                 },
             ],
             total_byte_len: Some(307_200),
-            mime_type: Some("image/jpeg".into()),
-            byte_len: Some(204_800),
+            mime_type: None,
+            byte_len: None,
         };
         assert_eq!(event.channel, "telegram");
         assert_eq!(event.provider.as_deref(), Some("gemini"));
@@ -589,8 +589,8 @@ mod tests {
         assert_eq!(event.images.len(), 2);
         assert_eq!(event.images[1].mime_type, "image/png");
         assert_eq!(event.total_byte_len, Some(307_200));
-        assert_eq!(event.mime_type.as_deref(), Some("image/jpeg"));
-        assert_eq!(event.byte_len, Some(204_800));
+        assert!(event.mime_type.is_none());
+        assert!(event.byte_len.is_none());
     }
 
     #[test]
@@ -636,13 +636,15 @@ mod tests {
                 byte_len: 333,
             }],
             total_byte_len: Some(333),
-            mime_type: None,
-            byte_len: None,
+            mime_type: Some("image/webp".into()),
+            byte_len: Some(333),
         };
         let cloned = event.clone();
         assert_eq!(cloned.channel, "telegram");
         assert_eq!(cloned.outcome, ImageIngressOutcome::ProviderError);
         assert_eq!(cloned.images.len(), 1);
+        assert_eq!(cloned.mime_type.as_deref(), Some("image/webp"));
+        assert_eq!(cloned.byte_len, Some(333));
     }
 
     #[test]

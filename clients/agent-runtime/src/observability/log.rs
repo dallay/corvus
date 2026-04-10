@@ -508,12 +508,18 @@ mod tests {
             outcome: ImageIngressOutcome::Admitted,
             reason: None,
             image_count: 2,
-            max_images_per_turn: None,
-            images: vec![super::super::traits::ImageIngressImageMeta {
-                mime_type: "image/png".into(),
-                byte_len: 102_400,
-            }],
-            total_byte_len: Some(102_400),
+            max_images_per_turn: Some(4),
+            images: vec![
+                super::super::traits::ImageIngressImageMeta {
+                    mime_type: "image/png".into(),
+                    byte_len: 102_400,
+                },
+                super::super::traits::ImageIngressImageMeta {
+                    mime_type: "image/jpeg".into(),
+                    byte_len: 204_800,
+                },
+            ],
+            total_byte_len: Some(307_200),
             mime_type: None,
             byte_len: None,
         }));

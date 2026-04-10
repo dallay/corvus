@@ -275,6 +275,13 @@ payload bytes.
 - AND the reason MUST be `TooManyImages`
 - AND the event metadata MUST report the attempted count of 6 and effective limit of 4
 
+### REQ-10: Deduplication (out of scope for MVP)
+
+Image deduplication is explicitly **out of scope** for MVP. If a user sends the same image twice in
+separate messages, each occurrence is independently fetched, validated, staged, and dispatched. The
+SHA-256 hash in the staging filename enables future dedup without schema changes, but no dedup logic
+SHALL be implemented in the initial channel ingestion pipeline.
+
 ### REQ-11: Regression Coverage for Multi-Image Channel Ingestion
 
 The system MUST include regression coverage for multi-image channel ingestion behavior. Coverage
@@ -295,13 +302,6 @@ rejection, preservation of staged-image ordering, and observability semantics fo
 - THEN it MUST include a case for an admitted multi-image turn
 - AND it MUST include a case for an over-limit rejected turn
 - AND both cases MUST assert turn-level observability semantics rather than first-image-only metadata
-
-### REQ-10: Deduplication (out of scope for MVP)
-
-Image deduplication is explicitly **out of scope** for MVP. If a user sends the same image twice in
-separate messages, each occurrence is independently fetched, validated, staged, and dispatched. The
-SHA-256 hash in the staging filename enables future dedup without schema changes, but no dedup logic
-SHALL be implemented in the initial channel ingestion pipeline.
 
 ## Scenarios
 
