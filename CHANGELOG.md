@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/dallay/corvus/compare/v2.1.0...v2.2.0) (2026-04-10)
+
+
+### Features
+
+* **agent-runtime:** support multiple images per turn ([#472](https://github.com/dallay/corvus/issues/472)) ([5afd58b](https://github.com/dallay/corvus/commit/5afd58b515f255e66371e1964730b1ba98b27109))
+
 ## [2.1.0](https://github.com/dallay/corvus/compare/v2.0.0...v2.1.0) (2026-04-09)
 
 
