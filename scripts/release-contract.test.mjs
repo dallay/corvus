@@ -27,6 +27,19 @@ function assertIncludesAll(text, patterns, label) {
   }
 }
 
+function assertContains(text, snippet, label) {
+  assert.ok(text.includes(snippet), `${label} is missing ${snippet}`);
+}
+
+function assertContainsInOrder(text, snippets, label) {
+  let cursor = 0;
+  for (const snippet of snippets) {
+    const nextIndex = text.indexOf(snippet, cursor);
+    assert.notEqual(nextIndex, -1, `${label} is missing ${snippet}`);
+    cursor = nextIndex + snippet.length;
+  }
+}
+
 function trustedExecutableDirs() {
   return [
     process.env.HOME && path.join(process.env.HOME, ".cargo", "bin"),
@@ -170,12 +183,32 @@ test("release workflows encode release-please-owned stable governance", () => {
       /release-please action outputs/i,
       /canonical GitHub Release/i,
       /release PR\/tag\/GitHub Release path/i,
-      /release-please:\s+.*?permissions:\s+contents: write\s+pull-requests: write\s+issues: write/s,
-      /publish-release:\s+.*?permissions:\s+contents: write\s+packages: write/s,
     ],
     "release-please workflow",
   );
-  assert.doesNotMatch(releasePlease, /^permissions:\s*[\s\S]*?^jobs:/m);
+  assertContainsInOrder(
+    releasePlease,
+    [
+      "release-please:",
+      "permissions:",
+      "contents: write",
+      "pull-requests: write",
+      "issues: write",
+    ],
+    "release-please workflow",
+  );
+  assertContainsInOrder(
+    releasePlease,
+    ["publish-release:", "permissions:", "contents: write", "packages: write"],
+    "release-please workflow",
+  );
+  const jobsSectionIndex = releasePlease.indexOf("jobs:\n");
+  assert.notEqual(jobsSectionIndex, -1, "release-please workflow is missing jobs section");
+  assert.equal(
+    releasePlease.slice(0, jobsSectionIndex).includes("permissions:"),
+    false,
+    "release-please workflow should not declare top-level permissions",
+  );
   assert.doesNotMatch(releasePlease, /secrets:\s+inherit/);
 
   assertIncludesAll(
