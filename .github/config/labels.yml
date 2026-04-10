@@ -168,3 +168,20 @@
 - name: pr|chore
   description: Routine maintenance tasks like formatting or cleanup
   color: "#E36209"
+
+# PR Size (size|)
+- name: size/xs
+  description: Denotes an extra small change size
+  color: "#D1D5DB"
+- name: size/s
+  description: Denotes a small change size
+  color: "#D1D5DB"
+- name: size/m
+  description: Denotes a medium change size
+  color: "#D1D5DB"
+- name: size/l
+  description: Denotes a large change size
+  color: "#D1D5DB"
+- name: size/xl
+  description: Denotes an extra large change size
+  color: "#D1D5DB"
