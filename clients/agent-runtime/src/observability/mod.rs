@@ -18,8 +18,8 @@ pub use traits::{
     budget_state_label, cost_override_scope_label, redact_observer_payload,
     redact_optional_observer_payload, usage_period_label, AudioIngressEvent, AudioIngressOutcome,
     AudioIngressReason, BudgetOverrideAction, BudgetOverrideEvent, BudgetThresholdEvent,
-    ImageIngressEvent, ImageIngressOutcome, ImageIngressReason, Observer, ObserverEvent,
-    ObserverMetric,
+    ImageIngressEvent, ImageIngressImageMeta, ImageIngressOutcome, ImageIngressReason, Observer,
+    ObserverEvent, ObserverMetric,
 };
 #[allow(unused_imports)]
 pub use verbose::VerboseObserver;

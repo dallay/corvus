@@ -2151,9 +2151,10 @@ async fn handle_chat_stream(
                 .simple_chat(message, &state.model, state.temperature)
                 .await
             {
-                Ok(response) => {
-                    StreamProcessingOutcome::Success(scrub_sensitive_boundary_text(&response), vec![])
-                }
+                Ok(response) => StreamProcessingOutcome::Success(
+                    scrub_sensitive_boundary_text(&response),
+                    vec![],
+                ),
                 Err(e) => {
                     let sanitized = providers::sanitize_api_error(&e.to_string());
                     tracing::error!("Stream provider error: {sanitized}");

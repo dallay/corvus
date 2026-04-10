@@ -9,8 +9,8 @@
 
 This specification defines the canonical strategy for how Corvus messaging channels ingest user-sent
 images, validate them, stage them to disk, and hand them off to the runtime's provider pipeline. It
-codifies the patterns implemented for Telegram, WhatsApp, and Discord, and defines contracts for
-remaining channel implementations (Slack and beyond).
+codifies the patterns implemented for Telegram, WhatsApp, Discord, and Slack, and defines contracts
+for remaining channel implementations beyond those channels.
 
 ## Definitions
 
@@ -34,7 +34,7 @@ The following channels MUST support image ingestion for MVP:
 | Telegram | Implemented | MVP      |
 | WhatsApp | Implemented | MVP      |
 | Discord  | Implemented | MVP      |
-| Slack    | Planned     | Wave 2   |
+| Slack    | Implemented | Wave 2   |
 
 All other channels (CLI, Matrix, Mattermost, Signal, IRC, Email, DingTalk, Lark, QQ, iMessage) are
 explicitly out of scope until a follow-up change promotes them.
@@ -52,15 +52,16 @@ Every channel implementing image ingestion MUST follow this 5-step pipeline:
    part.
 
 3. **Fetch**: Download the image bytes using the channel's native API. The fetch MUST:
-    - Use channel-specific authentication (bot token, bearer token, etc.)
-    - Stream bytes with a per-chunk size check against `MAX_IMAGE_BYTES`
-    - Perform early rejection via `Content-Length` header when available
-    - Redact credentials from error messages
+     - Use channel-specific authentication (bot token, bearer token, etc.)
+     - Stream bytes with a per-chunk size check against `MAX_IMAGE_BYTES`
+     - Perform early rejection via `Content-Length` header when available
+     - Redact credentials from error messages
 
 4. **Validate**: Apply validation in this order:
-   a. MIME type via magic-byte sniffing (MUST take precedence over declared MIME)
-   b. File size against `MAX_IMAGE_BYTES` (10 MiB)
-   c. Image count against `MAX_IMAGES_PER_TURN` (1)
+   a. Image count against the effective `multimodal.max_images_per_turn` value before any fetch or
+      stage work begins
+   b. MIME type via magic-byte sniffing during fetch/stage (MUST take precedence over declared MIME)
+   c. File size against `MAX_IMAGE_BYTES` (10 MiB) during fetch/stage
 
 5. **Stage**: Write validated bytes to a temp file and produce a `StagedImage`:
     - Compute SHA-256 hash of the raw bytes
@@ -68,6 +69,27 @@ Every channel implementing image ingestion MUST follow this 5-step pipeline:
       `corvus-{channel_abbrev}-img-{sha256_prefix_16}.{ext}`
     - Set `transport_form` to `InlineBytes` (MVP)
     - Set `channel_origin` to the channel name
+
+The effective default `multimodal.max_images_per_turn` value MUST be 4 when the config field is
+omitted. Admitted images from the same user turn MUST remain associated with that turn and MUST be
+staged in the same order they appeared in `ChannelMessage.parts`.
+
+#### Scenario: Multiple images in one admitted turn are staged in order
+
+- GIVEN multimodal is enabled for an allowed channel
+- AND `multimodal.max_images_per_turn` is omitted from config
+- WHEN a user sends a turn containing 3 valid images in channel order
+- THEN the ingestion pipeline MUST admit all 3 images in that same turn
+- AND it MUST stage all 3 images successfully
+- AND the staged image sequence MUST preserve the original channel order
+
+#### Scenario: Limit applies to the full turn, not only the first image
+
+- GIVEN multimodal is enabled for an allowed channel
+- AND `multimodal.max_images_per_turn` is set to `4`
+- WHEN a user sends a turn containing 4 valid images
+- THEN the ingestion pipeline MUST admit the full turn
+- AND it MUST NOT reject images 2 through 4 solely because an earlier image was already admitted
 
 ### REQ-3: Allowed Image Formats
 
@@ -85,10 +107,37 @@ GIF, BMP, TIFF, SVG, and all other formats MUST be rejected with
 ### REQ-4: Size and Count Limits
 
 - **Max image payload size**: 10 MiB (`MAX_IMAGE_BYTES = 10 * 1024 * 1024`)
-- **Max images per turn**: 1 (`MAX_IMAGES_PER_TURN = 1`)
+- **Max images per turn**: the effective `multimodal.max_images_per_turn` value
+- When `multimodal.max_images_per_turn` is omitted, the effective default MUST be 4
+- When `multimodal.max_images_per_turn` is provided, startup validation MUST reject invalid values
+  deterministically before runtime admission begins
+- A turn whose image count exceeds the effective limit MUST be rejected as a whole with
+  `ImageRejectionReason::TooManyImages`
 - Channels SHOULD reject oversized images before fully downloading when `Content-Length` is
-  available.
-- The `multimodal.max_image_bytes` config field MAY override `MAX_IMAGE_BYTES` in the future.
+  available
+- The `multimodal.max_image_bytes` config field MAY override `MAX_IMAGE_BYTES`
+
+#### Scenario: Default count limit admits up to four images
+
+- GIVEN multimodal is enabled and `multimodal.max_images_per_turn` is not set
+- WHEN a user sends a turn containing 4 valid images
+- THEN the effective image-count limit MUST be 4
+- AND the turn MUST be admitted
+
+#### Scenario: Configured lower count limit is enforced
+
+- GIVEN multimodal is enabled and `multimodal.max_images_per_turn` is set to `2`
+- WHEN a user sends a turn containing 3 valid images
+- THEN the turn MUST be rejected with `ImageRejectionReason::TooManyImages`
+- AND the rejection MUST use the configured limit of 2
+
+#### Scenario: Over-limit turn is rejected deterministically
+
+- GIVEN multimodal is enabled and `multimodal.max_images_per_turn` is set to `4`
+- WHEN a user sends a turn containing 5 images
+- THEN the system MUST reject the turn with `ImageRejectionReason::TooManyImages`
+- AND the user-visible error MUST report count `5` and limit `4`
+- AND no image in that turn MUST be staged or partially admitted
 
 ### REQ-5: Config Gating
 
@@ -205,7 +254,33 @@ Every image ingestion attempt MUST emit an `ImageIngressEvent` with:
 - `provider` / `model`: resolved vision route (if available)
 - `outcome`: `Admitted`, `Rejected`, `ProviderSent`, or `ProviderError`
 - `reason`: rejection reason (if rejected)
-- `image_count`, `mime_type`, `byte_len`: image metadata
+- turn-level image metadata that represent the full image turn rather than only the first image when
+  the turn is admitted or provider-bound
+
+For admitted and provider-bound multi-image turns, observability MUST report the full turn image
+count and metadata that accurately describe every staged image in the turn without including raw
+payload bytes.
+
+For rejected over-limit turns, observability MUST report the attempted image count and effective
+`max_images_per_turn`, and it MAY omit per-image metadata fields (`images`, `total_byte_len`,
+`mime_type`, `byte_len`) because no staged images exist for the rejected turn.
+
+#### Scenario: Admitted multi-image turn reports turn-level metadata
+
+- GIVEN a user turn is admitted with 3 staged images
+- WHEN the ingestion pipeline emits its observability event
+- THEN the event MUST report an image count of 3
+- AND the event metadata MUST describe the admitted turn rather than only the first image
+- AND the event MUST NOT include raw image bytes
+
+#### Scenario: Rejected over-limit turn reports full attempted count
+
+- GIVEN `multimodal.max_images_per_turn` is `4`
+- WHEN a user sends a turn containing 6 images
+- THEN the rejection event MUST report outcome `Rejected`
+- AND the reason MUST be `TooManyImages`
+- AND the event metadata MUST report the attempted count of 6 and effective limit of 4
+- AND per-image metadata fields MAY be omitted for that rejected turn
 
 ### REQ-10: Deduplication (out of scope for MVP)
 
@@ -213,6 +288,27 @@ Image deduplication is explicitly **out of scope** for MVP. If a user sends the 
 separate messages, each occurrence is independently fetched, validated, staged, and dispatched. The
 SHA-256 hash in the staging filename enables future dedup without schema changes, but no dedup logic
 SHALL be implemented in the initial channel ingestion pipeline.
+
+### REQ-11: Regression Coverage for Multi-Image Channel Ingestion
+
+The system MUST include regression coverage for multi-image channel ingestion behavior. Coverage
+MUST verify the effective default limit, configured-limit admission, deterministic over-limit
+rejection, preservation of staged-image ordering, and observability semantics for multi-image turns.
+
+#### Scenario: Regression suite covers the default and configured count limits
+
+- GIVEN the multi-image ingestion change is implemented
+- WHEN the channel-ingestion regression suite is executed
+- THEN it MUST include at least one case proving the default limit is 4
+- AND it MUST include at least one case proving a configured limit below 4 is enforced
+
+#### Scenario: Regression suite covers observability for multi-image turns
+
+- GIVEN the multi-image ingestion change is implemented
+- WHEN the channel-ingestion regression suite is executed
+- THEN it MUST include a case for an admitted multi-image turn
+- AND it MUST include a case for an over-limit rejected turn
+- AND both cases MUST assert turn-level observability semantics rather than first-image-only metadata
 
 ## Scenarios
 
@@ -270,8 +366,8 @@ SHALL be implemented in the initial channel ingestion pipeline.
 
 ### Scenario 7: Fail-closed for unimplemented channel
 
-**Given** multimodal is enabled with `allowed_channels: ["slack"]`
-**When** a Slack user sends an image
+**Given** multimodal is enabled with `allowed_channels: ["signal"]`
+**When** a Signal user sends an image
 **Then** `stage_channel_images()` returns an empty Vec
 **And** the caller rejects with "Image input is not yet supported for this channel"
 
@@ -323,7 +419,7 @@ SHALL be implemented in the initial channel ingestion pipeline.
 - **Caption**: Message text content serves as caption
 - **Implementation note**: Filter `message.attachments` by `content_type` starting with `image/`
 
-### Slack (Wave 2 — contract only)
+### Slack (Implemented — Wave 2)
 
 - **Inbound forms**: Files shared in channel (via `file_shared` event or `files` array in message)
 - **Channel handle**: `file.id` string
@@ -333,3 +429,6 @@ SHALL be implemented in the initial channel ingestion pipeline.
 - **Caption**: Message text serves as caption
 - **Implementation note**: Requires `files:read` OAuth scope; use `url_private_download` not
   `url_private`
+- **Staging note**: Slack image ingestion resolves `url_private_download`, downloads with bearer
+  auth, then validates and stages through the shared `stream_validate_and_stage()` path using the
+  `sl` channel abbreviation
