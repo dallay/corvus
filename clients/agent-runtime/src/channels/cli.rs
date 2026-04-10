@@ -235,23 +235,7 @@ impl CliChannel {
     }
 
     async fn read_audio_bytes(&self, path: &str) -> Option<(Vec<u8>, usize)> {
-        let metadata = match tokio::fs::metadata(path).await {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                if error.kind() == std::io::ErrorKind::NotFound {
-                    println!("File not found: {path}");
-                } else {
-                    println!("Cannot read file metadata: {path}");
-                }
-                return None;
-            }
-        };
-
-        if !metadata.file_type().is_file() {
-            println!("Not a regular file: {path}");
-            return None;
-        }
-
+        // Open first, then check metadata on the handle to avoid TOCTOU races.
         let file = match tokio::fs::File::open(path).await {
             Ok(file) => file,
             Err(error) => {
@@ -263,6 +247,19 @@ impl CliChannel {
                 return None;
             }
         };
+
+        let metadata = match file.metadata().await {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                println!("Cannot read file metadata: {path}");
+                return None;
+            }
+        };
+
+        if !metadata.file_type().is_file() {
+            println!("Not a regular file: {path}");
+            return None;
+        }
 
         let max_size = self.audio_config.max_audio_bytes;
         let mut capped_reader = tokio::io::AsyncReadExt::take(file, max_size + 1);

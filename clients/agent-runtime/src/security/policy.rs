@@ -245,6 +245,10 @@ impl SecurityPolicy {
 
     /// Classify command risk. Any high-risk segment marks the whole command high.
     pub fn command_risk_level(&self, command: &str) -> CommandRiskLevel {
+        // Early exit on the raw command catches snippets that span segment
+        // boundaries (e.g. fork bombs containing `;`).  The per-segment check
+        // below is intentionally kept for snippets that appear within a single
+        // pipeline segment after normalization.
         if contains_high_risk_snippet(&command.to_ascii_lowercase()) {
             return CommandRiskLevel::High;
         }

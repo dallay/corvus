@@ -111,7 +111,9 @@ const showResetAction = computed(() => hasOperationalData.value);
 const showActionPanel = computed(() => showOverrideAction.value || showResetAction.value);
 
 function refreshGovernance(): void {
-  governance.reload().catch(() => undefined);
+  governance.reload().catch((error: unknown) => {
+    console.error("[CostOverview] failed to reload governance data", error);
+  });
 }
 
 refreshGovernance();
