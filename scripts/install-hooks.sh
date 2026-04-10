@@ -35,6 +35,7 @@ if compgen -G "$HOOKS_SRC/*.sh" > /dev/null; then
   echo "${GREEN}${BOLD}✅ Git hooks installed successfully!${RESET}"
 else
   echo "⚠️  No hook scripts found in $HOOKS_SRC"
+  exit 1
 fi
 
 exit 0

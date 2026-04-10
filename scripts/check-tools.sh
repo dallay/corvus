@@ -11,7 +11,7 @@ RED="$(tput setaf 1 2>/dev/null || echo '')"
 # Configuration
 MIN_JAVA=21
 MIN_NODE=22
-MIN_PNPM=10
+MIN_PNPM=10  # See package.json "packageManager" field for the official constraint
 MIN_RUST_MAJOR=1
 MIN_RUST_MINOR=75
 
