@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/dallay/corvus/compare/v2.1.0...v2.2.0) (2026-04-10)
+
+
+### Features
+
+* **agent-runtime:** support multiple images per turn ([#472](https://github.com/dallay/corvus/issues/472)) ([5afd58b](https://github.com/dallay/corvus/commit/5afd58b515f255e66371e1964730b1ba98b27109))
+
 ## [2.1.0](https://github.com/dallay/corvus/compare/v2.0.0...v2.1.0) (2026-04-09)
 
 
@@ -20,7 +27,7 @@
 * **dashboard:** align cost governance tests and locale keys ([3500dc7](https://github.com/dallay/corvus/commit/3500dc76f2318e6f15aa1d99db0ad9f041d4d606))
 * **dashboard:** satisfy cerebro web push checks ([6db38c3](https://github.com/dallay/corvus/commit/6db38c390cc81ec3b1d3526fe47027175b5e1a66))
 
-## [2.0.0](https://github.com/dallay/corvus/compare/v1.0.0...v2.0.0) (2026-04-09)
+## [2.0.0](https://github.com/dallay/corvus/compare/v0.5.0...v2.0.0) (2026-04-09)
 
 
 ### ⚠ BREAKING CHANGES
