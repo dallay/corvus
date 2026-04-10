@@ -755,17 +755,13 @@ impl Agent {
             Ok(result) => match self.handle_tool_result(call, &result, start.elapsed()) {
                 Ok(output) => (output, result.success),
                 Err(audit_error_result) => {
-                    let finalized = self.finalize_tool_execution(
-                        call,
-                        start.elapsed(),
-                        audit_error_result.output.clone(),
-                        audit_error_result.success,
-                        audit_error_result.action.clone(),
-                    );
-                    return ToolExecutionResult {
-                        output: finalized.output,
-                        ..audit_error_result
-                    };
+                    // Record the observer event before returning the audit error.
+                    self.observer.record_event(&ObserverEvent::ToolCall {
+                        tool: call.name.clone(),
+                        duration: start.elapsed(),
+                        success: audit_error_result.success,
+                    });
+                    return audit_error_result;
                 }
             },
             Err(error) => {
@@ -779,17 +775,12 @@ impl Agent {
                     match self.handle_tool_result(call, &failed_result, start.elapsed()) {
                         Ok(output) => (output, false),
                         Err(audit_error_result) => {
-                            let finalized = self.finalize_tool_execution(
-                                call,
-                                start.elapsed(),
-                                audit_error_result.output.clone(),
-                                audit_error_result.success,
-                                audit_error_result.action.clone(),
-                            );
-                            return ToolExecutionResult {
-                                output: finalized.output,
-                                ..audit_error_result
-                            };
+                            self.observer.record_event(&ObserverEvent::ToolCall {
+                                tool: call.name.clone(),
+                                duration: start.elapsed(),
+                                success: audit_error_result.success,
+                            });
+                            return audit_error_result;
                         }
                     }
                 } else {

@@ -121,10 +121,10 @@ onMounted(() => load());
         }}
       </p>
     </header>
-    <p v-if="admin.loading.value" aria-atomic="true" aria-live="polite" class="helper" role="status">
+    <p v-if="admin.loading.value" aria-atomic="true" aria-live="polite" class="helper">
       {{ t("memory.loading", "Loading memory entries…") }}
     </p>
-    <p v-else-if="admin.error.value" aria-atomic="true" aria-live="assertive" class="error" role="alert">
+    <p v-else-if="admin.error.value" aria-atomic="true" aria-live="assertive" class="error">
       {{ admin.error.value }}
     </p>
     <template v-else>

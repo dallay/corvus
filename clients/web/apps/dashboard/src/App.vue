@@ -378,65 +378,65 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
           id="dashboard-panel-config"
       >
         <section v-if="config.isOperatorReady.value" class="overview-section">
-        <div class="section-intro">
-          <p class="section-kicker">Operational overview</p>
-          <h2>Current system state</h2>
-          <p class="helper section-copy">
-            Review runtime, scheduler, gateway, and reliability signals before changing
-            configuration.
-          </p>
-        </div>
-        <div class="overview-grid">
-          <SchedulerStatus
-              :bearer-token="config.bearerToken.value"
-              :gateway-url="config.baseUrl.value"
-          />
+          <div class="section-intro">
+            <p class="section-kicker">Operational overview</p>
+            <h2>Current system state</h2>
+            <p class="helper section-copy">
+              Review runtime, scheduler, gateway, and reliability signals before changing
+              configuration.
+            </p>
+          </div>
+          <div class="overview-grid">
+            <SchedulerStatus
+                :bearer-token="config.bearerToken.value"
+                :gateway-url="config.baseUrl.value"
+            />
 
-          <CostOverview
-              :bearer-token="config.bearerToken.value"
-              :gateway-url="config.baseUrl.value"
-          />
+            <CostOverview
+                :bearer-token="config.bearerToken.value"
+                :gateway-url="config.baseUrl.value"
+            />
 
-          <TunnelOverview
-              :bearer-token="config.bearerToken.value"
-              :gateway-url="config.baseUrl.value"
-          />
+            <TunnelOverview
+                :bearer-token="config.bearerToken.value"
+                :gateway-url="config.baseUrl.value"
+            />
 
-          <ReliabilityOverview
-              :bearer-token="config.bearerToken.value"
-              :gateway-url="config.baseUrl.value"
-          />
+            <ReliabilityOverview
+                :bearer-token="config.bearerToken.value"
+                :gateway-url="config.baseUrl.value"
+            />
 
-          <HeartbeatOverview
-              :bearer-token="config.bearerToken.value"
-              :gateway-url="config.baseUrl.value"
-          />
+            <HeartbeatOverview
+                :bearer-token="config.bearerToken.value"
+                :gateway-url="config.baseUrl.value"
+            />
 
-          <McpOverview
-              :bearer-token="config.bearerToken.value"
-              :gateway-url="config.baseUrl.value"
-          />
+            <McpOverview
+                :bearer-token="config.bearerToken.value"
+                :gateway-url="config.baseUrl.value"
+            />
 
-          <ChannelsOverview
-              :bearer-token="config.bearerToken.value"
-              :gateway-url="config.baseUrl.value"
-          />
+            <ChannelsOverview
+                :bearer-token="config.bearerToken.value"
+                :gateway-url="config.baseUrl.value"
+            />
 
-          <HealthDashboard
-              :bearer-token="config.bearerToken.value"
-              :gateway-url="config.baseUrl.value"
-          />
-        </div>
+            <HealthDashboard
+                :bearer-token="config.bearerToken.value"
+                :gateway-url="config.baseUrl.value"
+            />
+          </div>
         </section>
 
         <section class="section-intro-card">
-        <div class="section-intro">
-          <p class="section-kicker">Configuration surfaces</p>
-          <h2>System controls</h2>
-          <p class="helper section-copy">
-            Adjust operators, runtime, security, and integrations in grouped technical panels.
-          </p>
-        </div>
+          <div class="section-intro">
+            <p class="section-kicker">Configuration surfaces</p>
+            <h2>System controls</h2>
+            <p class="helper section-copy">
+              Adjust operators, runtime, security, and integrations in grouped technical panels.
+            </p>
+          </div>
         </section>
 
         <div class="config-stack">
