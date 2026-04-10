@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.3.0](https://github.com/dallay/corvus/compare/v2.2.0...v2.3.0) (2026-04-10)
+
+
+### Features
+
+* **dashboard:** merge web chat into dashboard app ([#476](https://github.com/dallay/corvus/issues/476)) ([60c8de6](https://github.com/dallay/corvus/commit/60c8de662771a8b0f169b9a9c60e213c65f1e0bd))
+* enhance setup UX and automate git hook installation ([#467](https://github.com/dallay/corvus/issues/467)) ([6c42cf7](https://github.com/dallay/corvus/commit/6c42cf7f5dd737e27caa203fa005632702c5eedb))
+
+
+### Bug Fixes
+
+* **sonar:** resolve monthly code quality findings ([#475](https://github.com/dallay/corvus/issues/475)) ([1099e65](https://github.com/dallay/corvus/commit/1099e659814c2dfcbb78051b82f39f4b88469699))
+
 ## [2.2.0](https://github.com/dallay/corvus/compare/v2.1.0...v2.2.0) (2026-04-10)
 
 
