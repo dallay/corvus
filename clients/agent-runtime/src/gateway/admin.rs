@@ -764,11 +764,15 @@ fn admin_channels_config_view(
     cfg: &Config,
     webhook: Option<&crate::config::schema::WebhookConfig>,
 ) -> AdminChannelsView {
+    const DEFAULT_WEBHOOK_PORT: u16 = 3_000;
+
     AdminChannelsView {
         cli: cfg.channels_config.cli,
         webhook: AdminWebhookView {
             enabled: webhook.is_some(),
-            port: webhook.map(|value| value.port).unwrap_or(3000),
+            port: webhook
+                .map(|value| value.port)
+                .unwrap_or(DEFAULT_WEBHOOK_PORT),
             has_secret: has_secret(webhook.and_then(|value| value.secret.as_deref())),
         },
     }

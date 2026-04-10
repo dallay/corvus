@@ -309,6 +309,16 @@ mod tests {
         assert!(error
             .to_string()
             .contains("compatibility.runtime_contracts"));
+
+        descriptor.compatibility.runtime_contracts = vec!["tool-trait-v1".to_string()];
+        descriptor.compatibility.entrypoint_parity_scope = vec!["   ".to_string()];
+
+        let parity_error = CapabilityRegistry::validate_descriptor(&descriptor).unwrap_err();
+
+        assert!(matches!(parity_error, CapabilityError::MissingField { .. }));
+        assert!(parity_error
+            .to_string()
+            .contains("compatibility.entrypoint_parity_scope"));
     }
 
     #[test]
@@ -329,7 +339,10 @@ mod tests {
         let mut descriptor = descriptor("resource", "mcp.resource");
 
         let missing_metadata = CapabilityRegistry::validate_descriptor(&descriptor).unwrap_err();
-        assert!(missing_metadata.to_string().contains("metadata.mcp"));
+        assert_eq!(
+            missing_metadata,
+            CapabilityError::missing_field("metadata.mcp", Some("resource"))
+        );
 
         descriptor.metadata.mcp = Some(crate::capabilities::descriptor::McpCapabilityMetadata {
             server: "   ".into(),
@@ -340,7 +353,10 @@ mod tests {
         });
 
         let blank_server = CapabilityRegistry::validate_descriptor(&descriptor).unwrap_err();
-        assert!(blank_server.to_string().contains("metadata.mcp.server"));
+        assert_eq!(
+            blank_server,
+            CapabilityError::missing_field("metadata.mcp.server", Some("resource"))
+        );
 
         descriptor.metadata.mcp = Some(crate::capabilities::descriptor::McpCapabilityMetadata {
             server: "docs".into(),
@@ -352,8 +368,9 @@ mod tests {
 
         let missing_resource_uri =
             CapabilityRegistry::validate_descriptor(&descriptor).unwrap_err();
-        assert!(missing_resource_uri
-            .to_string()
-            .contains("metadata.mcp.resource_uri"));
+        assert_eq!(
+            missing_resource_uri,
+            CapabilityError::missing_field("metadata.mcp.resource_uri", Some("resource"))
+        );
     }
 }

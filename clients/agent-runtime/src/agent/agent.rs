@@ -768,7 +768,34 @@ impl Agent {
                     };
                 }
             },
-            Err(error) => (format!("Error executing {}: {error}", call.name), false),
+            Err(error) => {
+                if call.name == "shell" {
+                    let failed_result = crate::tools::ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(format!("Error executing {}: {error}", call.name)),
+                        structured: None,
+                    };
+                    match self.handle_tool_result(call, &failed_result, start.elapsed()) {
+                        Ok(output) => (output, false),
+                        Err(audit_error_result) => {
+                            let finalized = self.finalize_tool_execution(
+                                call,
+                                start.elapsed(),
+                                audit_error_result.output.clone(),
+                                audit_error_result.success,
+                                audit_error_result.action.clone(),
+                            );
+                            return ToolExecutionResult {
+                                output: finalized.output,
+                                ..audit_error_result
+                            };
+                        }
+                    }
+                } else {
+                    (format!("Error executing {}: {error}", call.name), false)
+                }
+            }
         };
 
         self.finalize_tool_execution(
@@ -788,14 +815,28 @@ impl Agent {
     ) -> std::result::Result<String, ToolExecutionResult> {
         if call.name == "shell" {
             if let Err(error) = self.log_shell_audit_event(call, result, duration) {
+                let base_output = if result.success {
+                    result.output.clone()
+                } else {
+                    format!(
+                        "Error: {}",
+                        result
+                            .error
+                            .clone()
+                            .unwrap_or_else(|| result.output.clone())
+                    )
+                };
+                let audit_message = if let Some(original_error) = &result.error {
+                    format!("Audit logging failed: {error}; original shell error: {original_error}")
+                } else {
+                    format!("Audit logging failed: {error}")
+                };
                 return Err(ToolExecutionResult {
                     name: call.name.clone(),
-                    output: format!("{}\n\n[AUDIT ERROR: {error}]", result.output),
+                    output: format!("{base_output}\n\n[AUDIT ERROR: {error}]"),
                     success: result.success,
                     tool_call_id: call.tool_call_id.clone(),
-                    action: DispatchAction::ApprovalRequired(format!(
-                        "Audit logging failed: {error}"
-                    )),
+                    action: DispatchAction::ApprovalRequired(audit_message),
                 });
             }
         } else if call.name == "browser" {
