@@ -677,7 +677,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
 
     let audio_history_metas = match preprocess_audio_message(
         ctx.as_ref(),
-        &target_channel,
+        target_channel.as_ref(),
         &session_id,
         &mut msg,
     )
@@ -834,7 +834,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
 
 async fn preprocess_audio_message(
     ctx: &ChannelRuntimeContext,
-    target_channel: &Option<Arc<dyn Channel>>,
+    target_channel: Option<&Arc<dyn Channel>>,
     session_id: &str,
     msg: &mut traits::ChannelMessage,
 ) -> Result<Vec<crate::channels::audio_media::AudioHistoryMeta>, ()> {
@@ -842,16 +842,10 @@ async fn preprocess_audio_message(
         return Ok(Vec::new());
     }
 
-    gate_audio_config(ctx, msg, session_id, target_channel.as_ref()).await?;
-    let audio_guard = gate_and_stage_audio(ctx, msg, session_id, target_channel.as_ref()).await?;
-    let transcriptions = transcribe_audio(
-        ctx,
-        &audio_guard.0,
-        session_id,
-        target_channel.as_ref(),
-        msg,
-    )
-    .await?;
+    gate_audio_config(ctx, msg, session_id, target_channel).await?;
+    let audio_guard = gate_and_stage_audio(ctx, msg, session_id, target_channel).await?;
+    let transcriptions =
+        transcribe_audio(ctx, &audio_guard.0, session_id, target_channel, msg).await?;
 
     for (audio, transcription) in audio_guard.0.iter().zip(transcriptions.iter()) {
         emit_audio_admission(ctx.observer.as_ref(), &msg.channel, audio, transcription);
