@@ -5,7 +5,7 @@
 
 ---
 
-### Completeness
+## Completeness
 
 | Metric | Value |
 |--------|-------|
@@ -18,7 +18,7 @@ Incomplete task:
 
 ---
 
-### Build & Tests Execution
+## Build & Tests Execution
 
 **Formatting**: ✅ Passed
 - Command: `cargo fmt --manifest-path clients/agent-runtime/Cargo.toml --all -- --check`
@@ -43,7 +43,7 @@ Incomplete task:
 
 ---
 
-### Spec Compliance Matrix
+## Spec Compliance Matrix
 
 | Requirement | Scenario | Test | Result |
 |-------------|----------|------|--------|
@@ -72,7 +72,7 @@ Incomplete task:
 
 ---
 
-### Correctness (Static — Structural Evidence)
+## Correctness (Static — Structural Evidence)
 
 | Requirement | Status | Notes |
 |------------|--------|-------|
@@ -90,7 +90,7 @@ Incomplete task:
 
 ---
 
-### Coherence (Design)
+## Coherence (Design)
 
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
@@ -101,7 +101,7 @@ Incomplete task:
 
 ---
 
-### Issues Found
+## Issues Found
 
 **CRITICAL**
 - None
@@ -115,7 +115,7 @@ Incomplete task:
 
 ---
 
-### Verdict
+## Verdict
 
 PASS WITH WARNINGS
 

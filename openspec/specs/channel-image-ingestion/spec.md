@@ -9,8 +9,8 @@
 
 This specification defines the canonical strategy for how Corvus messaging channels ingest user-sent
 images, validate them, stage them to disk, and hand them off to the runtime's provider pipeline. It
-codifies the patterns implemented for Telegram, WhatsApp, and Discord, and defines contracts for
-remaining channel implementations (Slack and beyond).
+codifies the patterns implemented for Telegram, WhatsApp, Discord, and Slack, and defines contracts
+for remaining channel implementations beyond those channels.
 
 ## Definitions
 
@@ -34,7 +34,7 @@ The following channels MUST support image ingestion for MVP:
 | Telegram | Implemented | MVP      |
 | WhatsApp | Implemented | MVP      |
 | Discord  | Implemented | MVP      |
-| Slack    | Planned     | Wave 2   |
+| Slack    | Implemented | Wave 2   |
 
 All other channels (CLI, Matrix, Mattermost, Signal, IRC, Email, DingTalk, Lark, QQ, iMessage) are
 explicitly out of scope until a follow-up change promotes them.
@@ -52,15 +52,16 @@ Every channel implementing image ingestion MUST follow this 5-step pipeline:
    part.
 
 3. **Fetch**: Download the image bytes using the channel's native API. The fetch MUST:
-    - Use channel-specific authentication (bot token, bearer token, etc.)
-    - Stream bytes with a per-chunk size check against `MAX_IMAGE_BYTES`
-    - Perform early rejection via `Content-Length` header when available
-    - Redact credentials from error messages
+     - Use channel-specific authentication (bot token, bearer token, etc.)
+     - Stream bytes with a per-chunk size check against `MAX_IMAGE_BYTES`
+     - Perform early rejection via `Content-Length` header when available
+     - Redact credentials from error messages
 
 4. **Validate**: Apply validation in this order:
-   a. MIME type via magic-byte sniffing (MUST take precedence over declared MIME)
-   b. File size against `MAX_IMAGE_BYTES` (10 MiB)
-   c. Image count against the effective `multimodal.max_images_per_turn` value
+   a. Image count against the effective `multimodal.max_images_per_turn` value before any fetch or
+      stage work begins
+   b. MIME type via magic-byte sniffing during fetch/stage (MUST take precedence over declared MIME)
+   c. File size against `MAX_IMAGE_BYTES` (10 MiB) during fetch/stage
 
 5. **Stage**: Write validated bytes to a temp file and produce a `StagedImage`:
     - Compute SHA-256 hash of the raw bytes
@@ -253,11 +254,16 @@ Every image ingestion attempt MUST emit an `ImageIngressEvent` with:
 - `provider` / `model`: resolved vision route (if available)
 - `outcome`: `Admitted`, `Rejected`, `ProviderSent`, or `ProviderError`
 - `reason`: rejection reason (if rejected)
-- turn-level image metadata that represent the full image turn rather than only the first image
+- turn-level image metadata that represent the full image turn rather than only the first image when
+  the turn is admitted or provider-bound
 
-For admitted, rejected, and provider-bound multi-image turns, observability MUST report the full
-turn image count and metadata that accurately describe every image in the turn without including raw
+For admitted and provider-bound multi-image turns, observability MUST report the full turn image
+count and metadata that accurately describe every staged image in the turn without including raw
 payload bytes.
+
+For rejected over-limit turns, observability MUST report the attempted image count and effective
+`max_images_per_turn`, and it MAY omit per-image metadata fields (`images`, `total_byte_len`,
+`mime_type`, `byte_len`) because no staged images exist for the rejected turn.
 
 #### Scenario: Admitted multi-image turn reports turn-level metadata
 
@@ -274,6 +280,7 @@ payload bytes.
 - THEN the rejection event MUST report outcome `Rejected`
 - AND the reason MUST be `TooManyImages`
 - AND the event metadata MUST report the attempted count of 6 and effective limit of 4
+- AND per-image metadata fields MAY be omitted for that rejected turn
 
 ### REQ-10: Deduplication (out of scope for MVP)
 
@@ -359,8 +366,8 @@ rejection, preservation of staged-image ordering, and observability semantics fo
 
 ### Scenario 7: Fail-closed for unimplemented channel
 
-**Given** multimodal is enabled with `allowed_channels: ["slack"]`
-**When** a Slack user sends an image
+**Given** multimodal is enabled with `allowed_channels: ["signal"]`
+**When** a Signal user sends an image
 **Then** `stage_channel_images()` returns an empty Vec
 **And** the caller rejects with "Image input is not yet supported for this channel"
 
@@ -412,7 +419,7 @@ rejection, preservation of staged-image ordering, and observability semantics fo
 - **Caption**: Message text content serves as caption
 - **Implementation note**: Filter `message.attachments` by `content_type` starting with `image/`
 
-### Slack (Wave 2 — contract only)
+### Slack (Implemented — Wave 2)
 
 - **Inbound forms**: Files shared in channel (via `file_shared` event or `files` array in message)
 - **Channel handle**: `file.id` string
@@ -422,3 +429,6 @@ rejection, preservation of staged-image ordering, and observability semantics fo
 - **Caption**: Message text serves as caption
 - **Implementation note**: Requires `files:read` OAuth scope; use `url_private_download` not
   `url_private`
+- **Staging note**: Slack image ingestion resolves `url_private_download`, downloads with bearer
+  auth, then validates and stages through the shared `stream_validate_and_stage()` path using the
+  `sl` channel abbreviation
