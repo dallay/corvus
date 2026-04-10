@@ -137,7 +137,7 @@ fun ChatBubble(message: ChatMessage, modelName: String) {
   val corvusColors = CorvusTheme.colors
   val contentColor = MaterialTheme.colorScheme.onSurface
   val bubblePalette =
-    remember(isUser, corvusColors) {
+    remember(isUser, corvusColors, contentColor) {
       ChatBubblePalette(
         background = if (isUser) corvusColors.userBubbleBackground else corvusColors.glassSurface,
         accent = if (isUser) corvusColors.glowPurple else corvusColors.glowCyan,

@@ -65,6 +65,8 @@ private fun fallbackRecovery(status: MobileOnboardingStatus): String =
     MobileOnboardingStatus.TARGET_SELECTED ->
       "A target is selected but not yet configured. Complete the connection setup."
     MobileOnboardingStatus.RECOVERY -> "Recovery is needed. Follow the on-screen instructions."
+    MobileOnboardingStatus.BLOCKED ->
+      "Connection setup is blocked. Review the runtime or trust issue shown above, then retry."
     MobileOnboardingStatus.TRUST_PENDING ->
       "Configure the connection to your runtime endpoint first."
     MobileOnboardingStatus.SESSION_PENDING ->

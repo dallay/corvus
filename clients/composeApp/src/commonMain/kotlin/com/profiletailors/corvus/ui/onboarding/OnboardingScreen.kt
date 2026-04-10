@@ -118,10 +118,7 @@ object OnboardingDefaults {
     )
 }
 
-@Immutable
-data class OnboardingScreenState(
-  val step: OnboardingStep,
-)
+@Immutable data class OnboardingScreenState(val step: OnboardingStep)
 
 @Immutable data class OnboardingScreenActions(val onSkip: () -> Unit, val onNext: () -> Unit)
 
