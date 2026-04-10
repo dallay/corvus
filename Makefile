@@ -63,8 +63,9 @@ bootstrap-bash: ## Ensure bash is available (Windows)
 check-tools: bootstrap-bash ## Verify toolchain (Java 21, Node 22, pnpm 10, Rust 1.75)
 	@bash scripts/check-tools.sh
 
-setup: check-tools ## Initial project setup (agents, web deps, rust check)
+setup: check-tools ## Initial project setup (hooks, agents, web deps, rust check)
 	@echo "🔧 $(BOLD)Setting up project...$(SGR0)"
+	@$(GRADLEW) installGitHooks
 	@$(GRADLEW) agentsyncApply
 	@$(GRADLEW) $(WEB_MODULE):workspaceInstall
 	@$(GRADLEW) $(RUST_MODULE):cargoCheck -PenableRustTasks=true

@@ -133,10 +133,15 @@ corvus/
    git clone https://github.com/dallay/corvus.git
    cd corvus
    ```
-2. Run the initial setup:
+2. **Run the initial setup (Recommended first step):**
    ```bash
    make setup
    ```
+   This command provides an automated "setup UI" that:
+   - ✅ Verifies your toolchain (Java, Node, pnpm, Rust, Docker).
+   - 🔗 Installs repository-specific Git Hooks for automated formatting and quality checks.
+   - 🔧 Configures internal AI agent settings and web dependencies.
+   - 💻 Works seamlessly on **Windows (via Git Bash/WSL)** and **Linux/macOS**.
 
 ### Running the App
 
