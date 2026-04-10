@@ -82,12 +82,24 @@ if [ "$HAS_WEB" = "1" ]; then
 fi
 
 # ── Documentation link check ─────────────────────────────────
-if [ "$HAS_DOCS" = "1" ] && command -v lychee >/dev/null 2>&1; then
-    echo "📖 Running doc link check (changed docs detected)..."
-    DOC_FILES=$(echo "$CHANGED_FILES" | grep -E '\.(md|mdx)$' || true)
+if [ "$HAS_DOCS" = "1" ]; then
+    DOC_FILES=$(printf '%s\n' "$CHANGED_FILES" | grep -E '\.(md|mdx)$' || true)
     if [ -n "$DOC_FILES" ]; then
-        lychee --config "lychee.toml" --offline --no-progress $DOC_FILES || true
-        CHECKS_RUN=$((CHECKS_RUN + 1))
+        old_ifs=$IFS
+        IFS='
+'
+        set -f
+        set -- $DOC_FILES
+        IFS=$old_ifs
+        set +f
+
+        if command -v lychee >/dev/null 2>&1; then
+            echo "📖 Running doc link check (changed docs detected)..."
+            lychee --config "lychee.toml" --offline --no-progress "$@" || true
+            CHECKS_RUN=$((CHECKS_RUN + 1))
+        else
+            echo "⚠️  lychee not installed — skipping doc link check"
+        fi
     fi
 fi
 

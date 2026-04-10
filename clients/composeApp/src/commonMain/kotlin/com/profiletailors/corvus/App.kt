@@ -116,13 +116,7 @@ private fun AppOnboardingContent(
 ) {
   val step = runtimeOnboardingStep(onboardingState)
   OnboardingScreen(
-    state =
-      OnboardingScreenState(
-        step = step,
-        currentStepIndex = step.progressIndex,
-        totalSteps = step.totalSteps,
-        primaryActionLabel = step.actionLabel,
-      ),
+    state = OnboardingScreenState(step = step),
     actions = OnboardingScreenActions(onSkip = onSkip, onNext = onPrimaryAction),
   )
 }

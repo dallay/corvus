@@ -121,10 +121,10 @@ onMounted(() => load());
         }}
       </p>
     </header>
-    <p v-if="admin.loading.value" aria-live="polite" class="helper">
+    <p v-if="admin.loading.value" aria-atomic="true" aria-live="polite" class="helper" role="status">
       {{ t("memory.loading", "Loading memory entries…") }}
     </p>
-    <p v-else-if="admin.error.value" aria-live="assertive" class="error">
+    <p v-else-if="admin.error.value" aria-atomic="true" aria-live="assertive" class="error" role="alert">
       {{ admin.error.value }}
     </p>
     <template v-else>
@@ -305,7 +305,7 @@ onMounted(() => load());
 
 .delete-btn {
   background: transparent;
-  border: 1px solid color-mix(in srgb, #ef4444 40%, var(--color-border));
+  border: 1px solid color-mix(in srgb, #b42318 40%, var(--color-border));
   border-radius: 6px;
   color: #b42318;
   cursor: pointer;
@@ -314,7 +314,7 @@ onMounted(() => load());
 }
 
 .delete-btn:hover {
-  background: color-mix(in srgb, #ef4444 10%, var(--color-bg-secondary));
+  background: color-mix(in srgb, #b42318 10%, var(--color-bg-secondary));
 }
 
 .pagination {

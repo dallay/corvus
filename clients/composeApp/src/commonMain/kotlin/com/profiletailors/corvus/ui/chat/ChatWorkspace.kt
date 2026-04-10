@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.profiletailors.corvus.runtime.RuntimeApprovalRequest
 import com.profiletailors.corvus.runtime.RuntimeSession
+import com.profiletailors.corvus.ui.theme.CorvusColorPalette
 import com.profiletailors.corvus.ui.theme.CorvusTheme
 
 @Immutable
@@ -166,7 +167,7 @@ fun ChatWorkspace(
     }
 
   val actions =
-    remember(bridgeState, bridgeActions) {
+    remember(bridgeState, bridgeActions, onSendMessage) {
       ChatWorkspaceActions(
         onQueryChange = { query = it },
         onSend = ::sendMessage,
@@ -219,52 +220,73 @@ private fun ChatWorkspaceScreen(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    Box(
-      modifier =
-        Modifier.fillMaxWidth()
-          .height(1.dp)
-          .background(
-            brush =
-              Brush.horizontalGradient(
-                listOf(
-                  Color.Transparent,
-                  corvusColors.glowPurple.copy(alpha = 0.5f),
-                  corvusColors.glowCyan.copy(alpha = 0.5f),
-                  Color.Transparent,
-                )
-              )
-          )
-    )
+    WorkspaceDivider(corvusColors = corvusColors)
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    if (shouldShowConfig) {
-      ConfigPanel(
+    WorkspaceBody(
+      uiState = uiState,
+      actions = actions,
+      shouldShowConfig = shouldShowConfig,
+      modifier = Modifier.weight(1f),
+    )
+  }
+}
+
+@Composable
+private fun WorkspaceDivider(corvusColors: CorvusColorPalette) {
+  Box(
+    modifier =
+      Modifier.fillMaxWidth()
+        .height(1.dp)
+        .background(
+          brush =
+            Brush.horizontalGradient(
+              listOf(
+                Color.Transparent,
+                corvusColors.glowPurple.copy(alpha = 0.5f),
+                corvusColors.glowCyan.copy(alpha = 0.5f),
+                Color.Transparent,
+              )
+            )
+        )
+  )
+}
+
+@Composable
+private fun WorkspaceBody(
+  uiState: ChatUiState,
+  actions: ChatWorkspaceActions,
+  shouldShowConfig: Boolean,
+  modifier: Modifier = Modifier,
+) {
+  if (shouldShowConfig) {
+    ConfigPanel(
+      bridgeState = uiState.bridgeState,
+      resumableSessions = uiState.resumableSessions,
+      activeSessionId = uiState.activeSessionId,
+      targetLabel = uiState.targetLabel,
+      actions = actions,
+      modifier = modifier,
+    )
+    return
+  }
+
+  val panelState =
+    remember(uiState.workspaceState, uiState.bridgeState, uiState.pendingApproval) {
+      ChatPanelState(
+        workspaceState = uiState.workspaceState,
         bridgeState = uiState.bridgeState,
-        resumableSessions = uiState.resumableSessions,
-        activeSessionId = uiState.activeSessionId,
-        targetLabel = uiState.targetLabel,
-        actions = actions,
-        modifier = Modifier.weight(1f),
-      )
-    } else {
-      val panelState =
-        remember(uiState.workspaceState, uiState.bridgeState, uiState.pendingApproval) {
-          ChatPanelState(
-            workspaceState = uiState.workspaceState,
-            bridgeState = uiState.bridgeState,
-            pendingApproval = uiState.pendingApproval,
-          )
-        }
-      ChatPanel(
-        panelState = panelState,
-        messages = uiState.messages,
-        query = uiState.query,
-        actions = actions,
-        modifier = Modifier.weight(1f),
+        pendingApproval = uiState.pendingApproval,
       )
     }
-  }
+  ChatPanel(
+    panelState = panelState,
+    messages = uiState.messages,
+    query = uiState.query,
+    actions = actions,
+    modifier = modifier,
+  )
 }
 
 @Immutable

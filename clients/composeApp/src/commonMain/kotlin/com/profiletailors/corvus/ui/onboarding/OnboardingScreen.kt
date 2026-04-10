@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -120,9 +121,6 @@ object OnboardingDefaults {
 @Immutable
 data class OnboardingScreenState(
   val step: OnboardingStep,
-  val currentStepIndex: Int,
-  val totalSteps: Int,
-  val primaryActionLabel: StringResource,
 )
 
 @Immutable data class OnboardingScreenActions(val onSkip: () -> Unit, val onNext: () -> Unit)
@@ -164,99 +162,116 @@ fun OnboardingScreen(
   actions: OnboardingScreenActions,
   modifier: Modifier = Modifier,
 ) {
+  val layoutModifier = rememberOnboardingLayoutModifier()
+
+  Column(
+    modifier = modifier.then(layoutModifier),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.SpaceBetween,
+  ) {
+    OnboardingSkipButton(onSkip = actions.onSkip)
+    OnboardingMainContent(step = state.step)
+    OnboardingFooter(
+      currentStep = state.step.progressIndex,
+      totalSteps = state.step.totalSteps,
+      actionLabel = stringResource(state.step.actionLabel),
+      onNext = actions.onNext,
+    )
+  }
+}
+
+@Composable
+private fun rememberOnboardingLayoutModifier(): Modifier {
+  val colors = MaterialTheme.colorScheme
+  val corvusColors = CorvusTheme.colors
+
+  return Modifier.fillMaxSize()
+    .background(
+      brush =
+        Brush.verticalGradient(
+          colors = listOf(colors.background, corvusColors.glassSurface, colors.background)
+        )
+    )
+    .safeContentPadding()
+    .padding(horizontal = 24.dp, vertical = 32.dp)
+}
+
+@Composable
+private fun OnboardingSkipButton(onSkip: () -> Unit) {
+  val colors = MaterialTheme.colorScheme
+
+  Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+    Text(
+      text = stringResource(Res.string.button_skip),
+      style = MaterialTheme.typography.labelLarge,
+      color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+      modifier =
+        Modifier.clip(RoundedCornerShape(8.dp))
+          .clickable(role = Role.Button, onClick = onSkip)
+          .background(Color.Transparent)
+          .padding(8.dp),
+    )
+  }
+}
+
+@Composable
+private fun OnboardingMainContent(step: OnboardingStep) {
   val colors = MaterialTheme.colorScheme
   val corvusColors = CorvusTheme.colors
 
   Column(
-    modifier =
-      modifier
-        .fillMaxSize()
-        .background(
-          brush =
-            Brush.verticalGradient(
-              colors = listOf(colors.background, corvusColors.glassSurface, colors.background)
-            )
-        )
-        .safeContentPadding()
-        .padding(horizontal = 24.dp, vertical = 32.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.SpaceBetween,
+    verticalArrangement = Arrangement.Center,
+    modifier = Modifier.weight(1f),
   ) {
-    // Skip Button (Top Right)
-    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-      Text(
-        text = stringResource(Res.string.button_skip),
-        style = MaterialTheme.typography.labelLarge,
-        color = colors.onSurfaceVariant.copy(alpha = 0.7f),
-        modifier =
-          Modifier.clip(RoundedCornerShape(8.dp))
-            .clickable(role = Role.Button, onClick = actions.onSkip)
-            .background(Color.Transparent)
-            .padding(8.dp),
-      )
-    }
+    Spacer(modifier = Modifier.height(48.dp))
+    OnboardingIconDisplay(icon = step.icon)
+    Spacer(modifier = Modifier.height(48.dp))
 
-    // Main Content
-    Column(
-      horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.Center,
-      modifier = Modifier.weight(1f),
-    ) {
-      Spacer(modifier = Modifier.height(48.dp))
-
-      // Animated Icon with Glow
-      OnboardingIconDisplay(icon = state.step.icon)
-
-      Spacer(modifier = Modifier.height(48.dp))
-
-      // Gradient Title
-      Box(
-        modifier =
-          Modifier.shadow(
-            elevation = 8.dp,
-            shape = RoundedCornerShape(16.dp),
-            spotColor = corvusColors.glowPurple.copy(alpha = 0.3f),
-          )
-      ) {
-        Text(
-          text = stringResource(state.step.titleRes),
-          style = MaterialTheme.typography.displaySmall,
-          fontWeight = FontWeight.Bold,
-          color = colors.onBackground,
-          textAlign = TextAlign.Center,
-          fontFamily = FontFamily.SansSerif,
+    Box(
+      modifier =
+        Modifier.shadow(
+          elevation = 8.dp,
+          shape = RoundedCornerShape(16.dp),
+          spotColor = corvusColors.glowPurple.copy(alpha = 0.3f),
         )
-      }
-
-      Spacer(modifier = Modifier.height(20.dp))
-
-      // Description
+    ) {
       Text(
-        text = stringResource(state.step.descriptionRes),
-        style = MaterialTheme.typography.bodyLarge,
-        color = colors.onSurfaceVariant,
+        text = stringResource(step.titleRes),
+        style = MaterialTheme.typography.displaySmall,
+        fontWeight = FontWeight.Bold,
+        color = colors.onBackground,
         textAlign = TextAlign.Center,
-        modifier = Modifier.padding(horizontal = 16.dp),
+        fontFamily = FontFamily.SansSerif,
       )
     }
 
-    // Bottom Section
-    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-      // Progress Indicator
-      FuturisticProgressIndicator(
-        currentStep = state.currentStepIndex,
-        totalSteps = state.totalSteps,
-      )
+    Spacer(modifier = Modifier.height(20.dp))
+    Text(
+      text = stringResource(step.descriptionRes),
+      style = MaterialTheme.typography.bodyLarge,
+      color = colors.onSurfaceVariant,
+      textAlign = TextAlign.Center,
+      modifier = Modifier.padding(horizontal = 16.dp),
+    )
+  }
+}
 
-      Spacer(modifier = Modifier.height(32.dp))
-
-      // Next/Start Button
-      GradientButton(
-        text = stringResource(state.primaryActionLabel),
-        onClick = actions.onNext,
-        modifier = Modifier.fillMaxWidth().height(56.dp),
-      )
-    }
+@Composable
+private fun OnboardingFooter(
+  currentStep: Int,
+  totalSteps: Int,
+  actionLabel: String,
+  onNext: () -> Unit,
+) {
+  Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+    FuturisticProgressIndicator(currentStep = currentStep, totalSteps = totalSteps)
+    Spacer(modifier = Modifier.height(32.dp))
+    GradientButton(
+      text = actionLabel,
+      onClick = onNext,
+      modifier = Modifier.fillMaxWidth().height(56.dp),
+    )
   }
 }
 

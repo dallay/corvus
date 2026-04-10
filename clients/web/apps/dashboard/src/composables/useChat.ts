@@ -28,6 +28,9 @@ type ChatResponse = {
 };
 
 type ApprovalErrorPayload = {
+  code?: string | number;
+  tool?: string;
+  reason?: string;
   error?:
     | string
     | {
@@ -95,8 +98,20 @@ function parseApprovalErrorType(payload: unknown): string | null {
   }
 
   const response = payload as ApprovalErrorPayload;
+  if (typeof response.code === "string" && response.code.trim()) {
+    return response.code.trim();
+  }
+  if (typeof response.code === "number") {
+    return response.code.toString();
+  }
   if (typeof response.type === "string" && response.type.trim()) {
     return response.type.trim();
+  }
+  if (typeof response.tool === "string" && response.tool.trim()) {
+    return response.tool.trim();
+  }
+  if (typeof response.reason === "string" && response.reason.trim()) {
+    return response.reason.trim();
   }
 
   if (typeof response.error === "string" && response.error.trim()) {
@@ -298,17 +313,17 @@ export function useChat(
   }
 
   function normalizeOutgoingMessage(message: string): string {
+    const normalizedMessage = message.trim();
+    if (!normalizedMessage) {
+      throw new Error(t("chat.emptyMessageError"));
+    }
+
     if (!gateway.isGatewayReady.value) {
       throw new Error(t("chat.connectBeforeChat"));
     }
 
     if (!isSessionReady.value && !startSession(true)) {
       throw new Error(errorMessage.value || t("chat.sessionUnavailable"));
-    }
-
-    const normalizedMessage = message.trim();
-    if (!normalizedMessage) {
-      throw new Error(t("chat.emptyMessageError"));
     }
 
     return normalizedMessage;
@@ -350,8 +365,8 @@ export function useChat(
 
     return {
       type: "approval_required",
-      tool: errorObj?.tool ?? "",
-      reason: errorObj?.reason ?? "",
+      tool: payload.tool?.trim() || errorObj?.tool?.trim() || "",
+      reason: payload.reason?.trim() || errorObj?.reason?.trim() || "",
       sessionId:
         (errorData as Record<string, unknown>)?.session_id?.toString() ?? currentSessionId.value,
     };
@@ -377,6 +392,10 @@ export function useChat(
   }
 
   async function handleStreamAuthFailure(response: Response): Promise<void> {
+    if (response.status === 401) {
+      throwCredentialInvalid();
+    }
+
     const errorData = await readJsonPayload(response);
     const errorType = parseApprovalErrorType(errorData);
 
@@ -602,7 +621,7 @@ export function useChat(
 
       buffer += normalizeStreamChunk(decoder.decode());
       if (buffer) {
-        buffer = processStreamBuffer(`${buffer}\n\n`, streamEventState, processLine);
+        processStreamBuffer(`${buffer}\n\n`, streamEventState, processLine);
       }
 
       if (!doneEvent) {

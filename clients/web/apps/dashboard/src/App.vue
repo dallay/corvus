@@ -78,6 +78,48 @@ const config = useConfig(t);
 
 type DashboardPage = "config" | "sessions" | "memory" | "chat";
 const currentPage = ref<DashboardPage>("config");
+const dashboardTabs: DashboardPage[] = ["config", "sessions", "memory", "chat"];
+const dashboardTabIds: Record<DashboardPage, string> = {
+  config: "dashboard-tab-config",
+  sessions: "dashboard-tab-sessions",
+  memory: "dashboard-tab-memory",
+  chat: "dashboard-tab-chat",
+};
+
+function selectDashboardPage(page: DashboardPage): void {
+  currentPage.value = page;
+  globalThis.requestAnimationFrame(() => {
+    const tab = globalThis.document?.getElementById(dashboardTabIds[page]);
+    if (tab instanceof HTMLButtonElement) {
+      tab.focus();
+    }
+  });
+}
+
+function handleTabKeydown(event: KeyboardEvent, page: DashboardPage): void {
+  const currentIndex = dashboardTabs.indexOf(page);
+  if (currentIndex < 0) {
+    return;
+  }
+
+  let nextPage: DashboardPage | null = null;
+  if (event.key === "ArrowRight") {
+    nextPage = dashboardTabs[(currentIndex + 1) % dashboardTabs.length];
+  } else if (event.key === "ArrowLeft") {
+    nextPage = dashboardTabs[(currentIndex - 1 + dashboardTabs.length) % dashboardTabs.length];
+  } else if (event.key === "Home") {
+    nextPage = dashboardTabs[0];
+  } else if (event.key === "End") {
+    nextPage = dashboardTabs[dashboardTabs.length - 1];
+  }
+
+  if (!nextPage) {
+    return;
+  }
+
+  event.preventDefault();
+  selectDashboardPage(nextPage);
+}
 
 // Session view state
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -198,6 +240,7 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
             id="dashboard-tab-config"
             role="tab"
             @click="currentPage = 'config'"
+            @keydown="handleTabKeydown($event, 'config')"
         >
           {{ t("nav.config", "Config") }}
         </button>
@@ -211,6 +254,7 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
             id="dashboard-tab-sessions"
             role="tab"
             @click="currentPage = 'sessions'"
+            @keydown="handleTabKeydown($event, 'sessions')"
         >
           {{ t("nav.sessions", "Sessions") }}
         </button>
@@ -224,6 +268,7 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
             id="dashboard-tab-memory"
             role="tab"
             @click="currentPage = 'memory'"
+            @keydown="handleTabKeydown($event, 'memory')"
         >
           {{ t("nav.memory", "Memory") }}
         </button>
@@ -237,6 +282,7 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
             id="dashboard-tab-chat"
             role="tab"
             @click="currentPage = 'chat'"
+            @keydown="handleTabKeydown($event, 'chat')"
         >
           {{ t("nav.chat", "Chat") }}
         </button>
@@ -326,8 +372,12 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 
     <!-- Config page (existing content) -->
     <template v-if="currentPage === 'config'">
-      <section id="dashboard-panel-config" aria-labelledby="dashboard-tab-config" role="tabpanel">
-      <section v-if="config.isOperatorReady.value" class="overview-section">
+      <section
+          :aria-labelledby="config.isOperatorReady.value ? 'dashboard-tab-config' : undefined"
+          :role="config.isOperatorReady.value ? 'tabpanel' : undefined"
+          id="dashboard-panel-config"
+      >
+        <section v-if="config.isOperatorReady.value" class="overview-section">
         <div class="section-intro">
           <p class="section-kicker">Operational overview</p>
           <h2>Current system state</h2>
@@ -377,9 +427,9 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
               :gateway-url="config.baseUrl.value"
           />
         </div>
-      </section>
+        </section>
 
-      <section class="section-intro-card">
+        <section class="section-intro-card">
         <div class="section-intro">
           <p class="section-kicker">Configuration surfaces</p>
           <h2>System controls</h2>
@@ -387,9 +437,9 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
             Adjust operators, runtime, security, and integrations in grouped technical panels.
           </p>
         </div>
-      </section>
+        </section>
 
-      <div class="config-stack">
+        <div class="config-stack">
         <GeneralSettings
             :disabled="!config.canSave.value"
             :memory-backend-options="config.memoryBackendOptions.value"
@@ -481,7 +531,21 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
             @save="config.saveSection('memory')"
             @update:model-value="Object.assign(config.form, $event)"
         />
-      </div>
+        </div>
+
+        <section class="card">
+          <p class="helper">
+            {{
+              t("webhook.secretStatus", {
+                status: config.form.webhook_secret_exists
+                    ? t("webhook.statusConfigured")
+                    : t("webhook.statusNotConfigured"),
+              })
+            }}
+          </p>
+          <p v-if="config.statusMessage.value" class="ok">{{ config.statusMessage.value }}</p>
+          <p v-if="config.errorMessage.value" class="error">{{ config.errorMessage.value }}</p>
+        </section>
       </section>
 
     </template>
@@ -516,7 +580,8 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 
     <!-- Memory page -->
     <template v-if="currentPage === 'memory' && config.isOperatorReady.value">
-      <section id="dashboard-panel-memory" aria-labelledby="dashboard-tab-memory" class="card" role="tabpanel">
+      <section id="dashboard-panel-memory" aria-labelledby="dashboard-tab-memory" role="tabpanel">
+      <section class="card">
         <h2>{{ t("nav.memory", "Memory") }}</h2>
         <MemoryStats
             :auth-headers="adminAuthHeaders"
@@ -615,7 +680,13 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
           </section>
         </template>
 
-        <div v-else id="memory-mode-panel-cerebro" aria-labelledby="memory-mode-tab-cerebro" class="cerebro-memory-layout" role="tabpanel">
+        <div
+            v-else
+            id="memory-mode-panel-cerebro"
+            aria-labelledby="memory-mode-tab-cerebro"
+            class="cerebro-memory-layout"
+            role="tabpanel"
+        >
           <CerebroSearchPanel
               :auth-headers="adminAuthHeaders"
               :gateway-url="adminGatewayUrl"
@@ -634,6 +705,7 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
           />
         </div>
       </section>
+      </section>
     </template>
 
     <!-- Chat page -->
@@ -642,20 +714,6 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
         <ChatWorkspace :config="config" />
       </section>
     </template>
-
-    <section v-if="currentPage === 'config'" class="card">
-      <p class="helper">
-        {{
-          t("webhook.secretStatus", {
-            status: config.form.webhook_secret_exists
-                ? t("webhook.statusConfigured")
-                : t("webhook.statusNotConfigured"),
-          })
-        }}
-      </p>
-      <p v-if="config.statusMessage.value" class="ok">{{ config.statusMessage.value }}</p>
-      <p v-if="config.errorMessage.value" class="error">{{ config.errorMessage.value }}</p>
-    </section>
   </main>
 </template>
 

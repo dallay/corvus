@@ -521,6 +521,29 @@ describe("useChat", () => {
     expect(chat.currentSessionId.value).toBe("");
   });
 
+  it("streamMessage treats 401 approval payloads as credential invalid", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("d5d5d5d5-d5d5-4d5d-8d5d-d5d5d5d5d5d5");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          type: "approval_contract",
+          error: { tool: "shell_exec", reason: "should still clear credentials" },
+        }),
+        { status: 401, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow(
+      "auth.credentialInvalid"
+    );
+    expect(chat.currentSessionId.value).toBe("");
+    expect(gateway.onboardingState.value.state).not.toBe("ready");
+  });
+
   it("streamMessage throws when body reader is null", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue("e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5");
     const gateway = createReadyGateway();

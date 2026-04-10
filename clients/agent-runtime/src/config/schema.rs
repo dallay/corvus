@@ -3033,6 +3033,7 @@ impl Config {
 
     fn apply_workspace_override(&mut self) {
         if let Ok(workspace) = std::env::var("CORVUS_WORKSPACE") {
+            let workspace = workspace.trim();
             if !workspace.is_empty() {
                 let (config_dir, workspace_dir) =
                     resolve_config_dir_for_workspace(&PathBuf::from(workspace));
@@ -3822,8 +3823,8 @@ fn resolve_default_runtime_dirs() -> Result<(PathBuf, PathBuf)> {
     // 2. Persisted active workspace marker from onboarding/custom profile
     // 3. Default ~/.corvus layout
     Ok(match std::env::var("CORVUS_WORKSPACE") {
-        Ok(custom_workspace) if !custom_workspace.is_empty() => {
-            resolve_config_dir_for_workspace(&PathBuf::from(custom_workspace))
+        Ok(custom_workspace) if !custom_workspace.trim().is_empty() => {
+            resolve_config_dir_for_workspace(&PathBuf::from(custom_workspace.trim()))
         }
         _ => load_persisted_workspace_dirs(&default_corvus_dir)?
             .unwrap_or((default_corvus_dir, default_workspace_dir)),

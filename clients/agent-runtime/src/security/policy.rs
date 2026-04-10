@@ -245,6 +245,10 @@ impl SecurityPolicy {
 
     /// Classify command risk. Any high-risk segment marks the whole command high.
     pub fn command_risk_level(&self, command: &str) -> CommandRiskLevel {
+        if contains_high_risk_snippet(&command.to_ascii_lowercase()) {
+            return CommandRiskLevel::High;
+        }
+
         let normalized = normalize_risk_segments(command);
 
         let mut saw_medium = false;
@@ -658,7 +662,11 @@ fn is_high_risk_base_command(base: &str) -> bool {
 }
 
 fn contains_high_risk_snippet(segment: &str) -> bool {
-    segment.contains("rm -rf /") || segment.contains("rm -fr /") || segment.contains(":(){:|:&};:")
+    segment.contains("rm -rf /")
+        || segment.contains("rm -fr /")
+        || segment.contains(":(){:|:&};:")
+        || segment.contains(":(){ :|:& };")
+        || segment.contains(":(){ :|:& };:")
 }
 
 fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
@@ -1238,6 +1246,16 @@ mod tests {
         assert!(!p.is_command_allowed("ls & rm -rf /"));
         assert!(!p.is_command_allowed("ls&rm -rf /"));
         assert!(!p.is_command_allowed("echo ok & python3 -c 'print(1)'"));
+    }
+
+    #[test]
+    fn fork_bomb_snippet_remains_high_risk() {
+        let p = default_policy();
+        assert_eq!(
+            p.command_risk_level(":(){ :|:& };:"),
+            CommandRiskLevel::High
+        );
+        assert!(!p.is_command_allowed(":(){ :|:& };:"));
     }
 
     #[test]

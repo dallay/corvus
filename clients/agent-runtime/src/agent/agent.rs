@@ -747,18 +747,37 @@ impl Agent {
                 start.elapsed(),
                 format!("Unknown tool: {}", call.name),
                 false,
+                DispatchAction::Execute,
             );
         };
 
         let (result, success) = match tool.execute(call.arguments.clone()).await {
             Ok(result) => match self.handle_tool_result(call, &result, start.elapsed()) {
                 Ok(output) => (output, result.success),
-                Err(audit_error_result) => return audit_error_result,
+                Err(audit_error_result) => {
+                    let finalized = self.finalize_tool_execution(
+                        call,
+                        start.elapsed(),
+                        audit_error_result.output.clone(),
+                        audit_error_result.success,
+                        audit_error_result.action.clone(),
+                    );
+                    return ToolExecutionResult {
+                        output: finalized.output,
+                        ..audit_error_result
+                    };
+                }
             },
             Err(error) => (format!("Error executing {}: {error}", call.name), false),
         };
 
-        self.finalize_tool_execution(call, start.elapsed(), result, success)
+        self.finalize_tool_execution(
+            call,
+            start.elapsed(),
+            result,
+            success,
+            DispatchAction::Execute,
+        )
     }
 
     fn handle_tool_result(
@@ -806,6 +825,7 @@ impl Agent {
         duration: Duration,
         output: String,
         success: bool,
+        action: DispatchAction,
     ) -> ToolExecutionResult {
         self.observer.record_event(&ObserverEvent::ToolCall {
             tool: call.name.clone(),
@@ -818,7 +838,7 @@ impl Agent {
             output,
             success,
             tool_call_id: call.tool_call_id.clone(),
-            action: crate::agent::dispatcher::DispatchAction::Execute,
+            action,
         }
     }
 

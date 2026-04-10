@@ -27,22 +27,49 @@ function assertIncludesAll(text, patterns, label) {
   }
 }
 
+function trustedExecutableDirs() {
+  return [
+    process.env.HOME && path.join(process.env.HOME, ".cargo", "bin"),
+    "/usr/bin",
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+  ].filter(Boolean);
+}
+
+function isTrustedExecutablePath(candidatePath) {
+  return trustedExecutableDirs().some((trustedDir) => {
+    const relativePath = path.relative(trustedDir, candidatePath);
+    return relativePath === path.basename(candidatePath) ||
+      (relativePath && !relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+  });
+}
+
 function resolveExecutable(executableName) {
   const configuredPath = process.env[executableName.toUpperCase()];
+  const configuredCandidates =
+    typeof configuredPath === "string" && configuredPath.trim()
+      ? path.isAbsolute(configuredPath)
+        ? isTrustedExecutablePath(configuredPath)
+          ? [configuredPath]
+          : []
+        : !configuredPath.includes(path.sep) && !configuredPath.includes("/")
+          ? trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, configuredPath))
+          : []
+      : [];
   const candidatePaths = [
-    configuredPath,
-    process.env.HOME && path.join(process.env.HOME, ".cargo", "bin", executableName),
-    `/usr/bin/${executableName}`,
-    `/usr/local/bin/${executableName}`,
-    `/opt/homebrew/bin/${executableName}`,
+    ...configuredCandidates,
+    ...trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, executableName)),
   ].filter(Boolean);
 
   return candidatePaths.find((candidatePath) => {
-    if (!path.isAbsolute(candidatePath)) {
+    if (!path.isAbsolute(candidatePath) || !isTrustedExecutablePath(candidatePath)) {
       return false;
     }
 
     try {
+      if (!fs.statSync(candidatePath).isFile()) {
+        return false;
+      }
       fs.accessSync(candidatePath, fs.constants.X_OK);
       return true;
     } catch {
@@ -215,6 +242,9 @@ test("cargo publish contract keeps local cerebro path and release version aligne
 
 test("rust lockfiles stay valid for --locked release commands", (t) => {
   if (!cargoExecutable) {
+    if (process.env.CI) {
+      assert.fail("cargo executable not found in trusted absolute paths during CI");
+    }
     t.skip("cargo executable not found in trusted absolute paths");
     return;
   }

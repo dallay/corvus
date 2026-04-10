@@ -108,6 +108,9 @@ fn validate_required_fields(
         if items.is_empty() {
             return Err(CapabilityError::missing_field(field, id));
         }
+        if items.iter().any(|item| item.trim().is_empty()) {
+            return Err(CapabilityError::missing_field(field, id));
+        }
     }
 
     Ok(())
@@ -293,5 +296,64 @@ mod tests {
 
         let error = registry.unwrap_err();
         assert_eq!(error, CapabilityError::DuplicateId { id: "shell".into() });
+    }
+
+    #[test]
+    fn rejects_whitespace_only_compatibility_entries() {
+        let mut descriptor = descriptor("shell", "native.tool");
+        descriptor.compatibility.runtime_contracts = vec!["   ".to_string()];
+
+        let error = CapabilityRegistry::validate_descriptor(&descriptor).unwrap_err();
+
+        assert!(matches!(error, CapabilityError::MissingField { .. }));
+        assert!(error
+            .to_string()
+            .contains("compatibility.runtime_contracts"));
+    }
+
+    #[test]
+    fn rejects_non_object_parameter_schema() {
+        let mut descriptor = descriptor("shell", "native.tool");
+        descriptor.metadata.parameters_schema = serde_json::json!(["oops"]);
+
+        let error = CapabilityRegistry::validate_descriptor(&descriptor).unwrap_err();
+
+        assert!(matches!(error, CapabilityError::InvalidMetadata { .. }));
+        assert!(error
+            .to_string()
+            .contains("parameters schema must be a JSON object"));
+    }
+
+    #[test]
+    fn rejects_missing_mcp_metadata_requirements() {
+        let mut descriptor = descriptor("resource", "mcp.resource");
+
+        let missing_metadata = CapabilityRegistry::validate_descriptor(&descriptor).unwrap_err();
+        assert!(missing_metadata.to_string().contains("metadata.mcp"));
+
+        descriptor.metadata.mcp = Some(crate::capabilities::descriptor::McpCapabilityMetadata {
+            server: "   ".into(),
+            upstream_name: Some("resource".into()),
+            resource_uri: None,
+            mime_type: None,
+            prompt_arguments: vec![],
+        });
+
+        let blank_server = CapabilityRegistry::validate_descriptor(&descriptor).unwrap_err();
+        assert!(blank_server.to_string().contains("metadata.mcp.server"));
+
+        descriptor.metadata.mcp = Some(crate::capabilities::descriptor::McpCapabilityMetadata {
+            server: "docs".into(),
+            upstream_name: Some("resource".into()),
+            resource_uri: Some("   ".into()),
+            mime_type: None,
+            prompt_arguments: vec![],
+        });
+
+        let missing_resource_uri =
+            CapabilityRegistry::validate_descriptor(&descriptor).unwrap_err();
+        assert!(missing_resource_uri
+            .to_string()
+            .contains("metadata.mcp.resource_uri"));
     }
 }
