@@ -16,7 +16,7 @@ jobs:
             target: x86_64-unknown-linux-gnu
             artifact_name: cerebro-linux-x64
             archive_ext: tar.gz
-          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             artifact_name: cerebro-linux-arm64
             archive_ext: tar.gz
@@ -66,19 +66,16 @@ jobs:
           toolchain: ${{ steps.rust-channel.outputs.channel }}
           targets: ${{ matrix.target }}
 
-      - name: 🦀 Install cross
-        if: runner.os == 'Linux' && matrix.target != 'x86_64-unknown-linux-gnu'
-        run: cargo install cross --locked
+      - name: 🛠 Install native build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake clang libclang-dev
 
-      - name: 🔨 Build binary (Linux native GNU)
-        if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-gnu'
+      - name: 🔨 Build binary (Linux)
+        if: runner.os == 'Linux'
         working-directory: modules/cerebro
-        run: cargo build --release --locked --target x86_64-unknown-linux-gnu --bin cerebro
-
-      - name: 🔨 Build binary (Linux cross)
-        if: runner.os == 'Linux' && matrix.target != 'x86_64-unknown-linux-gnu'
-        working-directory: modules/cerebro
-        run: cross build --release --locked --target ${{ matrix.target }} --bin cerebro
+        run: cargo build --release --locked --target ${{ matrix.target }} --bin cerebro
 
       - name: 🔨 Build binary (macOS/Windows)
         if: runner.os != 'Linux'
