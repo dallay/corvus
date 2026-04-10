@@ -11,7 +11,7 @@ RED="$(tput setaf 1 2>/dev/null || echo '')"
 # Configuration
 MIN_JAVA=21
 MIN_NODE=22
-MIN_PNPM=10  # See package.json "packageManager" field for the official constraint
+MIN_PNPM=10
 MIN_RUST_MAJOR=1
 MIN_RUST_MINOR=75
 
@@ -118,6 +118,16 @@ if command -v docker >/dev/null 2>&1; then
   print_status "Docker" 0 "v$docker_ver"
 else
   print_status "Docker" 2 "Optional; required for sandbox/dev containers"
+fi
+
+# 7. Xcode CLI Tools (macOS only, optional)
+if [[ "$(uname -s 2>/dev/null || echo unknown)" = "Darwin" ]]; then
+  if command -v xcodebuild >/dev/null 2>&1; then
+    xcode_ver=$(xcodebuild -version 2>/dev/null | awk 'NR==1{print $2}')
+    print_status "Xcode" 0 "v${xcode_ver:-unknown}"
+  else
+    print_status "Xcode" 2 "Optional; required for iOS development"
+  fi
 fi
 
 echo "--------------------------------------"

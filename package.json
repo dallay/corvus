@@ -1,5 +1,4 @@
 {
-  "packageManager": "pnpm@10.x",
   "devDependencies": {
     "@astrojs/check": "^0.9.8",
     "typescript": "^5.9.3"
