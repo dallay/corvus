@@ -210,7 +210,12 @@ impl CliChannel {
             return None;
         }
 
-        if !self.audio_config.allowed_channels.iter().any(|channel| channel == "cli") {
+        if !self
+            .audio_config
+            .allowed_channels
+            .iter()
+            .any(|channel| channel == "cli")
+        {
             println!("Audio input is not enabled for CLI.");
             self.emit_rejected(&AudioRejectionReason::ChannelNotAllowed, None, None);
             return None;

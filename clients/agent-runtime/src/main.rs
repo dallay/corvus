@@ -844,7 +844,17 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
             model,
             temperature,
             override_budget,
-        } => dispatch_code_command(config, message, provider, model, temperature, override_budget).await,
+        } => {
+            dispatch_code_command(
+                config,
+                message,
+                provider,
+                model,
+                temperature,
+                override_budget,
+            )
+            .await
+        }
 
         Commands::Gateway { port, host } => handle_gateway_command(config, port, host).await,
 

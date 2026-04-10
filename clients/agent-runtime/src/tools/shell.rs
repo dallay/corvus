@@ -191,7 +191,13 @@ impl Tool for ShellTool {
         // so we can apply OS-level sandbox wrapping on a std::process::Command.
         let tokio_cmd = match self.build_runtime_command(command) {
             Ok(cmd) => cmd,
-            Err(e) => return Ok(self.tool_error(format!("Failed to build runtime command: {e}"), risk_level, approved)),
+            Err(e) => {
+                return Ok(self.tool_error(
+                    format!("Failed to build runtime command: {e}"),
+                    risk_level,
+                    approved,
+                ))
+            }
         };
 
         // Build std::process::Command for env sanitization + sandbox wrapping.
@@ -249,7 +255,11 @@ impl Tool for ShellTool {
                 })
             }
             Ok(Err(e)) => Ok(ToolResult {
-                ..self.tool_error(format!("Failed to execute command: {e}"), risk_level, approved)
+                ..self.tool_error(
+                    format!("Failed to execute command: {e}"),
+                    risk_level,
+                    approved,
+                )
             }),
             Err(_) => Ok(self.tool_error(
                 format!(

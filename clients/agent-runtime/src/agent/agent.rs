@@ -742,7 +742,12 @@ impl Agent {
         }
 
         let Some(tool) = self.tools.iter().find(|tool| tool.name() == call.name) else {
-            return self.finalize_tool_execution(call, start.elapsed(), format!("Unknown tool: {}", call.name), false);
+            return self.finalize_tool_execution(
+                call,
+                start.elapsed(),
+                format!("Unknown tool: {}", call.name),
+                false,
+            );
         };
 
         let (result, success) = match tool.execute(call.arguments.clone()).await {
@@ -785,7 +790,13 @@ impl Agent {
         Ok(if result.success {
             result.output.clone()
         } else {
-            format!("Error: {}", result.error.clone().unwrap_or_else(|| result.output.clone()))
+            format!(
+                "Error: {}",
+                result
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| result.output.clone())
+            )
         })
     }
 

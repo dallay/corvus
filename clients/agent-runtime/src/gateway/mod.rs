@@ -1403,14 +1403,18 @@ fn resolve_whatsapp_app_secret(config: &Config) -> Option<Arc<str>> {
             (!secret.is_empty()).then(|| secret.to_owned())
         })
         .or_else(|| {
-            config.channels_config.whatsapp.as_ref().and_then(|whatsapp| {
-                whatsapp
-                    .app_secret
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|secret| !secret.is_empty())
-                    .map(ToOwned::to_owned)
-            })
+            config
+                .channels_config
+                .whatsapp
+                .as_ref()
+                .and_then(|whatsapp| {
+                    whatsapp
+                        .app_secret
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|secret| !secret.is_empty())
+                        .map(ToOwned::to_owned)
+                })
         })
         .map(Arc::from)
 }

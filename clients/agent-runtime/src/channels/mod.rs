@@ -712,17 +712,11 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
         return;
     }
 
-    let (image_route_metadata, staged_guard) = match prepare_image_turn(
-        ctx.as_ref(),
-        &msg,
-        &session_id,
-        target_channel.as_ref(),
-    )
-    .await
-    {
-        Ok(prepared) => prepared,
-        Err(()) => return,
-    };
+    let (image_route_metadata, staged_guard) =
+        match prepare_image_turn(ctx.as_ref(), &msg, &session_id, target_channel.as_ref()).await {
+            Ok(prepared) => prepared,
+            Err(()) => return,
+        };
 
     emit_image_provider_outcome(
         &ctx,
