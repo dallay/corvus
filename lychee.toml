@@ -42,8 +42,9 @@ exclude = [
     # Root-relative diagram assets served from /public
     '^/guides/architecture/diagrams/.*',
     # Internal CSS imports and Tailwind directives
-    '^@corvus/shared/.*',
-    '^tailwindcss$',
+    '.*@corvus/shared/.*',
+    '.*tailwindcss.*',
+    '.*@fontsource.*',
 ]
 
 # Exclude entire files or directories
