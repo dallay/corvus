@@ -576,6 +576,8 @@ mod tests {
         response: &'static str,
     }
 
+    struct ModelAwareMockHandle(Arc<ModelAwareMock>);
+
     #[async_trait]
     impl Provider for ModelAwareMock {
         async fn chat_with_system(
@@ -850,7 +852,7 @@ mod tests {
         let provider = ReliableProvider::new(
             vec![(
                 "anthropic".into(),
-                Box::new(mock.clone()) as Box<dyn Provider>,
+                Box::new(ModelAwareMockHandle(mock.clone())) as Box<dyn Provider>,
             )],
             0, // no retries — force immediate model failover
             1,
@@ -886,7 +888,10 @@ mod tests {
         );
 
         let provider = ReliableProvider::new(
-            vec![("p1".into(), Box::new(mock.clone()) as Box<dyn Provider>)],
+            vec![(
+                "p1".into(),
+                Box::new(ModelAwareMockHandle(mock.clone())) as Box<dyn Provider>,
+            )],
             0,
             1,
         )
@@ -1141,10 +1146,8 @@ mod tests {
         );
     }
 
-    // ── Arc<ModelAwareMock> Provider impl for test ──
-
     #[async_trait]
-    impl Provider for Arc<ModelAwareMock> {
+    impl Provider for ModelAwareMockHandle {
         async fn chat_with_system(
             &self,
             system_prompt: Option<&str>,
@@ -1152,7 +1155,8 @@ mod tests {
             model: &str,
             temperature: f64,
         ) -> anyhow::Result<String> {
-            self.as_ref()
+            self.0
+                .as_ref()
                 .chat_with_system(system_prompt, message, model, temperature)
                 .await
         }
