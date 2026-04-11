@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.4.0](https://github.com/dallay/corvus/compare/v2.3.0...v2.4.0) (2026-04-11)
+
+
+### Features
+
+* **agent-runtime:** add agent templates and developer documentation for Phase 5B ([#514](https://github.com/dallay/corvus/issues/514)) ([9933713](https://github.com/dallay/corvus/commit/9933713e38da5302f5a5c0666aa80a0d481691aa))
+* **agent-runtime:** add CLI composition flows for Phase 4 ([#513](https://github.com/dallay/corvus/issues/513)) ([ced2b06](https://github.com/dallay/corvus/commit/ced2b060655a3378e127984865c172eea08ea75f))
+* **agent-runtime:** Phase 5A — trait compliance macros and differential tests ([#515](https://github.com/dallay/corvus/issues/515)) ([20c0527](https://github.com/dallay/corvus/commit/20c0527c0b0fe31aff58e74df59d5185fdfb7f43))
+* **capability:** Phase 3 - corvus-composer crate with AgentManifest schema ([#511](https://github.com/dallay/corvus/issues/511)) ([61312a6](https://github.com/dallay/corvus/commit/61312a688a9ec129961b8567dab4d7d3c2af536e))
+* Phase 2 capability family crates with registries ([#510](https://github.com/dallay/corvus/issues/510)) ([c284503](https://github.com/dallay/corvus/commit/c28450312920d646627dbbe4178ca0e7a702e579))
+
+
+### Bug Fixes
+
+* clarify Cerebro constants, fix Spanish heading, remove circular spec ref, explicit ceiling, improve shell docs ([#509](https://github.com/dallay/corvus/issues/509)) ([37b187d](https://github.com/dallay/corvus/commit/37b187d68a98d77f9e5bbc70880a4308887d0a5b))
+
 ## [2.3.0](https://github.com/dallay/corvus/compare/v2.2.0...v2.3.0) (2026-04-10)
 
 
