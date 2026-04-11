@@ -201,7 +201,7 @@ If `multimodal.max_images_per_turn` is omitted, the runtime MUST default to 4. T
 admit turns with image counts less than or equal to the effective limit and MUST reject turns above
 that limit without partially dispatching any subset of their staged images.
 
-Config validation for `max_image_bytes` (see REQ-8):
+Config validation for `max_image_bytes`:
 
 - The value MUST be greater than 0
 - The value MUST NOT exceed 50 MiB (hardcoded ceiling)
@@ -442,7 +442,7 @@ Startup validation MUST enforce:
 - If `max_image_bytes` is set, it MUST be > 0 and <= 52428800 (50 MiB). Violation MUST produce a
   startup error.
 - If `max_images_per_turn` is not set, the effective value MUST default to 4.
-- If `max_images_per_turn` is set, it MUST be greater than 0 and within the supported ceiling.
+- If `max_images_per_turn` is set, it MUST be greater than 0 and less than or equal to 8.
   Violation MUST produce a startup error.
 - If `staged_image_reaper_threshold_minutes` is not set, the effective threshold MUST default to 30
   minutes.
