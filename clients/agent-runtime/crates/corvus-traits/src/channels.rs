@@ -67,7 +67,11 @@ impl ChannelMessage {
                     .filter(|caption| !caption.is_empty()),
             })
             .collect();
-        blocks.join("\n\n")
+        if blocks.is_empty() {
+            self.content.clone()
+        } else {
+            blocks.join("\n\n")
+        }
     }
 
     /// Whether this message contains at least one image part.
@@ -290,6 +294,39 @@ mod tests {
         assert!(msg.has_audio_parts());
         assert_eq!(msg.image_parts().len(), 1);
         assert_eq!(msg.audio_parts().len(), 1);
+    }
+
+    #[test]
+    fn text_projection_falls_back_to_legacy_content_when_parts_have_no_text() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: "legacy fallback".into(),
+            channel: "test".into(),
+            timestamp: 0,
+            parts: vec![
+                ContentPart::Image {
+                    channel_handle: "image-1".into(),
+                    source_channel: "telegram".into(),
+                    declared_mime: Some("image/png".into()),
+                    caption_text: None,
+                    file_name: None,
+                    declared_bytes: None,
+                },
+                ContentPart::Audio {
+                    channel_handle: "audio-1".into(),
+                    source_channel: "telegram".into(),
+                    declared_mime: Some("audio/ogg".into()),
+                    caption_text: None,
+                    file_name: None,
+                    declared_bytes: None,
+                    declared_duration_secs: Some(4),
+                },
+            ],
+        };
+
+        assert_eq!(msg.text_projection(), "legacy fallback");
     }
 
     #[tokio::test]
