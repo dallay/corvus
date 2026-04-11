@@ -910,7 +910,7 @@ mod tests {
             .is_some_and(|name| name.starts_with("corvus-sl-img-")));
 
         let temp_path = staged.temp_path.clone();
-        staged.cleanup();
+        media::cleanup_staged_image(&staged);
         assert!(
             !temp_path.exists(),
             "cleanup should remove {}",
