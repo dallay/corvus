@@ -3467,34 +3467,6 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait]
-    impl Provider for Arc<ImageAwareProvider> {
-        fn capabilities(&self) -> ProviderCapabilities {
-            self.as_ref().capabilities()
-        }
-
-        async fn chat_with_system(
-            &self,
-            system_prompt: Option<&str>,
-            message: &str,
-            model: &str,
-            temperature: f64,
-        ) -> anyhow::Result<String> {
-            self.as_ref()
-                .chat_with_system(system_prompt, message, model, temperature)
-                .await
-        }
-
-        async fn chat(
-            &self,
-            request: ChatRequest<'_>,
-            model: &str,
-            temperature: f64,
-        ) -> anyhow::Result<ChatResponse> {
-            self.as_ref().chat(request, model, temperature).await
-        }
-    }
-
     struct FailingImageProvider;
 
     #[async_trait::async_trait]

@@ -1156,6 +1156,11 @@ dependencies = [
  "clap",
  "console",
  "const-oid",
+ "corvus-channels",
+ "corvus-memory",
+ "corvus-providers",
+ "corvus-security",
+ "corvus-tools",
  "corvus-traits",
  "criterion",
  "cron",
@@ -1225,6 +1230,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "corvus-channels"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "corvus-traits",
+]
+
+[[package]]
+name = "corvus-memory"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "corvus-traits",
+]
+
+[[package]]
+name = "corvus-providers"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "corvus-traits",
+]
+
+[[package]]
 name = "corvus-robot-kit"
 version = "0.1.2"
 dependencies = [
@@ -1243,6 +1272,22 @@ dependencies = [
  "tokio-test",
  "toml 1.1.2+spec-1.1.0",
  "tracing",
+]
+
+[[package]]
+name = "corvus-security"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "corvus-traits",
+]
+
+[[package]]
+name = "corvus-tools"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "corvus-traits",
 ]
 
 [[package]]
