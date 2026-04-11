@@ -8,6 +8,14 @@ use corvus::channels::media::{
 };
 use corvus::channels::{self, audio_media, media, Channel as RuntimeChannel, SendMessage};
 use corvus::memory::{self, Memory as RuntimeMemory, MemoryCategory};
+use corvus::providers::traits::{
+    ChatMessage as RuntimeProviderChatMessage, ChatRequest as RuntimeProviderChatRequest,
+    ChatResponse as RuntimeProviderChatResponse, ConversationMessage as RuntimeConversationMessage,
+    ProviderCapabilities as RuntimeProviderCapabilities, StreamChunk as RuntimeStreamChunk,
+    StreamOptions as RuntimeStreamOptions, ToolCall as RuntimeProviderToolCall,
+    ToolResultMessage as RuntimeToolResultMessage,
+};
+use corvus::providers::{self, Provider as RuntimeProvider};
 use corvus::security::{self, Sandbox as RuntimeSandbox};
 use corvus::tools::traits::{
     ToolDescriptorHint as RuntimeToolDescriptorHint,
@@ -146,6 +154,21 @@ impl corvus_traits::tools::Tool for DummyTool {
     }
 }
 
+struct DummyProvider;
+
+#[async_trait]
+impl corvus_traits::providers::Provider for DummyProvider {
+    async fn chat_with_system(
+        &self,
+        _system_prompt: Option<&str>,
+        message: &str,
+        _model: &str,
+        _temperature: f64,
+    ) -> anyhow::Result<String> {
+        Ok(message.to_string())
+    }
+}
+
 #[test]
 fn legacy_paths_match_extracted_trait_identities() {
     assert_eq!(
@@ -236,6 +259,87 @@ fn legacy_paths_match_extracted_trait_identities() {
         TypeId::of::<audio_media::AudioHistoryMeta>(),
         TypeId::of::<corvus_traits::multimedia::AudioHistoryMeta>()
     );
+
+    assert_eq!(
+        TypeId::of::<&dyn RuntimeProvider>(),
+        TypeId::of::<&dyn corvus_traits::providers::Provider>()
+    );
+    assert_eq!(
+        TypeId::of::<&dyn providers::traits::Provider>(),
+        TypeId::of::<&dyn corvus_traits::providers::Provider>()
+    );
+    assert_eq!(
+        TypeId::of::<providers::ChatMessage>(),
+        TypeId::of::<corvus_traits::providers::ChatMessage>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeProviderChatMessage>(),
+        TypeId::of::<corvus_traits::providers::ChatMessage>()
+    );
+    assert_eq!(
+        TypeId::of::<providers::ToolCall>(),
+        TypeId::of::<corvus_traits::providers::ToolCall>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeProviderToolCall>(),
+        TypeId::of::<corvus_traits::providers::ToolCall>()
+    );
+    assert_eq!(
+        TypeId::of::<providers::ChatResponse>(),
+        TypeId::of::<corvus_traits::providers::ChatResponse>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeProviderChatResponse>(),
+        TypeId::of::<corvus_traits::providers::ChatResponse>()
+    );
+    assert_eq!(
+        TypeId::of::<providers::ChatRequest<'static>>(),
+        TypeId::of::<corvus_traits::providers::ChatRequest<'static>>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeProviderChatRequest<'static>>(),
+        TypeId::of::<corvus_traits::providers::ChatRequest<'static>>()
+    );
+    assert_eq!(
+        TypeId::of::<providers::ToolResultMessage>(),
+        TypeId::of::<corvus_traits::providers::ToolResultMessage>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeToolResultMessage>(),
+        TypeId::of::<corvus_traits::providers::ToolResultMessage>()
+    );
+    assert_eq!(
+        TypeId::of::<providers::ConversationMessage>(),
+        TypeId::of::<corvus_traits::providers::ConversationMessage>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeConversationMessage>(),
+        TypeId::of::<corvus_traits::providers::ConversationMessage>()
+    );
+    assert_eq!(
+        TypeId::of::<providers::StreamChunk>(),
+        TypeId::of::<corvus_traits::providers::StreamChunk>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeStreamChunk>(),
+        TypeId::of::<corvus_traits::providers::StreamChunk>()
+    );
+    assert_eq!(
+        TypeId::of::<providers::StreamOptions>(),
+        TypeId::of::<corvus_traits::providers::StreamOptions>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeStreamOptions>(),
+        TypeId::of::<corvus_traits::providers::StreamOptions>()
+    );
+    assert_eq!(
+        TypeId::of::<providers::ProviderCapabilities>(),
+        TypeId::of::<corvus_traits::providers::ProviderCapabilities>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeProviderCapabilities>(),
+        TypeId::of::<corvus_traits::providers::ProviderCapabilities>()
+    );
 }
 
 #[test]
@@ -264,4 +368,13 @@ fn legacy_paths_accept_trait_objects_from_extracted_crate() {
     let tool_new_ref: &dyn corvus_traits::tools::Tool = tool_traits_ref;
     assert_eq!(tool_new_ref.name(), "dummy");
     assert_eq!(tool_new_ref.spec().name, "dummy");
+
+    let provider = DummyProvider;
+    let provider_ref: &dyn RuntimeProvider = &provider;
+    let provider_traits_ref: &dyn providers::traits::Provider = provider_ref;
+    let provider_new_ref: &dyn corvus_traits::providers::Provider = provider_traits_ref;
+    assert_eq!(
+        provider_new_ref.capabilities(),
+        RuntimeProviderCapabilities::default()
+    );
 }
