@@ -14,6 +14,8 @@ pub const CEREBRO_TOOL_SESSION_END: &str = "mem_session_end";
 pub const CEREBRO_TOOL_SESSION_SUMMARY: &str = "mem_session_summary";
 pub const CEREBRO_TOOL_CONTEXT: &str = "mem_context";
 
+// Tools recognized by the Cerebro gateway.
+// This is the superset used for tool-name classification/routing.
 pub const CEREBRO_GATEWAY_ALLOWLIST: [&str; 12] = [
     CEREBRO_TOOL_RECALL,
     CEREBRO_TOOL_GET_OBSERVATION,
@@ -29,6 +31,9 @@ pub const CEREBRO_GATEWAY_ALLOWLIST: [&str; 12] = [
     CEREBRO_TOOL_SAVE_PROMPT,
 ];
 
+// Subset of `CEREBRO_GATEWAY_ALLOWLIST` that is intentionally planned/not-yet-implemented.
+// Keep only tools here that should be recognized but treated as planned.
+// `mem_context` is intentionally excluded because it is considered available.
 pub const CEREBRO_PLANNED_TOOLS: [&str; 4] = [
     CEREBRO_TOOL_SAVE_PROMPT,
     CEREBRO_TOOL_SESSION_START,
