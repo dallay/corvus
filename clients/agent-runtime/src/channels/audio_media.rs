@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+pub use corvus_traits::multimedia::AudioHistoryMeta;
 
 /// Maximum audio payload size (25 MiB).
 pub const MAX_AUDIO_BYTES: u64 = 25 * 1024 * 1024;
@@ -206,81 +206,21 @@ impl StagedAudio {
 
 // ── AudioHistoryMeta ──────────────────────────────────────────
 
-/// Compact metadata for an audio turn stored in conversation history.
-///
-/// Stored in history instead of raw audio bytes to bound memory usage.
-/// The transcription is stored at ingestion time (unlike images where
-/// the description is populated post-response).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AudioHistoryMeta {
-    /// MIME type string (e.g. "audio/ogg").
-    pub mime: String,
-    /// SHA-256 hex digest of the original audio bytes.
-    pub sha256: String,
-    /// Original audio size in bytes.
-    pub byte_len: u64,
-    /// Audio duration in seconds, if known.
-    pub duration_secs: Option<f64>,
-    /// Channel that originated the audio.
-    pub channel_origin: String,
-    /// The transcribed text from this audio.
-    pub transcription: String,
-    /// User-provided caption, if any.
-    pub caption: Option<String>,
-}
-
-impl AudioHistoryMeta {
-    /// Build from a `StagedAudio` after transcription completes.
-    pub fn from_staged(staged: &StagedAudio, transcription: &str, caption: Option<&str>) -> Self {
-        Self {
-            mime: staged.mime_type.as_str().to_string(),
-            sha256: staged.sha256.clone(),
-            byte_len: staged.byte_len,
-            duration_secs: staged.duration_secs,
-            channel_origin: staged.channel_origin.clone(),
-            transcription: transcription.to_string(),
-            caption: caption.map(String::from),
-        }
-    }
-
-    /// Render as a synthetic context string for history injection.
-    ///
-    /// Only includes modality, duration, transcription, and caption.
-    /// Internal metadata (sha256, byte_len) is kept in the struct but not
-    /// injected into model-facing history to reduce token consumption.
-    ///
-    /// Example: `"[Prior audio: audio/ogg, 45s. Transcription: Hola...]"`
-    pub fn to_context_string(&self) -> String {
-        let mut s = format!("[Prior audio: {}", self.mime);
-        if let Some(dur) = self.duration_secs {
-            use std::fmt::Write;
-            let _ = write!(s, ", {dur:.0}s");
-        }
-        // Truncate transcription to 200 chars for history compactness
-        let sanitized: String = self
-            .transcription
-            .chars()
-            .filter(|c| *c != '\n' && *c != '\r')
-            .take(200)
-            .collect();
-        if !sanitized.is_empty() {
-            use std::fmt::Write;
-            let _ = write!(s, ". Transcription: {sanitized}");
-        }
-        if let Some(cap) = &self.caption {
-            use std::fmt::Write;
-            let sanitized_cap: String = cap
-                .chars()
-                .filter(|c| *c != '\n' && *c != '\r')
-                .take(200)
-                .collect();
-            if !sanitized_cap.is_empty() {
-                let _ = write!(s, ". Caption: {sanitized_cap}");
-            }
-        }
-        s.push(']');
-        s
-    }
+/// Build audio history metadata from the runtime-only staged audio type.
+pub fn build_audio_history_meta_from_staged(
+    staged: &StagedAudio,
+    transcription: &str,
+    caption: Option<&str>,
+) -> AudioHistoryMeta {
+    AudioHistoryMeta::new(
+        staged.mime_type.as_str(),
+        staged.sha256.clone(),
+        staged.byte_len,
+        staged.duration_secs,
+        staged.channel_origin.clone(),
+        transcription,
+        caption.map(String::from),
+    )
 }
 
 // ── stage_audio_from_bytes ────────────────────────────────────
@@ -731,7 +671,7 @@ mod tests {
             channel_origin: "telegram".into(),
         };
 
-        let meta = AudioHistoryMeta::from_staged(&staged, "Hola mundo", Some("caption"));
+        let meta = build_audio_history_meta_from_staged(&staged, "Hola mundo", Some("caption"));
 
         assert_eq!(meta.mime, "audio/ogg");
         assert_eq!(meta.sha256, "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
@@ -753,7 +693,7 @@ mod tests {
             channel_origin: "telegram".into(),
         };
 
-        let meta = AudioHistoryMeta::from_staged(&staged, "Hello world", None);
+        let meta = build_audio_history_meta_from_staged(&staged, "Hello world", None);
 
         assert_eq!(meta.caption, None);
         assert_eq!(meta.transcription, "Hello world");

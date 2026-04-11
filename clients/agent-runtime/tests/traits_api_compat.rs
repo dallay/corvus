@@ -1,15 +1,22 @@
 use std::any::TypeId;
 
 use async_trait::async_trait;
-use corvus::channels::{self, Channel as RuntimeChannel, SendMessage};
+use corvus::channels::audio_media::AudioHistoryMeta as RuntimeAudioHistoryMeta;
+use corvus::channels::media::{
+    AllowedImageMime as RuntimeAllowedImageMime, ImageHistoryMeta as RuntimeImageHistoryMeta,
+    ImageTransportForm as RuntimeImageTransportForm, StagedImage as RuntimeStagedImage,
+};
+use corvus::channels::{self, audio_media, media, Channel as RuntimeChannel, SendMessage};
 use corvus::memory::{self, Memory as RuntimeMemory, MemoryCategory};
 use corvus::security::{self, Sandbox as RuntimeSandbox};
-use corvus::tools::{self, Tool as RuntimeTool, ToolResult as RuntimeToolResult, ToolSpec as RuntimeToolSpec};
 use corvus::tools::traits::{
     ToolDescriptorHint as RuntimeToolDescriptorHint,
     ToolDescriptorMcpHint as RuntimeToolDescriptorMcpHint,
     ToolDescriptorMcpPromptArgumentHint as RuntimeToolDescriptorMcpPromptArgumentHint,
     ToolSourceMetadata as RuntimeToolSourceMetadata,
+};
+use corvus::tools::{
+    self, Tool as RuntimeTool, ToolResult as RuntimeToolResult, ToolSpec as RuntimeToolSpec,
 };
 
 struct DummySandbox;
@@ -199,6 +206,35 @@ fn legacy_paths_match_extracted_trait_identities() {
     assert_eq!(
         TypeId::of::<RuntimeToolDescriptorMcpPromptArgumentHint>(),
         TypeId::of::<corvus_traits::tools::ToolDescriptorMcpPromptArgumentHint>()
+    );
+
+    assert_eq!(
+        TypeId::of::<RuntimeAllowedImageMime>(),
+        TypeId::of::<corvus_traits::multimedia::AllowedImageMime>()
+    );
+    assert_eq!(
+        TypeId::of::<media::AllowedImageMime>(),
+        TypeId::of::<corvus_traits::multimedia::AllowedImageMime>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeImageTransportForm>(),
+        TypeId::of::<corvus_traits::multimedia::ImageTransportForm>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeStagedImage>(),
+        TypeId::of::<corvus_traits::multimedia::StagedImage>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeImageHistoryMeta>(),
+        TypeId::of::<corvus_traits::multimedia::ImageHistoryMeta>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeAudioHistoryMeta>(),
+        TypeId::of::<corvus_traits::multimedia::AudioHistoryMeta>()
+    );
+    assert_eq!(
+        TypeId::of::<audio_media::AudioHistoryMeta>(),
+        TypeId::of::<corvus_traits::multimedia::AudioHistoryMeta>()
     );
 }
 

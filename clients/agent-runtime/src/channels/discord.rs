@@ -1050,7 +1050,7 @@ mod tests {
         );
 
         let temp_path = staged.temp_path.clone();
-        staged.cleanup();
+        media::cleanup_staged_image(&staged);
         assert!(
             !temp_path.exists(),
             "staged.cleanup() should remove {}",
