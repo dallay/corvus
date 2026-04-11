@@ -85,6 +85,17 @@ else
 fi
 
 # 3. Node.js
+# check_required_major_version <tool_name> <current_version> <min_major>
+#
+# Check that <current_version> meets the minimum major version requirement.
+#
+# Parameters:
+#   $1 (tool_name)        Display name of the tool.
+#   $2 (current_version)  Full version string of the installed tool (without leading 'v').
+#   $3 (min_major)        Minimum required major version number.
+#
+# Side effects:
+#   Prints a status line via print_status and sets FAILED=1 on version mismatch.
 check_required_major_version() {
   local tool_name="$1"
   local current_version="$2"
@@ -99,6 +110,18 @@ check_required_major_version() {
   fi
 }
 
+# check_required_major_minor_version <tool_name> <current_version> <min_major> <min_minor>
+#
+# Check that <current_version> meets the minimum major.minor version requirement.
+#
+# Parameters:
+#   $1 (tool_name)        Display name of the tool.
+#   $2 (current_version)  Full version string of the installed tool (without leading 'v').
+#   $3 (min_major)        Minimum required major version number.
+#   $4 (min_minor)        Minimum required minor version number when major equals min_major.
+#
+# Side effects:
+#   Prints a status line via print_status and sets FAILED=1 on version mismatch.
 check_required_major_minor_version() {
   local tool_name="$1"
   local current_version="$2"
