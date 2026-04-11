@@ -1,0 +1,40 @@
+# Minimal Agent Template
+#
+# The simplest possible agent: one provider, stdio channel, no tools, no memory.
+# Use this as a starting point when you need a pure conversational agent
+# with minimal dependencies and no side effects.
+#
+# Usage:
+#   corvus agent new --template minimal --name my-agent
+#   corvus agent build agents/my-agent/agent.toml
+#   corvus agent run   agents/my-agent/agent.toml
+
+version = "1.0"
+name    = "minimal-agent"
+description = "Minimal agent: single provider, stdio channel, no tools, no memory."
+
+# ---------------------------------------------------------------------------
+# Providers
+# Known values: anthropic, openai, openrouter, google, gemini, azure,
+#               cerebro, ollama, xai
+# ---------------------------------------------------------------------------
+[providers]
+providers = ["anthropic"]
+default   = "anthropic"
+model     = "claude-haiku-4-5-20251001"
+temperature = 0.7
+
+# ---------------------------------------------------------------------------
+# Channels
+# Known values: telegram, discord, slack, webhook, stdio
+# ---------------------------------------------------------------------------
+[channels]
+channels = ["stdio"]
+default  = "stdio"
+
+# ---------------------------------------------------------------------------
+# Tools — empty list is valid; agent will refuse tool calls gracefully
+# ---------------------------------------------------------------------------
+[tools]
+tools = []
+mode  = "allow"

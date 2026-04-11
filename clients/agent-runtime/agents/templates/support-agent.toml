@@ -1,0 +1,65 @@
+# Support Agent Template
+#
+# Multi-channel support agent with memory and a focused tool set.
+# Suitable for helpdesk bots that can look up information, recall past
+# interactions, and reach customers across several channels.
+#
+# Usage:
+#   corvus agent new --template support-agent --name support
+#   corvus agent build agents/support/agent.toml
+#   corvus agent run   agents/support/agent.toml
+
+version = "1.0"
+name    = "support-agent"
+description = "Multi-channel support agent with memory and lookup tools."
+
+# ---------------------------------------------------------------------------
+# Providers
+# ---------------------------------------------------------------------------
+[providers]
+providers   = ["anthropic"]
+default     = "anthropic"
+model       = "claude-sonnet-4-5-20251001"
+temperature = 0.3
+
+# ---------------------------------------------------------------------------
+# Channels — multiple channels require an explicit default
+# ---------------------------------------------------------------------------
+[channels]
+channels = ["slack", "telegram", "webhook"]
+default  = "slack"
+
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+[tools]
+tools = [
+  "http_request",    # Call external APIs / knowledge bases
+  "memory_recall",   # Retrieve past interactions
+  "memory_store",    # Persist key facts
+  "memory_forget",   # GDPR / data-hygiene support
+  "web_search_tool", # Look up public information
+]
+mode = "allow"
+
+# ---------------------------------------------------------------------------
+# Memory
+# ---------------------------------------------------------------------------
+[memory]
+backend = "sqlite"
+
+[memory.config]
+path = "${CORVUS_DATA_DIR}/support-memory.db"
+
+# ---------------------------------------------------------------------------
+# Security — allowlist restricts which tools the agent can invoke
+# ---------------------------------------------------------------------------
+[security]
+sandbox           = "none"
+tool_restrictions = [
+  "http_request",
+  "memory_recall",
+  "memory_store",
+  "memory_forget",
+  "web_search_tool",
+]

@@ -1,0 +1,69 @@
+# Research Agent Template
+#
+# HTTP, browser, screenshot, and web-search tools for an autonomous
+# research assistant.  Suitable for background research tasks triggered
+# via webhook or scheduled via cron.
+#
+# Usage:
+#   corvus agent new --template research-agent --name researcher
+#   corvus agent build agents/researcher/agent.toml
+#   corvus agent run   agents/researcher/agent.toml
+
+version = "1.0"
+name    = "research-agent"
+description = "Autonomous research agent with HTTP, browser, and search tools."
+
+# ---------------------------------------------------------------------------
+# Providers — reasoning-capable model recommended
+# ---------------------------------------------------------------------------
+[providers]
+providers   = ["anthropic", "openai"]
+default     = "anthropic"
+model       = "claude-sonnet-4-5-20251001"
+temperature = 0.5
+
+# ---------------------------------------------------------------------------
+# Channels — webhook for triggering research tasks programmatically
+# ---------------------------------------------------------------------------
+[channels]
+channels = ["webhook", "stdio"]
+default  = "webhook"
+
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+[tools]
+tools = [
+  "http_request",    # Direct HTTP calls to APIs
+  "browser",         # Full browser automation (JS-heavy pages)
+  "browser_open",    # Open URLs in headless browser
+  "screenshot",      # Capture page screenshots for analysis
+  "web_search_tool", # Search engine queries
+  "memory_store",    # Persist research findings
+  "memory_recall",   # Retrieve prior research
+]
+mode = "allow"
+
+# ---------------------------------------------------------------------------
+# Memory
+# ---------------------------------------------------------------------------
+[memory]
+backend = "sqlite"
+
+[memory.config]
+path = "${CORVUS_DATA_DIR}/research-memory.db"
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+[security]
+sandbox = "none"
+tool_restrictions = [
+  "http_request",
+  "browser",
+  "browser_open",
+  "screenshot",
+  "web_search_tool",
+  "memory_store",
+  "memory_recall",
+]
