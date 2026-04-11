@@ -675,4 +675,114 @@ tools = []
 
         assert!(warnings.iter().any(|w| w.field == "tools.tools"));
     }
+
+    // -------------------------------------------------------------------------
+    // Template compliance tests — parse every bundled template and validate
+    // -------------------------------------------------------------------------
+
+    fn template_path(name: &str) -> std::path::PathBuf {
+        // CARGO_MANIFEST_DIR is set to the crate root at test time.
+        // Templates live two levels up: crates/corvus-composer -> agent-runtime root.
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+        std::path::Path::new(&manifest_dir)
+            .join("../..")
+            .join("agents/templates")
+            .join(name)
+    }
+
+    fn assert_template_valid(filename: &str) {
+        let path = template_path(filename);
+        let content = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("cannot read template {filename}: {e}"));
+        let composer = AgentComposer::from_toml(&content)
+            .unwrap_or_else(|e| panic!("template {filename} failed validation: {e}"));
+        assert!(
+            !composer.manifest().name.is_empty(),
+            "template {filename} must have a non-empty name"
+        );
+    }
+
+    #[test]
+    fn template_minimal_is_valid() {
+        assert_template_valid("minimal.toml");
+    }
+
+    #[test]
+    fn template_chat_bot_is_valid() {
+        assert_template_valid("chat-bot.toml");
+    }
+
+    #[test]
+    fn template_support_agent_is_valid() {
+        assert_template_valid("support-agent.toml");
+    }
+
+    #[test]
+    fn template_code_assistant_is_valid() {
+        assert_template_valid("code-assistant.toml");
+    }
+
+    #[test]
+    fn template_research_agent_is_valid() {
+        assert_template_valid("research-agent.toml");
+    }
+
+    #[test]
+    fn template_ops_agent_is_valid() {
+        assert_template_valid("ops-agent.toml");
+    }
+
+    #[test]
+    fn templates_have_unique_names() {
+        let filenames = [
+            "minimal.toml",
+            "chat-bot.toml",
+            "support-agent.toml",
+            "code-assistant.toml",
+            "research-agent.toml",
+            "ops-agent.toml",
+        ];
+        let names: Vec<String> = filenames
+            .iter()
+            .map(|f| {
+                let path = template_path(f);
+                let content = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|e| panic!("cannot read {f}: {e}"));
+                let composer = AgentComposer::from_toml(&content)
+                    .unwrap_or_else(|e| panic!("{f} parse error: {e}"));
+                composer.manifest().name.clone()
+            })
+            .collect();
+        let unique: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(
+            names.len(),
+            unique.len(),
+            "template agent names must be unique; found duplicates in: {names:?}"
+        );
+    }
+
+    #[test]
+    fn template_ops_agent_has_security_sandbox() {
+        let path = template_path("ops-agent.toml");
+        let content = std::fs::read_to_string(&path).unwrap();
+        let composer = AgentComposer::from_toml(&content).unwrap();
+        let security = composer
+            .manifest()
+            .security
+            .as_ref()
+            .expect("ops-agent must have a [security] section");
+        let sandbox = security.sandbox.as_deref().unwrap_or("none");
+        assert_ne!(sandbox, "", "ops-agent sandbox must be explicitly set");
+    }
+
+    #[test]
+    fn template_minimal_has_no_tools() {
+        let path = template_path("minimal.toml");
+        let content = std::fs::read_to_string(&path).unwrap();
+        let composer = AgentComposer::from_toml(&content).unwrap();
+        assert!(
+            composer.manifest().tools.tools.is_empty(),
+            "minimal template should have no tools"
+        );
+    }
 }
