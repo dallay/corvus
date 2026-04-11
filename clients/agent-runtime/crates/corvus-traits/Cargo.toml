@@ -1,0 +1,15 @@
+[package]
+name = "corvus-traits"
+version = "0.1.0"
+edition = "2021"
+authors = ["theonlyhennygod"]
+license = "Apache-2.0"
+description = "Shared low-risk runtime contracts for Corvus"
+repository = "https://github.com/dallay/corvus"
+
+[dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0", default-features = false, features = ["std"] }
+tokio = { version = "1.42", default-features = false, features = ["sync", "macros", "rt"] }
