@@ -4,6 +4,13 @@ use async_trait::async_trait;
 use corvus::channels::{self, Channel as RuntimeChannel, SendMessage};
 use corvus::memory::{self, Memory as RuntimeMemory, MemoryCategory};
 use corvus::security::{self, Sandbox as RuntimeSandbox};
+use corvus::tools::{self, Tool as RuntimeTool, ToolResult as RuntimeToolResult, ToolSpec as RuntimeToolSpec};
+use corvus::tools::traits::{
+    ToolDescriptorHint as RuntimeToolDescriptorHint,
+    ToolDescriptorMcpHint as RuntimeToolDescriptorMcpHint,
+    ToolDescriptorMcpPromptArgumentHint as RuntimeToolDescriptorMcpPromptArgumentHint,
+    ToolSourceMetadata as RuntimeToolSourceMetadata,
+};
 
 struct DummySandbox;
 
@@ -97,6 +104,41 @@ impl corvus_traits::memory::Memory for DummyMemory {
     }
 }
 
+struct DummyTool;
+
+#[async_trait]
+impl corvus_traits::tools::Tool for DummyTool {
+    fn name(&self) -> &str {
+        "dummy"
+    }
+
+    fn description(&self) -> &str {
+        "dummy tool"
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            }
+        })
+    }
+
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<RuntimeToolResult> {
+        Ok(RuntimeToolResult {
+            success: true,
+            output: args
+                .get("value")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            error: None,
+            structured: None,
+        })
+    }
+}
+
 #[test]
 fn legacy_paths_match_extracted_trait_identities() {
     assert_eq!(
@@ -125,6 +167,39 @@ fn legacy_paths_match_extracted_trait_identities() {
         TypeId::of::<&dyn memory::traits::Memory>(),
         TypeId::of::<&dyn corvus_traits::memory::Memory>()
     );
+
+    assert_eq!(
+        TypeId::of::<&dyn RuntimeTool>(),
+        TypeId::of::<&dyn corvus_traits::tools::Tool>()
+    );
+    assert_eq!(
+        TypeId::of::<&dyn tools::traits::Tool>(),
+        TypeId::of::<&dyn corvus_traits::tools::Tool>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeToolResult>(),
+        TypeId::of::<corvus_traits::tools::ToolResult>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeToolSpec>(),
+        TypeId::of::<corvus_traits::tools::ToolSpec>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeToolSourceMetadata>(),
+        TypeId::of::<corvus_traits::tools::ToolSourceMetadata>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeToolDescriptorHint>(),
+        TypeId::of::<corvus_traits::tools::ToolDescriptorHint>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeToolDescriptorMcpHint>(),
+        TypeId::of::<corvus_traits::tools::ToolDescriptorMcpHint>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeToolDescriptorMcpPromptArgumentHint>(),
+        TypeId::of::<corvus_traits::tools::ToolDescriptorMcpPromptArgumentHint>()
+    );
 }
 
 #[test]
@@ -146,4 +221,11 @@ fn legacy_paths_accept_trait_objects_from_extracted_crate() {
     let memory_traits_ref: &dyn memory::traits::Memory = memory_ref;
     let memory_new_ref: &dyn corvus_traits::memory::Memory = memory_traits_ref;
     assert_eq!(memory_new_ref.name(), "dummy");
+
+    let tool = DummyTool;
+    let tool_ref: &dyn RuntimeTool = &tool;
+    let tool_traits_ref: &dyn tools::traits::Tool = tool_ref;
+    let tool_new_ref: &dyn corvus_traits::tools::Tool = tool_traits_ref;
+    assert_eq!(tool_new_ref.name(), "dummy");
+    assert_eq!(tool_new_ref.spec().name, "dummy");
 }
