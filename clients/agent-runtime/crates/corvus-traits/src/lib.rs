@@ -1,5 +1,5 @@
 pub mod channels;
 pub mod memory;
 pub mod security;
-pub mod testing;
+mod testing;
 pub mod tools;

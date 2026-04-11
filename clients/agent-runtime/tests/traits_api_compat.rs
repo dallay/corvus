@@ -4,8 +4,12 @@ use async_trait::async_trait;
 use corvus::channels::{self, Channel as RuntimeChannel, SendMessage};
 use corvus::memory::{self, Memory as RuntimeMemory, MemoryCategory};
 use corvus::security::{self, Sandbox as RuntimeSandbox};
-use corvus::tools::{
-    self, Tool as RuntimeTool, ToolResult as RuntimeToolResult, ToolSpec as RuntimeToolSpec,
+use corvus::tools::{self, Tool as RuntimeTool, ToolResult as RuntimeToolResult, ToolSpec as RuntimeToolSpec};
+use corvus::tools::traits::{
+    ToolDescriptorHint as RuntimeToolDescriptorHint,
+    ToolDescriptorMcpHint as RuntimeToolDescriptorMcpHint,
+    ToolDescriptorMcpPromptArgumentHint as RuntimeToolDescriptorMcpPromptArgumentHint,
+    ToolSourceMetadata as RuntimeToolSourceMetadata,
 };
 
 struct DummySandbox;
@@ -179,6 +183,22 @@ fn legacy_paths_match_extracted_trait_identities() {
     assert_eq!(
         TypeId::of::<RuntimeToolSpec>(),
         TypeId::of::<corvus_traits::tools::ToolSpec>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeToolSourceMetadata>(),
+        TypeId::of::<corvus_traits::tools::ToolSourceMetadata>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeToolDescriptorHint>(),
+        TypeId::of::<corvus_traits::tools::ToolDescriptorHint>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeToolDescriptorMcpHint>(),
+        TypeId::of::<corvus_traits::tools::ToolDescriptorMcpHint>()
+    );
+    assert_eq!(
+        TypeId::of::<RuntimeToolDescriptorMcpPromptArgumentHint>(),
+        TypeId::of::<corvus_traits::tools::ToolDescriptorMcpPromptArgumentHint>()
     );
 }
 
