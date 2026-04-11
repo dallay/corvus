@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/corvus-traits", "crates/robot-kit"]
+members = [".", "crates/corvus-traits", "crates/corvus-providers", "crates/corvus-channels", "crates/corvus-tools", "crates/corvus-memory", "crates/corvus-security", "crates/robot-kit"]
 resolver = "2"
 
 [package]
@@ -85,6 +85,11 @@ parking_lot = "0.12"
 # Async traits
 async-trait = "0.1"
 corvus-traits = { path = "crates/corvus-traits" }
+corvus-providers = { path = "crates/corvus-providers" }
+corvus-channels = { path = "crates/corvus-channels" }
+corvus-tools = { path = "crates/corvus-tools" }
+corvus-memory = { path = "crates/corvus-memory" }
+corvus-security = { path = "crates/corvus-security" }
 
 # WASM execution support for runtime sandboxing
 wasmi = { version = "1.0", optional = true, default-features = false, features = ["std"] }
