@@ -61,7 +61,7 @@ org-jetbrains-kotlin-jvm = { id = "org.jetbrains.kotlin.jvm" }
 org-jetbrains-kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform" }
 com-android-application = { id = "com.android.application", version.ref = "agp" }
 com-android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
-net-ltgt-errorprone = { id = "net.ltgt.errorprone", version = "5.0.0" }
+net-ltgt-errorprone = { id = "net.ltgt.errorprone", version = "5.1.0" }
 net-ltgt-nullaway = { id = "net.ltgt.nullaway", version = "3.0.0" }
 org-jetbrains-compose = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
 org-jetbrains-compose-hot-reload = { id = "org.jetbrains.compose.hot-reload", version.ref = "compose-hot-reload" }
