@@ -21,10 +21,22 @@ echo "--------------------------------------"
 # Results tracking
 FAILED=0
 
-# Helper to print status
-# status <name> <result: 0|1|2> <version/msg>
-# 0 = OK, 1 = Error, 2 = Warning
-# Returns: 1 if error (res=1), 0 otherwise. Caller should set FAILED=1 on return 1.
+# print_status <name> <result> <info>
+#
+# Print a formatted status line for a tool check.
+#
+# Parameters:
+#   $1 (name)   Tool/check name to display.
+#   $2 (result) Status code:
+#                 0 = OK
+#                 1 = Error
+#                 2 = Warning
+#   $3 (info)   Version string or descriptive message to display.
+#
+# Returns:
+#   0 when result is OK or Warning (res=0 or res=2).
+#   1 when result is Error (res=1).
+#   Caller can use `|| FAILED=1` to accumulate failures.
 print_status() {
   local name="$1"
   local res="$2"
@@ -38,6 +50,8 @@ print_status() {
   return 0
 }
 
+# Extract the leading numeric portion of a version token.
+# Returns "0" when the input does not start with any digits.
 numeric_prefix() {
   local raw="$1"
   local num="${raw%%[!0-9]*}"
@@ -71,14 +85,43 @@ else
 fi
 
 # 3. Node.js
+check_required_major_version() {
+  local tool_name="$1"
+  local current_version="$2"
+  local min_major="$3"
+  local current_major
+
+  current_major=$(numeric_prefix "${current_version%%.*}")
+  if [[ "$current_major" -lt "$min_major" ]]; then
+    print_status "$tool_name" 1 "Found v$current_version, need v$min_major+" || FAILED=1
+  else
+    print_status "$tool_name" 0 "v$current_version"
+  fi
+}
+
+check_required_major_minor_version() {
+  local tool_name="$1"
+  local current_version="$2"
+  local min_major="$3"
+  local min_minor="$4"
+  local current_major
+  local minor_part
+  local current_minor
+
+  current_major=$(numeric_prefix "${current_version%%.*}")
+  minor_part=${current_version#*.}
+  current_minor=$(numeric_prefix "${minor_part%%.*}")
+
+  if [[ "$current_major" -lt "$min_major" || ( "$current_major" -eq "$min_major" && "$current_minor" -lt "$min_minor" ) ]]; then
+    print_status "$tool_name" 1 "Found v$current_version, need v$min_major.$min_minor+" || FAILED=1
+  else
+    print_status "$tool_name" 0 "v$current_version"
+  fi
+}
+
 if command -v node >/dev/null 2>&1; then
   node_full=$(node -v)
-  node_major=$(numeric_prefix "${node_full#v}")
-  if [[ "$node_major" -lt "$MIN_NODE" ]]; then
-    print_status "Node.js" 1 "Found $node_full, need v$MIN_NODE+" || FAILED=1
-  else
-    print_status "Node.js" 0 "$node_full"
-  fi
+  check_required_major_version "Node.js" "${node_full#v}" "$MIN_NODE"
 else
   print_status "Node.js" 1 "Not installed (v$MIN_NODE+ required)" || FAILED=1
 fi
@@ -86,12 +129,7 @@ fi
 # 4. pnpm
 if command -v pnpm >/dev/null 2>&1; then
   pnpm_ver=$(pnpm --version)
-  pnpm_major=$(numeric_prefix "$pnpm_ver")
-  if [[ "$pnpm_major" -lt "$MIN_PNPM" ]]; then
-    print_status "pnpm" 1 "Found v$pnpm_ver, need v$MIN_PNPM+" || FAILED=1
-  else
-    print_status "pnpm" 0 "v$pnpm_ver"
-  fi
+  check_required_major_version "pnpm" "$pnpm_ver" "$MIN_PNPM"
 else
   print_status "pnpm" 1 "Not installed (v$MIN_PNPM+ required)" || FAILED=1
 fi
@@ -99,15 +137,7 @@ fi
 # 5. Rust
 if command -v rustc >/dev/null 2>&1; then
   rust_full=$(rustc --version | awk '{print $2}')
-  rust_major=$(numeric_prefix "${rust_full%%.*}")
-  rust_minor_part=${rust_full#*.}
-  rust_minor=$(numeric_prefix "${rust_minor_part%%.*}")
-
-  if [[ "$rust_major" -lt "$MIN_RUST_MAJOR" || ( "$rust_major" -eq "$MIN_RUST_MAJOR" && "$rust_minor" -lt "$MIN_RUST_MINOR" ) ]]; then
-    print_status "Rust" 1 "Found v$rust_full, need v$MIN_RUST_MAJOR.$MIN_RUST_MINOR+" || FAILED=1
-  else
-    print_status "Rust" 0 "v$rust_full"
-  fi
+  check_required_major_minor_version "Rust" "$rust_full" "$MIN_RUST_MAJOR" "$MIN_RUST_MINOR"
 else
   print_status "Rust" 1 "Not installed (v$MIN_RUST_MAJOR.$MIN_RUST_MINOR+ required)" || FAILED=1
 fi

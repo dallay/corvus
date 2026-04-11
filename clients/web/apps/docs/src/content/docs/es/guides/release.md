@@ -85,7 +85,7 @@ El GitHub Release creado por `release-please` es el registro público canónico 
 - No crea GitHub Release.
 - No publica notas de release estables.
 
-## Diagnósticos que debes revisar
+## Diagnósticos a revisar durante un Release
 
 ### `release-please.yml`
 
