@@ -91,4 +91,4 @@ org-nosphere-apache-rat = { id = "org.nosphere.apache.rat", version = "0.8.1" }
 io-freefair-lombok = { id = "io.freefair.lombok", version = "9.2.0" }
 org-openrewrite-rewrite = { id = "org.openrewrite.rewrite", version = "7.28.0" }
 org-springframework-boot = { id = "org.springframework.boot", version = "4.1.0-M1" }
-org-openapi-generator = { id = "org.openapi.generator", version = "7.19.0" }
+org-openapi-generator = { id = "org.openapi.generator", version = "7.21.0" }
