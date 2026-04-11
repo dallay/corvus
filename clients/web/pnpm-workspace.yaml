@@ -3,7 +3,7 @@ packages:
   - packages/*
 
 catalog:
-  '@fontsource-variable/space-grotesk': 5.2.8
+  '@fontsource-variable/space-grotesk': 5.2.10
   '@fontsource/doto': 5.2.8
   '@fontsource/space-mono': 5.2.8
   '@astrojs/check': 0.9.8
