@@ -78,6 +78,11 @@ pub mod util;
 #[cfg(test)]
 pub mod test_support;
 
+// Re-export corvus-composer for external use
+pub mod composer {
+    pub use corvus_composer::*;
+}
+
 pub use config::Config;
 
 #[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize, PartialEq, Eq)]
