@@ -1157,6 +1157,7 @@ dependencies = [
  "console",
  "const-oid",
  "corvus-channels",
+ "corvus-composer",
  "corvus-memory",
  "corvus-providers",
  "corvus-security",
@@ -1235,6 +1236,20 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "corvus-traits",
+]
+
+[[package]]
+name = "corvus-composer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "corvus-channels",
+ "corvus-memory",
+ "corvus-providers",
+ "corvus-security",
+ "corvus-tools",
+ "serde",
+ "toml 1.1.2+spec-1.1.0",
 ]
 
 [[package]]
