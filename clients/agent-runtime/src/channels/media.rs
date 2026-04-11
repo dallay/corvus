@@ -1,8 +1,9 @@
-use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
+pub use corvus_traits::multimedia::{
+    AllowedImageMime, ImageHistoryMeta, ImageTransportForm, StagedImage,
+};
 use futures_util::StreamExt;
-use serde::{Deserialize, Serialize};
 
 /// Maximum image payload size (10 MiB).
 pub const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
@@ -165,35 +166,6 @@ fn is_lower_hex(value: &str, len: usize) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
-/// Allowed image MIME types for ingress.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AllowedImageMime {
-    Jpeg,
-    Png,
-    Webp,
-}
-
-impl AllowedImageMime {
-    /// Parse from a MIME string (e.g. `"image/jpeg"`).
-    pub fn from_mime_str(s: &str) -> Option<Self> {
-        match s {
-            "image/jpeg" => Some(Self::Jpeg),
-            "image/png" => Some(Self::Png),
-            "image/webp" => Some(Self::Webp),
-            _ => None,
-        }
-    }
-
-    /// Return the canonical MIME string.
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Jpeg => "image/jpeg",
-            Self::Png => "image/png",
-            Self::Webp => "image/webp",
-        }
-    }
-}
-
 /// Reason an image turn was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ImageRejectionReason {
@@ -219,103 +191,15 @@ pub enum ImageRejectionReason {
     ChannelNotSupported,
 }
 
-/// Transport encoding for the image payload sent to the provider.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ImageTransportForm {
-    /// Raw bytes inlined in the provider request (MVP).
-    InlineBytes,
-}
-
-/// A validated, staged image ready for provider dispatch.
-#[derive(Debug, Clone)]
-pub struct StagedImage {
-    pub sha256: String,
-    pub mime_type: AllowedImageMime,
-    pub byte_len: u64,
-    pub temp_path: PathBuf,
-    pub transport_form: ImageTransportForm,
-    pub channel_origin: String,
-}
-
-impl StagedImage {
-    /// Best-effort cleanup of the staged temp file.
-    pub fn cleanup(&self) {
-        if self.temp_path.exists() {
-            if let Err(e) = std::fs::remove_file(&self.temp_path) {
-                tracing::warn!(
-                    "Failed to remove staged image {}: {e}",
-                    self.temp_path.display()
-                );
-            }
+/// Best-effort cleanup of the staged temp file.
+pub fn cleanup_staged_image(staged: &StagedImage) {
+    if staged.temp_path.exists() {
+        if let Err(e) = std::fs::remove_file(&staged.temp_path) {
+            tracing::warn!(
+                "Failed to remove staged image {}: {e}",
+                staged.temp_path.display()
+            );
         }
-    }
-}
-
-/// Compact metadata for an image that appeared in a prior conversation turn.
-/// Stored in history instead of raw bytes to bound memory usage.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImageHistoryMeta {
-    /// MIME type string (e.g. "image/jpeg").
-    pub mime: String,
-    /// SHA-256 hex digest of the original image bytes.
-    pub sha256: String,
-    /// Original image size in bytes.
-    pub byte_len: u64,
-    /// Channel that originated the image.
-    pub channel_origin: String,
-    /// User-provided caption, if any.
-    pub caption: Option<String>,
-    /// Model-generated description of image content (populated post-response).
-    pub description: Option<String>,
-}
-
-impl ImageHistoryMeta {
-    /// Build from a `StagedImage` at ingestion time (description populated later).
-    pub fn from_staged(staged: &StagedImage, caption: Option<String>) -> Self {
-        Self {
-            mime: staged.mime_type.as_str().to_string(),
-            sha256: staged.sha256.clone(),
-            byte_len: staged.byte_len,
-            channel_origin: staged.channel_origin.clone(),
-            caption,
-            description: None,
-        }
-    }
-
-    /// Render as a synthetic context string for history injection.
-    pub fn to_context_string(&self) -> String {
-        let prefix_len = 16.min(self.sha256.len());
-        let mut s = format!(
-            "[Prior image: {}, {} bytes, sha256:{}",
-            self.mime,
-            self.byte_len,
-            &self.sha256[..prefix_len]
-        );
-        if let Some(desc) = &self.description {
-            use std::fmt::Write;
-            let sanitized: String = desc
-                .chars()
-                .filter(|c| *c != '\n' && *c != '\r')
-                .take(200)
-                .collect();
-            if !sanitized.is_empty() {
-                let _ = write!(s, ". Description: {sanitized}");
-            }
-        }
-        if let Some(cap) = &self.caption {
-            use std::fmt::Write;
-            // Sanitize: strip newlines, limit to 200 chars
-            let sanitized: String = cap
-                .chars()
-                .filter(|c| *c != '\n' && *c != '\r')
-                .take(200)
-                .collect();
-            if !sanitized.is_empty() {
-                let _ = write!(s, ". Caption: {sanitized}");
-            }
-        }
-        s.push(']');
-        s
     }
 }
 
@@ -657,7 +541,7 @@ mod tests {
         };
 
         assert!(tmp.exists());
-        staged.cleanup();
+        cleanup_staged_image(&staged);
         assert!(!tmp.exists());
     }
 
@@ -667,12 +551,12 @@ mod tests {
             sha256: "abc".into(),
             mime_type: AllowedImageMime::Png,
             byte_len: 0,
-            temp_path: PathBuf::from("/tmp/nonexistent_corvus_test_file"),
+            temp_path: std::path::PathBuf::from("/tmp/nonexistent_corvus_test_file"),
             transport_form: ImageTransportForm::InlineBytes,
             channel_origin: "test".into(),
         };
         // Should not panic
-        staged.cleanup();
+        cleanup_staged_image(&staged);
     }
 
     // ── Constants ─────────────────────────────────────────────
@@ -731,7 +615,7 @@ mod tests {
         // Verify SHA-256 is a 64-char hex string
         assert_eq!(staged.sha256.len(), 64);
         assert!(staged.sha256.chars().all(|c| c.is_ascii_hexdigit()));
-        staged.cleanup();
+        cleanup_staged_image(&staged);
     }
 
     #[tokio::test]
@@ -748,7 +632,7 @@ mod tests {
         assert_eq!(staged.mime_type, AllowedImageMime::Png);
         assert_eq!(staged.channel_origin, "ch");
         assert!(staged.temp_path.extension().unwrap().to_str().unwrap() == "png");
-        staged.cleanup();
+        cleanup_staged_image(&staged);
     }
 
     #[tokio::test]
@@ -815,7 +699,7 @@ mod tests {
             fname.starts_with("corvus-wa-img-"),
             "filename should contain channel prefix: {fname}"
         );
-        staged.cleanup();
+        cleanup_staged_image(&staged);
     }
 
     #[test]
@@ -946,7 +830,7 @@ mod tests {
             sha256: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2".into(),
             mime_type: AllowedImageMime::Jpeg,
             byte_len: 245_760,
-            temp_path: PathBuf::from("/tmp/test.jpg"),
+            temp_path: std::path::PathBuf::from("/tmp/test.jpg"),
             transport_form: ImageTransportForm::InlineBytes,
             channel_origin: "telegram".into(),
         }
@@ -1022,7 +906,7 @@ mod tests {
             sha256: "abcd1234".into(),
             mime_type: AllowedImageMime::Png,
             byte_len: 100,
-            temp_path: PathBuf::from("/tmp/test.png"),
+            temp_path: std::path::PathBuf::from("/tmp/test.png"),
             transport_form: ImageTransportForm::InlineBytes,
             channel_origin: "test".into(),
         };
@@ -1063,7 +947,7 @@ mod tests {
 
         let staged = result.expect("should succeed with custom higher limit");
         assert_eq!(staged.byte_len, body.len() as u64);
-        staged.cleanup();
+        cleanup_staged_image(&staged);
     }
 
     #[tokio::test]

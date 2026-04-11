@@ -132,7 +132,7 @@ struct StagedImageGuard(Vec<media::StagedImage>);
 impl Drop for StagedImageGuard {
     fn drop(&mut self) {
         for img in &self.0 {
-            img.cleanup();
+            media::cleanup_staged_image(img);
         }
     }
 }
@@ -1568,7 +1568,7 @@ fn inject_transcription(
                     let audio = &staged[tx_idx];
                     let trimmed = transcription.text.trim().to_string();
 
-                    let meta = audio_media::AudioHistoryMeta::from_staged(
+                    let meta = audio_media::build_audio_history_meta_from_staged(
                         audio,
                         &trimmed,
                         caption_text.as_deref(),
@@ -1722,7 +1722,7 @@ async fn stage_channel_images(
             Ok(image) => staged.push(image),
             Err(reason) => {
                 for image in &staged {
-                    image.cleanup();
+                    media::cleanup_staged_image(image);
                 }
                 return Err(reason);
             }
@@ -3467,34 +3467,6 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait]
-    impl Provider for Arc<ImageAwareProvider> {
-        fn capabilities(&self) -> ProviderCapabilities {
-            self.as_ref().capabilities()
-        }
-
-        async fn chat_with_system(
-            &self,
-            system_prompt: Option<&str>,
-            message: &str,
-            model: &str,
-            temperature: f64,
-        ) -> anyhow::Result<String> {
-            self.as_ref()
-                .chat_with_system(system_prompt, message, model, temperature)
-                .await
-        }
-
-        async fn chat(
-            &self,
-            request: ChatRequest<'_>,
-            model: &str,
-            temperature: f64,
-        ) -> anyhow::Result<ChatResponse> {
-            self.as_ref().chat(request, model, temperature).await
-        }
-    }
-
     struct FailingImageProvider;
 
     #[async_trait::async_trait]
@@ -5062,7 +5034,7 @@ mod tests {
                 .await
                 .unwrap();
         let first_path = first_staged.temp_path.clone();
-        first_staged.cleanup();
+        media::cleanup_staged_image(&first_staged);
 
         let message = traits::ChannelMessage {
             id: "img-partial-cleanup".into(),

@@ -48,6 +48,7 @@ mod auth;
 mod bootstrap;
 mod capabilities;
 mod channels;
+mod composer;
 mod config;
 mod cost;
 mod cron;
@@ -121,8 +122,12 @@ enum Commands {
         memory: Option<String>,
     },
 
-    /// Start the AI agent loop
+    /// Start the AI agent loop (or compose from manifest)
     Agent {
+        /// Agent subcommand (build, run, new) - if omitted, starts interactive agent loop
+        #[command(subcommand)]
+        agent_subcommand: Option<AgentCompositionCommands>,
+
         /// Single message mode (don't enter interactive mode)
         #[arg(short, long)]
         message: Option<String>,
@@ -272,6 +277,43 @@ enum Commands {
     Cost {
         #[command(subcommand)]
         cost_command: CostCommands,
+    },
+}
+
+/// Agent composition subcommands (from Phase 4)
+#[derive(Subcommand, Debug)]
+enum AgentCompositionCommands {
+    /// Build an agent from a manifest
+    Build {
+        /// Path to agent manifest TOML file
+        #[arg(long)]
+        manifest: std::path::PathBuf,
+
+        /// Output directory for compiled agent
+        #[arg(long)]
+        output: Option<std::path::PathBuf>,
+    },
+
+    /// Run an agent directly from a manifest (boot-time composition)
+    Run {
+        /// Path to agent manifest TOML file
+        #[arg(long)]
+        manifest: std::path::PathBuf,
+    },
+
+    /// Create a new agent from a template
+    New {
+        /// Template name (e.g., chat-bot, support-bot)
+        #[arg(long)]
+        template: String,
+
+        /// Agent name
+        #[arg(long)]
+        name: String,
+
+        /// Output directory (optional)
+        #[arg(long)]
+        output: Option<std::path::PathBuf>,
     },
 }
 
@@ -820,6 +862,7 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
     match command {
         Commands::Onboard { .. } => anyhow::bail!("Onboard command should not reach dispatch"),
         Commands::Agent {
+            agent_subcommand,
             message,
             provider,
             model,
@@ -827,16 +870,22 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
             peripheral,
             override_budget,
         } => {
-            dispatch_agent_command(
-                config,
-                message,
-                provider,
-                model,
-                temperature,
-                peripheral,
-                override_budget,
-            )
-            .await
+            // Handle agent composition subcommands (Phase 4)
+            if let Some(subcommand) = agent_subcommand {
+                handle_agent_composition_command(subcommand).await
+            } else {
+                // Legacy behavior: interactive agent loop
+                dispatch_agent_command(
+                    config,
+                    message,
+                    provider,
+                    model,
+                    temperature,
+                    peripheral,
+                    override_budget,
+                )
+                .await
+            }
         }
         Commands::Code {
             message,
@@ -1286,6 +1335,33 @@ fn handle_providers_command(config: Config) {
     }
     println!("\n  custom:<URL>   Any OpenAI-compatible endpoint");
     println!("  anthropic-custom:<URL>  Any Anthropic-compatible endpoint");
+}
+
+/// Handle agent composition subcommands (Phase 4: corvus agent build/run/new)
+async fn handle_agent_composition_command(command: AgentCompositionCommands) -> Result<()> {
+    use crate::composer::handle_composer_command;
+
+    match command {
+        AgentCompositionCommands::Build { manifest, output } => {
+            handle_composer_command(crate::composer::ComposerCommands::Build { manifest, output })
+                .await
+        }
+        AgentCompositionCommands::Run { manifest } => {
+            handle_composer_command(crate::composer::ComposerCommands::Run { manifest }).await
+        }
+        AgentCompositionCommands::New {
+            template,
+            name,
+            output,
+        } => {
+            handle_composer_command(crate::composer::ComposerCommands::New {
+                template,
+                name,
+                output,
+            })
+            .await
+        }
+    }
 }
 
 async fn handle_agent_command(

@@ -236,6 +236,8 @@ mod tests {
         last_model: parking_lot::Mutex<String>,
     }
 
+    struct MockProviderHandle(Arc<MockProvider>);
+
     impl MockProvider {
         fn new(response: &'static str) -> Self {
             Self {
@@ -305,7 +307,7 @@ mod tests {
             .map(|((name, _), mock)| {
                 (
                     name.to_string(),
-                    Box::new(Arc::clone(mock)) as Box<dyn Provider>,
+                    Box::new(MockProviderHandle(Arc::clone(mock))) as Box<dyn Provider>,
                 )
             })
             .collect();
@@ -328,9 +330,8 @@ mod tests {
         (router, mocks)
     }
 
-    // Arc<MockProvider> should also be a Provider
     #[async_trait]
-    impl Provider for Arc<MockProvider> {
+    impl Provider for MockProviderHandle {
         async fn chat_with_system(
             &self,
             system_prompt: Option<&str>,
@@ -338,7 +339,8 @@ mod tests {
             model: &str,
             temperature: f64,
         ) -> anyhow::Result<String> {
-            self.as_ref()
+            self.0
+                .as_ref()
                 .chat_with_system(system_prompt, message, model, temperature)
                 .await
         }
@@ -630,7 +632,7 @@ mod tests {
         let router = RouterProvider::new(
             vec![(
                 "default".into(),
-                Box::new(Arc::clone(&mock)) as Box<dyn Provider>,
+                Box::new(MockProviderHandle(Arc::clone(&mock))) as Box<dyn Provider>,
             )],
             vec![],
             "model".into(),
@@ -650,7 +652,7 @@ mod tests {
         let router = RouterProvider::new(
             vec![(
                 "default".into(),
-                Box::new(Arc::clone(&mock)) as Box<dyn Provider>,
+                Box::new(MockProviderHandle(Arc::clone(&mock))) as Box<dyn Provider>,
             )],
             vec![],
             "model".into(),

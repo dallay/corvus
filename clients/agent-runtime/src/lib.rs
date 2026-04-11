@@ -78,6 +78,14 @@ pub mod util;
 #[cfg(test)]
 pub mod test_support;
 
+// Composer CLI module (Phase 4: CLI composition flows)
+pub mod composer;
+
+// Re-export corvus-composer for external use
+pub mod corvus_composer {
+    pub use corvus_composer::*;
+}
+
 pub use config::Config;
 
 #[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize, PartialEq, Eq)]
