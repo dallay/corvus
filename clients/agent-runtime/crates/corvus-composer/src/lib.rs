@@ -785,4 +785,122 @@ tools = []
             "minimal template should have no tools"
         );
     }
+
+    // -------------------------------------------------------------------------
+    // Differential: AgentComposer capability report matches manifest declarations
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn differential_required_capabilities_match_provider_section() {
+        let toml = r#"
+version = "1.0"
+name = "diff-test-agent"
+[providers]
+providers = ["anthropic", "openai"]
+default = "anthropic"
+[channels]
+channels = ["telegram"]
+[tools]
+tools = ["shell"]
+"#;
+        let composer = AgentComposer::from_toml(toml).unwrap();
+        let caps = composer.required_capabilities();
+        assert!(caps.providers.contains(&"anthropic".to_string()));
+        assert!(caps.providers.contains(&"openai".to_string()));
+    }
+
+    #[test]
+    fn differential_required_capabilities_match_channel_section() {
+        let toml = r#"
+version = "1.0"
+name = "diff-channels-agent"
+[providers]
+providers = ["gemini"]
+default = "gemini"
+[channels]
+channels = ["discord", "slack"]
+[tools]
+tools = []
+"#;
+        let composer = AgentComposer::from_toml(toml).unwrap();
+        let caps = composer.required_capabilities();
+        assert!(caps.channels.contains(&"discord".to_string()));
+        assert!(caps.channels.contains(&"slack".to_string()));
+    }
+
+    #[test]
+    fn differential_required_capabilities_match_tools_section() {
+        let toml = r#"
+version = "1.0"
+name = "diff-tools-agent"
+[providers]
+providers = ["anthropic"]
+default = "anthropic"
+[channels]
+channels = ["telegram"]
+[tools]
+tools = ["shell", "file_read", "browser"]
+"#;
+        let composer = AgentComposer::from_toml(toml).unwrap();
+        let caps = composer.required_capabilities();
+        assert!(caps.tools.contains(&"shell".to_string()));
+        assert!(caps.tools.contains(&"file_read".to_string()));
+        assert!(caps.tools.contains(&"browser".to_string()));
+    }
+
+    #[test]
+    fn differential_empty_tools_produces_no_tool_capabilities() {
+        let toml = r#"
+version = "1.0"
+name = "minimal-diff-agent"
+[providers]
+providers = ["anthropic"]
+default = "anthropic"
+[channels]
+channels = ["telegram"]
+[tools]
+tools = []
+"#;
+        let composer = AgentComposer::from_toml(toml).unwrap();
+        let caps = composer.required_capabilities();
+        assert!(caps.tools.is_empty());
+    }
+
+    #[test]
+    fn differential_memory_capability_present_when_configured() {
+        let toml = r#"
+version = "1.0"
+name = "memory-diff-agent"
+[providers]
+providers = ["anthropic"]
+default = "anthropic"
+[channels]
+channels = ["telegram"]
+[tools]
+tools = []
+[memory]
+backend = "sqlite"
+"#;
+        let composer = AgentComposer::from_toml(toml).unwrap();
+        let caps = composer.required_capabilities();
+        assert!(caps.memory_backend.is_some());
+    }
+
+    #[test]
+    fn differential_no_memory_capability_when_not_configured() {
+        let toml = r#"
+version = "1.0"
+name = "no-memory-diff-agent"
+[providers]
+providers = ["anthropic"]
+default = "anthropic"
+[channels]
+channels = ["telegram"]
+[tools]
+tools = []
+"#;
+        let composer = AgentComposer::from_toml(toml).unwrap();
+        let caps = composer.required_capabilities();
+        assert!(caps.memory_backend.is_none());
+    }
 }
