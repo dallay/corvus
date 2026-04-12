@@ -112,22 +112,40 @@ pub fn resolve_manifest(
     validate_version(&manifest.version)?;
     ensure_non_empty(CapabilityFamily::Provider, &manifest.providers.enabled)?;
     ensure_non_empty(CapabilityFamily::Channel, &manifest.channels.enabled)?;
+
+    // Canonicalize and validate default provider against registry
+    let default_provider = snapshot
+        .find_in_family(CapabilityFamily::Provider, &manifest.providers.default)
+        .map(|r| r.key)
+        .ok_or_else(|| ValidationError::UnknownCapability {
+            family: CapabilityFamily::Provider.as_str(),
+            name: manifest.providers.default.clone(),
+        })?;
     if !manifest
         .providers
         .enabled
         .iter()
-        .any(|item| item == &manifest.providers.default)
+        .any(|item| item.eq_ignore_ascii_case(&manifest.providers.default))
     {
         return Err(ValidationError::DefaultProviderDisabled {
             name: manifest.providers.default.clone(),
         });
     }
+
+    // Canonicalize and validate default channel against registry
     if let Some(default_channel) = &manifest.channels.default {
+        let canonical_channel = snapshot
+            .find_in_family(CapabilityFamily::Channel, default_channel)
+            .map(|r| r.key)
+            .ok_or_else(|| ValidationError::UnknownCapability {
+                family: CapabilityFamily::Channel.as_str(),
+                name: default_channel.clone(),
+            })?;
         if !manifest
             .channels
             .enabled
             .iter()
-            .any(|item| item == default_channel)
+            .any(|item| item.eq_ignore_ascii_case(default_channel))
         {
             return Err(ValidationError::DefaultChannelDisabled {
                 name: default_channel.clone(),

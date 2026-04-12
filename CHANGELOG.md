@@ -1,6 +1,6 @@
 # Changelog
 
-## [3.0.0](https://github.com/dallay/corvus/compare/v2.4.0...v3.0.0) (2026-04-12)
+## [3.0.0](https://github.com/dallay/corvus/compare/v2.3.1...v3.0.0) (2026-04-12)
 
 
 ### ⚠ BREAKING CHANGES
@@ -249,7 +249,7 @@
 * Enhance Docker setup for dashboard with improved config bindings ([#151](https://github.com/dallay/corvus/issues/151)) ([0a64bb3](https://github.com/dallay/corvus/commit/0a64bb33d86bd9cdd5e71331760d8f1d28b22e41))
 * **web:** destructure composable returns for template auto-unwrapping ([#456](https://github.com/dallay/corvus/issues/456)) ([fa4d07b](https://github.com/dallay/corvus/commit/fa4d07b98e2e804b7669f85141ed327de09d593f))
 
-## [2.4.0](https://github.com/dallay/corvus/compare/v2.3.0...v2.4.0) (2026-04-11)
+## [2.3.1](https://github.com/dallay/corvus/compare/v2.3.0...v2.3.1) (2026-04-11)
 
 
 ### Features

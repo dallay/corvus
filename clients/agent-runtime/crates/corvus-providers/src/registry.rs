@@ -321,7 +321,17 @@ mod tests {
 
     #[test]
     fn resolves_aliases_to_canonical_provider_keys() {
+        // Primary aliases
         assert_eq!(resolve_provider_key("google"), Some("gemini"));
         assert_eq!(resolve_provider_key("github-copilot"), Some("copilot"));
+
+        // Regional aliases for Moonshot
+        assert_eq!(resolve_provider_key("kimi"), Some("moonshot"));
+        assert_eq!(resolve_provider_key("kimi-intl"), Some("moonshot"));
+        assert_eq!(resolve_provider_key("kimi-global"), Some("moonshot"));
+        assert_eq!(resolve_provider_key("kimi-cn"), Some("moonshot"));
+        assert_eq!(resolve_provider_key("moonshot-intl"), Some("moonshot"));
+        assert_eq!(resolve_provider_key("moonshot-global"), Some("moonshot"));
+        assert_eq!(resolve_provider_key("moonshot-cn"), Some("moonshot"));
     }
 }

@@ -90,12 +90,14 @@ fn handle_run_command_with_config(manifest: PathBuf, config: crate::Config) -> R
         .validate()
         .map_err(|error| anyhow::anyhow!(format_manifest_validation_error(&error, &manifest)))?;
     let _agent = crate::bootstrap::composed::agent_from_plan(&config, composer.resolve_plan())?;
-    println!(
-        "Agent '{}' composed successfully from {}",
-        composer.manifest().agent.name,
-        manifest.display()
-    );
-    Ok(())
+
+    // Running composed agents via CLI is not yet implemented.
+    // The composed agent (BootstrapContext + Provider) is created successfully,
+    // but wiring it into the interactive/runtime loop requires additional integration work.
+    // See: handle_run_command_with_config and agent_from_plan in bootstrap/composed.rs
+    return Err(anyhow::anyhow!(
+        "running composed agents is not yet supported via CLI; 'corvus agent run' creates the agent but does not execute it. Use 'corvus agent build' to validate the manifest, or use 'corvus' directly for interactive agent sessions."
+    ));
 }
 
 fn handle_new_command(template: String, name: String, output: Option<PathBuf>) -> Result<()> {

@@ -117,6 +117,8 @@ const CHANNELS: &[ChannelDescriptor] = &[
         key: "webhook",
         display_name: "Webhook",
         aliases: &[],
+        // Placeholder: webhook channel is not yet implemented (deferred).
+        // callers of channel_availability() receive Uncompiled for this key.
         compiled: false,
         platform_supported: true,
     },

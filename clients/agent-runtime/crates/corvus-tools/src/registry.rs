@@ -246,3 +246,44 @@ pub fn tool_availability(name: &str) -> Option<CapabilityAvailability> {
             }
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_registry_case_insensitive_uniqueness() {
+        // Collect all lowercased keys and aliases
+        let mut seen: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+        let mut failures: Vec<String> = Vec::new();
+
+        for descriptor in TOOLS {
+            // Check the primary key
+            let key_lower = descriptor.key.to_lowercase();
+            if let Some(existing) = seen.insert(&key_lower, descriptor.key) {
+                failures.push(format!(
+                    "Collision: key '{}' (from '{}') already registered by '{}'",
+                    key_lower, descriptor.key, existing
+                ));
+            }
+
+            // Check each alias
+            for alias in descriptor.aliases {
+                let alias_lower = alias.to_lowercase();
+                if let Some(existing) = seen.insert(&alias_lower, descriptor.key) {
+                    failures.push(format!(
+                        "Collision: alias '{}' (from '{}') already registered by '{}'",
+                        alias_lower, alias, existing
+                    ));
+                }
+            }
+        }
+
+        if !failures.is_empty() {
+            panic!(
+                "Tool registry case-insensitive uniqueness violations:\n{}",
+                failures.join("\n")
+            );
+        }
+    }
+}

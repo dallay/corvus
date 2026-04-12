@@ -32,6 +32,8 @@ pub use telegram::TelegramChannel;
 pub use traits::{Channel, SendMessage};
 pub use whatsapp::WhatsAppChannel;
 
+use corvus_channels::select_channel;
+
 use crate::agent::dispatcher::{
     DispatchAction, NativeToolDispatcher, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
 };
@@ -2753,15 +2755,20 @@ fn build_doctor_channels(config: &Config) -> Vec<DoctorChannelEntry> {
 }
 
 pub(crate) fn build_channel(config: &Config, channel_name: &str) -> Option<Arc<dyn Channel>> {
-    let channel_name = corvus_channels::resolve_channel_key(channel_name).unwrap_or(channel_name);
-    CHANNEL_REGISTRY
-        .iter()
-        .find(|entry| entry.key == channel_name)
-        .and_then(|entry| (entry.build)(config))
+    // Use select_channel to align discovery and construction via the same registry
+    select_channel(channel_name)
+        .ok()
+        .and_then(|selected| {
+            CHANNEL_REGISTRY
+                .iter()
+                .find(|entry| entry.key == selected.key)
+                .and_then(|entry| (entry.build)(config))
+        })
 }
 
 pub(crate) fn is_supported_channel(channel_name: &str) -> bool {
-    corvus_channels::resolve_channel_key(channel_name).is_some()
+    // Use select_channel for consistency - returns Ok if channel is constructible
+    select_channel(channel_name).is_ok()
 }
 
 /// Run health checks for configured channels.

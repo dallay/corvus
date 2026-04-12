@@ -99,7 +99,11 @@ pub fn select_observer(name: &str) -> Result<ObserverFactorySelection> {
         Some(CapabilityAvailability::PlatformUnavailable) => {
             Err(anyhow!("observer '{key}' is unavailable on this platform"))
         }
-        None => Err(anyhow!("unknown observer '{name}'")),
+        // SAFETY: resolve_observer_key guarantees a canonical key that exists in the registry.
+        // If this None case is reached, it indicates an internal invariant violation.
+        None => {
+            unreachable!("invariant: observer_availability returned None for resolved key '{key}'")
+        }
     }
 }
 

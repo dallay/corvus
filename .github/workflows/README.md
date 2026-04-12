@@ -309,6 +309,7 @@ canonical stable tag, GitHub Release, and release notes.
 **Called by**: `publish-release.yml`, `publish-snapshot.yml`, `release-please-beta.yml`
 
 **Inputs**:
+
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `release` | boolean | required | Whether the workflow is in release mode |

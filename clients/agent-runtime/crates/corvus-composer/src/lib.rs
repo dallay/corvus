@@ -229,9 +229,9 @@ backend = "none"
 
     #[test]
     fn platform_unavailable_failure_is_distinct() {
-        #[cfg(not(target_os = "linux"))]
-        {
-            let manifest = r#"
+        // Test that PlatformUnavailableCapability is distinct from other errors.
+        // On Linux, use a capability that reports as unavailable to force the path.
+        let manifest = r#"
 version = "1"
 
 [agent]
@@ -242,7 +242,7 @@ enabled = ["anthropic"]
 default = "anthropic"
 
 [channels]
-enabled = ["stdio"]
+enabled = ["webhook"]
 
 [memory]
 backend = "none"
@@ -250,9 +250,10 @@ backend = "none"
 [security]
 backend = "firejail"
 "#;
-            let error = AgentComposer::from_toml(manifest).unwrap_err();
-            assert!(error.to_string().contains("unavailable on this platform"));
-        }
+        // webhook channel is marked as compiled: false in registry,
+        // which triggers PlatformUnavailableCapability on all platforms.
+        let error = AgentComposer::from_toml(manifest).unwrap_err();
+        assert!(error.to_string().contains("unavailable on this platform"));
     }
 
     #[test]

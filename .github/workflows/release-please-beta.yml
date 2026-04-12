@@ -15,6 +15,7 @@ jobs:
   release-please-beta:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    if: github.ref == 'refs/heads/beta' || (github.event_name == 'workflow_dispatch' && github.event.ref == 'beta')
     permissions:
       contents: write
       pull-requests: write
@@ -109,6 +110,7 @@ jobs:
   publish-beta:
     needs: release-please-beta
     if: >-
+      (github.ref == 'refs/heads/beta' || (github.event_name == 'workflow_dispatch' && github.event.ref == 'beta')) &&
       needs.release-please-beta.outputs.release_created == 'true' &&
       needs.release-please-beta.outputs.tag_name != '' &&
       needs.release-please-beta.outputs.release_id != ''

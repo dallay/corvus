@@ -46,6 +46,18 @@ fn config_from_plan(base_config: &Config, plan: &ComposedRuntimePlan) -> Config 
         config.memory.auto_save = auto_save;
     }
     config.memory.backend = plan.memory.key.clone();
+
+    // Validate and apply observers - only single observer supported for now
+    if plan.observers.len() > 1 {
+        return Err(anyhow!(
+            "multiple observers not supported: found {} ({:?}), expected 1",
+            plan.observers.len(),
+            plan.observers
+                .iter()
+                .map(|o| o.key.clone())
+                .collect::<Vec<_>>()
+        ));
+    }
     if let Some(observer) = plan.observers.first() {
         config.observability.backend = observer.key.clone();
         if let Some(observer_config) = &observer.config {
@@ -63,13 +75,20 @@ fn config_from_plan(base_config: &Config, plan: &ComposedRuntimePlan) -> Config 
             }
         }
     }
+
+    // Validate and apply security backend - fail on unknown keys instead of silently defaulting
     config.security.sandbox.backend = match plan.security.key.as_str() {
         "landlock" => SandboxBackend::Landlock,
         "firejail" => SandboxBackend::Firejail,
         "bubblewrap" => SandboxBackend::Bubblewrap,
         "docker" => SandboxBackend::Docker,
         "none" => SandboxBackend::None,
-        _ => SandboxBackend::Auto,
+        unknown => {
+            return Err(anyhow!(
+                "unknown security backend: '{}', valid options are: landlock, firejail, bubblewrap, docker, none",
+                unknown
+            ))
+        }
     };
     if let Some(require) = plan
         .security

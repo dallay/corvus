@@ -28,6 +28,7 @@ use crate::tools::{Tool, ToolSpec};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
 use chrono::Utc;
+use corvus_memory::resolve_memory_backend_key;
 use futures_util::future::join_all;
 use std::collections::HashMap;
 use std::fmt;
@@ -3160,7 +3161,10 @@ mod tests {
 
         let agent = Agent::from_config(&config).unwrap();
 
-        assert_eq!(agent.memory.name(), config.memory.backend);
+        // Canonicalize the backend key for comparison since config may use aliases
+        let expected_backend = corvus_memory::resolve_memory_backend_key(&config.memory.backend)
+            .unwrap_or(config.memory.backend.as_str());
+        assert_eq!(agent.memory.name(), expected_backend);
         assert!(!agent.tools.is_empty());
     }
 
