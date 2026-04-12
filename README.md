@@ -28,7 +28,7 @@
 ![NPM Downloads](https://img.shields.io/npm/d18m/@dallay/corvus?label=npm%20down%20year&color=red)
 
 ![Docker Pulls](https://img.shields.io/docker/pulls/dallay/corvus)
-![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/dallay/corvus/total?style=flat&label=electron%20downloads&color=blue)
+![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/dallay/corvus/total?style=flat&label=downloads&color=blue)
 
 [![total contributions](https://custom-icon-badges.demolab.com/badge/dynamic/json?logo=graph&logoColor=fff&color=blue&label=total%20contributions&query=%24.totalContributions&url=https%3A%2F%2Fstreak-stats.demolab.com%2F%3Fuser%3Ddallay%26type%3Djson)](https://github.com/dallay)
 [![github streak](https://custom-icon-badges.demolab.com/badge/dynamic/json?logo=fire&logoColor=fff&color=orange&label=github%20streak&query=%24.currentStreak.length&suffix=%20days&url=https%3A%2F%2Fstreak-stats.demolab.com%2F%3Fuser%3Ddallay%26type%3Djson)](https://github.com/dallay)
