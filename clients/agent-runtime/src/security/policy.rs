@@ -432,20 +432,33 @@ impl SecurityPolicy {
         // We only check arguments that look like paths to avoid false positives
         // on non-path tokens (e.g., git diff patterns, grep globs, brace literals).
         for (_raw_arg, arg) in raw_args.iter().zip(normalized_args.iter()) {
-            if !is_likely_path(arg) {
+            // Extract potential path from flags (e.g. --file=/path or -C/path)
+            let effective_arg = if arg.starts_with("--") {
+                arg.split_once('=').map(|(_, v)| v).unwrap_or(arg)
+            } else if arg.starts_with('-') && arg.len() > 2 {
+                arg.char_indices()
+                    .nth(2)
+                    .map(|(idx, _)| &arg[idx..])
+                    .unwrap_or("")
+            } else {
+                arg
+            };
+
+            if !is_likely_path(effective_arg) {
                 continue;
             }
 
-            if Path::new(arg)
+            if Path::new(effective_arg)
                 .components()
                 .any(|c| matches!(c, std::path::Component::ParentDir))
-                || (self.workspace_only && (arg.starts_with('/') || arg.starts_with('~')))
+                || (self.workspace_only
+                    && (effective_arg.starts_with('/') || effective_arg.starts_with('~')))
             {
                 return false;
             }
 
             // Check against forbidden paths (e.g. /etc, ~/.ssh)
-            if matches_any_forbidden_path(arg, &self.forbidden_paths) {
+            if matches_any_forbidden_path(effective_arg, &self.forbidden_paths) {
                 return false;
             }
         }
@@ -1913,4 +1926,22 @@ mod tests {
             "Read must always be allowed regardless of autonomy level"
         );
     }
+}
+
+#[test]
+fn is_command_allowed_blocks_path_in_flags() {
+    let mut p = SecurityPolicy::default();
+    p.workspace_only = true;
+    p.allowed_commands = vec!["grep".into()];
+    p.forbidden_paths = vec!["/etc".into()];
+
+    // Case 1: Standalone absolute path - Should be BLOCKED (currently passes test)
+    assert!(!p.is_command_allowed("grep pattern /etc/passwd"));
+
+    // Case 2: Path in flag - CURRENTLY BYPASSES (this test should fail if my hypothesis is correct)
+    assert!(!p.is_command_allowed("grep --file=/etc/passwd pattern"), "Should block absolute path in flag");
+
+    // Case 3: git -C/etc status - CURRENTLY BYPASSES
+    p.allowed_commands.push("git".into());
+    assert!(!p.is_command_allowed("git -C/etc status"), "Should block absolute path in short flag");
 }
