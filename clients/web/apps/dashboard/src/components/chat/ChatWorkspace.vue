@@ -43,6 +43,9 @@ const { t } = useI18n();
 const sidebarCollapsed = ref(true);
 const prompt = ref("");
 const chatContainer = ref<HTMLDivElement | null>(null);
+const promptInputRef = ref<HTMLInputElement | null>(null);
+const sessionAnnouncement = ref("");
+const approvalAnnouncement = ref("");
 
 const gateway = useChatGateway(props.config, t);
 const chat = useChat(t, gateway);
@@ -83,6 +86,25 @@ function scrollChatToBottom(): void {
   chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
 }
 
+function queueA11yAnnouncement(message: string): void {
+  sessionAnnouncement.value = "";
+  globalThis.setTimeout(() => {
+    sessionAnnouncement.value = message;
+  }, 0);
+}
+
+function queueApprovalAnnouncement(message: string): void {
+  approvalAnnouncement.value = "";
+  globalThis.setTimeout(() => {
+    approvalAnnouncement.value = message;
+  }, 0);
+}
+
+async function focusPromptInput(): Promise<void> {
+  await nextTick();
+  promptInputRef.value?.focus();
+}
+
 function updateAssistantMessage(
   messageId: number,
   content: string,
@@ -111,6 +133,7 @@ async function beginSession(preferResume: boolean): Promise<void> {
   }
   await nextTick();
   scrollChatToBottom();
+  await focusPromptInput();
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -136,6 +159,7 @@ async function handleSidebarNewChat(): Promise<void> {
 function handleSwitchSession(targetSessionId: string): void {
   persistMessages();
   chat.switchSession(targetSessionId);
+  void focusPromptInput();
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -324,6 +348,8 @@ function handleApprove(approvalId: string): void {
       toolName: undefined,
       reason: undefined,
     };
+    queueApprovalAnnouncement(t("chat.approve"));
+    void focusPromptInput();
   }
 }
 
@@ -339,6 +365,8 @@ function handleReject(approvalId: string): void {
       toolName: undefined,
       reason: undefined,
     };
+    queueApprovalAnnouncement(t("chat.reject"));
+    void focusPromptInput();
   }
 }
 
@@ -355,8 +383,17 @@ watch(
 
 watch(
   () => chat.currentSessionId.value,
-  (sessionId) => {
-    if (sessionId) restoreMessages();
+  (sessionId, previousSessionId) => {
+    if (sessionId) {
+      restoreMessages();
+      queueA11yAnnouncement(t("chat.sessionActive", { sessionId }));
+      if (sessionId !== previousSessionId) {
+        void focusPromptInput();
+      }
+    } else {
+      sessionAnnouncement.value = "";
+      approvalAnnouncement.value = "";
+    }
   }
 );
 
@@ -412,10 +449,10 @@ onUnmounted(() => {
             </Button>
           </div>
 
-          <p v-if="chat.statusMessage.value" class="chat-gate-status chat-gate-status--ok">
+          <p v-if="chat.statusMessage.value" aria-live="polite" class="chat-gate-status chat-gate-status--ok">
             {{ chat.statusMessage.value }}
           </p>
-          <p v-if="chat.errorMessage.value" class="chat-gate-status chat-gate-status--error">
+          <p v-if="chat.errorMessage.value" aria-live="assertive" class="chat-gate-status chat-gate-status--error">
             {{ chat.errorMessage.value }}
           </p>
         </div>
@@ -433,6 +470,12 @@ onUnmounted(() => {
           @toggle-collapse="sidebarCollapsed = !sidebarCollapsed"
         />
         <div class="chat-viewport">
+          <div aria-atomic="true" aria-live="polite" class="sr-only" role="status">
+            {{ sessionAnnouncement }}
+          </div>
+          <div aria-atomic="true" aria-live="polite" class="sr-only" role="status">
+            {{ approvalAnnouncement }}
+          </div>
           <div ref="chatContainer" class="chat-messages">
             <div class="chat-messages-inner">
               <template v-for="message in messages" :key="message.id">
@@ -471,10 +514,13 @@ onUnmounted(() => {
           <div class="input-bar">
             <form class="input-bar-inner" @submit.prevent="sendMessage">
               <div class="input-wrapper">
+                <label class="sr-only" for="chat-prompt-input">{{ t("chat.inputPlaceholder") }}</label>
                 <input
                   id="chat-prompt-input"
+                  ref="promptInputRef"
                   v-model="prompt"
                   :aria-label="t('chat.inputPlaceholder')"
+                  aria-describedby="chat-input-disclaimer"
                   :placeholder="t('chat.inputPlaceholder')"
                   class="chat-input"
                 />
@@ -486,7 +532,7 @@ onUnmounted(() => {
                 </svg>
               </button>
             </form>
-            <p class="input-disclaimer">{{ t("chat.disclaimer") }}</p>
+            <p id="chat-input-disclaimer" class="input-disclaimer">{{ t("chat.disclaimer") }}</p>
           </div>
         </div>
       </div>
@@ -564,6 +610,18 @@ onUnmounted(() => {
 
 .chat-gate-status--error {
   color: var(--corvus-color-status-error);
+}
+
+.sr-only {
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 .chat-with-sidebar {

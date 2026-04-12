@@ -1939,9 +1939,15 @@ fn is_command_allowed_blocks_path_in_flags() {
     assert!(!p.is_command_allowed("grep pattern /etc/passwd"));
 
     // Case 2: Path in flag - CURRENTLY BYPASSES (this test should fail if my hypothesis is correct)
-    assert!(!p.is_command_allowed("grep --file=/etc/passwd pattern"), "Should block absolute path in flag");
+    assert!(
+        !p.is_command_allowed("grep --file=/etc/passwd pattern"),
+        "Should block absolute path in flag"
+    );
 
     // Case 3: git -C/etc status - CURRENTLY BYPASSES
     p.allowed_commands.push("git".into());
-    assert!(!p.is_command_allowed("git -C/etc status"), "Should block absolute path in short flag");
+    assert!(
+        !p.is_command_allowed("git -C/etc status"),
+        "Should block absolute path in short flag"
+    );
 }

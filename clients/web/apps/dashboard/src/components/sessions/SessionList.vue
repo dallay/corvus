@@ -115,7 +115,8 @@ onMounted(() => load());
             </td>
             <td class="action-cell">
               <button
-                class="select-btn"
+                class="select-btn touch-target"
+                :data-testid="'view-session-' + session.id"
                 :aria-label="t('sessions.selectSession', 'View session') + ' ' + session.id"
                 @click="emit('select', session)"
               >
@@ -128,20 +129,20 @@ onMounted(() => load());
       <div v-if="totalPages() > 1" class="pagination">
         <label class="page-size-control">
           <span>{{ t("pagination.perPage", "Rows per page") }}</span>
-          <select :value="String(perPage)" class="page-size-select" @change="onPerPageChange">
+          <select :value="String(perPage)" class="page-size-select touch-target" @change="onPerPageChange">
             <option v-for="option in PER_PAGE_OPTIONS" :key="option" :value="option">
               {{ option }}
             </option>
           </select>
         </label>
-        <button :disabled="page <= 1" @click="goToPage(page - 1)">
+        <button :disabled="page <= 1" class="touch-target" @click="goToPage(page - 1)">
           {{ t("pagination.prev", "Previous") }}
         </button>
         <span class="page-info">
           {{ t("pagination.page", "Page") }} {{ page }} / {{ totalPages() }}
           ({{ admin.totalSessions.value }} {{ t("pagination.total", "total") }})
         </span>
-        <button :disabled="page >= totalPages()" @click="goToPage(page + 1)">
+        <button :disabled="page >= totalPages()" class="touch-target" @click="goToPage(page + 1)">
           {{ t("pagination.next", "Next") }}
         </button>
       </div>
@@ -186,6 +187,11 @@ onMounted(() => load());
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.touch-target {
+  min-height: 24px;
+  min-width: 24px;
 }
 
 .status-badge {
@@ -246,6 +252,14 @@ onMounted(() => load());
   color: var(--color-text-primary);
   cursor: pointer;
   font-size: 12px;
+  min-height: 32px;
+  min-width: 32px;
+}
+
+.select-btn {
+  min-height: 32px;
+  min-width: 32px;
+  padding: 6px 12px;
 }
 
 .pagination button:disabled {

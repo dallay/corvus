@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Dashboard Accessibility
+
+on:
+  pull_request:
+    branches:
+      - main
+      - minor
+    paths:
+      - ".github/workflows/dashboard-accessibility.yml"
+      - "clients/web/pnpm-lock.yaml"
+      - "clients/web/pnpm-workspace.yaml"
+      - "clients/web/apps/dashboard/**"
+      - "clients/web/packages/**"
+  push:
+    branches:
+      - main
+      - minor
+    paths:
+      - ".github/workflows/dashboard-accessibility.yml"
+      - "clients/web/pnpm-lock.yaml"
+      - "clients/web/pnpm-workspace.yaml"
+      - "clients/web/apps/dashboard/**"
+      - "clients/web/packages/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard-a11y:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+        with:
+          version: 10
+
+      - name: 📦 Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: clients/web/pnpm-lock.yaml
+
+      - name: 📥 Install web workspace dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: clients/web
+
+      - name: 🎭 Install Playwright Chromium
+        run: pnpm --filter @corvus/dashboard run test:e2e:install
+        working-directory: clients/web
+
+      - name: ♿ Run dashboard axe unit smoke tests
+        run: pnpm --filter @corvus/dashboard run test:a11y
+        working-directory: clients/web
+
+      - name: ♿ Run dashboard accessibility smoke e2e
+        run: pnpm --filter @corvus/dashboard run test:e2e:a11y
+        working-directory: clients/web

@@ -1159,6 +1159,7 @@ dependencies = [
  "corvus-channels",
  "corvus-composer",
  "corvus-memory",
+ "corvus-observability",
  "corvus-providers",
  "corvus-security",
  "corvus-tools",
@@ -1245,6 +1246,7 @@ dependencies = [
  "anyhow",
  "corvus-channels",
  "corvus-memory",
+ "corvus-observability",
  "corvus-providers",
  "corvus-security",
  "corvus-tools",
@@ -1258,6 +1260,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "corvus-traits",
+]
+
+[[package]]
+name = "corvus-observability"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
 ]
 
 [[package]]
@@ -6972,9 +6981,9 @@ dependencies = [
 
 [[package]]
 name = "surrealdb-librocksdb-sys"
-version = "0.18.0+11.0.0"
+version = "0.18.1+11.0.0-2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "920c08d2ccd5befe4fcb377dc2c31547c31a09e7e00e0429bf7dd6a7a82de91b"
+checksum = "c87fb5a0a71b9c48f5511132d117f08c2b97918c965b9a5c5ba859754af13cf6"
 dependencies = [
  "bindgen",
  "bzip2-sys",

@@ -1,19 +1,14 @@
-//! Corvus Providers Registry
-//!
-//! Re-exports provider types and provides registry functions.
+//! Corvus provider registry surfaces for manifest composition.
 
-pub use corvus_traits::providers::Provider;
+pub mod factory;
+pub mod registry;
 
-/// Information about a provider.
-#[derive(Debug, Clone)]
-pub struct ProviderInfo {
-    pub name: &'static str,
-    pub display_name: &'static str,
-    pub local: bool,
-}
-
-// Re-export types
 pub use corvus_traits::providers::{
-    ChatMessage, ChatRequest, ChatResponse, ConversationMessage, StreamChunk, StreamOptions,
-    ToolCall, ToolResultMessage,
+    ChatMessage, ChatRequest, ChatResponse, ConversationMessage, Provider, StreamChunk,
+    StreamOptions, ToolCall, ToolResultMessage,
+};
+pub use factory::{select_provider, ProviderFactorySelection};
+pub use registry::{
+    list_providers, provider_availability, resolve_provider_key, CapabilityAvailability,
+    ProviderDescriptor,
 };

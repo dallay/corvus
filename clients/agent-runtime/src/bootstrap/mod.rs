@@ -11,6 +11,8 @@ use anyhow::bail;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+pub mod composed;
+
 pub const DEFAULT_MODEL: &str = "anthropic/claude-sonnet-4";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

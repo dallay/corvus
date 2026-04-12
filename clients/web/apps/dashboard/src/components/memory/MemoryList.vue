@@ -25,7 +25,20 @@ const page = ref(1);
 const perPage = ref(25);
 const confirmingDelete = ref<string | null>(null);
 const confirmBtnRef = ref<HTMLButtonElement | null>(null);
+const confirmDialogRef = ref<HTMLElement | null>(null);
 const restoreFocusTarget = ref<HTMLElement | null>(null);
+
+function getDialogFocusableElements(): HTMLElement[] {
+  if (!confirmDialogRef.value) {
+    return [];
+  }
+
+  return Array.from(
+    confirmDialogRef.value.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+  );
+}
 
 async function load() {
   const params: MemoryListParams = {
@@ -62,9 +75,46 @@ function closeDeleteDialog() {
   nextTick(() => restoreFocusTarget.value?.focus());
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function cancelDelete() {
   closeDeleteDialog();
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function onDeleteDialogKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    cancelDelete();
+    return;
+  }
+
+  if (event.key !== "Tab") {
+    return;
+  }
+
+  const focusableElements = getDialogFocusableElements();
+  if (focusableElements.length === 0) {
+    return;
+  }
+
+  const firstElement = focusableElements[0];
+  const lastElement = focusableElements[focusableElements.length - 1];
+  if (!firstElement || !lastElement) {
+    return;
+  }
+
+  const activeElement = globalThis.document?.activeElement;
+  if (event.shiftKey) {
+    if (activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+    }
+    return;
+  }
+
+  if (activeElement === lastElement) {
+    event.preventDefault();
+    firstElement.focus();
+  }
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -150,8 +200,8 @@ onMounted(() => load());
         >
           <td class="mono">{{ entry.key }}</td>
           <td>
-            <button class="category-badge" type="button"
-                    @click="emit('select-category', entry.category)">
+            <button class="category-badge touch-target" type="button"
+                     @click="emit('select-category', entry.category)">
               {{ entry.category }}
             </button>
           </td>
@@ -160,7 +210,7 @@ onMounted(() => load());
             <button
                 :aria-label="entry.session_id ? `Filter by session ${entry.session_id}` : 'No session'"
                 :disabled="!entry.session_id"
-                class="session-link"
+                class="session-link touch-target"
                 type="button"
                 @click="onSelectSession(entry.session_id)"
             >
@@ -170,7 +220,7 @@ onMounted(() => load());
           <td class="content-cell">{{ truncate(entry.content, 80) }}</td>
           <td>
             <button
-                class="explore-btn"
+                class="explore-btn touch-target"
                 type="button"
                 @click="emit('open-explorer', { category: entry.category, sessionId: entry.session_id ?? undefined, entryId: entry.id })"
             >
@@ -178,7 +228,7 @@ onMounted(() => load());
             </button>
             <button
                 :aria-label="t('memory.delete', 'Delete') + ' ' + entry.key"
-                class="delete-btn"
+                class="delete-btn touch-target"
                 @click="requestDelete(entry.key, $event)"
             >
               {{ t("memory.delete", "Delete") }}
@@ -207,14 +257,15 @@ onMounted(() => load());
         v-if="confirmingDelete"
         class="confirm-overlay"
         @click.self="cancelDelete"
-        @keydown.escape="cancelDelete"
     >
       <div
+          ref="confirmDialogRef"
           aria-describedby="memory-delete-description"
           aria-labelledby="memory-delete-title"
           aria-modal="true"
           class="confirm-dialog"
           role="alertdialog"
+          @keydown="onDeleteDialogKeydown"
       >
         <h2 id="memory-delete-title" class="confirm-title">
           {{ t("memory.confirmDelete", "Delete memory entry") }}
@@ -271,16 +322,23 @@ onMounted(() => load());
   white-space: nowrap;
 }
 
+.touch-target {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 24px;
+  min-width: 24px;
+}
+
 .category-badge {
   background: color-mix(in srgb, var(--color-bg-input) 80%, transparent);
   border: 1px solid var(--color-border);
   border-radius: 999px;
   color: inherit;
   cursor: pointer;
-  display: inline-block;
   font-size: 11px;
   font-weight: 500;
-  padding: 2px 8px;
+  padding: 6px 10px;
   text-transform: capitalize;
 }
 
@@ -290,11 +348,11 @@ onMounted(() => load());
   border: 0;
   color: inherit;
   cursor: pointer;
-  padding: 0;
+  padding: 6px 8px;
 }
 
 .explore-btn {
-  color: var(--color-primary, var(--color-text-primary));
+  color: var(--color-text-primary);
   margin-right: 8px;
 }
 
@@ -310,7 +368,7 @@ onMounted(() => load());
   color: #b42318;
   cursor: pointer;
   font-size: 11px;
-  padding: 2px 8px;
+  padding: 6px 10px;
 }
 
 .delete-btn:hover {
@@ -333,7 +391,9 @@ onMounted(() => load());
   color: var(--color-text-primary);
   cursor: pointer;
   font-size: 12px;
-  padding: 4px 12px;
+  min-height: 32px;
+  min-width: 32px;
+  padding: 6px 12px;
 }
 
 .pagination button:disabled {
@@ -386,6 +446,8 @@ onMounted(() => load());
   border-radius: 8px;
   cursor: pointer;
   font-size: 12px;
+  min-height: 32px;
+  min-width: 32px;
   padding: 6px 14px;
 }
 

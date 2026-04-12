@@ -14,7 +14,8 @@ This directory contains all GitHub Actions workflows for the Corvus monorepo. Wo
 | **Publishing**  | `publish-release.yml`                | Attach stable artifacts to canonical GitHub Release               | `release.published`                     |
 | **Publishing**  | `publish-snapshot.yml`               | Publish Gradle/Maven snapshots only                               | Manual, daily schedule                  |
 | **Publishing**  | `release-please.yml`                 | Create repo-wide release PRs, tags, and canonical GitHub Releases | Push to `main`, manual                  |
-| **Publishing**  | `_publish.yml`                       | Reusable publish workflow                                         | Called by other workflows               |
+| **Publishing**  | `release-please-beta.yml`            | Create beta prerelease PRs, tags, and canonical GitHub Releases   | Push to `beta`, manual                  |
+| **Publishing**  | `_publish.yml`                       | Reusable stable/beta/snapshot publish workflow                    | Called by other workflows               |
 | **Automation**  | `auto-fix-lockfile.yml`              | Auto-update lockfiles                                             | Daily schedule, manual                  |
 | **Automation**  | `fix-renovate.yml`                   | Fix lockfiles for Renovate PRs                                    | Comment `/fix-lock` on PR               |
 | **Repo Mgmt**   | `git-issue-labeled.yml`              | Auto-comments/closes labeled issues                               | Issue labeled                           |
@@ -179,6 +180,8 @@ Code Scanning.
 
 release-please is the canonical owner of the stable GitHub Release and release notes.
 \_publish.yml exists to attach artifacts to that existing release after `release.published`.
+`release-please-beta.yml` owns the canonical beta branch prerelease PRs, tags, GitHub Releases,
+and beta release notes.
 
 ### `publish-release.yml` - Release Publishing
 
@@ -240,6 +243,33 @@ Calls the reusable `_publish.yml` workflow with:
 
 ---
 
+### `release-please-beta.yml` - Beta Release PR Automation
+
+**Purpose**: Opens or updates the single repo-wide beta prerelease PR from `beta` and owns the
+canonical beta prerelease tag, GitHub Release, and release notes.
+
+**Triggers**:
+
+- Push to `beta`
+- Manual trigger (`workflow_dispatch`)
+
+**What it does**:
+
+- Runs release-please with `release-please-beta-config.json`
+- Creates or updates a beta prerelease PR with shipped-artifact beta version bumps
+- Writes diagnostics to the workflow summary, including the beta manifest baseline and action outputs
+- On merge, creates the canonical `vX.Y.Z-beta.N` tag and canonical GitHub prerelease
+- Publishes canonical beta GitHub Release notes, then hands beta artifact publication to `_publish.yml`
+
+**Beta contract**:
+
+- `release-please-beta.yml` is the canonical owner of beta release PRs, beta tags, beta GitHub Releases, and beta notes.
+- Beta releases publish the same shipped artifact set as stable releases.
+- npm beta releases use the `beta` dist-tag instead of `latest`.
+- Beta Docker publication uses the exact prerelease version plus the moving `beta` tag, and never overwrites stable aliases like `latest`.
+
+---
+
 ### `release-please.yml` - Release PR Automation
 
 **Purpose**: Opens or updates the single repo-wide stable release PR from `main` and owns the
@@ -274,16 +304,18 @@ canonical stable tag, GitHub Release, and release notes.
 
 ### `_publish.yml` - Reusable Publishing Workflow
 
-**Purpose**: Internal reusable workflow for publishing release/snapshot artifacts.
+**Purpose**: Internal reusable workflow for publishing stable, beta, and snapshot artifacts.
 
-**Called by**: `publish-release.yml`, `publish-snapshot.yml`
+**Called by**: `publish-release.yml`, `publish-snapshot.yml`, `release-please-beta.yml`
 
 **Inputs**:
-| Input | Type | Default | Description |
-|-------|------|---------|-------------|
-| `release` | boolean | required | Whether the workflow is in stable release mode |
-| `release_tag` | string | empty | Canonical stable tag to validate and publish against |
-| `release_id` | string | empty | Existing GitHub Release id for asset upload |
+
+| Input         | Type    | Default  | Description                                           |
+| ------------- | ------- | -------- | ----------------------------------------------------- |
+| `release`     | boolean | required | Whether the workflow is in release mode               |
+| `prerelease`  | boolean | `false`  | Whether the release is a beta prerelease              |
+| `release_tag` | string  | empty    | Canonical release tag to validate and publish against |
+| `release_id`  | string  | empty    | Existing GitHub Release id for asset upload           |
 
 **Secrets Required**:
 
@@ -302,17 +334,19 @@ canonical stable tag, GitHub Release, and release notes.
 2. 🧭 Validates explicit stable release context (`release_tag`, `release_id`) against the existing GitHub Release
 3. 👻 Publishes to Maven Central using Gradle
 4. 🦀 Publishes Rust crate to crates.io (release only)
-5. 📦 Publishes shipped runtime npm packages to npm (release only)
-6. 🐳 Builds and publishes multi-arch runtime Docker image to Docker Hub + GHCR (release only)
-7. 📊 Builds and publishes multi-arch dashboard Docker image to Docker Hub + GHCR (release only)
+5. 📦 Publishes shipped runtime npm packages to npm using `latest` for stable or `beta` for prereleases
+6. 🐳 Builds and publishes multi-arch runtime Docker image to Docker Hub + GHCR with stable or beta-safe tags
+7. 📊 Builds and publishes multi-arch dashboard Docker image to Docker Hub + GHCR with stable or beta-safe tags
 8. 🚀 Attaches assets to the existing canonical GitHub Release
 
 **Key Points**:
 
 - ⚠️ Warning: Do not use never-expiring User Token for Maven Central
 - `release-please` owns the canonical public GitHub Release and canonical stable release notes
+- `release-please-beta.yml` owns the canonical public GitHub prerelease and canonical beta release notes
 - `_publish.yml` only uploads assets with `gh release upload --clobber`
 - Stable publication fans out from `release.published`
+- Beta publication fans out from `release-please-beta.yml`
 - Stable npm publishing excludes `corvus-cli` because it is internal/private
 - Windows ARM64 is intentionally unsupported for stable npm publication
 
@@ -664,9 +698,9 @@ if: >
 ## 🔄 Workflow Dependencies
 
 ```
-publish-release.yml ─┐
-                     ├──> _publish.yml (reusable)
-publish-snapshot.yml ┘
+publish-release.yml ────────┐
+release-please-beta.yml     ├──> _publish.yml (reusable)
+publish-snapshot.yml ───────┘
 
 Other workflows call dallay/common-actions:
 - cleanup-cache.yml

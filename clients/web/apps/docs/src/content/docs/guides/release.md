@@ -1,9 +1,9 @@
 ---
 title: Release Process
-description: Canonical Corvus stable and snapshot release runbook for release-please, publish workflows, and GitHub Releases.
+description: Canonical Corvus stable, beta, and snapshot release runbook for release-please, publish workflows, and GitHub Releases.
 owner: team-platform
 status: canonical
-lastReviewed: 2026-04-07
+lastReviewed: 2026-04-12
 appliesTo: main
 docType: runbook
 ---
@@ -11,6 +11,7 @@ docType: runbook
 This runbook defines the canonical Corvus release contract.
 
 - `release-please.yml` owns the repo-wide release PR, the canonical `vX.Y.Z` tag, the canonical GitHub Release, and the canonical stable release notes.
+- `release-please-beta.yml` owns the repo-wide beta prerelease PR, the canonical `vX.Y.Z-beta.N` tag, the canonical beta GitHub Release, and the canonical beta release notes from the beta branch (`beta`).
 - `publish-release.yml` and `_publish.yml` only own artifact publication after `release-please` publishes the GitHub Release.
 - GitHub Releases are the canonical stable release notes surface.
 - `publish-snapshot.yml` is a snapshot-only Gradle/Maven path and does not own stable release notes.
@@ -27,7 +28,7 @@ Before you publish, confirm:
    - `SIGNING_IN_MEMORY_KEY_PASSWORD`
    - `MAVEN_CENTRAL_USERNAME`
    - `MAVEN_CENTRAL_PASSWORD`
-3. **Stable release channel credentials**
+3. **Release channel credentials**
    - `CARGO_REGISTRY_TOKEN`
    - `NPM_TOKEN`
    - `DOCKERHUB_USERNAME`
@@ -71,6 +72,37 @@ Stable publish automation validates and publishes only shipped artifacts:
 
 The GitHub Release created by `release-please` is the canonical public release record. The root `CHANGELOG.md` is only a pointer.
 
+## Beta Release Contract
+
+### What ships in a beta `vX.Y.Z-beta.N` release
+
+Beta publish automation ships the same artifact surfaces as the stable channel:
+
+- Gradle/KMP artifacts, including build-logic publication
+- `clients/agent-runtime` crate
+- `modules/cerebro` release assets
+- the shipped runtime npm packages
+- Docker images
+- Native archives and checksums attached to the GitHub Release
+
+### Beta channel rules
+
+- `release-please-beta.yml` runs from the `beta` branch and owns beta prerelease PRs, tags, GitHub Releases, and release notes.
+- Beta releases use tags in the form `vX.Y.Z-beta.N`.
+- The GitHub Release must stay marked as a prerelease.
+- Beta releases use the npm `beta` dist-tag and must not overwrite `latest`.
+- Beta Docker publication uses the exact prerelease version plus the moving `beta` tag and must not overwrite stable aliases like `latest`, `X`, or `X.Y`.
+
+## Beta Release Flow
+
+1. Cut or refresh the `beta` branch from `minor` when a prerelease candidate is ready for wider validation.
+2. Merge release-ready fixes into `beta`.
+3. `release-please-beta.yml` opens or updates one repo-wide beta prerelease PR.
+4. Review the prerelease PR diff. Only shipped beta artifacts should be version-bumped.
+5. Merge the beta release PR.
+6. `release-please-beta.yml` creates the canonical `vX.Y.Z-beta.N` tag and canonical beta GitHub Release.
+7. `_publish.yml` publishes beta artifacts in prerelease mode, using the npm `beta` dist-tag and beta-safe Docker tags.
+
 ### Governance rule
 
 - Release automation changes must land through a pull request, not a direct push to `main`.
@@ -97,6 +129,16 @@ Check the workflow summary for:
 - whether tag/release outputs were emitted
 - raw release-please action outputs for drift diagnosis
 
+### `release-please-beta.yml`
+
+Check the workflow summary for:
+
+- manifest baseline version from `.release-please-beta-manifest.json`
+- candidate beta version output
+- whether a beta prerelease PR was created in that run
+- whether beta tag/release outputs were emitted
+- raw release-please action outputs for drift diagnosis
+
 ### `_publish.yml`
 
 Check the workflow summary for:
@@ -109,6 +151,7 @@ Check the workflow summary for:
 - npm policy notes confirming `corvus-cli` is internal/private and Windows ARM64 is unsupported
 - GitHub Release asset upload result
 - confirmation that release-please owns canonical stable release notes
+- confirmation that release-please-beta.yml owns canonical beta release notes
 
 ## Manual Baseline Recovery
 
@@ -116,7 +159,7 @@ Baseline recovery is an operator action. The workflows in this change do **not**
 
 Use this procedure when the manifest, tags, or GitHub Releases drift:
 
-1. Verify `.release-please-manifest.json`, `version.txt`, Gradle properties, Cargo manifests, and shipped npm package versions agree on the expected stable version.
+1. Verify `.release-please-manifest.json` or `.release-please-beta-manifest.json`, `version.txt`, Gradle properties, Cargo manifests, and shipped npm package versions agree on the expected release version for the channel you are repairing.
 2. Verify the intended release commit SHA.
 3. Verify whether the canonical `vX.Y.Z` tag already exists.
 4. Verify whether the GitHub Release already exists.
@@ -136,6 +179,12 @@ Use this procedure when the manifest, tags, or GitHub Releases drift:
 - Confirm the canonical GitHub Release exists and was published.
 - Confirm `release-please` created the release with the expected permissions and token.
 - Confirm the `publish-release.yml` trigger saw `release.published` for the same `vX.Y.Z` tag.
+
+### Release PR merged but no beta publish run
+
+- Confirm the canonical beta GitHub Release exists and is marked as a prerelease.
+- Confirm `release-please-beta.yml` created the release with the expected permissions and token.
+- Confirm `_publish.yml` was called from `release-please-beta.yml` with `prerelease: true`.
 
 ### `release-please` fails with `Resource not accessible by integration`
 
@@ -160,6 +209,7 @@ Use this procedure when the manifest, tags, or GitHub Releases drift:
 ### Release notes drift from published assets
 
 - Treat `release-please` as the only canonical release-note authority.
+- Treat `release-please-beta.yml` as the only canonical beta release-note authority.
 - `_publish.yml` may attach assets to the existing GitHub Release, but it must not replace the canonical notes body.
 
 ## Canonical References

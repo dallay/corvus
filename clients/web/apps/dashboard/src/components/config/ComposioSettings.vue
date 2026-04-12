@@ -79,6 +79,10 @@ function updateSecretMode(mode: AdminConfigForm["composio_api_key_mode"]): void 
         <span>{{ $t("composio.apiKeyValue") }}</span>
         <Input
           :model-value="modelValue.composio_api_key_value"
+          aria-describedby="composio-api-key-help"
+          autocapitalize="off"
+          inputmode="text"
+          spellcheck="false"
           type="password"
           data-testid="composio_api_key_value"
           @update:model-value="updateField('composio_api_key_value', $event)"
@@ -93,6 +97,9 @@ function updateSecretMode(mode: AdminConfigForm["composio_api_key_mode"]): void 
             : $t("webhook.statusNotConfigured"),
         })
       }}
+    </p>
+    <p id="composio-api-key-help" class="helper">
+      API keys support paste from password managers or secure vault tools.
     </p>
     <div class="actions">
       <Button :disabled="disabled || saving" data-testid="save" @click="emit('save')">{{

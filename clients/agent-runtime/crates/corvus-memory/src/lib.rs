@@ -1,14 +1,13 @@
-//! Corvus Memory Registry
-//!
-//! Re-exports memory types and provides registry functions.
+//! Corvus memory registry surfaces for manifest composition.
+
+pub mod factory;
+pub mod registry;
 
 pub use corvus_traits::memory::{
     Memory, MemoryCategory, MemoryEntry, MemoryStats, SessionEntry, SessionStatus,
 };
-
-/// Information about a memory backend.
-#[derive(Debug, Clone)]
-pub struct MemoryInfo {
-    pub name: &'static str,
-    pub display_name: &'static str,
-}
+pub use factory::{select_memory_backend, MemoryFactorySelection};
+pub use registry::{
+    list_memory_backends, memory_availability, resolve_memory_backend_key, CapabilityAvailability,
+    MemoryDescriptor,
+};

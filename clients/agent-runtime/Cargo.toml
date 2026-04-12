@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/corvus-traits", "crates/corvus-providers", "crates/corvus-channels", "crates/corvus-tools", "crates/corvus-memory", "crates/corvus-security", "crates/corvus-composer", "crates/robot-kit"]
+members = [".", "crates/corvus-traits", "crates/corvus-providers", "crates/corvus-channels", "crates/corvus-tools", "crates/corvus-memory", "crates/corvus-observability", "crates/corvus-security", "crates/corvus-composer", "crates/robot-kit"]
 resolver = "2"
 
 [package]
@@ -89,6 +89,7 @@ corvus-providers = { path = "crates/corvus-providers" }
 corvus-channels = { path = "crates/corvus-channels" }
 corvus-tools = { path = "crates/corvus-tools" }
 corvus-memory = { path = "crates/corvus-memory" }
+corvus-observability = { path = "crates/corvus-observability" }
 corvus-security = { path = "crates/corvus-security" }
 corvus-composer = { path = "crates/corvus-composer" }
 

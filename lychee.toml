@@ -42,9 +42,13 @@ exclude = [
     # Root-relative diagram assets served from /public
     '^/guides/architecture/diagrams/.*',
     # Internal CSS imports and Tailwind directives
-    '^@corvus/shared(?:/|$)',
-    '^tailwindcss(?:/|$)',
-    '^@fontsource(?:-variable)?/',
+    "@corvus/shared",
+    "tailwindcss",
+    "@fontsource",
+    # File URLs from CSS @import statements (resolved by build tools, not lychee)
+    "file://.*@corvus/shared",
+    "file://.*tailwindcss",
+    "file://.*@fontsource",
 ]
 
 # Exclude entire files or directories

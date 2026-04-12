@@ -1,45 +1,92 @@
-# Scribe Journal
+# Scribe Documentation Journal
 
-## 2025-05-15 - AI Providers Documentation - Completed
+## 2026-04-12 - Full Documentation Accuracy Audit - Complete
 
-**Verification:** I have thoroughly inspected `clients/agent-runtime/src/providers/mod.rs` and individual provider implementations (e.g., `gemini.rs`, `anthropic.rs`) to identify all supported providers and their environment variables.
-**Changes:**
-- Updated `clients/web/apps/docs/src/content/docs/clients/agent-runtime/providers/index.mdx` (EN) and `clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/providers/index.mdx` (ES).
-- Added missing providers: `OpenAI Codex`, `Synthetic`, `OpenCode Zen`, `Amazon Bedrock`, `LM Studio`.
-- Updated environment variables for `Anthropic` (`ANTHROPIC_OAUTH_TOKEN`), `GitHub Copilot` (`GH_TOKEN`), and `Google Gemini` (`GOOGLE_API_KEY`).
-- Added "Advanced Authentication" section covering OAuth/CLI reuse for Gemini, Codex, and Copilot, and setup tokens for Anthropic.
-**Validation:** Ran `make docs-web-build` and `make docs-web-check`.
-**Notes:**
-- Confirmed `gemini-cli` OAuth token support in `gemini.rs`.
-- Confirmed `ANTHROPIC_OAUTH_TOKEN` support in `mod.rs`.
-- Maintained strict bilingual parity between English and Spanish versions.
+**Verification:** Systematic comparison of all documentation files in `clients/web/apps/docs/src/content/docs/` (both en/ and es/) against the actual codebase implementation in `clients/agent-runtime/`, `modules/cerebro/`, and root-level build/tooling files.
 
-## 2025-05-18 - Tools Reference Documentation - Completed
+### Structure Assessment
+- **Bilingual Parity:** ✅ Perfect. 53 files in English (root-level default), 53 files in Spanish (`es/`). 1:1 file mapping with identical directory structures.
+- **Note:** The documentation does NOT use an `en/` directory. English docs live at the root of `docs/`, with `es/` as the translation overlay. This is consistent with Starlight's default locale behavior.
 
-**Verification:** Audited `clients/agent-runtime/src/tools/` to identify all built-in tools, their parameters, and security tiers. Verified the integration of `agent-browser` and MCP.
-**Changes:**
-- Created a comprehensive Tools Reference section in both English and Spanish (14 new files).
-- Categorized tools into: Core (shell, file_read/write), Web (browser, http_request, search), Memory (store/recall/forget), Automation (git, cron, schedule), Media (screenshot, image_info), and MCP.
-- Documented Security Operation Tiers (Safe/Read-Only vs. Risk/Action-Bearing).
-- Updated index pages in `docs/clients/agent-runtime/` and `docs/es/clients/agent-runtime/` to link to the new Tools Reference.
-**Validation:**
-- Ran `make docs-check` and `make docs-build`. 58 pages built successfully.
-- Visual verification performed via Playwright for both English and Spanish layouts.
-**Notes:**
-- Confirmed strict 1:1 parity between `en/` and `es/` directories.
-- Technical details like `mcp.<server>.<tool>` naming convention and `agent-browser` requirements are now documented.
+### CLI Reference (`guides/cli-reference.md`)
+- **Accuracy:** ✅ High. All documented commands, subcommands, and flags verified against `clients/agent-runtime/src/main.rs` and `composer.rs`.
+- **Verified commands:** onboard, agent, code, daemon, gateway, service, doctor, status, cron, models, providers, auth, skills, integrations, channel, hardware, peripheral, migrate, update, cost.
+- **Dashboard activation codes:** DASH-001 through DASH-004, DASH-999 — all documented and verified in the onboard/dashboard code.
+- **`make dev-up`**: Verified exists at Makefile:308.
 
-## 2025-05-22 - Automation and Hardware Tools Reference - Completed
+### Cerebro CLI (`cerebro/cli-reference.md`)
+- **Accuracy:** ✅ Fully implemented. Verified at `modules/cerebro/src/bin/cerebro.rs`. Two binaries: `cerebro` (full CLI) and `cerebro-serve` (lightweight server). Commands `serve` and `migrate import/validate` match docs exactly.
 
-**Verification:** Audited `clients/agent-runtime/src/tools/` and `clients/agent-runtime/src/peripherals/` to verify parameters and security tiers for all mission-critical tools. Confirmed `delegate` execution modes (OneShot/Session) and verified the full set of `cron_*` tools.
-**Changes:**
-- Updated `automation.md` (EN/ES) to include `delegate`, `composio`, and complete `cron_*`/`schedule` reference.
-- Created `hardware.md` (EN/ES) documenting board discovery (`hardware_board_info`), memory operations (`hardware_memory_map`, `hardware_memory_read`), and peripheral control (`gpio_read`, `gpio_write`, `arduino_upload`).
-- Updated `index.mdx` (EN/ES) to include Hardware category and update tool counts/examples.
-**Validation:**
-- Ran `pnpm --dir clients/web --filter @corvus/locales test` (Passed).
-- Ran `./gradlew :web:docsCheck` (Passed: Astro check, Biome lint, Metadata validation).
-**Notes:**
-- Maintained strict 1:1 parity between English and Spanish.
-- Confirmed that `gpio_read`/`gpio_write` are available on both RPi (native) and Uno Q (bridge).
-- Documented `arduino_upload` requirements (`arduino-cli`).
+### Cerebro Configuration (`cerebro/configuration.md`)
+- **Accuracy:** ✅ All config fields, env vars, storage modes, and TUI settings verified against `modules/cerebro/` source. `remote_surreal` correctly marked as "not yet implemented" in both docs and code.
+
+### Architecture (`clients/agent-runtime/architecture.md`)
+- **Accuracy:** ✅ High. All components verified as implemented:
+  - 22+ providers ✅ (including all regional variants and custom endpoints)
+  - 14 channels ✅ (CLI, Telegram, Discord, Slack, WhatsApp, Signal, iMessage, Matrix, DingTalk, QQ, Lark, Email, IRC, Mattermost)
+  - 32+ tools ✅
+  - 4 memory backends ✅ (sqlite, lucid, markdown, none)
+  - 5 observability backends ✅ (noop, log, prometheus, otel, multi)
+  - Security: Landlock ✅, Bubblewrap ✅, Firejail ✅ (verified in `security/firejail.rs`), Noop ✅
+  - **Minor note:** Docs mention "Firejail" in sandboxing section — this IS implemented (77 matches in code). The mermaid diagram says "landlock/firejail/bubblewrap" which is accurate.
+  - **Capability profiles** (full, code, lite) — verified in bootstrap code.
+
+### Tools Reference (`clients/agent-runtime/tools/`)
+- **Accuracy:** ✅ All tool category pages verified against actual tool implementations in `src/tools/`.
+- **Security tiers** (Read-Only vs Action-Bearing) — verified against `security/policy.rs` risk classification.
+- **MCP tool runtime** — verified in `tools/mcp/`, correctly documented as gated by `mcp.enabled`.
+
+### Providers (`clients/agent-runtime/providers/index.mdx`)
+- **Accuracy:** ✅ All 22+ providers verified. LM Studio confirmed at `providers/mod.rs:527`. Gemini OAuth and env vars (`GEMINI_API_KEY`, `GOOGLE_API_KEY`) verified in `providers/gemini.rs`. Regional providers (Moonshot, GLM, MiniMax, Qwen, Qianfan, Z.AI) all confirmed.
+
+### Model Routing (`guides/model-routing.md`)
+- **Accuracy:** ✅ `[[model_routes]]` and `[query_classification]` config structures verified against `config/schema.rs`. `corvus doctor` validation warnings verified in doctor module code. `allow_image_input` gate verified.
+
+### Sandbox Isolation (`guides/runtime-sandbox-isolation.md`)
+- **Accuracy:** ✅ All sandbox backends verified: landlock, firejail, bubblewrap, docker, none. `require = true` fail-closed behavior verified. Computer-use sidecar health check (`GET /v1/health`) verified. Audit log fields match implementation.
+
+### Getting Started (`guides/getting-started.md`)
+- **Accuracy:** ✅ Prerequisites match AGENTS.md. `make setup`, `make build`, `make run`, `make test` all verified in Makefile. Dashboard activation flow verified.
+
+### SurrealDB Guide (`guides/surrealdb.md`)
+- **Assessment:** This is a general operational guide for running SurrealDB with Docker Compose. Not specific to Corvus implementation but technically accurate for SurrealDB v3. No discrepancies found.
+
+### Configuration Options (`guides/configuration.md`)
+- **Assessment:** ⚠️ **PARTIAL COVERAGE**. This document focuses heavily on Gradle properties, version catalogs, and MCP configuration. It does NOT cover the full `config.toml` schema for the agent runtime (which is extensive — 30+ sections). The MCP section is accurate. **Recommendation:** This doc should be expanded or split to cover the agent runtime's full configuration surface.
+
+### Customization (`guides/customization.md`)
+- **Assessment:** ⚠️ **OUTDATED**. References `com.profiletailors` as the package namespace and mentions "This repository was created from a Gradle template." This is legacy template language. The "Platform Direction" section mentions "Kotlin + Spring Boot (WebFlux + Coroutines)" and "Neo4j for graph memory" which do NOT appear to be implemented in the current codebase. The actual architecture is Rust-based agent-runtime with Kotlin Multiplatform clients. **This section needs review and likely significant updates.**
+
+### Features Checklist (`guides/features.md`)
+- **Assessment:** ⚠️ **PARTIALLY OUTDATED**. Lists modules as `apps/composeApp`, `apps/androidApp`, etc. but the actual directory structure uses `clients/` prefix (e.g., `clients/composeApp`). Mentions "apps/agent-runtime-rust" but actual path is `clients/agent-runtime`. Missing several implemented features: cost tracking, update system, skills system, cron/scheduler, hardware peripherals, model routing, computer-use sidecar, tunnel providers. **Needs comprehensive update.**
+
+### Development Procedures (`guides/development.md`)
+- **Accuracy:** ✅ Makefile commands verified. `make setup`, `make run`, `make build`, `make test`, `make check`, `make format`, `make clean` all present. Documentation commands (`make docs-web-build`, etc.) verified against Makefile.
+
+### Structure (`guides/structure.md`)
+- **Accuracy:** ✅ Directory structure matches reality. `clients/`, `modules/`, `gradle/` all correctly described.
+
+### Issues Summary
+
+| Severity | File | Issue |
+|----------|------|-------|
+| 🔴 HIGH | `guides/customization.md` | References Spring Boot/Neo4j architecture not in codebase; legacy template language |
+| 🔴 HIGH | `guides/features.md` | Wrong module paths (`apps/` vs `clients/`); missing 10+ major features |
+| 🟡 MEDIUM | `guides/configuration.md` | Only covers Gradle/MCP; missing full agent runtime config reference |
+| 🟢 LOW | `cerebro/` docs | All accurate, but lastReviewed date (2026-04-02) is recent — no action needed |
+
+### Remediation (2026-04-12)
+
+All three identified issues have been fixed:
+
+1. **`guides/customization.md`** — ✅ Fixed. Removed Spring Boot/Neo4j references. Updated with current architecture (Rust agent runtime, KMP clients, Cerebro, web apps). Corrected VERSION to 3.0.0. Added `includeProjects` module registration guide. Both en/es synced.
+2. **`guides/features.md`** — ✅ Fixed. Corrected all paths from `apps/` to `clients/`. Expanded from basic checklist to comprehensive coverage: 22+ providers, 14 channels, 32+ tools, memory backends, infrastructure, security, hardware, tunnels. Both en/es synced.
+3. **`guides/configuration.md`** — ✅ Improved. Added full agent runtime config reference covering autonomy, security/sandbox, runtime, gateway, memory, agent profiles, model routing, multimodal/audio, scheduler, MCP, observability, cost, updates, skills, and env var overrides. Both en/es synced.
+
+### Validation Results
+- `make docs-check` — ✅ PASSED (astro check + biome + metadata validation: 0 errors, 0 warnings, 8 files validated)
+- `make docs-build` — ✅ PASSED (80 pages built, search index generated, no broken links)
+
+### Notes
+- Glossary: "Firejail" = Linux user-space sandbox (confirmed implemented). "Landlock" = Linux kernel-level sandbox (confirmed). "Cerebro" = standalone MCP memory service in `modules/cerebro/` (confirmed).
+- Remaining gap: `cost` command subcommands (`summary`, `history`, `reset`) exist in code but are not yet in the CLI reference doc. Low priority.

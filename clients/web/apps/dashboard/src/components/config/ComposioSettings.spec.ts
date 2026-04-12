@@ -61,6 +61,10 @@ describe("ComposioSettings", () => {
     });
 
     expect(wrapper.find('[data-testid="composio_api_key_value"]').exists()).toBe(true);
+    expect(
+      wrapper.get('[data-testid="composio_api_key_value"]').attributes("aria-describedby")
+    ).toBe("composio-api-key-help");
+    expect(wrapper.text()).toContain("password managers or secure vault tools");
   });
 
   it("hides password input when api key mode is clear", async () => {

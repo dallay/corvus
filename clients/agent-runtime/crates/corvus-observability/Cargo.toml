@@ -1,0 +1,14 @@
+[package]
+name = "corvus-observability"
+version = "0.1.0"
+edition = "2021"
+authors = ["theonlyhennygod"]
+license = "Apache-2.0"
+description = "Observability registry for Corvus agent runtime"
+repository = "https://github.com/dallay/corvus"
+
+[dependencies]
+anyhow = "1.0"
+
+[package.metadata.docs.rs]
+all-features = true

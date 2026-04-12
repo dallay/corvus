@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 
 defineProps<{
   toolName: string;
@@ -13,6 +13,19 @@ const emit = defineEmits<{
 }>();
 
 const isSubmitting = ref(false);
+const approveButtonRef = ref<HTMLButtonElement | null>(null);
+
+function focusPrimaryAction(): void {
+  approveButtonRef.value?.focus();
+}
+
+defineExpose({
+  focusPrimaryAction,
+});
+
+onMounted(() => {
+  void focusPrimaryAction();
+});
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleApprove(id: string): void {
@@ -30,17 +43,23 @@ function handleReject(id: string): void {
 </script>
 
 <template>
-  <div class="tool-approval-card" data-testid="tool-approval">
+  <div
+    :aria-describedby="`tool-approval-reason-${approvalId}`"
+    :aria-labelledby="`tool-approval-title-${approvalId}`"
+    class="tool-approval-card"
+    data-testid="tool-approval"
+    role="group"
+  >
     <div class="tool-approval-header">
       <span class="tool-icon">🔧</span>
-      <span class="tool-name" data-testid="tool-name">{{ toolName }}</span>
+      <span :id="`tool-approval-title-${approvalId}`" class="tool-name" data-testid="tool-name">{{ toolName }}</span>
     </div>
-    <p class="tool-reason" data-testid="tool-reason">{{ reason }}</p>
+    <p :id="`tool-approval-reason-${approvalId}`" class="tool-reason" data-testid="tool-reason">{{ reason }}</p>
     <div class="tool-approval-actions">
-      <button type="button" class="btn-approve" data-testid="btn-approve" :disabled="isSubmitting" @click="handleApprove(approvalId)">
+      <button ref="approveButtonRef" type="button" class="btn-approve touch-target" data-testid="btn-approve" :disabled="isSubmitting" @click="handleApprove(approvalId)">
         {{ $t("chat.approve") }}
       </button>
-      <button type="button" class="btn-reject" data-testid="btn-reject" :disabled="isSubmitting" @click="handleReject(approvalId)">
+      <button type="button" class="btn-reject touch-target" data-testid="btn-reject" :disabled="isSubmitting" @click="handleReject(approvalId)">
         {{ $t("chat.reject") }}
       </button>
     </div>
@@ -86,6 +105,11 @@ function handleReject(id: string): void {
 .tool-approval-actions {
   display: flex;
   gap: 8px;
+}
+
+.touch-target {
+  min-height: 32px;
+  min-width: 32px;
 }
 
 .btn-approve,

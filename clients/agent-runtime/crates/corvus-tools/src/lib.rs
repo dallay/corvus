@@ -1,12 +1,10 @@
-//! Corvus Tools Registry
-//!
-//! Re-exports tool types and provides registry functions.
+//! Corvus tool registry surfaces for manifest composition.
+
+pub mod factory;
+pub mod registry;
 
 pub use corvus_traits::tools::{Tool, ToolResult, ToolSpec};
-
-/// Information about a tool.
-#[derive(Debug, Clone)]
-pub struct ToolInfo {
-    pub name: &'static str,
-    pub display_name: &'static str,
-}
+pub use factory::{select_tool, ToolFactorySelection};
+pub use registry::{
+    list_tools, resolve_tool_key, tool_availability, CapabilityAvailability, ToolDescriptor,
+};

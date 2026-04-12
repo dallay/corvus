@@ -1,5 +1,5 @@
 import { mount } from "@vue/test-utils";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { nextTick, reactive, ref } from "vue";
 import { createI18n } from "vue-i18n";
 
@@ -11,10 +11,12 @@ import type {
 } from "@/composables/useConfig";
 import { i18nConfig } from "@/i18n";
 import { createAdminConfigForm } from "@/test/adminConfigFormFactory";
+import { expectNoAxeViolations } from "@/test/runAxe";
 
 const mockedConfigState = vi.hoisted(() => ({
   current: null as ReturnType<typeof createMockConfig> | null,
 }));
+const mountedWrappers: Array<ReturnType<typeof mount>> = [];
 
 vi.mock("@/composables/useConfig", () => ({
   useConfig: () => {
@@ -47,6 +49,7 @@ vi.mock("@corvus/ui", async () => {
     }),
     Input: defineComponent({
       name: "Input",
+      inheritAttrs: false,
       props: {
         modelValue: {
           type: String,
@@ -59,7 +62,7 @@ vi.mock("@corvus/ui", async () => {
       },
       emits: ["update:modelValue"],
       template:
-        '<input :value="modelValue" :type="type" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+        '<input v-bind="$attrs" :value="modelValue" :type="type" @input="$emit(\'update:modelValue\', $event.target.value)" />',
     }),
   };
 });
@@ -181,6 +184,58 @@ vi.mock("@/components/memory/CerebroTimelinePanel.vue", async () => {
     default: defineComponent({
       name: "CerebroTimelinePanelStub",
       template: '<section data-testid="cerebro-timeline">Cerebro Timeline</section>',
+    }),
+  };
+});
+
+vi.mock("@/components/sessions/SessionList.vue", async () => {
+  const { defineComponent } = await import("vue");
+
+  return {
+    default: defineComponent({
+      name: "SessionList",
+      emits: ["select"],
+      template: `
+        <section data-testid="session-list">
+          <button
+            data-testid="view-session-session-42"
+            class="session-select"
+            @click="$emit('select', { id: 'session-42' })"
+          >
+            open-session
+          </button>
+        </section>
+      `,
+    }),
+  };
+});
+
+vi.mock("@/components/sessions/SessionDetail.vue", async () => {
+  const { defineComponent, ref } = await import("vue");
+
+  return {
+    default: defineComponent({
+      name: "SessionDetail",
+      props: {
+        sessionId: {
+          type: String,
+          required: true,
+        },
+      },
+      emits: ["close", "view-memory"],
+      setup(_, { expose }) {
+        const closeRef = ref<HTMLButtonElement | null>(null);
+        expose({
+          focusCloseButton: () => closeRef.value?.focus(),
+        });
+        return { closeRef };
+      },
+      template: `
+        <section data-testid="session-detail">
+          <button ref="closeRef" class="session-detail-close" @click="$emit('close')">close-session</button>
+          <button class="session-detail-memory" @click="$emit('view-memory', sessionId)">view-memory</button>
+        </section>
+      `,
     }),
   };
 });
@@ -335,16 +390,25 @@ function createMockConfig(
 function mountApp(config = createMockConfig()) {
   mockedConfigState.current = config;
   const i18n = createI18n(i18nConfig);
+  const wrapper = mount(App, {
+    attachTo: document.body,
+    global: {
+      plugins: [i18n],
+    },
+  });
+  mountedWrappers.push(wrapper);
 
   return {
     config,
-    wrapper: mount(App, {
-      global: {
-        plugins: [i18n],
-      },
-    }),
+    wrapper,
   };
 }
+
+afterEach(() => {
+  while (mountedWrappers.length > 0) {
+    mountedWrappers.pop()?.unmount();
+  }
+});
 
 describe("Dashboard App", () => {
   it("renders auth controls, config sections, and webhook helper state", () => {
@@ -361,6 +425,36 @@ describe("Dashboard App", () => {
     expect(wrapper.findAll("input")).toHaveLength(12);
     expect(wrapper.findAll("[data-section]")).toHaveLength(7);
     expect(wrapper.findAll(".onboarding-step")).toHaveLength(4);
+  });
+
+  it("adds a skip link and exposes accessible auth input semantics", () => {
+    const { wrapper } = mountApp();
+
+    const skipLink = wrapper.get("a.skip-link");
+    const mainContent = wrapper.get("#main-content");
+    const authInputs = wrapper.findAll("input");
+    const baseUrlInput = authInputs[0];
+    const pairingCodeInput = authInputs[1];
+    const bearerTokenInput = authInputs[2];
+
+    expect(skipLink.attributes("href")).toBe("#main-content");
+    expect(mainContent.attributes("tabindex")).toBe("-1");
+
+    expect(baseUrlInput?.attributes("type")).toBe("url");
+    expect(baseUrlInput?.attributes("autocomplete")).toBe("url");
+
+    expect(pairingCodeInput?.attributes("autocomplete")).toBe("one-time-code");
+    expect(pairingCodeInput?.attributes("aria-describedby")).toBe("auth-pairing-code-help");
+
+    expect(bearerTokenInput?.attributes("aria-describedby")).toBe("auth-bearer-token-help");
+    expect(bearerTokenInput?.attributes("autocapitalize")).toBe("off");
+    expect(wrapper.text()).toContain("password managers or secure vault tools");
+  });
+
+  it("has no obvious axe violations in the dashboard shell", async () => {
+    const { wrapper } = mountApp(createMockConfig({ isOperatorReady: true }));
+
+    await expectNoAxeViolations(wrapper.element);
   });
 
   it("shows quick-pair progress states and hides auth controls while connecting", async () => {
@@ -564,5 +658,26 @@ describe("Dashboard App", () => {
 
     expect(wrapper.find("[data-testid='cerebro-search']").exists()).toBe(true);
     expect(wrapper.find("[data-testid='local-memory-explorer']").exists()).toBe(false);
+  });
+
+  it("moves focus into session detail and restores it to the opener on close", async () => {
+    const { wrapper } = mountApp(createMockConfig({ isOperatorReady: true }));
+
+    await wrapper.find('[data-testid="nav-sessions"]').trigger("click");
+
+    const openButton = wrapper.get('[data-testid="view-session-session-42"]');
+    await openButton.trigger("click");
+    await nextTick();
+
+    expect(wrapper.find('[data-testid="session-detail"]').exists()).toBe(true);
+    expect(document.activeElement).toBe(wrapper.get(".session-detail-close").element);
+
+    await wrapper.get(".session-detail-close").trigger("click");
+    await nextTick();
+
+    await new Promise((resolve) => globalThis.requestAnimationFrame(resolve));
+
+    expect(wrapper.find('[data-testid="session-detail"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(openButton.element);
   });
 });

@@ -59,6 +59,12 @@ describe("BrowserSettings", () => {
     });
 
     expect(wrapper.find('[data-testid="browser_computer_use_api_key_value"]').exists()).toBe(true);
+    expect(
+      wrapper
+        .get('[data-testid="browser_computer_use_api_key_value"]')
+        .attributes("aria-describedby")
+    ).toBe("browser-computer-use-api-key-help");
+    expect(wrapper.text()).toContain("password managers or secure vault tools");
   });
 
   it("hides password input when computer use api key mode is clear", () => {

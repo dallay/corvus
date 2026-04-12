@@ -3152,6 +3152,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn full_runtime_starts_without_manifest() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.default_provider = Some("anthropic".into());
+
+        let agent = Agent::from_config(&config).unwrap();
+
+        // Canonicalize the backend key for comparison since config may use aliases
+        let expected_backend = corvus_memory::resolve_memory_backend_key(&config.memory.backend)
+            .unwrap_or(config.memory.backend.as_str());
+        assert_eq!(agent.memory.name(), expected_backend);
+        assert!(!agent.tools.is_empty());
+    }
+
     fn build_classification_test_agent(
         classification_config: crate::config::QueryClassificationConfig,
         available_hints: Vec<String>,
