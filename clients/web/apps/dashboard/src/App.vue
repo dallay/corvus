@@ -2,7 +2,7 @@
 import { trimTrailingSlashes } from "@corvus/shared";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import { Button, Input } from "@corvus/ui";
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 import { useI18n } from "vue-i18n";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ChatWorkspace from "@/components/chat/ChatWorkspace.vue";
@@ -85,6 +85,13 @@ const dashboardTabIds: Record<DashboardPage, string> = {
   memory: "dashboard-tab-memory",
   chat: "dashboard-tab-chat",
 };
+const mainContentRef = ref<HTMLElement | null>(null);
+
+function _focusMainContent(): void {
+  globalThis.requestAnimationFrame(() => {
+    mainContentRef.value?.focus();
+  });
+}
 
 function selectDashboardPage(page: DashboardPage): void {
   currentPage.value = page;
@@ -96,7 +103,7 @@ function selectDashboardPage(page: DashboardPage): void {
   });
 }
 
-function handleTabKeydown(event: KeyboardEvent, page: DashboardPage): void {
+function _handleTabKeydown(event: KeyboardEvent, page: DashboardPage): void {
   const currentIndex = dashboardTabs.indexOf(page);
   if (currentIndex < 0) {
     return;
@@ -127,6 +134,21 @@ const sessionStatusFilter = ref<"active" | "ended" | undefined>(undefined);
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const sessionSort = ref<"last_activity" | "started_at">("last_activity");
 const selectedSession = ref<AdminSessionView | null>(null);
+const sessionDetailRef = ref<{ focusCloseButton: () => void } | null>(null);
+const selectedSessionTriggerId = ref<string | null>(null);
+
+function focusSessionTrigger(sessionId: string | null): void {
+  if (!sessionId) {
+    return;
+  }
+
+  globalThis.requestAnimationFrame(() => {
+    const trigger = globalThis.document?.querySelector<HTMLButtonElement>(
+      `[data-testid="view-session-${sessionId}"]`
+    );
+    trigger?.focus();
+  });
+}
 
 // Memory view state
 const memoryCategoryFilter = ref<string | undefined>(undefined);
@@ -159,8 +181,17 @@ function adminAuthHeaders(): Record<string, string> {
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
-function onSelectSession(session: AdminSessionView) {
+async function onSelectSession(session: AdminSessionView) {
+  selectedSessionTriggerId.value = session.id;
   selectedSession.value = session;
+  await nextTick();
+  sessionDetailRef.value?.focusCloseButton();
+}
+
+function _closeSelectedSession(): void {
+  const triggerId = selectedSessionTriggerId.value;
+  selectedSession.value = null;
+  focusSessionTrigger(triggerId);
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -220,7 +251,8 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 </script>
 
 <template>
-  <main class="dashboard-shell">
+  <a class="skip-link" href="#main-content" @click="focusMainContent">Skip to main content</a>
+  <main id="main-content" ref="mainContentRef" class="dashboard-shell" tabindex="-1">
     <header class="header-card">
       <div class="header-title-row">
         <img alt="Corvus" class="header-logo" height="32" src="/favicon-light.svg" width="32"/>
@@ -346,17 +378,45 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
         <div class="grid">
           <label>
             <span>{{ t("auth.baseUrl") }}</span>
-            <Input v-model="config.baseUrl.value" :placeholder="t('form.baseUrlPlaceholder')"/>
+            <Input
+              v-model="config.baseUrl.value"
+              :placeholder="t('form.baseUrlPlaceholder')"
+              autocomplete="url"
+              inputmode="url"
+              spellcheck="false"
+              type="url"
+            />
           </label>
           <label>
             <span>{{ t("auth.pairingCode") }}</span>
-            <Input v-model="config.pairingCode.value" type="password"/>
+            <Input
+              v-model="config.pairingCode.value"
+              aria-describedby="auth-pairing-code-help"
+              autocomplete="one-time-code"
+              autocapitalize="off"
+              inputmode="text"
+              spellcheck="false"
+              type="password"
+            />
           </label>
           <label>
             <span>{{ t("auth.bearerToken") }}</span>
-            <Input v-model="config.bearerToken.value" type="password"/>
+            <Input
+              v-model="config.bearerToken.value"
+              aria-describedby="auth-bearer-token-help"
+              autocapitalize="off"
+              inputmode="text"
+              spellcheck="false"
+              type="password"
+            />
           </label>
         </div>
+        <p id="auth-pairing-code-help" class="helper auth-field-help">
+          Pairing codes support one-time-code autofill when your device offers it.
+        </p>
+        <p id="auth-bearer-token-help" class="helper auth-field-help">
+          Bearer tokens support paste so you can use password managers or secure vault tools.
+        </p>
         <div class="actions">
           <Button :disabled="config.loading.value" @click="config.pairGateway">{{
               t("auth.pair")
@@ -567,11 +627,12 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
               @select="onSelectSession"
           />
           <SessionDetail
+              ref="sessionDetailRef"
               v-if="selectedSession"
               :auth-headers="adminAuthHeaders"
               :gateway-url="adminGatewayUrl"
               :session-id="selectedSession.id"
-              @close="selectedSession = null"
+              @close="closeSelectedSession"
               @view-memory="onViewSessionMemory"
           />
         </div>
@@ -718,6 +779,22 @@ function onLocalExplorerSelectionChange(selection: LocalMemoryExplorerSelection)
 </template>
 
 <style scoped>
+.skip-link {
+  background: var(--corvus-color-text-primary);
+  color: var(--corvus-color-bg-base);
+  left: 24px;
+  padding: 12px 16px;
+  position: absolute;
+  top: 16px;
+  transform: translateY(-200%);
+  transition: transform var(--corvus-motion-duration-micro) var(--corvus-motion-easing-default);
+  z-index: 20;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
 .dashboard-shell {
   display: grid;
   gap: 24px;
@@ -859,6 +936,10 @@ label span {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 12px;
+}
+
+.auth-field-help {
+  margin-top: 8px;
 }
 
 .overview-section,
