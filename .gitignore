@@ -112,6 +112,8 @@ cypress/downloads/
 # ------------------------------------------------------------------------------
 coverage/
 *.lcov
+test-results/
+.playwright-mcp/
 
 # ------------------------------------------------------------------------------
 # TEMPORARY FILES AND LOGS
@@ -218,3 +220,4 @@ build/spotless-prettier-node-modules-*/serve.js
 /GEMINI.md.bak
 /opencode.json
 # END AI Agent Symlinks
+/.playwright-mcp/
