@@ -7,6 +7,9 @@ on:
       release:
         type: boolean
         required: true
+      prerelease:
+        type: boolean
+        required: false
       release_tag:
         type: string
         required: false
@@ -37,6 +40,10 @@ jobs:
       release_tag: ${{ steps.release-context.outputs.release_tag }}
       release_version: ${{ steps.release-context.outputs.release_version }}
       release_id: ${{ steps.release-context.outputs.release_id }}
+      release_channel: ${{ steps.release-context.outputs.release_channel }}
+      release_major_minor: ${{ steps.release-context.outputs.release_major_minor }}
+      release_major: ${{ steps.release-context.outputs.release_major }}
+      npm_dist_tag: ${{ steps.release-context.outputs.npm_dist_tag }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
@@ -95,35 +102,39 @@ jobs:
       - name: 🔧 Show Gradle version
         run: ./gradlew --version
 
-      - name: 🧭 Resolve stable release context
+      - name: 🧭 Resolve release context
         if: ${{ inputs.release }}
         id: release-context
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_ID: ${{ inputs.release_id }}
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
           set -euo pipefail
 
           if [[ -z "$RELEASE_TAG" || -z "$RELEASE_ID" ]]; then
-            echo "Stable publishes require release_tag and release_id inputs"
-            exit 1
-          fi
-
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid release tag: $RELEASE_TAG"
+            echo "Release publishes require release_tag and release_id inputs"
             exit 1
           fi
 
           release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
-          RELEASE_JSON="$release_json" RELEASE_TAG="$RELEASE_TAG" python3 <<'PY'
+          RELEASE_JSON="$release_json" RELEASE_TAG="$RELEASE_TAG" PRERELEASE="$PRERELEASE" python3 <<'PY'
           import json
           import os
           import pathlib
+          import re
           import sys
 
           release = json.loads(os.environ["RELEASE_JSON"])
           expected_tag = os.environ["RELEASE_TAG"]
+          is_prerelease = os.environ["PRERELEASE"].lower() == "true"
+          channel = "beta" if is_prerelease else "stable"
+          tag_pattern = r"^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$" if is_prerelease else r"^v[0-9]+\.[0-9]+\.[0-9]+$"
+
+          if not re.match(tag_pattern, expected_tag):
+              print(f"Invalid {channel} release tag: {expected_tag}", file=sys.stderr)
+              raise SystemExit(1)
 
           if release.get("tag_name") != expected_tag:
               print(
@@ -132,34 +143,39 @@ jobs:
               )
               raise SystemExit(1)
           if release.get("draft"):
-              print("Stable publish does not accept draft releases", file=sys.stderr)
+              print(f"{channel.title()} publish does not accept draft releases", file=sys.stderr)
               raise SystemExit(1)
-          if release.get("prerelease"):
-              print("Stable publish does not accept prereleases", file=sys.stderr)
+          if bool(release.get("prerelease")) != is_prerelease:
+              expected_state = "a prerelease" if is_prerelease else "a stable release"
+              print(f"{channel.title()} publish requires {expected_state}", file=sys.stderr)
               raise SystemExit(1)
+
+          version = expected_tag.removeprefix("v")
+          base_version = version.split("-", 1)[0]
+          major, minor, _patch = base_version.split(".")
+          npm_dist_tag = "beta" if is_prerelease else "latest"
 
           output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
           with output.open("a", encoding="utf-8") as handle:
               handle.write(f"release_tag={expected_tag}\n")
-              handle.write(f"release_version={expected_tag.removeprefix('v')}\n")
+              handle.write(f"release_version={version}\n")
               handle.write(f"release_id={release['id']}\n")
+              handle.write(f"release_channel={channel}\n")
+              handle.write(f"release_major_minor={major}.{minor}\n")
+              handle.write(f"release_major={major}\n")
+              handle.write(f"npm_dist_tag={npm_dist_tag}\n")
           PY
 
       - name: 🔎 Validate release version consistency
         if: ${{ inputs.release }}
-        id: stable-version-check
+        id: release-version-check
         env:
-          TAG_VERSION: ${{ steps.release-context.outputs.release_tag }}
+          EXPECTED_VERSION: ${{ steps.release-context.outputs.release_version }}
+          RELEASE_CHANNEL: ${{ steps.release-context.outputs.release_channel }}
         run: |
           set -euo pipefail
 
-          if [[ ! "$TAG_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid release tag: $TAG_VERSION"
-            exit 1
-          fi
-
-          expected_version="${TAG_VERSION#v}"
-          EXPECTED_VERSION="$expected_version" python3 <<'PY'
+          python3 <<'PY'
           import json
           import os
           import pathlib
@@ -167,6 +183,7 @@ jobs:
           import tomllib
 
           expected = os.environ["EXPECTED_VERSION"]
+          channel = os.environ["RELEASE_CHANNEL"].title()
 
           def read_properties(path: str, key: str) -> str:
               for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
@@ -219,7 +236,7 @@ jobs:
           failures = [(surface, actual) for surface, actual in checks if actual != expected]
 
           lines = [
-              "### Stable version checks",
+              f"### {channel} version checks",
               "",
               f"Expected version: `{expected}`",
               "",
@@ -304,23 +321,29 @@ jobs:
       - name: 📄 Release publish summary
         if: ${{ always() && inputs.release }}
         env:
-          VERSION_CHECK_OUTCOME: ${{ steps.stable-version-check.outcome }}
+          RELEASE_CHANNEL: ${{ steps.release-context.outputs.release_channel }}
+          NPM_DIST_TAG: ${{ steps.release-context.outputs.npm_dist_tag }}
+          VERSION_CHECK_OUTCOME: ${{ steps.release-version-check.outcome }}
           CREDENTIALS_OUTCOME: ${{ steps.optional-release-credentials.outcome }}
           MAVEN_OUTCOME: ${{ steps.publish-maven.outcome }}
           CARGO_OUTCOME: ${{ steps.publish-cargo.outcome }}
         run: |
           {
-             echo "## Release publish summary"
+             echo "## ${RELEASE_CHANNEL^} release publish summary"
              echo
+             echo "- Channel: ${RELEASE_CHANNEL}"
              echo "- Incoming tag: ${{ steps.release-context.outputs.release_tag }}"
              echo "- Existing GitHub Release asset upload target: ${{ steps.release-context.outputs.release_id }}"
-             echo "- Stable version checks: ${VERSION_CHECK_OUTCOME}"
+             echo "- ${RELEASE_CHANNEL^} version checks: ${VERSION_CHECK_OUTCOME}"
              echo "- Optional credential check: ${CREDENTIALS_OUTCOME}"
              echo "- Maven/Gradle publish step: ${MAVEN_OUTCOME}"
              echo "- Rust publish step: ${CARGO_OUTCOME}"
+             echo "- npm dist-tag: ${NPM_DIST_TAG}"
              echo "- npm stable contract: @dallay/corvus, corvus-darwin-x64, corvus-darwin-arm64, corvus-linux-x64, corvus-linux-arm64, corvus-windows-x64"
              echo "- Excluded by policy: corvus-cli is internal/private; Windows ARM64 is intentionally unsupported for stable npm publication"
-             echo "- GitHub Release ownership: release-please owns the canonical GitHub Release and canonical stable release notes; _publish.yml only publishes artifacts/assets"
+             echo "- Stable notes source: release-please owns canonical stable release notes"
+             echo "- Beta notes source: release-please owns canonical beta release notes"
+             echo "- GitHub Release ownership: release-please owns the canonical GitHub Release and canonical ${RELEASE_CHANNEL} release notes; _publish.yml only publishes artifacts/assets"
            } >> "$GITHUB_STEP_SUMMARY"
 
   build-native-binaries:
@@ -386,10 +409,11 @@ jobs:
             docker.io/${{ secrets.DOCKERHUB_USERNAME }}/corvus
             ghcr.io/${{ github.repository_owner }}/corvus
           tags: |
-            type=semver,pattern={{version}},value=${{ needs.publish.outputs.release_tag }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ needs.publish.outputs.release_tag }}
-            type=semver,pattern={{major}},value=${{ needs.publish.outputs.release_tag }}
-            type=raw,value=latest
+            type=raw,value=${{ needs.publish.outputs.release_version }}
+            type=raw,value=${{ needs.publish.outputs.release_major_minor }},enable=${{ needs.publish.outputs.release_channel == 'stable' }}
+            type=raw,value=${{ needs.publish.outputs.release_major }},enable=${{ needs.publish.outputs.release_channel == 'stable' }}
+            type=raw,value=latest,enable=${{ needs.publish.outputs.release_channel == 'stable' }}
+            type=raw,value=beta,enable=${{ needs.publish.outputs.release_channel == 'beta' }}
 
       - name: 🐳 Build and push Docker image (prebuilt binaries)
         continue-on-error: true
@@ -456,10 +480,11 @@ jobs:
             docker.io/${{ secrets.DOCKERHUB_USERNAME }}/cerebro
             ghcr.io/${{ github.repository_owner }}/cerebro
           tags: |
-            type=semver,pattern={{version}},value=${{ needs.publish.outputs.release_tag }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ needs.publish.outputs.release_tag }}
-            type=semver,pattern={{major}},value=${{ needs.publish.outputs.release_tag }}
-            type=raw,value=latest
+            type=raw,value=${{ needs.publish.outputs.release_version }}
+            type=raw,value=${{ needs.publish.outputs.release_major_minor }},enable=${{ needs.publish.outputs.release_channel == 'stable' }}
+            type=raw,value=${{ needs.publish.outputs.release_major }},enable=${{ needs.publish.outputs.release_channel == 'stable' }}
+            type=raw,value=latest,enable=${{ needs.publish.outputs.release_channel == 'stable' }}
+            type=raw,value=beta,enable=${{ needs.publish.outputs.release_channel == 'beta' }}
 
       - name: 🐳 Build and push Cerebro Docker image
         continue-on-error: true
@@ -547,6 +572,7 @@ jobs:
         id: publish-platform-package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
         run: |
           set -euo pipefail
           if [ -z "$NODE_AUTH_TOKEN" ]; then
@@ -573,18 +599,25 @@ jobs:
             exit 0
           fi
 
-          npm publish --access public
+          npm_publish_args=(--access public)
+          if [ "${NPM_DIST_TAG:-latest}" != "latest" ]; then
+            npm_publish_args+=(--tag "$NPM_DIST_TAG")
+          fi
+
+          npm publish "${npm_publish_args[@]}"
 
       - name: 📄 Summarize npm platform publish
         if: ${{ always() }}
         env:
           PLATFORM_PUBLISH_OUTCOME: ${{ steps.publish-platform-package.outcome }}
+          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
         run: |
           {
             echo "## npm platform publish summary"
             echo
             echo "- Package: @dallay/${{ matrix.pkg }}"
             echo "- Outcome: ${PLATFORM_PUBLISH_OUTCOME}"
+            echo "- Dist-tag: ${NPM_DIST_TAG}"
             echo "- Stable publish matrix excludes corvus-cli because it is internal/private."
             echo "- Windows ARM64 is intentionally unsupported and not part of the stable npm publish matrix."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -608,6 +641,7 @@ jobs:
         id: publish-base-package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
         run: |
           set -euo pipefail
           if [ -z "$NODE_AUTH_TOKEN" ]; then
@@ -625,18 +659,25 @@ jobs:
             exit 0
           fi
 
-          npm publish --access public
+          npm_publish_args=(--access public)
+          if [ "${NPM_DIST_TAG:-latest}" != "latest" ]; then
+            npm_publish_args+=(--tag "$NPM_DIST_TAG")
+          fi
+
+          npm publish "${npm_publish_args[@]}"
 
       - name: 📄 Summarize npm base publish
         if: ${{ always() }}
         env:
           BASE_PUBLISH_OUTCOME: ${{ steps.publish-base-package.outcome }}
+          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
         run: |
           {
             echo "## npm base publish summary"
             echo
             echo "- Package: @dallay/corvus"
             echo "- Outcome: ${BASE_PUBLISH_OUTCOME}"
+            echo "- Dist-tag: ${NPM_DIST_TAG}"
             echo "- Stable optionalDependencies only reference shipped platforms."
             echo "- Windows ARM64 is intentionally unsupported and excluded from stable npm publication."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -693,13 +734,15 @@ jobs:
       - name: 📄 Summarize GitHub Release publication
         if: ${{ always() }}
         env:
+          RELEASE_CHANNEL: ${{ needs.publish.outputs.release_channel }}
           RELEASE_ASSETS_OUTCOME: ${{ steps.upload-release-assets.outcome }}
         run: |
           {
             echo "## GitHub Release publication"
             echo
+             echo "- Channel: ${RELEASE_CHANNEL}"
              echo "- Outcome: ${RELEASE_ASSETS_OUTCOME}"
              echo "- Canonical public release record: existing GitHub Release for ${{ needs.publish.outputs.release_tag }}"
              echo "- Existing GitHub Release asset upload: gh release upload --clobber"
-             echo "- Notes source: release-please owns canonical stable release notes; _publish.yml must not replace them"
+             echo "- Notes source: release-please owns canonical ${RELEASE_CHANNEL} release notes; _publish.yml must not replace them"
            } >> "$GITHUB_STEP_SUMMARY"
