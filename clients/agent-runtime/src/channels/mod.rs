@@ -2753,18 +2753,15 @@ fn build_doctor_channels(config: &Config) -> Vec<DoctorChannelEntry> {
 }
 
 pub(crate) fn build_channel(config: &Config, channel_name: &str) -> Option<Arc<dyn Channel>> {
-    let channel_name = channel_name.to_ascii_lowercase();
+    let channel_name = corvus_channels::resolve_channel_key(channel_name).unwrap_or(channel_name);
     CHANNEL_REGISTRY
         .iter()
-        .find(|entry| entry.key == channel_name.as_str())
+        .find(|entry| entry.key == channel_name)
         .and_then(|entry| (entry.build)(config))
 }
 
 pub(crate) fn is_supported_channel(channel_name: &str) -> bool {
-    let channel_name = channel_name.to_ascii_lowercase();
-    CHANNEL_REGISTRY
-        .iter()
-        .any(|entry| entry.key == channel_name.as_str())
+    corvus_channels::resolve_channel_key(channel_name).is_some()
 }
 
 /// Run health checks for configured channels.

@@ -11,7 +11,24 @@ use std::sync::Arc;
 /// OS-level backend is available. Returns `Ok(NoopSandbox)` when
 /// `require == false` and no backend is found.
 pub fn create_sandbox(config: &SecurityConfig) -> Result<Arc<dyn Sandbox>> {
-    let backend = &config.sandbox.backend;
+    let backend_name = match config.sandbox.backend {
+        SandboxBackend::Auto => "auto",
+        SandboxBackend::Landlock => "landlock",
+        SandboxBackend::Firejail => "firejail",
+        SandboxBackend::Bubblewrap => "bubblewrap",
+        SandboxBackend::Docker => "docker",
+        SandboxBackend::None => "none",
+    };
+    let resolved_backend =
+        corvus_security::resolve_sandbox_key(backend_name).unwrap_or(backend_name);
+    let backend = match resolved_backend {
+        "landlock" => SandboxBackend::Landlock,
+        "firejail" => SandboxBackend::Firejail,
+        "bubblewrap" => SandboxBackend::Bubblewrap,
+        "docker" => SandboxBackend::Docker,
+        "none" => SandboxBackend::None,
+        _ => SandboxBackend::Auto,
+    };
     let require = config.sandbox.require;
 
     // If explicitly disabled or backend=None, return noop or error

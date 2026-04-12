@@ -420,6 +420,7 @@ pub fn create_provider_with_url(
     api_key: Option<&str>,
     api_url: Option<&str>,
 ) -> anyhow::Result<Box<dyn Provider>> {
+    let name = corvus_providers::resolve_provider_key(name).unwrap_or(name);
     let resolved_credential = resolve_provider_credential(name, api_key);
     #[allow(clippy::option_as_ref_deref)]
     let key = resolved_credential.as_ref().map(String::as_str);

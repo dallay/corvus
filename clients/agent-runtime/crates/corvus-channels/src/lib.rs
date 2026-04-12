@@ -1,12 +1,11 @@
-//! Corvus Channels Registry
-//!
-//! Re-exports channel types and provides registry functions.
+//! Corvus channel registry surfaces for manifest composition.
+
+pub mod factory;
+pub mod registry;
 
 pub use corvus_traits::channels::{Channel, ChannelMessage, ContentPart, SendMessage};
-
-/// Information about a channel.
-#[derive(Debug, Clone)]
-pub struct ChannelInfo {
-    pub name: &'static str,
-    pub display_name: &'static str,
-}
+pub use factory::{select_channel, ChannelFactorySelection};
+pub use registry::{
+    channel_availability, list_channels, resolve_channel_key, CapabilityAvailability,
+    ChannelDescriptor,
+};

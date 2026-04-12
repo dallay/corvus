@@ -28,7 +28,9 @@ use crate::config::ObservabilityConfig;
 
 /// Factory: create the right observer from config
 pub fn create_observer(config: &ObservabilityConfig) -> Box<dyn Observer> {
-    match config.backend.as_str() {
+    let backend = corvus_observability::resolve_observer_key(&config.backend)
+        .unwrap_or(config.backend.as_str());
+    match backend {
         "log" => Box::new(LogObserver::new()),
         "prometheus" => Box::new(PrometheusObserver::new()),
         "otel" | "opentelemetry" | "otlp" => {

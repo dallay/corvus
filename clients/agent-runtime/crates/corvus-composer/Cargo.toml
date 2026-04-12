@@ -12,6 +12,7 @@ corvus-providers = { path = "../corvus-providers" }
 corvus-channels = { path = "../corvus-channels" }
 corvus-tools = { path = "../corvus-tools" }
 corvus-memory = { path = "../corvus-memory" }
+corvus-observability = { path = "../corvus-observability" }
 corvus-security = { path = "../corvus-security" }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }

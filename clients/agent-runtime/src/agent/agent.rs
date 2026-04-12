@@ -3152,6 +3152,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn full_runtime_starts_without_manifest() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.default_provider = Some("anthropic".into());
+
+        let agent = Agent::from_config(&config).unwrap();
+
+        assert_eq!(agent.memory.name(), config.memory.backend);
+        assert!(!agent.tools.is_empty());
+    }
+
     fn build_classification_test_agent(
         classification_config: crate::config::QueryClassificationConfig,
         available_hints: Vec<String>,
