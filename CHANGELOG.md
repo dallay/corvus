@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0](https://github.com/dallay/corvus/compare/v3.0.0...v3.1.0) (2026-04-12)
+
+
+### Features
+
+* capability-based agent composition and architecture ([#520](https://github.com/dallay/corvus/issues/520)) ([69353fc](https://github.com/dallay/corvus/commit/69353fc8ab0105cd5206096760193829a95d2515))
+
 ## [3.0.0](https://github.com/dallay/corvus/compare/v2.3.1...v3.0.0) (2026-04-12)
 
 
