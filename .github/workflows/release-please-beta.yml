@@ -56,7 +56,25 @@ jobs:
           RELEASE_TAG: ${{ steps.release-please.outputs.tag_name }}
         run: |
           set -euo pipefail
-          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id')"
+          release_id=""
+          max_attempts=5
+          attempt=0
+          while [ $attempt -lt $max_attempts ]; do
+            attempt=$((attempt + 1))
+            release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id' 2>/dev/null || true)"
+            if [ -n "$release_id" ]; then
+              break
+            fi
+            if [ $attempt -lt $max_attempts ]; then
+              sleep_seconds=$((attempt * 2))
+              echo "Attempt $attempt failed, retrying in ${sleep_seconds}s..."
+              sleep $sleep_seconds
+            fi
+          done
+          if [ -z "$release_id" ]; then
+            echo "::error::Failed to resolve release id for tag ${RELEASE_TAG} after ${max_attempts} attempts"
+            exit 1
+          fi
           echo "release_id=${release_id}" >> "$GITHUB_OUTPUT"
 
       - name: 📄 Summarize release-please outcome

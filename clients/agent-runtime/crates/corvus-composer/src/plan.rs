@@ -14,6 +14,11 @@ pub struct RuntimeSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MemorySettings {
+    pub auto_save: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IdentitySettings {
     pub format: Option<String>,
     pub aieos_path: Option<String>,
@@ -36,6 +41,7 @@ pub struct ComposedRuntimePlan {
     pub default_channel: Option<String>,
     pub tools: Vec<SelectedCapability>,
     pub memory: SelectedCapability,
+    pub memory_settings: MemorySettings,
     pub observers: Vec<SelectedCapability>,
     pub security: SelectedCapability,
     pub tool_restrictions: Vec<String>,

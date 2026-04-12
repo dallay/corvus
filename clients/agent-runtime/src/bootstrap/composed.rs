@@ -16,12 +16,12 @@ pub fn bootstrap_from_plan(
     base_config: &Config,
     plan: &ComposedRuntimePlan,
 ) -> Result<(BootstrapContext, Box<dyn Provider>)> {
-    let config = config_from_plan(base_config, plan);
+    let config = config_from_plan(base_config, plan)?;
 
     build_bootstrap_and_provider(&config, plan)
 }
 
-fn config_from_plan(base_config: &Config, plan: &ComposedRuntimePlan) -> Config {
+fn config_from_plan(base_config: &Config, plan: &ComposedRuntimePlan) -> Result<Config> {
     let mut config = base_config.clone();
     config.default_provider = Some(plan.provider.key.clone());
     if let Some(model) = &plan.agent.model {
@@ -36,7 +36,10 @@ fn config_from_plan(base_config: &Config, plan: &ComposedRuntimePlan) -> Config 
     if let Some(max_tool_iterations) = plan.runtime.max_tool_iterations {
         config.agent.max_tool_iterations = max_tool_iterations;
     }
-    if let Some(auto_save) = plan
+    // First check memory_settings.auto_save (from resolved plan), fallback to config
+    if let Some(auto_save) = plan.memory_settings.auto_save {
+        config.memory.auto_save = auto_save;
+    } else if let Some(auto_save) = plan
         .memory
         .config
         .as_ref()
@@ -105,7 +108,7 @@ fn config_from_plan(base_config: &Config, plan: &ComposedRuntimePlan) -> Config 
     config.identity.aieos_path = plan.identity.aieos_path.clone();
     config.identity.aieos_inline = plan.identity.aieos_inline.clone();
 
-    config
+    Ok(config)
 }
 
 fn build_bootstrap_and_provider(
@@ -214,7 +217,7 @@ pub fn agent_from_plan(
     base_config: &Config,
     plan: &ComposedRuntimePlan,
 ) -> Result<crate::agent::Agent> {
-    let config = config_from_plan(base_config, plan);
+    let config = config_from_plan(base_config, plan)?;
     let (bootstrap, provider) = build_bootstrap_and_provider(&config, plan)?;
     crate::agent::Agent::from_bootstrap_with_provider(&config, bootstrap, provider)
 }

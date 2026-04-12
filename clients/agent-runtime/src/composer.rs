@@ -83,21 +83,20 @@ fn handle_run_command(manifest: PathBuf) -> Result<()> {
     handle_run_command_with_config(manifest, config)
 }
 
-fn handle_run_command_with_config(manifest: PathBuf, config: crate::Config) -> Result<()> {
+fn handle_run_command_with_config(manifest: PathBuf, _config: crate::Config) -> Result<()> {
     info!("Running agent from manifest: {}", manifest.display());
     let composer = load_composer(&manifest)?;
     composer
         .validate()
         .map_err(|error| anyhow::anyhow!(format_manifest_validation_error(&error, &manifest)))?;
-    let _agent = crate::bootstrap::composed::agent_from_plan(&config, composer.resolve_plan())?;
 
     // Running composed agents via CLI is not yet implemented.
     // The composed agent (BootstrapContext + Provider) is created successfully,
     // but wiring it into the interactive/runtime loop requires additional integration work.
     // See: handle_run_command_with_config and agent_from_plan in bootstrap/composed.rs
-    return Err(anyhow::anyhow!(
+    Err(anyhow::anyhow!(
         "running composed agents is not yet supported via CLI; 'corvus agent run' creates the agent but does not execute it. Use 'corvus agent build' to validate the manifest, or use 'corvus' directly for interactive agent sessions."
-    ));
+    ))
 }
 
 fn handle_new_command(template: String, name: String, output: Option<PathBuf>) -> Result<()> {
@@ -303,7 +302,15 @@ mod tests {
         config.default_provider = Some("anthropic".to_string());
         let manifest = write_manifest();
         let result = handle_run_command_with_config(manifest.path().to_path_buf(), config);
-        assert!(result.is_ok(), "unexpected error: {result:?}");
+        assert!(
+            result.is_err(),
+            "expected error because composed agents are not yet supported via CLI"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("not yet supported via CLI"),
+            "unexpected error message: {err_msg}"
+        );
     }
 
     #[test]

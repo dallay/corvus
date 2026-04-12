@@ -698,9 +698,9 @@ if: >
 ## 🔄 Workflow Dependencies
 
 ```
-publish-release.yml ─┐
-                     ├──> _publish.yml (reusable)
-publish-snapshot.yml ┘
+publish-release.yml ────────┐
+release-please-beta.yml     ├──> _publish.yml (reusable)
+publish-snapshot.yml ───────┘
 
 Other workflows call dallay/common-actions:
 - cleanup-cache.yml

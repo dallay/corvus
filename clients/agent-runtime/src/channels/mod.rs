@@ -2756,14 +2756,12 @@ fn build_doctor_channels(config: &Config) -> Vec<DoctorChannelEntry> {
 
 pub(crate) fn build_channel(config: &Config, channel_name: &str) -> Option<Arc<dyn Channel>> {
     // Use select_channel to align discovery and construction via the same registry
-    select_channel(channel_name)
-        .ok()
-        .and_then(|selected| {
-            CHANNEL_REGISTRY
-                .iter()
-                .find(|entry| entry.key == selected.key)
-                .and_then(|entry| (entry.build)(config))
-        })
+    select_channel(channel_name).ok().and_then(|selected| {
+        CHANNEL_REGISTRY
+            .iter()
+            .find(|entry| entry.key == selected.key)
+            .and_then(|entry| (entry.build)(config))
+    })
 }
 
 pub(crate) fn is_supported_channel(channel_name: &str) -> bool {

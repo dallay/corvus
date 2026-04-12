@@ -13,7 +13,7 @@ use std::sync::Arc;
 pub fn create_sandbox(config: &SecurityConfig) -> Result<Arc<dyn Sandbox>> {
     // Use the typed config value directly - no need to re-resolve through registry
     // as the config already has the validated SandboxBackend enum value.
-    let backend = config.sandbox.backend;
+    let backend = config.sandbox.backend.clone();
     let require = config.sandbox.require;
 
     // If explicitly disabled or backend=None, return noop or error

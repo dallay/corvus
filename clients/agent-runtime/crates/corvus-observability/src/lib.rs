@@ -87,24 +87,26 @@ pub fn observer_availability(name: &str) -> Option<CapabilityAvailability> {
 }
 
 pub fn select_observer(name: &str) -> Result<ObserverFactorySelection> {
-    let Some(key) = resolve_observer_key(name) else {
+    let Some(descriptor) = OBSERVERS.iter().find(|descriptor| {
+        let candidate = name.trim();
+        descriptor.key.eq_ignore_ascii_case(candidate)
+            || descriptor
+                .aliases
+                .iter()
+                .any(|alias| alias.eq_ignore_ascii_case(candidate))
+    }) else {
         return Err(anyhow!("unknown observer '{name}'"));
     };
 
-    match observer_availability(key) {
-        Some(CapabilityAvailability::Constructible) => Ok(ObserverFactorySelection { key }),
-        Some(CapabilityAvailability::Uncompiled) => {
-            Err(anyhow!("observer '{key}' is known but not compiled"))
-        }
-        Some(CapabilityAvailability::PlatformUnavailable) => {
-            Err(anyhow!("observer '{key}' is unavailable on this platform"))
-        }
-        // SAFETY: resolve_observer_key guarantees a canonical key that exists in the registry.
-        // If this None case is reached, it indicates an internal invariant violation.
-        None => {
-            unreachable!("invariant: observer_availability returned None for resolved key '{key}'")
-        }
+    let key = descriptor.key;
+    if !descriptor.platform_supported {
+        return Err(anyhow!("observer '{key}' is unavailable on this platform"));
     }
+    if !descriptor.compiled {
+        return Err(anyhow!("observer '{key}' is known but not compiled"));
+    }
+
+    Ok(ObserverFactorySelection { key })
 }
 
 #[cfg(test)]
@@ -115,5 +117,42 @@ mod tests {
     fn resolves_observer_aliases() {
         assert_eq!(resolve_observer_key("noop"), Some("none"));
         assert_eq!(resolve_observer_key("otlp"), Some("otel"));
+    }
+
+    #[test]
+    fn resolve_observer_key_trims_whitespace() {
+        assert_eq!(resolve_observer_key("  none  "), Some("none"));
+        assert_eq!(resolve_observer_key("\totel\t"), Some("otel"));
+    }
+
+    #[test]
+    fn resolve_observer_key_is_case_insensitive() {
+        assert_eq!(resolve_observer_key("NONE"), Some("none"));
+        assert_eq!(resolve_observer_key("OTEL"), Some("otel"));
+        assert_eq!(resolve_observer_key("NoOp"), Some("none"));
+        assert_eq!(resolve_observer_key("Otlp"), Some("otel"));
+    }
+
+    #[test]
+    fn select_observer_returns_selection_for_valid_keys() {
+        assert_eq!(select_observer("none").unwrap().key, "none");
+        assert_eq!(select_observer("noop").unwrap().key, "none");
+        assert_eq!(select_observer("otel").unwrap().key, "otel");
+        assert_eq!(select_observer("otlp").unwrap().key, "otel");
+    }
+
+    #[test]
+    fn select_observer_errors_on_unknown_input() {
+        let result = select_observer("unknown");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("unknown observer"));
+        assert!(msg.contains("unknown"));
+    }
+
+    #[test]
+    fn select_observer_errors_on_unknown_after_trimming() {
+        let result = select_observer("   ");
+        assert!(result.is_err());
     }
 }

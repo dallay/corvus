@@ -28,7 +28,6 @@ use crate::tools::{Tool, ToolSpec};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
 use chrono::Utc;
-use corvus_memory::resolve_memory_backend_key;
 use futures_util::future::join_all;
 use std::collections::HashMap;
 use std::fmt;

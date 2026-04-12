@@ -1,7 +1,7 @@
 use crate::manifest::AgentManifest;
 use crate::plan::{
-    AgentMetadata, CapabilityReport, ComposedRuntimePlan, IdentitySettings, RuntimeSettings,
-    SelectedCapability,
+    AgentMetadata, CapabilityReport, ComposedRuntimePlan, IdentitySettings, MemorySettings,
+    RuntimeSettings, SelectedCapability,
 };
 use crate::registry_snapshot::{CapabilityFamily, CapabilityStatus, RegistrySnapshot};
 use anyhow::{Context, Result};
@@ -114,7 +114,7 @@ pub fn resolve_manifest(
     ensure_non_empty(CapabilityFamily::Channel, &manifest.channels.enabled)?;
 
     // Canonicalize and validate default provider against registry
-    let default_provider = snapshot
+    let _default_provider = snapshot
         .find_in_family(CapabilityFamily::Provider, &manifest.providers.default)
         .map(|r| r.key)
         .ok_or_else(|| ValidationError::UnknownCapability {
@@ -134,7 +134,7 @@ pub fn resolve_manifest(
 
     // Canonicalize and validate default channel against registry
     if let Some(default_channel) = &manifest.channels.default {
-        let canonical_channel = snapshot
+        let _canonical_channel = snapshot
             .find_in_family(CapabilityFamily::Channel, default_channel)
             .map(|r| r.key)
             .ok_or_else(|| ValidationError::UnknownCapability {
@@ -252,6 +252,9 @@ pub fn resolve_manifest(
             .or_else(|| manifest.channels.enabled.first().cloned()),
         tools,
         memory,
+        memory_settings: MemorySettings {
+            auto_save: manifest.memory.auto_save,
+        },
         observers,
         security,
         tool_restrictions: manifest.security.tool_restrictions.clone(),
