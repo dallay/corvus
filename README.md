@@ -23,15 +23,15 @@
 
 ## 📈 Activity & Reach
 
-![NPM Downloads](https://img.shields.io/npm/dw/@dallay/corvus?label=npm%20downloads%20week&color=red)
-![NPM Downloads](https://img.shields.io/npm/dm/@dallay/corvus?label=npm%20downloads%20month&color=red)
-![NPM Downloads](https://img.shields.io/npm/d1y/@dallay/corvus?label=npm%20downloads%20year&color=red)
+![NPM Downloads](https://img.shields.io/npm/dw/@dallay/corvus?label=npm%20down%20week&color=red)
+![NPM Downloads](https://img.shields.io/npm/dm/@dallay/corvus?label=npm%20down%20month&color=red)
+![NPM Downloads](https://img.shields.io/npm/d18m/@dallay/corvus?label=npm%20down%20year&color=red)
 
-[![Docker Pulls](https://img.shields.io/docker/pulls/dallay/corvus)](https://hub.docker.com/r/dallay/corvus)
-[![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/dallay/corvus/total?style=flat&label=total%20downloads&color=blue)](https://github.com/dallay/corvus/releases)
+![Docker Pulls](https://img.shields.io/docker/pulls/dallay/corvus)
+![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/dallay/corvus/total?style=flat&label=electron%20downloads&color=blue)
 
 [![total contributions](https://custom-icon-badges.demolab.com/badge/dynamic/json?logo=graph&logoColor=fff&color=blue&label=total%20contributions&query=%24.totalContributions&url=https%3A%2F%2Fstreak-stats.demolab.com%2F%3Fuser%3Ddallay%26type%3Djson)](https://github.com/dallay)
-[![GitHub streak](https://custom-icon-badges.demolab.com/badge/dynamic/json?logo=fire&logoColor=fff&color=orange&label=GitHub%20streak&query=%24.currentStreak.length&suffix=%20days&url=https%3A%2F%2Fstreak-stats.demolab.com%2F%3Fuser%3Ddallay%26type%3Djson)](https://github.com/dallay)
+[![github streak](https://custom-icon-badges.demolab.com/badge/dynamic/json?logo=fire&logoColor=fff&color=orange&label=github%20streak&query=%24.currentStreak.length&suffix=%20days&url=https%3A%2F%2Fstreak-stats.demolab.com%2F%3Fuser%3Ddallay%26type%3Djson)](https://github.com/dallay)
 [![followers](https://custom-icon-badges.demolab.com/github/followers/dallay?logo=person-add)](https://github.com/dallay?tab=followers)
 
 ## 🚀 Project Status
