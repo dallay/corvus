@@ -310,12 +310,12 @@ canonical stable tag, GitHub Release, and release notes.
 
 **Inputs**:
 
-| Input | Type | Default | Description |
-|-------|------|---------|-------------|
-| `release` | boolean | required | Whether the workflow is in release mode |
-| `prerelease` | boolean | `false` | Whether the release is a beta prerelease |
-| `release_tag` | string | empty | Canonical release tag to validate and publish against |
-| `release_id` | string | empty | Existing GitHub Release id for asset upload |
+| Input         | Type    | Default  | Description                                           |
+| ------------- | ------- | -------- | ----------------------------------------------------- |
+| `release`     | boolean | required | Whether the workflow is in release mode               |
+| `prerelease`  | boolean | `false`  | Whether the release is a beta prerelease              |
+| `release_tag` | string  | empty    | Canonical release tag to validate and publish against |
+| `release_id`  | string  | empty    | Existing GitHub Release id for asset upload           |
 
 **Secrets Required**:
 
