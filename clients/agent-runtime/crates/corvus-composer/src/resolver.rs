@@ -365,3 +365,498 @@ fn resolve_one(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::registry_snapshot::RegistrySnapshot;
+
+    // Helper: build a minimal manifest TOML string and return the parsed AgentManifest.
+    fn parse(toml_str: &str) -> crate::manifest::AgentManifest {
+        parse_manifest(toml_str).expect("test manifest must parse")
+    }
+
+    fn snapshot() -> RegistrySnapshot {
+        RegistrySnapshot::collect()
+    }
+
+    fn minimal_toml() -> &'static str {
+        r#"
+version = "1"
+[agent]
+name = "minimal"
+[providers]
+enabled = ["anthropic"]
+default = "anthropic"
+[channels]
+enabled = ["stdio"]
+[memory]
+backend = "none"
+"#
+    }
+
+    // --- validate_version ---
+
+    #[test]
+    fn validate_version_accepts_1() {
+        assert!(validate_version("1").is_ok());
+    }
+
+    #[test]
+    fn validate_version_accepts_1_dot_0() {
+        assert!(validate_version("1.0").is_ok());
+    }
+
+    #[test]
+    fn validate_version_accepts_v1_case_insensitive() {
+        assert!(validate_version("v1").is_ok());
+        assert!(validate_version("V1").is_ok());
+    }
+
+    #[test]
+    fn validate_version_accepts_version_with_surrounding_whitespace() {
+        assert!(validate_version("  1  ").is_ok());
+        assert!(validate_version("\t1.0\n").is_ok());
+    }
+
+    #[test]
+    fn validate_version_rejects_unsupported_versions() {
+        for bad in &["2", "3.0", "0", "1.1", "v2", ""] {
+            let result = validate_version(bad);
+            assert!(
+                result.is_err(),
+                "expected error for version '{bad}', got Ok"
+            );
+            match result.unwrap_err() {
+                ValidationError::UnsupportedVersion { version } => {
+                    assert_eq!(version, *bad, "error should preserve original version string")
+                }
+                other => panic!("expected UnsupportedVersion, got {other:?}"),
+            }
+        }
+    }
+
+    // --- ensure_non_empty ---
+
+    #[test]
+    fn ensure_non_empty_passes_when_list_has_items() {
+        let items = vec!["a".to_string()];
+        assert!(ensure_non_empty(CapabilityFamily::Provider, &items).is_ok());
+    }
+
+    #[test]
+    fn ensure_non_empty_fails_for_empty_list() {
+        let items: Vec<String> = vec![];
+        let result = ensure_non_empty(CapabilityFamily::Channel, &items);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::MissingRequiredFamily { family: "channel" }
+        ));
+    }
+
+    #[test]
+    fn ensure_non_empty_error_includes_family_name() {
+        let items: Vec<String> = vec![];
+        let err = ensure_non_empty(CapabilityFamily::Tool, &items).unwrap_err();
+        assert_eq!(err.to_string(), "manifest must select at least one tool");
+    }
+
+    // --- validate_selected_config_keys ---
+
+    #[test]
+    fn validate_selected_config_keys_passes_when_all_keys_are_selected() {
+        let selected = vec!["shell".to_string(), "file_read".to_string()];
+        let configured_keys = ["shell", "file_read"];
+        let result = validate_selected_config_keys(
+            CapabilityFamily::Tool,
+            &selected,
+            configured_keys.iter().copied(),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_selected_config_keys_passes_with_empty_config() {
+        let selected = vec!["shell".to_string()];
+        let configured_keys: &[&str] = &[];
+        let result = validate_selected_config_keys(
+            CapabilityFamily::Tool,
+            &selected,
+            configured_keys.iter().copied(),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_selected_config_keys_rejects_unselected_config_key() {
+        let selected = vec!["shell".to_string()];
+        let configured_keys = ["browser"]; // not in selected list
+        let result = validate_selected_config_keys(
+            CapabilityFamily::Tool,
+            &selected,
+            configured_keys.iter().copied(),
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::InvalidCapabilityConfig { name, .. } if name == "browser"
+        ));
+        assert!(err
+            .to_string()
+            .contains("configuration exists for an unselected capability"));
+    }
+
+    // --- ValidationError Display ---
+
+    #[test]
+    fn validation_error_display_unsupported_version() {
+        let err = ValidationError::UnsupportedVersion {
+            version: "99".to_string(),
+        };
+        assert_eq!(err.to_string(), "unsupported manifest version '99'");
+    }
+
+    #[test]
+    fn validation_error_display_missing_required_family() {
+        let err = ValidationError::MissingRequiredFamily { family: "provider" };
+        assert_eq!(
+            err.to_string(),
+            "manifest must select at least one provider"
+        );
+    }
+
+    #[test]
+    fn validation_error_display_default_provider_disabled() {
+        let err = ValidationError::DefaultProviderDisabled {
+            name: "openai".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "default provider 'openai' must be enabled"
+        );
+    }
+
+    #[test]
+    fn validation_error_display_default_channel_disabled() {
+        let err = ValidationError::DefaultChannelDisabled {
+            name: "telegram".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "default channel 'telegram' must be enabled"
+        );
+    }
+
+    #[test]
+    fn validation_error_display_unknown_capability() {
+        let err = ValidationError::UnknownCapability {
+            family: "provider",
+            name: "unknown-thing".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "unknown provider capability 'unknown-thing'"
+        );
+    }
+
+    #[test]
+    fn validation_error_display_family_mismatch() {
+        let err = ValidationError::FamilyMismatch {
+            expected_family: "provider",
+            actual_family: "tool",
+            name: "shell".to_string(),
+        };
+        assert!(err.to_string().contains("belongs to family 'tool'"));
+        assert!(err.to_string().contains("not 'provider'"));
+    }
+
+    #[test]
+    fn validation_error_display_uncompiled_capability() {
+        let err = ValidationError::UncompiledCapability {
+            family: "channel",
+            name: "webhook".to_string(),
+        };
+        assert!(err.to_string().contains("known but not compiled"));
+    }
+
+    #[test]
+    fn validation_error_display_platform_unavailable() {
+        let err = ValidationError::PlatformUnavailableCapability {
+            family: "channel",
+            name: "imessage".to_string(),
+        };
+        assert!(err.to_string().contains("unavailable on this platform"));
+    }
+
+    #[test]
+    fn validation_error_display_tool_restrictions_not_subset() {
+        let err = ValidationError::ToolRestrictionsNotSubset {
+            restrictions: vec!["unknown_tool".to_string()],
+            enabled: vec!["shell".to_string()],
+        };
+        assert!(err.to_string().contains("must be subset of enabled tools"));
+    }
+
+    // --- resolve_manifest ---
+
+    #[test]
+    fn resolve_manifest_succeeds_for_minimal_valid_manifest() {
+        let manifest = parse(minimal_toml());
+        let snap = snapshot();
+        let result = resolve_manifest(&manifest, &snap);
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+    }
+
+    #[test]
+    fn resolve_manifest_populates_agent_metadata() {
+        let manifest = parse(minimal_toml());
+        let snap = snapshot();
+        let plan = resolve_manifest(&manifest, &snap).unwrap();
+        assert_eq!(plan.agent.name, "minimal");
+    }
+
+    #[test]
+    fn resolve_manifest_default_channel_falls_back_to_first_enabled() {
+        // [channels] has no 'default' field; should fall back to first enabled.
+        let manifest = parse(minimal_toml());
+        let snap = snapshot();
+        let plan = resolve_manifest(&manifest, &snap).unwrap();
+        assert_eq!(plan.default_channel.as_deref(), Some("stdio"));
+    }
+
+    #[test]
+    fn resolve_manifest_explicit_default_channel_is_preserved() {
+        let toml_str = r#"
+version = "1"
+[agent]
+name = "multi-chan"
+[providers]
+enabled = ["anthropic"]
+default = "anthropic"
+[channels]
+enabled = ["stdio", "telegram"]
+default = "telegram"
+[memory]
+backend = "none"
+"#;
+        let manifest = parse(toml_str);
+        let snap = snapshot();
+        let plan = resolve_manifest(&manifest, &snap).unwrap();
+        assert_eq!(plan.default_channel.as_deref(), Some("telegram"));
+    }
+
+    #[test]
+    fn resolve_manifest_runtime_profile_falls_back_to_agent_profile() {
+        let toml_str = r#"
+version = "1"
+[agent]
+name = "profile-agent"
+profile = "code"
+[providers]
+enabled = ["anthropic"]
+default = "anthropic"
+[channels]
+enabled = ["stdio"]
+[memory]
+backend = "none"
+"#;
+        let manifest = parse(toml_str);
+        let snap = snapshot();
+        let plan = resolve_manifest(&manifest, &snap).unwrap();
+        // runtime.profile should fall back to agent.profile when not explicitly set
+        assert_eq!(plan.runtime.profile.as_deref(), Some("code"));
+    }
+
+    #[test]
+    fn resolve_manifest_runtime_profile_section_overrides_agent_profile() {
+        let toml_str = r#"
+version = "1"
+[agent]
+name = "profile-override"
+profile = "lite"
+[providers]
+enabled = ["anthropic"]
+default = "anthropic"
+[channels]
+enabled = ["stdio"]
+[memory]
+backend = "none"
+[runtime]
+profile = "full"
+"#;
+        let manifest = parse(toml_str);
+        let snap = snapshot();
+        let plan = resolve_manifest(&manifest, &snap).unwrap();
+        assert_eq!(plan.runtime.profile.as_deref(), Some("full"));
+    }
+
+    #[test]
+    fn resolve_manifest_tool_restrictions_must_be_subset_of_enabled_tools() {
+        let toml_str = r#"
+version = "1"
+[agent]
+name = "restricted"
+[providers]
+enabled = ["anthropic"]
+default = "anthropic"
+[channels]
+enabled = ["stdio"]
+[memory]
+backend = "none"
+[tools]
+enabled = ["shell"]
+[security]
+backend = "none"
+tool_restrictions = ["shell", "file_read"]
+"#;
+        let manifest = parse(toml_str);
+        let snap = snapshot();
+        let result = resolve_manifest(&manifest, &snap);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::ToolRestrictionsNotSubset { .. }
+        ));
+    }
+
+    #[test]
+    fn resolve_manifest_valid_tool_restrictions_subset_passes() {
+        let toml_str = r#"
+version = "1"
+[agent]
+name = "ok-restricted"
+[providers]
+enabled = ["anthropic"]
+default = "anthropic"
+[channels]
+enabled = ["stdio"]
+[memory]
+backend = "none"
+[tools]
+enabled = ["shell", "file_read"]
+[security]
+backend = "none"
+tool_restrictions = ["shell"]
+"#;
+        let manifest = parse(toml_str);
+        let snap = snapshot();
+        let result = resolve_manifest(&manifest, &snap);
+        assert!(result.is_ok());
+        let plan = result.unwrap();
+        assert_eq!(plan.tool_restrictions, vec!["shell"]);
+    }
+
+    #[test]
+    fn resolve_manifest_default_channel_not_in_enabled_fails() {
+        let toml_str = r#"
+version = "1"
+[agent]
+name = "bad-default"
+[providers]
+enabled = ["anthropic"]
+default = "anthropic"
+[channels]
+enabled = ["stdio"]
+default = "telegram"
+[memory]
+backend = "none"
+"#;
+        let manifest = parse(toml_str);
+        let snap = snapshot();
+        let result = resolve_manifest(&manifest, &snap);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::DefaultChannelDisabled { name } if name == "telegram"
+        ));
+    }
+
+    #[test]
+    fn resolve_manifest_memory_settings_auto_save_propagated() {
+        let toml_str = r#"
+version = "1"
+[agent]
+name = "memory-agent"
+[providers]
+enabled = ["anthropic"]
+default = "anthropic"
+[channels]
+enabled = ["stdio"]
+[memory]
+backend = "sqlite"
+auto_save = true
+"#;
+        let manifest = parse(toml_str);
+        let snap = snapshot();
+        let plan = resolve_manifest(&manifest, &snap).unwrap();
+        assert_eq!(plan.memory_settings.auto_save, Some(true));
+    }
+
+    #[test]
+    fn resolve_manifest_identity_fields_propagated() {
+        let toml_str = r#"
+version = "1"
+[agent]
+name = "identity-agent"
+[providers]
+enabled = ["anthropic"]
+default = "anthropic"
+[channels]
+enabled = ["stdio"]
+[memory]
+backend = "none"
+[identity]
+format = "openclaw"
+"#;
+        let manifest = parse(toml_str);
+        let snap = snapshot();
+        let plan = resolve_manifest(&manifest, &snap).unwrap();
+        assert_eq!(plan.identity.format.as_deref(), Some("openclaw"));
+    }
+
+    // Regression: unsupported version in manifest must be caught before registry lookup.
+    #[test]
+    fn resolve_manifest_rejects_unsupported_manifest_version() {
+        let toml_str = r#"
+version = "99"
+[agent]
+name = "future"
+[providers]
+enabled = ["anthropic"]
+default = "anthropic"
+[channels]
+enabled = ["stdio"]
+[memory]
+backend = "none"
+"#;
+        let manifest = parse(toml_str);
+        let snap = snapshot();
+        let result = resolve_manifest(&manifest, &snap);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::UnsupportedVersion { .. }
+        ));
+    }
+
+    // --- parse_manifest ---
+
+    #[test]
+    fn parse_manifest_returns_error_for_invalid_toml() {
+        let result = parse_manifest("this is not valid toml !!!");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("failed to parse manifest TOML"));
+    }
+
+    #[test]
+    fn parse_manifest_returns_error_for_missing_required_fields() {
+        // Missing [providers], [channels], [memory]
+        let result = parse_manifest("version = \"1\"\n[agent]\nname = \"x\"\n");
+        assert!(result.is_err());
+    }
+}
