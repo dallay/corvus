@@ -807,7 +807,7 @@ dependencies = [
 
 [[package]]
 name = "cerebro"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1142,7 +1142,7 @@ dependencies = [
 
 [[package]]
 name = "corvus"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7020,9 +7020,9 @@ dependencies = [
 
 [[package]]
 name = "surrealdb-rocksdb"
-version = "0.24.0-surreal.2"
+version = "0.24.0-surreal.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7ad8043908ee7d39c8eb01eaccc7c285f19313b0544b45c92ed85339019ab38"
+checksum = "fc16b80e46348dc188693328fe2a818b8f47457e40451364bd2ae73df7cb738e"
 dependencies = [
  "libc",
  "surrealdb-librocksdb-sys",
