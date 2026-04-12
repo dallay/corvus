@@ -79,7 +79,8 @@ function cancelDelete() {
   closeDeleteDialog();
 }
 
-function _onDeleteDialogKeydown(event: KeyboardEvent) {
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function onDeleteDialogKeydown(event: KeyboardEvent) {
   if (event.key === "Escape") {
     event.preventDefault();
     cancelDelete();

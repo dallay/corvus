@@ -62,6 +62,10 @@ describe("MemorySettings", () => {
     });
 
     expect(wrapper.find('[data-testid="memory_cerebro_auth_token_value"]').exists()).toBe(true);
+    expect(
+      wrapper.get('[data-testid="memory_cerebro_auth_token_value"]').attributes("aria-describedby")
+    ).toBe("memory-cerebro-auth-token-help");
+    expect(wrapper.text()).toContain("password managers or secure vault tools");
   });
 
   it("hides password input when auth token mode is clear", async () => {

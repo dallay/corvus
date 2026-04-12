@@ -4,6 +4,7 @@ import { createI18n } from "vue-i18n";
 
 import MemoryList from "@/components/memory/MemoryList.vue";
 import { i18nConfig } from "@/i18n";
+import { expectNoAxeViolations } from "@/test/runAxe";
 
 const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
 
@@ -136,6 +137,18 @@ describe("MemoryList", () => {
     expect(wrapper.text()).toContain("fact-1");
   });
 
+  it("applies minimum target classes to compact action controls", async () => {
+    mockMemoryResponse(sampleEntries);
+
+    const wrapper = mountMemoryList();
+    await flushPromises();
+
+    expect(wrapper.find("button.category-badge").classes()).toContain("touch-target");
+    expect(wrapper.find("button.session-link").classes()).toContain("touch-target");
+    expect(wrapper.find("button.explore-btn").classes()).toContain("touch-target");
+    expect(wrapper.find("button.delete-btn").classes()).toContain("touch-target");
+  });
+
   it("sends DELETE request when deletion is confirmed", async () => {
     mockMemoryResponse(sampleEntries);
 
@@ -181,6 +194,47 @@ describe("MemoryList", () => {
     expect(document.activeElement).toBe(deleteElement);
     // No DELETE call should have been made (only the initial fetch)
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("traps focus inside the delete confirmation dialog", async () => {
+    mockMemoryResponse(sampleEntries);
+
+    const wrapper = mountMemoryList();
+    await flushPromises();
+
+    await wrapper.find('[aria-label="Delete fact-1"]').trigger("click");
+    await flushPromises();
+
+    const dialog = wrapper.get(".confirm-dialog");
+    const confirmButton = wrapper.get(".confirm-yes").element as HTMLButtonElement;
+    const cancelButton = wrapper.get(".confirm-no").element as HTMLButtonElement;
+
+    expect(document.activeElement).toBe(confirmButton);
+
+    confirmButton.focus();
+    await dialog.trigger("keydown", { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(cancelButton);
+
+    cancelButton.focus();
+    await dialog.trigger("keydown", { key: "Tab" });
+    expect(document.activeElement).toBe(confirmButton);
+  });
+
+  it("has no obvious axe violations for the delete confirmation dialog", async () => {
+    mockMemoryResponse(sampleEntries);
+
+    const wrapper = mountMemoryList();
+    await flushPromises();
+
+    await wrapper.find('[aria-label="Delete fact-1"]').trigger("click");
+    await flushPromises();
+
+    const dialog = wrapper.get(".confirm-dialog");
+    await expectNoAxeViolations(dialog.element, {
+      rules: {
+        region: { enabled: false },
+      },
+    });
   });
 
   it.each([

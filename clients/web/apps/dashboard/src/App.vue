@@ -87,7 +87,8 @@ const dashboardTabIds: Record<DashboardPage, string> = {
 };
 const mainContentRef = ref<HTMLElement | null>(null);
 
-function _focusMainContent(): void {
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function focusMainContent(): void {
   globalThis.requestAnimationFrame(() => {
     mainContentRef.value?.focus();
   });
@@ -103,7 +104,8 @@ function selectDashboardPage(page: DashboardPage): void {
   });
 }
 
-function _handleTabKeydown(event: KeyboardEvent, page: DashboardPage): void {
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function handleTabKeydown(event: KeyboardEvent, page: DashboardPage): void {
   const currentIndex = dashboardTabs.indexOf(page);
   if (currentIndex < 0) {
     return;
@@ -188,7 +190,8 @@ async function onSelectSession(session: AdminSessionView) {
   sessionDetailRef.value?.focusCloseButton();
 }
 
-function _closeSelectedSession(): void {
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function closeSelectedSession(): void {
   const triggerId = selectedSessionTriggerId.value;
   selectedSession.value = null;
   focusSessionTrigger(triggerId);

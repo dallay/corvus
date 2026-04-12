@@ -49,9 +49,12 @@ pub async fn handle_composer_command(command: ComposerCommands) -> Result<()> {
 }
 
 fn load_composer(manifest: &Path) -> Result<AgentComposer> {
-    AgentComposer::from_path(manifest).map_err(|error| {
+    let content = std::fs::read_to_string(manifest)
+        .with_context(|| format!("failed to read manifest from {}", manifest.display()))?;
+    AgentComposer::from_toml(&content).map_err(|error| {
         anyhow::anyhow!(
-            "Failed to load manifest: {error}\n\nHint: Use --manifest with a valid v1 TOML file"
+            "Invalid manifest: {error}\n\nLocation: {}",
+            manifest.display()
         )
     })
 }

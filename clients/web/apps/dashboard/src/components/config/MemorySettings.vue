@@ -92,6 +92,10 @@ function updateSecretMode(mode: AdminConfigForm["memory_cerebro_auth_token_mode"
         <span>{{ $t("memory.cerebroAuthTokenValue") }}</span>
         <Input
           :model-value="modelValue.memory_cerebro_auth_token_value"
+          aria-describedby="memory-cerebro-auth-token-help"
+          autocapitalize="off"
+          inputmode="text"
+          spellcheck="false"
           type="password"
           data-testid="memory_cerebro_auth_token_value"
           @update:model-value="updateField('memory_cerebro_auth_token_value', $event)"
@@ -106,6 +110,9 @@ function updateSecretMode(mode: AdminConfigForm["memory_cerebro_auth_token_mode"
             : $t("webhook.statusNotConfigured"),
         })
       }}
+    </p>
+    <p id="memory-cerebro-auth-token-help" class="helper">
+      Auth tokens support paste from password managers or secure vault tools.
     </p>
     <div class="actions">
       <Button :disabled="disabled || saving" data-testid="save" @click="emit('save')">{{

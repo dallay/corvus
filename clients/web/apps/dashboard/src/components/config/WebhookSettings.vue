@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import { Button, Input } from "@corvus/ui";
-import { computed, nextTick, ref } from "vue";
+import { computed, ref } from "vue";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{
@@ -15,7 +15,20 @@ const emit = defineEmits<{
   save: [];
 }>();
 const errorSummaryRef = ref<HTMLElement | null>(null);
-const webhookSecretInputRef = ref<HTMLInputElement | null>(null);
+const webhookSecretInputRef = ref<{ $el?: Element | null } | HTMLInputElement | null>(null);
+
+function resolveWebhookSecretInput(): HTMLInputElement | null {
+  if (webhookSecretInputRef.value instanceof HTMLInputElement) {
+    return webhookSecretInputRef.value;
+  }
+
+  const element = webhookSecretInputRef.value?.$el;
+  return element instanceof HTMLInputElement
+    ? element
+    : element?.querySelector?.("input") instanceof HTMLInputElement
+      ? element.querySelector("input")
+      : null;
+}
 
 const localError = computed(() => {
   if (
@@ -41,17 +54,15 @@ function updateField<Key extends keyof AdminConfigForm>(
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleSave(): void {
   if (localError.value) {
-    globalThis.requestAnimationFrame(() => {
-      errorSummaryRef.value?.focus();
-    });
+    errorSummaryRef.value?.focus();
     return;
   }
   emit("save");
 }
 
-async function _focusWebhookSecretField(): Promise<void> {
-  await nextTick();
-  webhookSecretInputRef.value?.focus();
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function focusWebhookSecretField(): void {
+  resolveWebhookSecretInput()?.focus();
 }
 </script>
 
@@ -127,7 +138,7 @@ async function _focusWebhookSecretField(): Promise<void> {
     </p>
     <p v-if="localError" id="webhook-secret-error" class="error">{{ $t("auth.emptyWebhookSecret") }}</p>
     <div class="actions">
-      <Button :disabled="disabled || saving || !!localError" @click="handleSave">{{ $t("form.save") }}</Button>
+      <Button :disabled="disabled || saving" @click="handleSave">{{ $t("form.save") }}</Button>
     </div>
   </section>
 </template>

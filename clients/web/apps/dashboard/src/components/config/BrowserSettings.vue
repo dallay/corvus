@@ -60,6 +60,10 @@ function updateSecretMode(mode: AdminConfigForm["browser_computer_use_api_key_mo
         <span>{{ $t("browser.computerUseApiKeyValue") }}</span>
         <Input
           :model-value="modelValue.browser_computer_use_api_key_value"
+          aria-describedby="browser-computer-use-api-key-help"
+          autocapitalize="off"
+          inputmode="text"
+          spellcheck="false"
           type="password"
           data-testid="browser_computer_use_api_key_value"
           @update:model-value="updateField('browser_computer_use_api_key_value', $event)"
@@ -74,6 +78,9 @@ function updateSecretMode(mode: AdminConfigForm["browser_computer_use_api_key_mo
             : $t("webhook.statusNotConfigured"),
         })
       }}
+    </p>
+    <p id="browser-computer-use-api-key-help" class="helper">
+      API keys support paste from password managers or secure vault tools.
     </p>
     <div class="actions">
       <Button :disabled="disabled || saving" data-testid="save" @click="emit('save')">{{

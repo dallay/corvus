@@ -320,7 +320,8 @@
   "nav": {
     "config": "Config",
     "sessions": "Sessions",
-    "memory": "Memory"
+    "memory": "Memory",
+    "chat": "Chat"
   },
   "sessions": {
     "detail": "Session Detail",

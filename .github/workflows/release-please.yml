@@ -118,6 +118,7 @@ jobs:
       packages: write
     with:
       release: true
+      prerelease: false
       release_tag: ${{ needs.release-please.outputs.tag_name }}
       release_id: ${{ needs.release-please.outputs.release_id }}
     secrets:
