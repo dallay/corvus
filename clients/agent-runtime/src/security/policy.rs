@@ -3,6 +3,16 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+pub const PLAN_MODE_BLOCKED_CODE: &str = "plan_mode_blocked";
+
+const PLAN_MODE_SAFE_TOOLS: &[&str] = &[
+    "code_search",
+    "file_read",
+    "image_info",
+    "memory_recall",
+    "web_search_tool",
+];
+
 /// How much autonomy the agent has
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -45,6 +55,13 @@ pub enum ToolPolicyDecision {
     Allow,
     ApprovalRequired,
     Deny,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolPolicyOutcome {
+    pub decision: ToolPolicyDecision,
+    pub code: Option<&'static str>,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,6 +135,7 @@ impl Clone for ActionTracker {
 #[derive(Debug, Clone)]
 pub struct SecurityPolicy {
     pub autonomy: AutonomyLevel,
+    pub execution_mode: crate::config::ExecutionMode,
     pub workspace_dir: PathBuf,
     pub workspace_only: bool,
     pub allowed_commands: Vec<String>,
@@ -132,6 +150,7 @@ impl Default for SecurityPolicy {
     fn default() -> Self {
         Self {
             autonomy: AutonomyLevel::Supervised,
+            execution_mode: crate::config::ExecutionMode::Standard,
             workspace_dir: PathBuf::from("."),
             workspace_only: true,
             allowed_commands: vec![
@@ -221,25 +240,72 @@ fn contains_single_ampersand(s: &str) -> bool {
 }
 
 impl SecurityPolicy {
+    pub fn plan_mode_allows_tool(tool_name: &str) -> bool {
+        PLAN_MODE_SAFE_TOOLS.contains(&tool_name)
+    }
+
     pub fn evaluate_tool_policy(&self, tool_name: &str) -> ToolPolicyDecision {
         self.evaluate_tool_policy_for_origin(tool_name, ExecutionOrigin::Standard)
+    }
+
+    pub fn evaluate_tool_policy_outcome(&self, tool_name: &str) -> ToolPolicyOutcome {
+        self.evaluate_tool_policy_outcome_for_origin(tool_name, ExecutionOrigin::Standard)
     }
 
     pub fn evaluate_tool_policy_for_origin(
         &self,
         tool_name: &str,
-        _origin: ExecutionOrigin,
+        origin: ExecutionOrigin,
     ) -> ToolPolicyDecision {
+        self.evaluate_tool_policy_outcome_for_origin(tool_name, origin)
+            .decision
+    }
+
+    pub fn evaluate_tool_policy_outcome_for_origin(
+        &self,
+        tool_name: &str,
+        _origin: ExecutionOrigin,
+    ) -> ToolPolicyOutcome {
         if self.autonomy == AutonomyLevel::ReadOnly {
-            return ToolPolicyDecision::Deny;
+            return ToolPolicyOutcome {
+                decision: ToolPolicyDecision::Deny,
+                code: None,
+                reason: Some("read-only autonomy level blocks tool execution".to_string()),
+            };
+        }
+
+        if self.execution_mode == crate::config::ExecutionMode::Plan {
+            return if Self::plan_mode_allows_tool(tool_name) {
+                ToolPolicyOutcome {
+                    decision: ToolPolicyDecision::Allow,
+                    code: None,
+                    reason: None,
+                }
+            } else {
+                ToolPolicyOutcome {
+                    decision: ToolPolicyDecision::Deny,
+                    code: Some(PLAN_MODE_BLOCKED_CODE),
+                    reason: Some(format!(
+                        "Plan Mode allows analysis-only capabilities and blocks `{tool_name}`"
+                    )),
+                }
+            };
         }
 
         match source_kind_for_tool(tool_name) {
-            ToolSourceKind::Native => ToolPolicyDecision::Allow,
+            ToolSourceKind::Native => ToolPolicyOutcome {
+                decision: ToolPolicyDecision::Allow,
+                code: None,
+                reason: None,
+            },
             ToolSourceKind::Mcp
             | ToolSourceKind::McpResource
             | ToolSourceKind::McpPrompt
-            | ToolSourceKind::Unknown => ToolPolicyDecision::ApprovalRequired,
+            | ToolSourceKind::Unknown => ToolPolicyOutcome {
+                decision: ToolPolicyDecision::ApprovalRequired,
+                code: None,
+                reason: None,
+            },
         }
     }
 
@@ -618,9 +684,11 @@ impl SecurityPolicy {
     pub fn from_config(
         autonomy_config: &crate::config::AutonomyConfig,
         workspace_dir: &Path,
+        execution_mode: crate::config::ExecutionMode,
     ) -> Self {
         Self {
             autonomy: autonomy_config.level,
+            execution_mode,
             workspace_dir: workspace_dir.to_path_buf(),
             workspace_only: autonomy_config.workspace_only,
             allowed_commands: autonomy_config.allowed_commands.clone(),
@@ -1103,7 +1171,11 @@ mod tests {
             ..crate::config::AutonomyConfig::default()
         };
         let workspace = PathBuf::from("/tmp/test-workspace");
-        let policy = SecurityPolicy::from_config(&autonomy_config, &workspace);
+        let policy = SecurityPolicy::from_config(
+            &autonomy_config,
+            &workspace,
+            crate::config::ExecutionMode::Standard,
+        );
 
         assert_eq!(policy.autonomy, AutonomyLevel::Full);
         assert!(!policy.workspace_only);
@@ -1492,7 +1564,11 @@ mod tests {
             ..crate::config::AutonomyConfig::default()
         };
         let workspace = PathBuf::from("/tmp/test");
-        let policy = SecurityPolicy::from_config(&autonomy_config, &workspace);
+        let policy = SecurityPolicy::from_config(
+            &autonomy_config,
+            &workspace,
+            crate::config::ExecutionMode::Standard,
+        );
         assert_eq!(policy.tracker.count(), 0);
         assert!(!policy.is_rate_limited());
     }
@@ -1518,6 +1594,56 @@ mod tests {
             source_kind_for_tool("mcp.workflows.prompt.code-review"),
             ToolSourceKind::McpPrompt
         );
+    }
+
+    #[test]
+    fn plan_mode_policy_allows_explicit_read_and_search_tools_only() {
+        let mut policy = SecurityPolicy::default();
+        policy.execution_mode = crate::config::ExecutionMode::Plan;
+
+        assert_eq!(
+            policy.evaluate_tool_policy("file_read"),
+            ToolPolicyDecision::Allow
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy("code_search"),
+            ToolPolicyDecision::Allow
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy("file_write"),
+            ToolPolicyDecision::Deny
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy("shell"),
+            ToolPolicyDecision::Deny
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy("delegate"),
+            ToolPolicyDecision::Deny
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy("mcp.docs.search"),
+            ToolPolicyDecision::Deny
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy("unknown_tool"),
+            ToolPolicyDecision::Deny
+        );
+    }
+
+    #[test]
+    fn plan_mode_policy_returns_machine_readable_block_reason() {
+        let mut policy = SecurityPolicy::default();
+        policy.execution_mode = crate::config::ExecutionMode::Plan;
+
+        let outcome = policy.evaluate_tool_policy_outcome("file_write");
+        assert_eq!(outcome.decision, ToolPolicyDecision::Deny);
+        assert_eq!(outcome.code, Some(PLAN_MODE_BLOCKED_CODE));
+        assert!(outcome
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Plan Mode allows analysis-only capabilities"));
     }
 
     #[test]

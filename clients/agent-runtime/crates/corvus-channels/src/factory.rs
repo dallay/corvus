@@ -39,10 +39,7 @@ mod tests {
     fn select_channel_returns_ok_for_multiple_always_on_channels() {
         for name in &["telegram", "discord", "slack", "mattermost", "matrix"] {
             let result = select_channel(name);
-            assert!(
-                result.is_ok(),
-                "expected Ok for '{name}', got: {result:?}"
-            );
+            assert!(result.is_ok(), "expected Ok for '{name}', got: {result:?}");
         }
     }
 
@@ -58,10 +55,7 @@ mod tests {
         let result = select_channel("not-a-channel");
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
-        assert!(
-            msg.contains("unknown channel"),
-            "error message was: {msg}"
-        );
+        assert!(msg.contains("unknown channel"), "error message was: {msg}");
     }
 
     #[test]

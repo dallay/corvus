@@ -39,10 +39,7 @@ mod tests {
     fn select_memory_backend_returns_ok_for_all_shipped_backends() {
         for name in &["sqlite", "lucid", "markdown", "none"] {
             let result = select_memory_backend(name);
-            assert!(
-                result.is_ok(),
-                "expected Ok for '{name}', got: {result:?}"
-            );
+            assert!(result.is_ok(), "expected Ok for '{name}', got: {result:?}");
         }
     }
 

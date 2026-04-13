@@ -415,6 +415,7 @@ mod tests {
         let security = Arc::new(SecurityPolicy::from_config(
             &config.autonomy,
             &config.workspace_dir,
+            config.agent.execution_mode,
         ));
         (tmp, config, security)
     }
@@ -529,6 +530,7 @@ mod tests {
         let security = Arc::new(SecurityPolicy::from_config(
             &config.autonomy,
             &config.workspace_dir,
+            config.agent.execution_mode,
         ));
 
         let tool = ScheduleTool::new(security, config);

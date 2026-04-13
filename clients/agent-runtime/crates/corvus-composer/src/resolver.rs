@@ -429,7 +429,10 @@ backend = "none"
             );
             match result.unwrap_err() {
                 ValidationError::UnsupportedVersion { version } => {
-                    assert_eq!(version, *bad, "error should preserve original version string")
+                    assert_eq!(
+                        version, *bad,
+                        "error should preserve original version string"
+                    )
                 }
                 other => panic!("expected UnsupportedVersion, got {other:?}"),
             }
@@ -532,10 +535,7 @@ backend = "none"
         let err = ValidationError::DefaultProviderDisabled {
             name: "openai".to_string(),
         };
-        assert_eq!(
-            err.to_string(),
-            "default provider 'openai' must be enabled"
-        );
+        assert_eq!(err.to_string(), "default provider 'openai' must be enabled");
     }
 
     #[test]

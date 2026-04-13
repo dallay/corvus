@@ -2,15 +2,16 @@ use crate::agent::dispatcher::evaluate_tool_risk;
 use crate::agent::dispatcher::DispatchAction;
 use crate::agent::{Agent, AgentTurnEvent, AgentTurnOutcome, AgentTurnResult, TurnContext};
 use crate::bootstrap;
-use crate::config::Config;
+use crate::config::{Config, ExecutionMode};
 use crate::cost::UsagePeriod;
+use crate::gateway::resolve_webhook_execution_mode;
 use crate::memory::Memory;
 use crate::observability::Observer;
 use crate::pre_execution::BlockingOutcome;
 use crate::providers::traits::{
     ProviderCapabilities, StreamChunk, StreamOptions, StreamResult, ToolsPayload,
 };
-use crate::providers::{ChatMessage, ChatRequest, ChatResponse, ConversationMessage, Provider};
+use crate::providers::{ChatMessage, ChatRequest, ChatResponse, Provider};
 use futures_util::stream;
 use std::sync::Arc;
 
@@ -25,6 +26,7 @@ pub struct WebhookTurnRequest {
     pub session_id: String,
     pub session_source: WebhookSessionSource,
     pub message: String,
+    pub execution_mode: ExecutionMode,
     pub include_sse_frames: bool,
 }
 
@@ -39,6 +41,11 @@ pub enum WebhookTerminalOutcome {
     ApprovalRequired {
         tool: String,
         reason: String,
+    },
+    PlanModeBlocked {
+        tool: String,
+        reason: String,
+        execution_mode: ExecutionMode,
     },
     Timeout,
     Fallback,
@@ -66,6 +73,11 @@ pub(crate) enum CanonicalWebhookResult {
     ApprovalRequired {
         tool: String,
         reason: String,
+    },
+    PlanModeBlocked {
+        tool: String,
+        reason: String,
+        execution_mode: ExecutionMode,
     },
     Error,
 }
@@ -205,6 +217,26 @@ pub(crate) fn map_canonical_result(
             ),
             tools_called: vec![],
         },
+        CanonicalWebhookResult::PlanModeBlocked {
+            tool,
+            reason,
+            execution_mode,
+        } => WebhookTurnResult {
+            session_id: request.session_id.clone(),
+            model: model.to_string(),
+            outcome: WebhookTerminalOutcome::PlanModeBlocked {
+                tool,
+                reason: reason.clone(),
+                execution_mode,
+            },
+            response_text: None,
+            event_frames: event_frames_for_blocking_result(
+                request,
+                crate::security::PLAN_MODE_BLOCKED_CODE,
+                Some(reason.as_str()),
+            ),
+            tools_called: vec![],
+        },
         CanonicalWebhookResult::BudgetExceeded {
             current_usd,
             limit_usd,
@@ -279,7 +311,9 @@ pub(crate) fn map_canonical_result(
 fn approval_reason_for_tool(tool: &str) -> String {
     match evaluate_tool_risk(tool) {
         DispatchAction::ApprovalRequired(reason) if !reason.trim().is_empty() => reason,
-        DispatchAction::ApprovalRequired(_) | DispatchAction::Execute => {
+        DispatchAction::ApprovalRequired(_)
+        | DispatchAction::Execute
+        | DispatchAction::Blocked { .. } => {
             format!("approval required before executing `{tool}`")
         }
     }
@@ -348,30 +382,6 @@ fn sanitize_sse_id(session_id: &str) -> String {
         .replace(['\r', '\n'], "")
 }
 
-fn approval_denial_from_history(history: &[ConversationMessage]) -> Option<(String, String)> {
-    history.iter().rev().find_map(|message| {
-        let ConversationMessage::ToolResults(results) = message else {
-            return None;
-        };
-
-        results.iter().find_map(|result| {
-            let parsed = serde_json::from_str::<serde_json::Value>(&result.content).ok()?;
-            if parsed.get("code")?.as_str()? != "approval_required" {
-                return None;
-            }
-
-            Some((
-                parsed.get("tool")?.as_str()?.to_string(),
-                parsed
-                    .get("reason")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("approval_required")
-                    .to_string(),
-            ))
-        })
-    })
-}
-
 pub(crate) async fn execute(
     config: &Config,
     provider: Arc<dyn Provider>,
@@ -402,26 +412,53 @@ pub(crate) async fn execute(
         }
     }
 
-    let bootstrap =
-        match bootstrap::BootstrapContext::for_gateway(config, memory, observer, cost_tracker) {
-            Ok(bootstrap) => bootstrap,
-            Err(_) => return map_canonical_result(&request, model, CanonicalWebhookResult::Error),
-        };
+    let mut effective_config = config.clone();
+    // Clamp request execution mode against server-configured mode (fail-closed to more restrictive)
+    effective_config.agent.execution_mode =
+        resolve_webhook_execution_mode(config.agent.execution_mode, Some(request.execution_mode));
 
-    let provider: Box<dyn Provider> = Box::new(SharedProvider { inner: provider });
-    let mut agent = match Agent::from_bootstrap_with_provider(config, bootstrap, provider) {
-        Ok(agent) => agent,
+    let bootstrap = match bootstrap::BootstrapContext::for_gateway(
+        &effective_config,
+        memory,
+        observer,
+        cost_tracker,
+    ) {
+        Ok(bootstrap) => bootstrap,
         Err(_) => return map_canonical_result(&request, model, CanonicalWebhookResult::Error),
     };
+
+    let provider: Box<dyn Provider> = Box::new(SharedProvider { inner: provider });
+    let mut agent =
+        match Agent::from_bootstrap_with_provider(&effective_config, bootstrap, provider) {
+            Ok(agent) => agent,
+            Err(_) => return map_canonical_result(&request, model, CanonicalWebhookResult::Error),
+        };
 
     match agent
         .turn_with_context(&request.message, turn_context_for_request(&request))
         .await
     {
         Ok(result) => {
-            if let Some(approval_required) = result.approval_required.as_ref() {
+            if let Some(policy_blocked) = result.policy_blocked.as_ref() {
+                match policy_denial_from_value(policy_blocked) {
+                    Some((code, tool, reason))
+                        if code == crate::security::PLAN_MODE_BLOCKED_CODE =>
+                    {
+                        map_canonical_result(
+                            &request,
+                            model,
+                            CanonicalWebhookResult::PlanModeBlocked {
+                                tool,
+                                reason,
+                                execution_mode: result.execution_mode,
+                            },
+                        )
+                    }
+                    _ => map_canonical_result(&request, model, CanonicalWebhookResult::Error),
+                }
+            } else if let Some(approval_required) = result.approval_required.as_ref() {
                 match approval_denial_from_value(approval_required) {
-                    Some((tool, reason)) => map_canonical_result(
+                    Some((_code, tool, reason)) => map_canonical_result(
                         &request,
                         model,
                         CanonicalWebhookResult::ApprovalRequired { tool, reason },
@@ -455,12 +492,34 @@ pub(crate) async fn execute(
     }
 }
 
-fn approval_denial_from_value(value: &serde_json::Value) -> Option<(String, String)> {
-    if value.get("code")?.as_str()? != "approval_required" {
-        return None;
-    }
+/// Parse an approval-required payload where code is optional.
+/// Returns (code_option, tool, reason) where code_option may be None.
+fn approval_denial_from_value(
+    value: &serde_json::Value,
+) -> Option<(Option<String>, String, String)> {
+    let tool = value.get("tool")?.as_str()?.to_string();
+    let code = value
+        .get("code")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    Some((
+        code,
+        tool.clone(),
+        value
+            .get("reason")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| approval_reason_for_tool(&tool)),
+    ))
+}
+
+/// Parse a policy-blocked payload where code is required.
+/// Returns Some((code, tool, reason)) or None if code is missing.
+fn policy_denial_from_value(value: &serde_json::Value) -> Option<(String, String, String)> {
+    let code = value.get("code")?.as_str()?.to_string();
     let tool = value.get("tool")?.as_str()?.to_string();
     Some((
+        code,
         tool.clone(),
         value
             .get("reason")
@@ -478,7 +537,6 @@ mod tests {
     use crate::memory::{Memory, MemoryCategory, MemoryEntry};
     use crate::observability::{NoopObserver, Observer};
     use crate::providers::ToolCall;
-    use crate::providers::ToolResultMessage;
     use async_trait::async_trait;
     use parking_lot::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -489,6 +547,7 @@ mod tests {
             session_id: "webhook-123".into(),
             session_source,
             message: "hello".into(),
+            execution_mode: ExecutionMode::Standard,
             include_sse_frames: false,
         }
     }
@@ -524,9 +583,11 @@ mod tests {
             "test-model",
             CanonicalWebhookResult::Agent(AgentTurnResult {
                 session_id: Some("webhook-123".into()),
+                execution_mode: ExecutionMode::Standard,
                 final_text: Some("done".into()),
                 terminal_outcome: AgentTurnOutcome::Completed,
                 approval_required: None,
+                policy_blocked: None,
                 event_log: vec![AgentTurnEvent::Prepared, AgentTurnEvent::Completed],
                 tools_called: vec![],
             }),
@@ -556,6 +617,29 @@ mod tests {
             }
         );
         assert_eq!(result.response_text, None);
+    }
+
+    #[test]
+    fn maps_plan_mode_block_into_webhook_denial() {
+        let result = map_canonical_result(
+            &sample_request(WebhookSessionSource::Explicit),
+            "test-model",
+            CanonicalWebhookResult::PlanModeBlocked {
+                tool: "file_write".into(),
+                reason: "Plan Mode allows analysis-only capabilities and blocks `file_write`"
+                    .into(),
+                execution_mode: ExecutionMode::Plan,
+            },
+        );
+
+        assert!(matches!(
+            result.outcome,
+            WebhookTerminalOutcome::PlanModeBlocked {
+                ref tool,
+                execution_mode: ExecutionMode::Plan,
+                ..
+            } if tool == "file_write"
+        ));
     }
 
     #[test]
@@ -627,6 +711,7 @@ mod tests {
                 session_id: "session-budget".into(),
                 session_source: WebhookSessionSource::Explicit,
                 message: "hello".into(),
+                execution_mode: ExecutionMode::Standard,
                 include_sse_frames: false,
             },
         )
@@ -640,29 +725,15 @@ mod tests {
     }
 
     #[test]
-    fn approval_denial_is_detected_from_tool_results_history() {
-        let history = vec![ConversationMessage::ToolResults(vec![ToolResultMessage {
-            tool_call_id: "tc-1".into(),
-            content: r#"{"code":"approval_required","tool":"shell","reason":"approval required"}"#
-                .into(),
-        }])];
-
-        assert_eq!(
-            approval_denial_from_history(&history),
-            Some(("shell".into(), "approval required".into()))
-        );
-    }
-
-    #[test]
-    fn approval_denial_from_value_derives_reason_when_missing() {
+    fn policy_denial_from_value_derives_reason_when_missing() {
         let value = serde_json::json!({
             "code": "approval_required",
             "tool": "shell",
         });
 
         assert_eq!(
-            approval_denial_from_value(&value),
-            Some(("shell".into(), "shell".into()))
+            policy_denial_from_value(&value),
+            Some(("approval_required".into(), "shell".into(), "shell".into()))
         );
     }
 
@@ -674,12 +745,14 @@ mod tests {
             "test-model",
             AgentTurnResult {
                 session_id: Some("webhook-123".into()),
+                execution_mode: ExecutionMode::Standard,
                 final_text: Some("done".into()),
                 terminal_outcome: AgentTurnOutcome::Completed,
                 approval_required: Some(serde_json::json!({
                     "code": "approval_required",
                     "reason": "missing tool",
                 })),
+                policy_blocked: None,
                 event_log: vec![AgentTurnEvent::Prepared, AgentTurnEvent::Completed],
                 tools_called: vec![],
             },
@@ -694,9 +767,24 @@ mod tests {
         model: &str,
         result: AgentTurnResult,
     ) -> WebhookTurnResult {
-        if let Some(approval_required) = result.approval_required.as_ref() {
+        if let Some(policy_blocked) = result.policy_blocked.as_ref() {
+            match policy_denial_from_value(policy_blocked) {
+                Some((code, tool, reason)) if code == crate::security::PLAN_MODE_BLOCKED_CODE => {
+                    map_canonical_result(
+                        request,
+                        model,
+                        CanonicalWebhookResult::PlanModeBlocked {
+                            tool,
+                            reason,
+                            execution_mode: result.execution_mode,
+                        },
+                    )
+                }
+                _ => map_canonical_result(request, model, CanonicalWebhookResult::Error),
+            }
+        } else if let Some(approval_required) = result.approval_required.as_ref() {
             match approval_denial_from_value(approval_required) {
-                Some((tool, reason)) => map_canonical_result(
+                Some((_code, tool, reason)) => map_canonical_result(
                     request,
                     model,
                     CanonicalWebhookResult::ApprovalRequired { tool, reason },
@@ -718,9 +806,11 @@ mod tests {
             "test-model",
             CanonicalWebhookResult::Agent(AgentTurnResult {
                 session_id: Some("webhook-123".into()),
+                execution_mode: ExecutionMode::Standard,
                 final_text: Some("done".into()),
                 terminal_outcome: AgentTurnOutcome::Completed,
                 approval_required: None,
+                policy_blocked: None,
                 event_log: vec![AgentTurnEvent::Prepared, AgentTurnEvent::Completed],
                 tools_called: vec![],
             }),
@@ -865,6 +955,7 @@ mod tests {
                 session_id: "session-shell".into(),
                 session_source: WebhookSessionSource::Explicit,
                 message: "run shell".into(),
+                execution_mode: ExecutionMode::Standard,
                 include_sse_frames: false,
             },
         )
@@ -877,5 +968,51 @@ mod tests {
                 reason: "shell".into(),
             }
         );
+    }
+
+    #[tokio::test]
+    async fn execute_maps_plan_mode_block_to_machine_readable_denial() {
+        let (_temp, mut config) = test_config();
+        config.agent.execution_mode = ExecutionMode::Plan;
+        let provider: Arc<dyn Provider> = Arc::new(ScriptedProvider::new(vec![
+            ChatResponse {
+                text: None,
+                tool_calls: vec![ToolCall {
+                    id: "tc-write".into(),
+                    name: "file_write".into(),
+                    arguments: r#"{"path":"x","content":"y"}"#.into(),
+                }],
+            },
+            ChatResponse {
+                text: Some("blocked".into()),
+                tool_calls: Vec::new(),
+            },
+        ]));
+
+        let result = execute(
+            &config,
+            provider,
+            Arc::new(TestMemory),
+            Arc::new(NoopObserver) as Arc<dyn Observer>,
+            None,
+            "test-model",
+            WebhookTurnRequest {
+                session_id: "session-plan".into(),
+                session_source: WebhookSessionSource::Explicit,
+                message: "write file".into(),
+                execution_mode: ExecutionMode::Plan,
+                include_sse_frames: false,
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result.outcome,
+            WebhookTerminalOutcome::PlanModeBlocked {
+                ref tool,
+                execution_mode: ExecutionMode::Plan,
+                ..
+            } if tool == "file_write"
+        ));
     }
 }

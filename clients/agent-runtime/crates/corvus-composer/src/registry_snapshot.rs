@@ -307,10 +307,7 @@ mod tests {
     fn registry_snapshot_contains_known_provider() {
         let snapshot = RegistrySnapshot::collect();
         let record = snapshot.find_in_family(CapabilityFamily::Provider, "anthropic");
-        assert!(
-            record.is_some(),
-            "expected 'anthropic' in Provider family"
-        );
+        assert!(record.is_some(), "expected 'anthropic' in Provider family");
         assert_eq!(record.unwrap().key, "anthropic");
     }
 
@@ -397,8 +394,14 @@ mod tests {
 
     #[test]
     fn capability_status_variants_are_comparable() {
-        assert_eq!(CapabilityStatus::Constructible, CapabilityStatus::Constructible);
-        assert_ne!(CapabilityStatus::Constructible, CapabilityStatus::Uncompiled);
+        assert_eq!(
+            CapabilityStatus::Constructible,
+            CapabilityStatus::Constructible
+        );
+        assert_ne!(
+            CapabilityStatus::Constructible,
+            CapabilityStatus::Uncompiled
+        );
         assert_ne!(
             CapabilityStatus::Uncompiled,
             CapabilityStatus::PlatformUnavailable

@@ -55,7 +55,7 @@ pub fn requires_explicit_mcp_approval(tool_name: &str) -> bool {
 }
 
 pub fn structured_denial_payload(tool_name: &str, reason: &str) -> serde_json::Value {
-    structured_denial_payload_for_origin(tool_name, reason, ExecutionOrigin::Standard)
+    structured_policy_denial_payload(tool_name, "approval_required", reason)
 }
 
 pub fn structured_denial_payload_for_origin(
@@ -63,8 +63,16 @@ pub fn structured_denial_payload_for_origin(
     reason: &str,
     _origin: ExecutionOrigin,
 ) -> serde_json::Value {
+    structured_policy_denial_payload(tool_name, "approval_required", reason)
+}
+
+pub fn structured_policy_denial_payload(
+    tool_name: &str,
+    code: &str,
+    reason: &str,
+) -> serde_json::Value {
     let denial = ApprovalDenial {
-        code: "approval_required".to_string(),
+        code: code.to_string(),
         tool: tool_name.to_string(),
         reason: reason.to_string(),
     };
@@ -73,6 +81,10 @@ pub fn structured_denial_payload_for_origin(
 
 pub fn structured_denial_text(tool_name: &str, reason: &str) -> String {
     structured_denial_payload(tool_name, reason).to_string()
+}
+
+pub fn structured_policy_denial_text(tool_name: &str, code: &str, reason: &str) -> String {
+    structured_policy_denial_payload(tool_name, code, reason).to_string()
 }
 
 // ── ApprovalManager ──────────────────────────────────────────────

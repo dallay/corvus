@@ -480,6 +480,8 @@ pub struct AgentConfig {
     /// Supported values: "full" (default), "code", "lite".
     #[serde(default = "default_agent_profile")]
     pub profile: String,
+    #[serde(default)]
+    pub execution_mode: ExecutionMode,
     #[serde(default = "default_agent_max_tool_iterations")]
     pub max_tool_iterations: usize,
     #[serde(default = "default_agent_max_history_messages")]
@@ -491,6 +493,14 @@ pub struct AgentConfig {
     /// Code-session specific configuration.
     #[serde(default)]
     pub code_session: CodeSessionConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionMode {
+    #[default]
+    Standard,
+    Plan,
 }
 
 fn default_agent_max_tool_iterations() -> usize {
@@ -521,6 +531,7 @@ impl Default for AgentConfig {
         Self {
             compact_context: false,
             profile: default_agent_profile(),
+            execution_mode: ExecutionMode::default(),
             max_tool_iterations: default_agent_max_tool_iterations(),
             max_history_messages: default_agent_max_history_messages(),
             parallel_tools: false,
@@ -4260,6 +4271,7 @@ default_temperature = 0.7
         let cfg = AgentConfig::default();
         assert!(!cfg.compact_context);
         assert_eq!(cfg.profile, "full");
+        assert_eq!(cfg.execution_mode, ExecutionMode::Standard);
         assert_eq!(cfg.max_tool_iterations, 10);
         assert_eq!(cfg.max_history_messages, 50);
         assert!(!cfg.parallel_tools);
@@ -4273,6 +4285,7 @@ default_temperature = 0.7
 [agent]
 compact_context = true
 profile = "code"
+execution_mode = "plan"
 max_tool_iterations = 20
 max_history_messages = 80
 parallel_tools = true
@@ -4281,6 +4294,7 @@ tool_dispatcher = "xml"
         let parsed: Config = toml::from_str(raw).unwrap();
         assert!(parsed.agent.compact_context);
         assert_eq!(parsed.agent.profile, "code");
+        assert_eq!(parsed.agent.execution_mode, ExecutionMode::Plan);
         assert_eq!(parsed.agent.max_tool_iterations, 20);
         assert_eq!(parsed.agent.max_history_messages, 80);
         assert!(parsed.agent.parallel_tools);
@@ -6487,6 +6501,28 @@ default_model = "legacy-model"
     fn delegate_execution_mode_defaults_to_one_shot() {
         let mode = DelegateExecutionMode::default();
         assert_eq!(mode, DelegateExecutionMode::OneShot);
+    }
+
+    #[test]
+    fn execution_mode_defaults_to_standard() {
+        assert_eq!(ExecutionMode::default(), ExecutionMode::Standard);
+    }
+
+    #[test]
+    fn execution_mode_toml_roundtrip_rejects_unknown_values() {
+        #[derive(Debug, Serialize, Deserialize)]
+        struct Wrapper {
+            mode: ExecutionMode,
+        }
+
+        let plan: Wrapper = toml::from_str(r#"mode = "plan""#).unwrap();
+        assert_eq!(plan.mode, ExecutionMode::Plan);
+
+        let standard: Wrapper = toml::from_str(r#"mode = "standard""#).unwrap();
+        assert_eq!(standard.mode, ExecutionMode::Standard);
+
+        let invalid = toml::from_str::<Wrapper>(r#"mode = "unknown""#).unwrap_err();
+        assert!(invalid.to_string().contains("unknown variant"));
     }
 
     #[test]

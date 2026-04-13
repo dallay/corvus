@@ -10,7 +10,9 @@ fn mcp_tools_are_deny_by_default_in_dispatcher() {
         DispatchAction::ApprovalRequired(reason) => {
             assert!(reason.contains("requires explicit approval"));
         }
-        DispatchAction::Execute => panic!("mcp.* must never execute without approval"),
+        DispatchAction::Execute | DispatchAction::Blocked { .. } => {
+            panic!("mcp.* must never execute without approval")
+        }
     }
 }
 
@@ -49,7 +51,9 @@ fn mcp_resource_requires_approval_in_dispatcher() {
         DispatchAction::ApprovalRequired(reason) => {
             assert!(reason.contains("requires explicit approval"));
         }
-        DispatchAction::Execute => panic!("mcp resource must require approval"),
+        DispatchAction::Execute | DispatchAction::Blocked { .. } => {
+            panic!("mcp resource must require approval")
+        }
     }
 }
 
@@ -59,7 +63,9 @@ fn mcp_prompt_requires_approval_in_dispatcher() {
         DispatchAction::ApprovalRequired(reason) => {
             assert!(reason.contains("requires explicit approval"));
         }
-        DispatchAction::Execute => panic!("mcp prompt must require approval"),
+        DispatchAction::Execute | DispatchAction::Blocked { .. } => {
+            panic!("mcp prompt must require approval")
+        }
     }
 }
 
