@@ -976,6 +976,7 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn dispatch_agent_command(
     config: Config,
     message: Option<String>,
@@ -1382,6 +1383,7 @@ async fn handle_agent_composition_command(command: AgentCompositionCommands) -> 
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_agent_command(
     config: Config,
     message: Option<String>,
@@ -1490,7 +1492,7 @@ async fn handle_agent_command(
                 match summary_result {
                     Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Agent),
                     Err(error) => {
-                        tracing::warn!("Failed to load agent session cost summary: {error}")
+                        tracing::warn!("Failed to load agent session cost summary: {error}");
                     }
                 }
                 return Err(err);
