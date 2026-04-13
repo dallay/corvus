@@ -6,31 +6,24 @@ status: canonical
 lastReviewed: 2026-03-26
 appliesTo: main
 docType: architecture
+translations:
+  es: pending
 ---
 
 # Architecture Diagrams
 
-This section contains the architecture diagrams for the Corvus project, following the C4 model (
-Context, Container, Component, Code).
+> **Migration Notice**: Architecture diagrams are being migrated to a separate repository. 
+> Track progress at https://github.com/dallay/corvus/issues?q=label:architecture-diagrams
+
+This section will be updated once migration completes. The C4 model diagrams (Context, Container, Component, Code) are temporarily unavailable.
 
 ## Level 1: System Context
 
 Shows the Corvus system as a black box and its interactions with actors and external systems.
 
-- **File**: [`context/system-context.mmd`](./diagrams/context/system-context.mmd)
-- **Format**: Mermaid
-- **Description**: High-level view of the complete system, including users (Developer, End User) and
-  external systems (LLM Providers, Neo4j, Web Sources).
-
 ## Level 2: Containers
 
 Decomposes the system into main containers/applications and their interactions.
-
-- **Files**:
-  - [`container/runtime-containers.mmd`](./diagrams/container/runtime-containers.mmd) (Mermaid)
-  - [`container/runtime-containers.puml`](./diagrams/container/runtime-containers.puml) (PlantUML)
-- **Description**: Shows the runtime containers: CLI, gateway, daemon services, tool execution,
-  memory backends, and operator surfaces around Corvus.
 
 ## Level 3: Components
 
@@ -38,18 +31,14 @@ Decomposes individual containers into their internal components.
 
 ### Runtime Core
 
-- **File**: [`component/runtime-core.mmd`](./diagrams/component/runtime-core.mmd)
-- **Description**: Internal components of the runtime core: config, agent loop, providers,
-  memory, tools, channels, security, and observability.
-
 ## Module Dependencies
 
 Additional diagram showing Cargo dependencies between workspace modules.
 
-- **File**: [`cargo-dependencies.mmd`](./diagrams/cargo-dependencies.mmd)
-- **Description**: Shows the Cargo workspace layout and the runtime's primary Rust dependency flow.
-
 ## How to Visualize
+
+> **Note**: Diagram rendering instructions will be available after migration completes.
+> See the migration notice at the top of this page for timeline and updates.
 
 ### Option 1: GitHub/GitLab
 
@@ -65,8 +54,8 @@ Install the "Markdown Preview Mermaid Support" extension to view diagrams in VS 
 # Install mermaid-cli
 npm install -g @mermaid-js/mermaid-cli
 
-# Render to PNG
-mmdc -i diagrams/context/system-context.mmd -o context.png
+# Render to PNG (example path - adjust to actual diagram location)
+mmdc -i <path-to-diagram>/<diagram-file>.mmd -o output.png
 ```
 
 ### Option 4: PlantUML
@@ -74,11 +63,13 @@ mmdc -i diagrams/context/system-context.mmd -o context.png
 For `.puml` files:
 
 ```bash
-# Use PlantUML online or locally
-plantuml -tpng diagrams/container/runtime-containers.puml
+# Use PlantUML online or locally (example path - adjust to actual diagram location)
+plantuml -tpng <path-to-diagram>/<diagram-file>.puml
 ```
 
 ## Conventions
+
+> **Note**: These conventions apply after migration completes. The C4 diagrams are temporarily unavailable.
 
 - **Context Level (C1)**: One diagram showing the complete system
 - **Container Level (C2)**: One diagram per system, showing main applications
@@ -86,6 +77,8 @@ plantuml -tpng diagrams/container/runtime-containers.puml
 - **Code Level (C4)**: UML class diagrams for critical components (optional)
 
 ## Maintenance
+
+> **Note**: These maintenance guidelines apply after migration completes. The C4 diagrams are temporarily unavailable.
 
 When adding new modules or changing architecture:
 
