@@ -6,6 +6,8 @@ status: canonical
 lastReviewed: 2026-03-26
 appliesTo: main
 docType: architecture
+translations:
+  es: pending
 ---
 
 # Architecture Diagrams
@@ -17,14 +19,13 @@ Context, Container, Component, Code).
 
 Shows the Corvus system as a black box and its interactions with actors and external systems.
 
-> **Note**: Architecture diagrams source files are managed in a separate repository.
-  See the [Corvus Architecture Diagrams](https://github.com/dallay/corvus/tree/main/docs/architecture/diagrams) for source files.
+> **Note**: Architecture diagrams are currently being migrated to a separate repository.
 
 ## Level 2: Containers
 
 Decomposes the system into main containers/applications and their interactions.
 
-> **Note**: Container diagram source files are in the architecture diagrams repository.
+> **Note**: Container diagrams are currently being migrated to a separate repository.
 
 ## Level 3: Components
 
@@ -32,16 +33,13 @@ Decomposes individual containers into their internal components.
 
 ### Runtime Core
 
-- **File**: [`component/runtime-core.mmd`](./diagrams/component/runtime-core.mmd)
-- **Description**: Internal components of the runtime core: config, agent loop, providers,
-  memory, tools, channels, security, and observability.
+> **Note**: Component diagrams are currently being migrated to a separate repository.
 
 ## Module Dependencies
 
 Additional diagram showing Cargo dependencies between workspace modules.
 
-- **File**: [`cargo-dependencies.mmd`](./diagrams/cargo-dependencies.mmd)
-- **Description**: Shows the Cargo workspace layout and the runtime's primary Rust dependency flow.
+> **Note**: Cargo dependency diagram is currently being migrated to a separate repository.
 
 ## How to Visualize
 
@@ -59,8 +57,8 @@ Install the "Markdown Preview Mermaid Support" extension to view diagrams in VS 
 # Install mermaid-cli
 npm install -g @mermaid-js/mermaid-cli
 
-# Render to PNG
-mmdc -i diagrams/context/system-context.mmd -o context.png
+# Render to PNG (example path - adjust to actual diagram location)
+mmdc -i <path-to-diagram>/system-context.mmd -o context.png
 ```
 
 ### Option 4: PlantUML
@@ -68,8 +66,8 @@ mmdc -i diagrams/context/system-context.mmd -o context.png
 For `.puml` files:
 
 ```bash
-# Use PlantUML online or locally
-plantuml -tpng diagrams/container/runtime-containers.puml
+# Use PlantUML online or locally (example path - adjust to actual diagram location)
+plantuml -tpng <path-to-diagram>/runtime-containers.puml
 ```
 
 ## Conventions

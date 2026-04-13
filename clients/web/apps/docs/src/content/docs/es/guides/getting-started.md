@@ -113,4 +113,5 @@ corvus --help
 
 ## Siguientes Pasos
 
-All sections (Project Structure, Features, Development) are covered in this page. Continue reading above for details.
+> **Nota**: Las subsecciones Project Structure, Features y Development están disponibles solo en inglés. 
+> Consulte la [versión en inglés](./getting-started) para más detalles.
