@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.2.0](https://github.com/dallay/corvus/compare/v3.1.0...v3.2.0) (2026-04-13)
+
+
+### Features
+
+* **agent:** implement Plan Mode execution mode ([#530](https://github.com/dallay/corvus/issues/530)) ([43c8b45](https://github.com/dallay/corvus/commit/43c8b45a7d5cc823e5075e5a662fec61de43838b))
+
+
+### Bug Fixes
+
+* **docs:** remove trailing slashes from internal links ([#523](https://github.com/dallay/corvus/issues/523)) ([b8fb377](https://github.com/dallay/corvus/commit/b8fb377b7bb9ba06adb1bea6d7b529d8cfb968f0))
+
 ## [3.1.0](https://github.com/dallay/corvus/compare/v3.0.0...v3.1.0) (2026-04-12)
 
 
