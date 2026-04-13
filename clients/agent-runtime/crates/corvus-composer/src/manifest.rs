@@ -184,10 +184,7 @@ backend = "none"
 
     #[test]
     fn security_section_explicit_backend_overrides_default() {
-        let toml_str = format!(
-            "{}\n[security]\nbackend = \"none\"\n",
-            minimal_toml()
-        );
+        let toml_str = format!("{}\n[security]\nbackend = \"none\"\n", minimal_toml());
         let manifest: AgentManifest = toml::from_str(&toml_str).unwrap();
         assert_eq!(manifest.security.backend, "none");
     }
@@ -289,7 +286,10 @@ enabled = ["stdio"]
 backend = "sqlite"
 "#;
         let manifest: AgentManifest = toml::from_str(toml_str).unwrap();
-        assert_eq!(manifest.agent.description.as_deref(), Some("A complete agent"));
+        assert_eq!(
+            manifest.agent.description.as_deref(),
+            Some("A complete agent")
+        );
         assert_eq!(manifest.agent.model.as_deref(), Some("anthropic/claude-3"));
         assert_eq!(manifest.agent.temperature, Some(0.7));
         assert_eq!(manifest.agent.profile.as_deref(), Some("code"));

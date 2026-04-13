@@ -187,7 +187,14 @@ mod tests {
 
     #[test]
     fn capability_report_from_plan_maps_observers() {
-        let plan = make_plan("anthropic", &["stdio"], &[], "none", &["log", "prometheus"], "none");
+        let plan = make_plan(
+            "anthropic",
+            &["stdio"],
+            &[],
+            "none",
+            &["log", "prometheus"],
+            "none",
+        );
         let report = CapabilityReport::from(&plan);
         assert_eq!(report.observers, vec!["log", "prometheus"]);
     }

@@ -174,8 +174,21 @@ mod tests {
         let channels = list_channels();
         let keys: Vec<&str> = channels.iter().map(|c| c.key).collect();
         for expected in &[
-            "stdio", "telegram", "discord", "slack", "mattermost", "imessage", "matrix",
-            "signal", "whatsapp", "email", "irc", "lark", "dingtalk", "qq", "webhook",
+            "stdio",
+            "telegram",
+            "discord",
+            "slack",
+            "mattermost",
+            "imessage",
+            "matrix",
+            "signal",
+            "whatsapp",
+            "email",
+            "irc",
+            "lark",
+            "dingtalk",
+            "qq",
+            "webhook",
         ] {
             assert!(
                 keys.contains(expected),
