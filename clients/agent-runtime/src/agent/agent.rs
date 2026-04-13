@@ -1,7 +1,7 @@
 use crate::agent::code_session::{CodeSessionResult, CodeSessionStatus};
 use crate::agent::dispatcher::{
-    DispatchAction, NativeToolDispatcher, ParsedToolCall, ToolDispatcher, ToolExecutionResult,
-    XmlToolDispatcher,
+    evaluate_tool_risk_with_policy_for_origin, DispatchAction, NativeToolDispatcher,
+    ParsedToolCall, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
 };
 use crate::agent::memory_loader::{CerebroMemoryLoader, DefaultMemoryLoader, MemoryLoader};
 use crate::agent::mission::{
@@ -22,7 +22,7 @@ use crate::observability::{redact_observer_payload, Observer, ObserverEvent};
 use crate::providers::{ChatMessage, ChatRequest, ChatResponse, ConversationMessage, Provider};
 use crate::security::{
     AuditEvent, AuditEventType, AuditLogger, CodeSessionAuditLog, CommandExecutionLog,
-    ExecutionOrigin,
+    ExecutionOrigin, SecurityPolicy,
 };
 use crate::tools::{Tool, ToolSpec};
 use crate::util::truncate_with_ellipsis;
@@ -51,12 +51,14 @@ pub enum AgentTurnEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TurnContext {
     pub session_id: Option<String>,
+    pub execution_mode: crate::config::ExecutionMode,
 }
 
 impl TurnContext {
     pub fn with_session(session_id: impl Into<String>) -> Self {
         Self {
             session_id: Some(session_id.into()),
+            execution_mode: crate::config::ExecutionMode::Standard,
         }
     }
 }
@@ -65,15 +67,18 @@ impl TurnContext {
 struct StepOutcome {
     final_text: Option<String>,
     approval_required: Option<serde_json::Value>,
+    policy_blocked: Option<serde_json::Value>,
     tools_called: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentTurnResult {
     pub session_id: Option<String>,
+    pub execution_mode: crate::config::ExecutionMode,
     pub final_text: Option<String>,
     pub terminal_outcome: AgentTurnOutcome,
     pub approval_required: Option<serde_json::Value>,
+    pub policy_blocked: Option<serde_json::Value>,
     pub event_log: Vec<AgentTurnEvent>,
     pub tools_called: Vec<String>,
 }
@@ -92,6 +97,7 @@ pub struct Agent {
     tool_specs: Vec<ToolSpec>,
     memory: Arc<dyn Memory>,
     observer: Arc<dyn Observer>,
+    security_policy: Arc<SecurityPolicy>,
     audit_logger: Option<Arc<AuditLogger>>,
     audit_strict: bool,
     prompt_builder: SystemPromptBuilder,
@@ -155,6 +161,7 @@ pub struct AgentBuilder {
     tools: Option<Vec<Box<dyn Tool>>>,
     memory: Option<Arc<dyn Memory>>,
     observer: Option<Arc<dyn Observer>>,
+    security_policy: Option<Arc<SecurityPolicy>>,
     audit_logger: Option<Arc<AuditLogger>>,
     audit_strict: Option<bool>,
     prompt_builder: Option<SystemPromptBuilder>,
@@ -183,6 +190,7 @@ impl AgentBuilder {
             tools: None,
             memory: None,
             observer: None,
+            security_policy: None,
             audit_logger: None,
             audit_strict: None,
             prompt_builder: None,
@@ -222,6 +230,11 @@ impl AgentBuilder {
 
     pub fn observer(mut self, observer: Arc<dyn Observer>) -> Self {
         self.observer = Some(observer);
+        self
+    }
+
+    pub fn security_policy(mut self, security_policy: Arc<SecurityPolicy>) -> Self {
+        self.security_policy = Some(security_policy);
         self
     }
 
@@ -341,6 +354,9 @@ impl AgentBuilder {
             observer: self
                 .observer
                 .ok_or_else(|| anyhow::anyhow!("observer is required"))?,
+            security_policy: self
+                .security_policy
+                .ok_or_else(|| anyhow::anyhow!("security_policy is required"))?,
             audit_logger: self.audit_logger,
             audit_strict: self.audit_strict.unwrap_or(false),
             prompt_builder: self
@@ -630,6 +646,7 @@ impl Agent {
             .tools(bootstrap.tools)
             .memory(bootstrap.memory)
             .observer(bootstrap.observer)
+            .security_policy(bootstrap.security)
             .audit_logger(Self::audit_logger_from_config(config)?)
             .audit_strict(config.security.audit.strict)
             .tool_dispatcher(tool_dispatcher)
@@ -1452,13 +1469,16 @@ impl Agent {
 
         for (index, call) in calls.iter().enumerate() {
             let key = Self::tool_call_key(index, call);
-            match self.tool_dispatcher.check_tool_risk_for_origin(
+            match evaluate_tool_risk_with_policy_for_origin(
                 &call.name,
-                &call.arguments,
+                &self.security_policy,
                 execution_origin,
             ) {
                 DispatchAction::ApprovalRequired(reason) => {
                     results_by_call_id.insert(key, Self::approval_required_result(call, reason));
+                }
+                DispatchAction::Blocked { code, reason } => {
+                    results_by_call_id.insert(key, Self::blocked_result(call, &code, reason));
                 }
                 DispatchAction::Execute => {
                     approved_calls.push(call.clone());
@@ -1506,6 +1526,11 @@ impl Agent {
                     "tool": call.name,
                     "reason": reason,
                 })),
+                DispatchAction::Blocked { code, reason } => Some(serde_json::json!({
+                    "code": code,
+                    "tool": call.name,
+                    "reason": reason,
+                })),
                 DispatchAction::Execute => None,
             })
     }
@@ -1517,6 +1542,19 @@ impl Agent {
             success: false,
             tool_call_id: call.tool_call_id.clone(),
             action: DispatchAction::ApprovalRequired(reason),
+        }
+    }
+
+    fn blocked_result(call: &ParsedToolCall, code: &str, reason: String) -> ToolExecutionResult {
+        ToolExecutionResult {
+            name: call.name.clone(),
+            output: crate::approval::structured_policy_denial_text(&call.name, code, &reason),
+            success: false,
+            tool_call_id: call.tool_call_id.clone(),
+            action: DispatchAction::Blocked {
+                code: code.to_string(),
+                reason,
+            },
         }
     }
 
@@ -1556,6 +1594,7 @@ impl Agent {
             .prepare_turn_with_context(user_message, &turn_context)
             .await?;
         let mut approval_required = None;
+        let mut policy_blocked = None;
         let mut event_log = vec![AgentTurnEvent::Prepared];
         let mut all_tools_called: Vec<String> = Vec::new();
 
@@ -1566,14 +1605,19 @@ impl Agent {
             if approval_required.is_none() {
                 approval_required = outcome.approval_required.clone();
             }
+            if policy_blocked.is_none() {
+                policy_blocked = outcome.policy_blocked.clone();
+            }
             all_tools_called.extend(outcome.tools_called);
             if let Some(final_text) = outcome.final_text {
                 event_log.push(AgentTurnEvent::Completed);
                 return Ok(AgentTurnResult {
                     session_id: turn_context.session_id,
+                    execution_mode: self.config.execution_mode,
                     final_text: Some(final_text),
                     terminal_outcome: AgentTurnOutcome::Completed,
                     approval_required,
+                    policy_blocked,
                     event_log,
                     tools_called: all_tools_called,
                 });
@@ -2189,6 +2233,7 @@ impl Agent {
             return Ok(StepOutcome {
                 final_text,
                 approval_required: None,
+                policy_blocked: None,
                 tools_called: vec![],
             });
         }
@@ -2201,7 +2246,7 @@ impl Agent {
                         &call.arguments,
                         ExecutionOrigin::Mission,
                     ),
-                    DispatchAction::ApprovalRequired(_)
+                    DispatchAction::ApprovalRequired(_) | DispatchAction::Blocked { .. }
                 )
             })
         {
@@ -2211,7 +2256,16 @@ impl Agent {
         let tools_called: Vec<String> = calls.iter().map(|c| c.name.clone()).collect();
         self.record_tool_response(text, response.text, &calls);
         let gated_results = self.execute_gated_tool_calls(&calls).await;
-        let approval_required = Self::approval_denial_from_results(&calls, &gated_results);
+        let policy_denial = Self::approval_denial_from_results(&calls, &gated_results);
+        let (approval_required, policy_blocked) = match policy_denial {
+            Some(value)
+                if value.get("code").and_then(serde_json::Value::as_str)
+                    == Some(crate::security::PLAN_MODE_BLOCKED_CODE) =>
+            {
+                (None, Some(value))
+            }
+            other => (other, None),
+        };
 
         let formatted = self.tool_dispatcher.format_results(&gated_results);
         self.history.push(formatted);
@@ -2220,6 +2274,7 @@ impl Agent {
         Ok(StepOutcome {
             final_text: None,
             approval_required,
+            policy_blocked,
             tools_called,
         })
     }

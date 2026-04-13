@@ -24,7 +24,7 @@ pub use pairing::PairingGuard;
 #[allow(unused_imports)]
 pub use policy::{
     source_kind_for_tool, AutonomyLevel, ExecutionOrigin, SecurityPolicy, ToolPolicyDecision,
-    ToolSourceKind,
+    ToolPolicyOutcome, ToolSourceKind, PLAN_MODE_BLOCKED_CODE,
 };
 #[allow(unused_imports)]
 pub use secrets::SecretStore;

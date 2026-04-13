@@ -1,0 +1,14 @@
+change: 2026-04-13-claude-capability-integration
+current_phase: archive
+completed:
+  - explore
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+  - archive
+next: none
+updated: 2026-04-13T00:00:00Z
+archived_to: openspec/changes/archive/2026-04-13-claude-capability-integration

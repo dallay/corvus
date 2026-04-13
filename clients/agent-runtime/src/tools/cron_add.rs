@@ -236,6 +236,7 @@ mod tests {
         Arc::new(SecurityPolicy::from_config(
             &cfg.autonomy,
             &cfg.workspace_dir,
+            cfg.agent.execution_mode,
         ))
     }
 

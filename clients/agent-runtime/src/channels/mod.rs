@@ -528,6 +528,10 @@ async fn execute_channel_dispatch_action(
             false,
             crate::approval::structured_denial_text(call_name, tool),
         )),
+        DispatchAction::Blocked { code, reason } => Ok((
+            false,
+            crate::approval::structured_policy_denial_text(call_name, code, reason),
+        )),
     }
 }
 

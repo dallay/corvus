@@ -1,5 +1,5 @@
 use crate::capabilities::{build_registry_from_tools, CapabilityRegistry};
-use crate::config::Config;
+use crate::config::{Config, ExecutionMode};
 use crate::cost::CostTracker;
 use crate::memory::{self, Memory};
 use crate::observability::{self, Observer};
@@ -232,6 +232,7 @@ impl BootstrapContext {
         let security = Arc::new(SecurityPolicy::from_config(
             &config.autonomy,
             &config.workspace_dir,
+            config.agent.execution_mode,
         ));
 
         let (composio_key, composio_entity_id) = if config.composio.enabled {
@@ -260,7 +261,11 @@ impl BootstrapContext {
         );
         let tools: Vec<Box<dyn Tool>> = tools
             .into_iter()
-            .filter(|tool| profile.allows_tool(tool.name()))
+            .filter(|tool| {
+                profile.allows_tool(tool.name())
+                    && (config.agent.execution_mode != ExecutionMode::Plan
+                        || SecurityPolicy::plan_mode_allows_tool(tool.name()))
+            })
             .collect();
         let capability_registry = build_registry_from_tools(&tools)?;
 
@@ -331,7 +336,7 @@ pub fn create_memory_and_observer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{DelegateAgentConfig, DelegateExecutionMode};
+    use crate::config::{DelegateAgentConfig, DelegateExecutionMode, ExecutionMode};
     use crate::security::{source_kind_for_tool, ToolSourceKind};
     use crate::test_support::{mock_mcp_server, test_config};
     use std::collections::HashSet;
@@ -390,6 +395,25 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_plan_mode_keeps_only_plan_safe_tools() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.agent.profile = "code".into();
+        config.agent.execution_mode = ExecutionMode::Plan;
+
+        let ctx = BootstrapContext::from_config(&config).unwrap();
+        let names: HashSet<&str> = ctx.tools.iter().map(|tool| tool.name()).collect();
+
+        assert!(names.contains("file_read"));
+        assert!(names.contains("code_search"));
+        assert!(names.contains("memory_recall"));
+        assert!(!names.contains("file_write"));
+        assert!(!names.contains("shell"));
+        assert!(!names.contains("delegate"));
+        assert!(!names.contains("git_operations"));
+    }
+
+    #[test]
     fn bootstrap_rejects_unknown_profile() {
         let tmp = tempfile::TempDir::new().unwrap();
         let mut config = test_config(&tmp);
@@ -424,6 +448,7 @@ mod tests {
         let security = Arc::new(SecurityPolicy::from_config(
             &config.autonomy,
             &config.workspace_dir,
+            config.agent.execution_mode,
         ));
         let runtime: Arc<dyn RuntimeAdapter> =
             Arc::from(runtime::create_runtime(&config.runtime).unwrap());

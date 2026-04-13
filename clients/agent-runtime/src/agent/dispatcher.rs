@@ -1,6 +1,5 @@
 use crate::providers::{ChatMessage, ChatResponse, ConversationMessage, ToolResultMessage};
-use crate::security::source_kind_for_tool;
-use crate::security::ExecutionOrigin;
+use crate::security::{source_kind_for_tool, ExecutionOrigin, SecurityPolicy, ToolPolicyDecision};
 use crate::tools::{Tool, ToolSpec};
 use serde_json::Value;
 use std::fmt::Write;
@@ -24,6 +23,7 @@ pub struct ParsedToolCall {
 pub enum DispatchAction {
     Execute,
     ApprovalRequired(String), // e.g. tool name or reason
+    Blocked { code: String, reason: String },
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +61,34 @@ pub trait ToolDispatcher: Send + Sync {
 
 pub fn evaluate_tool_risk(tool_name: &str) -> DispatchAction {
     evaluate_tool_risk_for_origin(tool_name, ExecutionOrigin::Standard)
+}
+
+pub fn evaluate_tool_risk_with_policy(tool_name: &str, policy: &SecurityPolicy) -> DispatchAction {
+    evaluate_tool_risk_with_policy_for_origin(tool_name, policy, ExecutionOrigin::Standard)
+}
+
+pub fn evaluate_tool_risk_with_policy_for_origin(
+    tool_name: &str,
+    policy: &SecurityPolicy,
+    origin: ExecutionOrigin,
+) -> DispatchAction {
+    if policy.execution_mode == crate::config::ExecutionMode::Plan {
+        let outcome = policy.evaluate_tool_policy_outcome_for_origin(tool_name, origin);
+        return match outcome.decision {
+            ToolPolicyDecision::Allow => DispatchAction::Execute,
+            ToolPolicyDecision::ApprovalRequired => {
+                DispatchAction::ApprovalRequired(tool_name.to_string())
+            }
+            ToolPolicyDecision::Deny => DispatchAction::Blocked {
+                code: outcome.code.unwrap_or("policy_denied").to_string(),
+                reason: outcome
+                    .reason
+                    .unwrap_or_else(|| format!("tool `{tool_name}` blocked by security policy")),
+            },
+        };
+    }
+
+    evaluate_tool_risk_for_origin(tool_name, origin)
 }
 
 pub fn evaluate_tool_risk_for_origin(tool_name: &str, _origin: ExecutionOrigin) -> DispatchAction {
@@ -402,8 +430,34 @@ mod tests {
             DispatchAction::ApprovalRequired(reason) => {
                 assert!(reason.contains("mcp tool 'mcp.docs.search'"));
             }
-            DispatchAction::Execute => panic!("mcp tools must require approval"),
+            DispatchAction::Execute | DispatchAction::Blocked { .. } => {
+                panic!("mcp tools must require approval")
+            }
         }
+    }
+
+    #[test]
+    fn plan_mode_denials_become_blocked_actions_without_changing_standard_semantics() {
+        let mut policy = SecurityPolicy::default();
+        policy.execution_mode = crate::config::ExecutionMode::Plan;
+
+        assert_eq!(
+            evaluate_tool_risk_with_policy("file_read", &policy),
+            DispatchAction::Execute
+        );
+
+        match evaluate_tool_risk_with_policy("file_write", &policy) {
+            DispatchAction::Blocked { code, reason } => {
+                assert_eq!(code, crate::security::PLAN_MODE_BLOCKED_CODE);
+                assert!(reason.contains("Plan Mode allows analysis-only capabilities"));
+            }
+            other => panic!("expected blocked plan-mode action, got {other:?}"),
+        }
+
+        assert_eq!(
+            evaluate_tool_risk("shell"),
+            DispatchAction::ApprovalRequired("shell".into())
+        );
     }
 
     #[test]

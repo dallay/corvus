@@ -127,6 +127,7 @@ fn build_bootstrap_and_provider(
     let security = Arc::new(SecurityPolicy::from_config(
         &config.autonomy,
         &config.workspace_dir,
+        config.agent.execution_mode,
     ));
     let (composio_key, composio_entity_id) = if config.composio.enabled {
         (
