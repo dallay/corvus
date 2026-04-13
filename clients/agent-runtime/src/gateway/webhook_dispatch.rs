@@ -10,7 +10,7 @@ use crate::pre_execution::BlockingOutcome;
 use crate::providers::traits::{
     ProviderCapabilities, StreamChunk, StreamOptions, StreamResult, ToolsPayload,
 };
-use crate::providers::{ChatMessage, ChatRequest, ChatResponse, ConversationMessage, Provider};
+use crate::providers::{ChatMessage, ChatRequest, ChatResponse, Provider};
 use futures_util::stream;
 use std::sync::Arc;
 
@@ -381,30 +381,6 @@ fn sanitize_sse_id(session_id: &str) -> String {
         .replace(['\r', '\n'], "")
 }
 
-fn approval_denial_from_history(history: &[ConversationMessage]) -> Option<(String, String)> {
-    history.iter().rev().find_map(|message| {
-        let ConversationMessage::ToolResults(results) = message else {
-            return None;
-        };
-
-        results.iter().find_map(|result| {
-            let parsed = serde_json::from_str::<serde_json::Value>(&result.content).ok()?;
-            if parsed.get("code")?.as_str()? != "approval_required" {
-                return None;
-            }
-
-            Some((
-                parsed.get("tool")?.as_str()?.to_string(),
-                parsed
-                    .get("reason")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("approval_required")
-                    .to_string(),
-            ))
-        })
-    })
-}
-
 pub(crate) async fn execute(
     config: &Config,
     provider: Arc<dyn Provider>,
@@ -535,7 +511,6 @@ mod tests {
     use crate::memory::{Memory, MemoryCategory, MemoryEntry};
     use crate::observability::{NoopObserver, Observer};
     use crate::providers::ToolCall;
-    use crate::providers::ToolResultMessage;
     use async_trait::async_trait;
     use parking_lot::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -721,20 +696,6 @@ mod tests {
             result.outcome,
             WebhookTerminalOutcome::BudgetExceeded { .. }
         ));
-    }
-
-    #[test]
-    fn approval_denial_is_detected_from_tool_results_history() {
-        let history = vec![ConversationMessage::ToolResults(vec![ToolResultMessage {
-            tool_call_id: "tc-1".into(),
-            content: r#"{"code":"approval_required","tool":"shell","reason":"approval required"}"#
-                .into(),
-        }])];
-
-        assert_eq!(
-            approval_denial_from_history(&history),
-            Some(("shell".into(), "approval required".into()))
-        );
     }
 
     #[test]

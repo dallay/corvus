@@ -1544,11 +1544,27 @@ async fn handle_code_command(
     agent.record_agent_start_event(&provider_name, &model_name);
 
     let run_result = if let Some(msg) = message {
-        let response = agent.run_single(&msg).await;
-        if let Ok(response) = &response {
-            println!("{response}");
+        let turn_result = agent
+            .turn_with_context(&msg, crate::agent::TurnContext::default())
+            .await;
+        if let Ok(turn_result) = &turn_result {
+            let blocking_err = cli_blocking_error_from_turn_result(turn_result);
+            if let Some(response) = turn_result.final_text.as_deref() {
+                println!("{response}");
+            }
+            if let Some(err) = blocking_err {
+                let summary_result = agent.session_cost_summary(chrono::Utc::now());
+                agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
+                match summary_result {
+                    Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Code),
+                    Err(error) => {
+                        tracing::warn!("Failed to load code session cost summary: {error}");
+                    }
+                }
+                return Err(err);
+            }
         }
-        response.map(|_| ())
+        turn_result.map(|_| ())
     } else {
         agent.run_interactive().await
     };
@@ -1635,6 +1651,14 @@ fn cli_blocking_error_from_turn_result(
                 "{session_prefix}Plan Mode restriction blocked `{tool}`: {reason}"
             ));
         }
+
+        // Any other policy_blocked is also an error
+        let tool = tool.unwrap_or("unknown_tool");
+        let code = code.unwrap_or("policy_blocked");
+        let reason = reason.unwrap_or("blocked by security policy");
+        return Some(anyhow!(
+            "{session_prefix}Policy restriction blocked `{tool}`: {reason} [{code}]"
+        ));
     }
 
     if let Some(approval_required) = turn_result.approval_required.as_ref() {

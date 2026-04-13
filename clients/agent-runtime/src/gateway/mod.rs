@@ -758,6 +758,21 @@ fn webhook_dispatcher_enabled(config: &Config) -> bool {
     config.gateway.webhook_dispatcher_enabled
 }
 
+/// Resolve the effective execution mode for a webhook request.
+/// Never allows a client-supplied mode to weaken the server-configured mode.
+fn resolve_webhook_execution_mode(
+    server_mode: ExecutionMode,
+    client_mode: Option<ExecutionMode>,
+) -> ExecutionMode {
+    match (server_mode, client_mode) {
+        // Server is Plan: always use Plan, ignore client request
+        (ExecutionMode::Plan, _) => ExecutionMode::Plan,
+        // Server is Standard: use client mode if provided, otherwise Standard
+        (ExecutionMode::Standard, Some(client)) => client,
+        (ExecutionMode::Standard, None) => ExecutionMode::Standard,
+    }
+}
+
 fn webhook_runtime_path_label(dispatcher_enabled: bool) -> &'static str {
     if dispatcher_enabled {
         "dispatcher_agent"
@@ -1948,6 +1963,7 @@ async fn handle_webhook(
 
     let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
     let config = state.config.lock().clone();
+    let server_execution_mode = config.agent.execution_mode;
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
     if dispatcher_enabled {
         log_webhook_runtime_path(&session_id, true, "dispatcher_flag_enabled");
@@ -1962,7 +1978,10 @@ async fn handle_webhook(
                 session_id: session_id.clone(),
                 session_source,
                 message: message.clone(),
-                execution_mode: webhook_body.execution_mode.unwrap_or_default(),
+                execution_mode: resolve_webhook_execution_mode(
+                    server_execution_mode,
+                    webhook_body.execution_mode,
+                ),
                 include_sse_frames: is_preview,
             },
         )
@@ -2092,6 +2111,7 @@ async fn handle_chat_stream(
     }
 
     let config = state.config.lock().clone();
+    let server_execution_mode = config.agent.execution_mode;
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
 
     // ── Process message via existing dispatch ────────────
@@ -2113,7 +2133,10 @@ async fn handle_chat_stream(
                 session_id: session_id.clone(),
                 session_source,
                 message: message.clone(),
-                execution_mode: webhook_body.execution_mode.unwrap_or_default(),
+                execution_mode: resolve_webhook_execution_mode(
+                    server_execution_mode,
+                    webhook_body.execution_mode,
+                ),
                 include_sse_frames: true,
             },
         )
@@ -3239,6 +3262,40 @@ mod tests {
         let parsed: Result<WebhookBody, _> = serde_json::from_str(valid);
         assert!(parsed.is_ok());
         assert_eq!(parsed.unwrap().execution_mode, Some(ExecutionMode::Plan));
+    }
+
+    #[test]
+    fn resolve_webhook_execution_mode_prevents_downgrade_from_plan() {
+        // Server in Plan mode: always use Plan, ignore client request
+        assert_eq!(
+            resolve_webhook_execution_mode(ExecutionMode::Plan, None),
+            ExecutionMode::Plan
+        );
+        assert_eq!(
+            resolve_webhook_execution_mode(ExecutionMode::Plan, Some(ExecutionMode::Plan)),
+            ExecutionMode::Plan
+        );
+        assert_eq!(
+            resolve_webhook_execution_mode(ExecutionMode::Plan, Some(ExecutionMode::Standard)),
+            ExecutionMode::Plan
+        );
+    }
+
+    #[test]
+    fn resolve_webhook_execution_mode_allows_client_mode_when_server_is_standard() {
+        // Server in Standard mode: use client mode if provided
+        assert_eq!(
+            resolve_webhook_execution_mode(ExecutionMode::Standard, None),
+            ExecutionMode::Standard
+        );
+        assert_eq!(
+            resolve_webhook_execution_mode(ExecutionMode::Standard, Some(ExecutionMode::Standard)),
+            ExecutionMode::Standard
+        );
+        assert_eq!(
+            resolve_webhook_execution_mode(ExecutionMode::Standard, Some(ExecutionMode::Plan)),
+            ExecutionMode::Plan
+        );
     }
 
     #[test]
