@@ -4,6 +4,7 @@ use crate::agent::{Agent, AgentTurnEvent, AgentTurnOutcome, AgentTurnResult, Tur
 use crate::bootstrap;
 use crate::config::{Config, ExecutionMode};
 use crate::cost::UsagePeriod;
+use crate::gateway::resolve_webhook_execution_mode;
 use crate::memory::Memory;
 use crate::observability::Observer;
 use crate::pre_execution::BlockingOutcome;
@@ -412,7 +413,9 @@ pub(crate) async fn execute(
     }
 
     let mut effective_config = config.clone();
-    effective_config.agent.execution_mode = request.execution_mode;
+    // Clamp request execution mode against server-configured mode (fail-closed to more restrictive)
+    effective_config.agent.execution_mode =
+        resolve_webhook_execution_mode(config.agent.execution_mode, Some(request.execution_mode));
 
     let bootstrap = match bootstrap::BootstrapContext::for_gateway(
         &effective_config,
@@ -454,7 +457,7 @@ pub(crate) async fn execute(
                     _ => map_canonical_result(&request, model, CanonicalWebhookResult::Error),
                 }
             } else if let Some(approval_required) = result.approval_required.as_ref() {
-                match policy_denial_from_value(approval_required) {
+                match approval_denial_from_value(approval_required) {
                     Some((_code, tool, reason)) => map_canonical_result(
                         &request,
                         model,
@@ -489,6 +492,29 @@ pub(crate) async fn execute(
     }
 }
 
+/// Parse an approval-required payload where code is optional.
+/// Returns (code_option, tool, reason) where code_option may be None.
+fn approval_denial_from_value(
+    value: &serde_json::Value,
+) -> Option<(Option<String>, String, String)> {
+    let tool = value.get("tool")?.as_str()?.to_string();
+    let code = value
+        .get("code")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    Some((
+        code,
+        tool.clone(),
+        value
+            .get("reason")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| approval_reason_for_tool(&tool)),
+    ))
+}
+
+/// Parse a policy-blocked payload where code is required.
+/// Returns Some((code, tool, reason)) or None if code is missing.
 fn policy_denial_from_value(value: &serde_json::Value) -> Option<(String, String, String)> {
     let code = value.get("code")?.as_str()?.to_string();
     let tool = value.get("tool")?.as_str()?.to_string();
@@ -757,7 +783,7 @@ mod tests {
                 _ => map_canonical_result(request, model, CanonicalWebhookResult::Error),
             }
         } else if let Some(approval_required) = result.approval_required.as_ref() {
-            match policy_denial_from_value(approval_required) {
+            match approval_denial_from_value(approval_required) {
                 Some((_code, tool, reason)) => map_canonical_result(
                     request,
                     model,

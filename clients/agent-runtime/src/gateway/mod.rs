@@ -760,7 +760,7 @@ fn webhook_dispatcher_enabled(config: &Config) -> bool {
 
 /// Resolve the effective execution mode for a webhook request.
 /// Never allows a client-supplied mode to weaken the server-configured mode.
-fn resolve_webhook_execution_mode(
+pub fn resolve_webhook_execution_mode(
     server_mode: ExecutionMode,
     client_mode: Option<ExecutionMode>,
 ) -> ExecutionMode {
@@ -2001,6 +2001,25 @@ async fn handle_webhook(
             persist_idempotency,
         )
         .await;
+        return response;
+    }
+
+    // Plan mode enforcement: fail-closed if dispatcher is disabled but Plan mode is requested
+    let resolved_execution_mode =
+        resolve_webhook_execution_mode(server_execution_mode, webhook_body.execution_mode);
+    if resolved_execution_mode == ExecutionMode::Plan {
+        let response = (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": {
+                    "code": "plan_mode_requires_dispatcher",
+                    "message": "Plan mode requires webhook_dispatcher_enabled=true in server config",
+                }
+            })),
+        );
+        release_idempotency_key(&state, reserved_idempotency_key, false);
+        update_session_activity_if_persisted(&state, &session_id, token_hash.as_deref(), false)
+            .await;
         return response;
     }
 
