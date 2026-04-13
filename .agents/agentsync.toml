@@ -157,6 +157,34 @@ type = "symlink-contents"
 pattern = "*"
 
 # -----------------------------------------------------------------------------
+# Qwen Code - AI coding agent from Alibaba DAMO Academy
+# -----------------------------------------------------------------------------
+# Qwen reads skills from .qwen/skills/<skill-name>/SKILL.md (directory with SKILL.md)
+# Qwen reads custom commands from .qwen/commands/<name>.md (Markdown with frontmatter)
+# Qwen reads AGENTS.md from project root automatically (no symlink needed)
+# Qwen reads MCP config from .qwen/settings.json
+# See: https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/
+# See: https://qwenlm.github.io/qwen-code-docs/en/users/features/commands/
+# See: https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/
+[agents.qwen]
+enabled = true
+description = "Qwen Code - Alibaba's AI coding agent"
+
+# Skills: Qwen expects .qwen/skills/<name>/SKILL.md (directory containing SKILL.md)
+# AgentSync skills are directories with SKILL.md inside - this works!
+[agents.qwen.targets.skills]
+source = "skills"
+destination = ".qwen/skills"
+type = "symlink-contents"
+pattern = "*"
+
+[agents.qwen.targets.commands]
+source = "command"
+destination = ".qwen/commands"
+type = "symlink-contents"
+pattern = "*"
+
+# -----------------------------------------------------------------------------
 # Antigravity - High-performance AI coding CLI
 # -----------------------------------------------------------------------------
 [agents.antigravity]
