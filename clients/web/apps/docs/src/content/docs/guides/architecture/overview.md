@@ -17,20 +17,14 @@ Context, Container, Component, Code).
 
 Shows the Corvus system as a black box and its interactions with actors and external systems.
 
-- **File**: [`context/system-context.mmd`](./diagrams/context/system-context.mmd)
-- **Format**: Mermaid
-- **Description**: High-level view of the complete system, including users (Developer, End User) and
-  external systems (LLM Providers, Neo4j, Web Sources).
+> **Note**: Architecture diagrams source files are managed in a separate repository.
+  See the [Corvus Architecture Diagrams](https://github.com/dallay/corvus/tree/main/docs/architecture/diagrams) for source files.
 
 ## Level 2: Containers
 
 Decomposes the system into main containers/applications and their interactions.
 
-- **Files**:
-  - [`container/runtime-containers.mmd`](./diagrams/container/runtime-containers.mmd) (Mermaid)
-  - [`container/runtime-containers.puml`](./diagrams/container/runtime-containers.puml) (PlantUML)
-- **Description**: Shows the runtime containers: CLI, gateway, daemon services, tool execution,
-  memory backends, and operator surfaces around Corvus.
+> **Note**: Container diagram source files are in the architecture diagrams repository.
 
 ## Level 3: Components
 

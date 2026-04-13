@@ -216,4 +216,4 @@ Use this procedure when the manifest, tags, or GitHub Releases drift:
 
 - [GitHub Releases for dallay/corvus](https://github.com/dallay/corvus/releases)
 - [GitHub Actions workflow guide](https://github.com/dallay/corvus/blob/main/.github/workflows/README.md)
-- [GPG setup guide](./gpg-setup/)
+- [GPG setup guide](./gpg-setup)

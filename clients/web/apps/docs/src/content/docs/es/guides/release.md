@@ -216,4 +216,4 @@ Usa este procedimiento cuando haya drift entre el manifiesto, los tags o GitHub 
 
 - [GitHub Releases de dallay/corvus](https://github.com/dallay/corvus/releases)
 - [Guía de workflows de GitHub Actions](https://github.com/dallay/corvus/blob/main/.github/workflows/README.md)
-- [Guía de configuración GPG](./gpg-setup/)
+- [Guía de configuración GPG](./gpg-setup)
