@@ -815,6 +815,7 @@ impl Agent {
         )
     }
 
+    #[allow(clippy::result_large_err)]
     fn handle_tool_result(
         &self,
         call: &ParsedToolCall,
