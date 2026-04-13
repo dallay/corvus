@@ -444,15 +444,16 @@ pub(crate) async fn execute(
         observer,
         cost_tracker,
     ) {
-            Ok(bootstrap) => bootstrap,
-            Err(_) => return map_canonical_result(&request, model, CanonicalWebhookResult::Error),
-        };
-
-    let provider: Box<dyn Provider> = Box::new(SharedProvider { inner: provider });
-    let mut agent = match Agent::from_bootstrap_with_provider(&effective_config, bootstrap, provider) {
-        Ok(agent) => agent,
+        Ok(bootstrap) => bootstrap,
         Err(_) => return map_canonical_result(&request, model, CanonicalWebhookResult::Error),
     };
+
+    let provider: Box<dyn Provider> = Box::new(SharedProvider { inner: provider });
+    let mut agent =
+        match Agent::from_bootstrap_with_provider(&effective_config, bootstrap, provider) {
+            Ok(agent) => agent,
+            Err(_) => return map_canonical_result(&request, model, CanonicalWebhookResult::Error),
+        };
 
     match agent
         .turn_with_context(&request.message, turn_context_for_request(&request))

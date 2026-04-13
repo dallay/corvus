@@ -5621,7 +5621,10 @@ always_ask = []
         };
 
         let mut headers = HeaderMap::new();
-        headers.insert("X-Session-Id", HeaderValue::from_static("session-plan-json"));
+        headers.insert(
+            "X-Session-Id",
+            HeaderValue::from_static("session-plan-json"),
+        );
 
         let response = handle_webhook(
             State(state),

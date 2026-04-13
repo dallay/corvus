@@ -1489,7 +1489,9 @@ async fn handle_agent_command(
                 agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
                 match summary_result {
                     Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Agent),
-                    Err(error) => tracing::warn!("Failed to load agent session cost summary: {error}"),
+                    Err(error) => {
+                        tracing::warn!("Failed to load agent session cost summary: {error}")
+                    }
                 }
                 return Err(err);
             }
@@ -1614,9 +1616,15 @@ fn cli_blocking_error_from_turn_result(
         .unwrap_or_default();
 
     if let Some(policy_blocked) = turn_result.policy_blocked.as_ref() {
-        let code = policy_blocked.get("code").and_then(serde_json::Value::as_str);
-        let tool = policy_blocked.get("tool").and_then(serde_json::Value::as_str);
-        let reason = policy_blocked.get("reason").and_then(serde_json::Value::as_str);
+        let code = policy_blocked
+            .get("code")
+            .and_then(serde_json::Value::as_str);
+        let tool = policy_blocked
+            .get("tool")
+            .and_then(serde_json::Value::as_str);
+        let reason = policy_blocked
+            .get("reason")
+            .and_then(serde_json::Value::as_str);
 
         if code == Some(crate::security::PLAN_MODE_BLOCKED_CODE) {
             let tool = tool.unwrap_or("unknown_tool");
@@ -3082,15 +3090,15 @@ mod tests {
 
     #[test]
     fn agent_and_code_commands_parse_plan_flag() {
-        let code_cli = Cli::try_parse_from(["corvus", "code", "--message", "hello", "--plan"])
-            .unwrap();
+        let code_cli =
+            Cli::try_parse_from(["corvus", "code", "--message", "hello", "--plan"]).unwrap();
         assert!(matches!(
             code_cli.command,
             Commands::Code { plan: true, .. }
         ));
 
-        let agent_cli = Cli::try_parse_from(["corvus", "agent", "--message", "hello", "--plan"])
-            .unwrap();
+        let agent_cli =
+            Cli::try_parse_from(["corvus", "agent", "--message", "hello", "--plan"]).unwrap();
         assert!(matches!(
             agent_cli.command,
             Commands::Agent { plan: true, .. }
