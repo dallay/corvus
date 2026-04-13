@@ -113,5 +113,5 @@ corvus --help
 
 ## Siguientes Pasos
 
-> **Nota**: Las subsecciones Project Structure, Features y Development están disponibles solo en inglés. 
+> **Nota**: Las subsecciones Estructura del Proyecto, Funcionalidades y Desarrollo están disponibles solo en inglés.
 > Consulte la [versión en inglés](../guides/getting-started) para más detalles.

@@ -13,7 +13,7 @@ translations:
 # Architecture Diagrams
 
 > **Migration Notice**: Architecture diagrams are being migrated to a separate repository. 
-> Track progress at https://github.com/dallay/corvus/issues (tag: architecture-diagrams).
+> Track progress at https://github.com/dallay/corvus/issues?q=label:architecture-diagrams
 
 This section will be updated once migration completes. The C4 model diagrams (Context, Container, Component, Code) are temporarily unavailable.
 
