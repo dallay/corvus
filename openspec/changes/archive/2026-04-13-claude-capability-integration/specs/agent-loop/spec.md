@@ -9,7 +9,7 @@ Plan Mode MUST be an opt-in execution mode rather than an implicit heuristic.
 
 When Plan Mode is active, the system MUST allow only analysis-only capability classes needed for
 inspection, retrieval, and search. These allowed classes MAY include read-only file inspection,
-read-only memory recall, code search, image inspection, and web search style capabilities.
+read-only memory recall, code search, image inspection, and web-search-style capabilities.
 
 When Plan Mode is active, the system MUST block capability classes that can mutate state, execute
 commands, write files, change external systems, or otherwise cross the analysis-only boundary. Any

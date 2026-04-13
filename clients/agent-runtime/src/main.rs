@@ -1480,11 +1480,18 @@ async fn handle_agent_command(
             .turn_with_context(&msg, crate::agent::TurnContext::default())
             .await;
         if let Ok(turn_result) = &turn_result {
-            if let Some(error) = cli_blocking_error_from_turn_result(turn_result) {
-                return Err(error);
-            }
+            let blocking_err = cli_blocking_error_from_turn_result(turn_result);
             if let Some(response) = turn_result.final_text.as_deref() {
                 println!("{response}");
+            }
+            if let Some(err) = blocking_err {
+                let summary_result = agent.session_cost_summary(chrono::Utc::now());
+                agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
+                match summary_result {
+                    Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Agent),
+                    Err(error) => tracing::warn!("Failed to load agent session cost summary: {error}"),
+                }
+                return Err(err);
             }
         }
         turn_result.map(|_| ())

@@ -72,22 +72,29 @@ pub fn evaluate_tool_risk_with_policy_for_origin(
     policy: &SecurityPolicy,
     origin: ExecutionOrigin,
 ) -> DispatchAction {
+    // Always consult the security policy first.
+    let outcome = policy.evaluate_tool_policy_outcome_for_origin(tool_name, origin);
+    if outcome.decision == ToolPolicyDecision::Deny {
+        return DispatchAction::Blocked {
+            code: outcome.code.unwrap_or("policy_denied").to_string(),
+            reason: outcome
+                .reason
+                .unwrap_or_else(|| format!("tool `{tool_name}` blocked by security policy")),
+        };
+    }
+
+    // In Plan mode, map Allow/ApprovalRequired as currently done.
     if policy.execution_mode == crate::config::ExecutionMode::Plan {
-        let outcome = policy.evaluate_tool_policy_outcome_for_origin(tool_name, origin);
         return match outcome.decision {
             ToolPolicyDecision::Allow => DispatchAction::Execute,
             ToolPolicyDecision::ApprovalRequired => {
                 DispatchAction::ApprovalRequired(tool_name.to_string())
             }
-            ToolPolicyDecision::Deny => DispatchAction::Blocked {
-                code: outcome.code.unwrap_or("policy_denied").to_string(),
-                reason: outcome
-                    .reason
-                    .unwrap_or_else(|| format!("tool `{tool_name}` blocked by security policy")),
-            },
+            ToolPolicyDecision::Deny => unreachable!("deny already handled above"),
         };
     }
 
+    // For non-Plan modes, run legacy risk checks when policy did not deny.
     evaluate_tool_risk_for_origin(tool_name, origin)
 }
 

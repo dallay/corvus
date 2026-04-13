@@ -16,8 +16,9 @@ large architecture rewrite now.
 ## Scope
 
 ### In Scope
+
 - Add a narrowly defined Plan Mode for canonical runtime paths, focused on analysis-only behavior.
-- Ensure plan mode allows explicit read/search style tools and blocks mutating or execution-heavy
+- Ensure plan mode allows explicit read/search-style tools and blocks mutating or execution-heavy
   tools with deterministic denial semantics.
 - Preserve parity for this slice across the runtime surfaces touched by the canonical dispatcher,
   especially CLI/code-session entry points and gateway webhook outcomes.
@@ -27,6 +28,7 @@ large architecture rewrite now.
   registry or plugin system.
 
 ### Out of Scope
+
 - Full Claude capability parity beyond Plan Mode.
 - A general capability marketplace, registry-first runtime, or dynamic plugin architecture.
 - Broad UX changes for plan/apply workflows across web, mobile, or dashboard surfaces.

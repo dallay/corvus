@@ -356,7 +356,7 @@ impl AgentBuilder {
                 .ok_or_else(|| anyhow::anyhow!("observer is required"))?,
             security_policy: self
                 .security_policy
-                .ok_or_else(|| anyhow::anyhow!("security_policy is required"))?,
+                .unwrap_or_else(|| Arc::new(SecurityPolicy::default())),
             audit_logger: self.audit_logger,
             audit_strict: self.audit_strict.unwrap_or(false),
             prompt_builder: self
@@ -2241,9 +2241,9 @@ impl Agent {
         if self.mission_execution_context
             && calls.iter().any(|call| {
                 matches!(
-                    self.tool_dispatcher.check_tool_risk_for_origin(
+                    evaluate_tool_risk_with_policy_for_origin(
                         &call.name,
-                        &call.arguments,
+                        &self.security_policy,
                         ExecutionOrigin::Mission,
                     ),
                     DispatchAction::ApprovalRequired(_) | DispatchAction::Blocked { .. }

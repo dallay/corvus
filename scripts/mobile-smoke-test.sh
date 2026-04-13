@@ -2,9 +2,29 @@
 # Mobile Smoke Validation Helper Script
 # Usage: bash scripts/mobile-smoke-test.sh [android|ios|both]
 
-set -e
+set -euo pipefail
 
-CORVUS_BINARY="clients/agent-runtime/target/release/corvus"
+resolve_corvus_binary() {
+  # Check for an explicit TARGET triple from environment/CI
+  if [[ -n "${TARGET:-}" ]] && [[ -f "clients/agent-runtime/target/${TARGET}/release/corvus" ]]; then
+    echo "clients/agent-runtime/target/${TARGET}/release/corvus"
+    return 0
+  fi
+
+  # Search for any existing corvus binary under target/*/release/ or target/release/
+  local found
+  found=$(find clients/agent-runtime/target -path '*/release/corvus' -type f 2>/dev/null | head -1) || true
+  if [[ -n "$found" ]]; then
+    echo "$found"
+    return 0
+  fi
+
+  log_error "Corvus binary not found under clients/agent-runtime/target/"
+  log_info "Run: make rust-build"
+  return 1
+}
+
+CORVUS_BINARY=""
 ANDROID_APK="clients/androidApp/build/outputs/apk/debug/androidApp-debug.apk"
 PACKAGE_NAME="com.profiletailors.corvus"
 
@@ -19,31 +39,36 @@ log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[⚠]${NC} $1"; }
 log_error() { echo -e "${RED}[✗]${NC} $1"; }
 
-check_prerequisites() {
-  log_info "Checking prerequisites..."
-  
-  if [ ! -f "$CORVUS_BINARY" ]; then
-    log_error "Corvus binary not found at $CORVUS_BINARY"
-    log_info "Run: make rust-build"
+check_common_prerequisites() {
+  log_info "Checking common prerequisites..."
+
+  CORVUS_BINARY=$(resolve_corvus_binary)
+  if [[ ! -f "$CORVUS_BINARY" ]]; then
+    # resolve_corvus_binary already logged an error
     exit 1
   fi
-  log_success "Corvus binary exists ($(ls -lh $CORVUS_BINARY | awk '{print $5}'))"
-  
-  if [ ! -f "$ANDROID_APK" ]; then
+  log_success "Corvus binary exists at $CORVUS_BINARY ($(ls -lh "$CORVUS_BINARY" | awk '{print $5}'))"
+}
+
+check_android_prerequisites() {
+  log_info "Checking Android prerequisites..."
+
+  if [[ ! -f "$ANDROID_APK" ]]; then
     log_error "Android APK not found at $ANDROID_APK"
     log_info "Run: make android-build"
     exit 1
   fi
   log_success "Android APK exists"
-  
+
   if ! command -v adb &> /dev/null; then
     log_warn "ADB not found in PATH - Android testing unavailable"
+    exit 1
   fi
 }
 
 test_android() {
   log_info "=== ANDROID SMOKE VALIDATION ==="
-  
+
   # Check device connection
   DEVICE_COUNT=$(adb devices 2>/dev/null | grep -c "device$" || true)
   if [ "$DEVICE_COUNT" -eq 0 ]; then
@@ -52,16 +77,17 @@ test_android() {
     exit 1
   fi
   log_success "Found $DEVICE_COUNT Android device(s)"
-  
+
   # Deploy corvus binary
   log_info "Deploying corvus binary to device..."
-  adb push "$CORVUS_BINARY" /data/local/tmp/corvus >/dev/null 2>&1 || {
+  if adb push "$CORVUS_BINARY" /data/local/tmp/corvus >/dev/null 2>&1; then
+    adb shell chmod +x /data/local/tmp/corvus 2>/dev/null || true
+    log_success "Corvus binary deployed"
+  else
     log_warn "Failed to push corvus binary (may require root)"
     log_info "Alternative: Configure endpoint URL in app settings"
-  }
-  adb shell chmod +x /data/local/tmp/corvus 2>/dev/null || true
-  log_success "Corvus binary deployed"
-  
+  fi
+
   # Install app
   log_info "Installing Android app..."
   adb install -r "$ANDROID_APK" >/dev/null 2>&1 || {
@@ -69,12 +95,12 @@ test_android() {
     exit 1
   }
   log_success "App installed"
-  
+
   # Launch app
   log_info "Launching app..."
   adb shell am start -n "$PACKAGE_NAME/.MainActivity" >/dev/null 2>&1
   log_success "App launched"
-  
+
   echo ""
   log_info "=== MANUAL VALIDATION STEPS ==="
   echo "1. Check onboarding screen appears"
@@ -93,14 +119,14 @@ test_android() {
 
 test_ios() {
   log_info "=== iOS SMOKE VALIDATION ==="
-  
+
   # Check for connected devices
   DEVICE_LIST=$(xcrun xctrace list devices 2>/dev/null | grep -A 100 "== Devices ==" | grep -B 100 "== " | head -20)
   if echo "$DEVICE_LIST" | grep -q "Offline"; then
     log_warn "iOS devices detected but offline"
     log_info "Connect device via USB and trust this computer"
   fi
-  
+
   # Check TEAM_ID configuration
   TEAM_ID=$(grep "TEAM_ID=" clients/iosApp/Configuration/Config.xcconfig | cut -d'=' -f2)
   if [ -z "$TEAM_ID" ]; then
@@ -110,7 +136,7 @@ test_ios() {
     exit 1
   fi
   log_success "TEAM_ID configured: $TEAM_ID"
-  
+
   # Build for device
   log_info "Building iOS app for device..."
   xcodebuild -project clients/iosApp/iosApp.xcodeproj \
@@ -122,7 +148,7 @@ test_ios() {
     exit 1
   }
   log_success "iOS app built"
-  
+
   echo ""
   log_info "=== iOS VALIDATION NOTES ==="
   log_warn "iOS companion client not implemented (see BUG-1 in smoke validation report)"
@@ -141,15 +167,17 @@ MODE=${1:-both}
 
 case "$MODE" in
   android)
-    check_prerequisites
+    check_common_prerequisites
+    check_android_prerequisites
     test_android
     ;;
   ios)
-    check_prerequisites
+    check_common_prerequisites
     test_ios
     ;;
   both)
-    check_prerequisites
+    check_common_prerequisites
+    check_android_prerequisites
     test_android
     echo ""
     echo "========================================"

@@ -397,8 +397,10 @@ Rollout is additive and low-risk because:
 
 ## Open Questions
 
-- [ ] The original delta specs for this active change are currently missing from
+- [x] ~~The original delta specs for this active change are currently missing from
       `openspec/changes/2026-04-13-claude-capability-integration/specs/`; verify they are restored
-      before downstream `sdd-verify` runs.
+      before downstream `sdd-verify` runs.~~
+      **Resolved:** Delta specs were restored under `openspec/changes/archive/2026-04-13-claude-capability-integration/specs/`
+      before this file was archived. No further action needed.
 - [ ] Should future follow-up work admit a namespaced subset of MCP read/search tools into Plan
       Mode, or should Plan Mode remain native-tool-only until a capability metadata contract exists?

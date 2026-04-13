@@ -1,6 +1,6 @@
 ---
 doc_id: client-surfaces-capability-matrix
-version: 1.4.0
+version: 1.5.0
 created: 2026-03-21
 status: active
 owner: architecture
