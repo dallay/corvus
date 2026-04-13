@@ -251,8 +251,8 @@ function truncateId(id: string): string {
 }
 
 .session-sidebar-item--active {
-  background: var(--corvus-color-bg-surface);
-  border-color: var(--corvus-color-border-visible);
+  background: var(--corvus-color-bg-raised);
+  border-left: 3px solid var(--corvus-color-accent-red);
 }
 
 .session-item-id {

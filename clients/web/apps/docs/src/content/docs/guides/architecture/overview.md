@@ -12,20 +12,18 @@ translations:
 
 # Architecture Diagrams
 
-This section contains the architecture diagrams for the Corvus project, following the C4 model (
-Context, Container, Component, Code).
+> **Migration Notice**: Architecture diagrams are being migrated to a separate repository. 
+> Track progress at https://github.com/dallay/corvus/issues (tag: architecture-diagrams).
+
+This section will be updated once migration completes. The C4 model diagrams (Context, Container, Component, Code) are temporarily unavailable.
 
 ## Level 1: System Context
 
 Shows the Corvus system as a black box and its interactions with actors and external systems.
 
-> **Note**: Architecture diagrams are currently being migrated to a separate repository.
-
 ## Level 2: Containers
 
 Decomposes the system into main containers/applications and their interactions.
-
-> **Note**: Container diagrams are currently being migrated to a separate repository.
 
 ## Level 3: Components
 
@@ -33,15 +31,14 @@ Decomposes individual containers into their internal components.
 
 ### Runtime Core
 
-> **Note**: Component diagrams are currently being migrated to a separate repository.
-
 ## Module Dependencies
 
 Additional diagram showing Cargo dependencies between workspace modules.
 
-> **Note**: Cargo dependency diagram is currently being migrated to a separate repository.
-
 ## How to Visualize
+
+> **Note**: Diagram rendering instructions will be available after migration completes.
+> See the migration notice at the top of this page for timeline and updates.
 
 ### Option 1: GitHub/GitLab
 
@@ -58,7 +55,7 @@ Install the "Markdown Preview Mermaid Support" extension to view diagrams in VS 
 npm install -g @mermaid-js/mermaid-cli
 
 # Render to PNG (example path - adjust to actual diagram location)
-mmdc -i <path-to-diagram>/system-context.mmd -o context.png
+mmdc -i <path-to-diagram>/<diagram-file>.mmd -o output.png
 ```
 
 ### Option 4: PlantUML
@@ -67,10 +64,12 @@ For `.puml` files:
 
 ```bash
 # Use PlantUML online or locally (example path - adjust to actual diagram location)
-plantuml -tpng <path-to-diagram>/runtime-containers.puml
+plantuml -tpng <path-to-diagram>/<diagram-file>.puml
 ```
 
 ## Conventions
+
+> **Note**: These conventions apply after migration completes. The C4 diagrams are temporarily unavailable.
 
 - **Context Level (C1)**: One diagram showing the complete system
 - **Container Level (C2)**: One diagram per system, showing main applications
@@ -78,6 +77,8 @@ plantuml -tpng <path-to-diagram>/runtime-containers.puml
 - **Code Level (C4)**: UML class diagrams for critical components (optional)
 
 ## Maintenance
+
+> **Note**: These maintenance guidelines apply after migration completes. The C4 diagrams are temporarily unavailable.
 
 When adding new modules or changing architecture:
 
