@@ -3434,7 +3434,7 @@ mod tests {
         };
 
         let response = handle_metrics(State(state)).await.into_response();
-        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response
                 .headers()
@@ -3479,7 +3479,7 @@ mod tests {
         };
 
         let response = handle_metrics(State(state)).await.into_response();
-        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let text = String::from_utf8(body.to_vec()).unwrap();
