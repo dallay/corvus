@@ -184,13 +184,13 @@ pub struct SessionCommandResult {
 Registry shape stays static and minimal:
 
 ```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionCommandSpec {
     pub name: &'static str,
-    pub handler: fn(&SessionCommandService, CommandContext<'_>) -> SessionCommandFuture,
 }
 ```
 
-Implementation should use a `match`-based registry or a small static array, not a dynamic plugin system.
+Implementation uses a `match`-based dispatcher in `registry.rs` (see `dispatch` function), not fn pointers — commands are dispatched via a static match statement rather than a dynamic plugin system.
 
 ### Memory contract additions
 

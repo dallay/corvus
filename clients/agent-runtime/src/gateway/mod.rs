@@ -2168,6 +2168,31 @@ async fn handle_chat_stream(
 
     if let crate::pre_execution::IngressDecision::SessionCommand { result, .. } = &ingress_decision
     {
+        // Deny-by-default: reject plan mode when dispatcher is disabled
+        let effective_mode = resolve_webhook_execution_mode(
+            config.agent.execution_mode,
+            webhook_body.execution_mode,
+        );
+        if effective_mode == ExecutionMode::Plan {
+            return Ok(Sse::new(futures::stream::iter(vec![Ok(Event::default()
+                .event("error")
+                .data(serde_json::json!({
+                    "code": "plan_mode_blocked",
+                    "reason": "Plan mode requires dispatcher; dispatcher is not enabled on this server",
+                    "execution_mode": "plan",
+                }).to_string()))]))
+            .keep_alive(KeepAlive::default()));
+        }
+
+        // Update session activity before returning early
+        if let Err(e) = state
+            .mem
+            .update_session_activity(&session_id, token_hash.as_deref())
+            .await
+        {
+            tracing::debug!("session activity update best-effort failed: {e}");
+        }
+
         let sid = session_id.clone();
         let message_id = Uuid::new_v4().to_string();
         let events = vec![
@@ -2268,6 +2293,22 @@ async fn handle_chat_stream(
         }
     } else {
         log_webhook_runtime_path(&session_id, false, "stream_legacy");
+        // Deny-by-default: reject plan mode when dispatcher is disabled
+        let effective_mode = resolve_webhook_execution_mode(
+            config.agent.execution_mode,
+            webhook_body.execution_mode,
+        );
+        if effective_mode == ExecutionMode::Plan {
+            return Ok(Sse::new(futures::stream::iter(vec![Ok(Event::default()
+                .event("error")
+                .data(serde_json::json!({
+                    "code": "plan_mode_blocked",
+                    "reason": "Plan mode requires dispatcher; dispatcher is not enabled on this server",
+                    "execution_mode": "plan",
+                }).to_string()))]))
+            .keep_alive(KeepAlive::default()));
+        }
+
         if config.cost.enabled {
             StreamProcessingOutcome::Error(serde_json::json!({
                 "code": "cost_governance_requires_dispatcher",
@@ -2287,6 +2328,15 @@ async fn handle_chat_stream(
                     "message": "Request timed out",
                 }),
                 crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                    // Update session activity before returning early
+                    if let Err(e) = state
+                        .mem
+                        .update_session_activity(&session_id, token_hash.as_deref())
+                        .await
+                    {
+                        tracing::debug!("session activity update best-effort failed: {e}");
+                    }
+
                     return Ok(Sse::new(futures::stream::iter(vec![
                         Ok(Event::default()
                             .event("chunk")

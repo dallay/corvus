@@ -86,9 +86,11 @@ impl MemoryLoader for CerebroMemoryLoader {
         user_message: &str,
         session_id: Option<&str>,
     ) -> anyhow::Result<String> {
-        let entries = memory.recall(user_message, self.limit, session_id).await?;
         let mut context = String::new();
+        let added_resume = append_pending_resume_context(&mut context, memory, session_id).await?;
+        let entries = memory.recall(user_message, self.limit, session_id).await?;
         let mut added = append_local_entries(&mut context, &entries, self.min_relevance_score);
+        added = added || added_resume;
 
         let endpoint = self
             .config

@@ -3206,7 +3206,7 @@ mod tests {
     async fn ingress_outcome_handles_slash_session_commands_before_memory_enrichment() {
         let channel = Arc::new(RecordingChannel::default());
         let channel_dyn: Arc<dyn Channel> = channel.clone();
-        let memory = NoneMemory::new();
+        let memory = CountingMemory::default();
 
         let handled = handle_ingress_outcome(
             Some(&channel_dyn),
@@ -3221,6 +3221,80 @@ mod tests {
         let sent = channel.sent_messages.lock().await.clone();
         assert_eq!(sent.len(), 1);
         assert!(sent[0].contains("require sqlite"));
+        // Verify that memory enrichment (recall/store) was NOT called — slash commands
+        // are handled before memory enrichment, so counters must remain zero.
+        assert_eq!(
+            memory.recall_calls.load(Ordering::SeqCst),
+            0,
+            "memory.recall should not be called for slash session commands"
+        );
+        assert_eq!(
+            memory.store_calls.load(Ordering::SeqCst),
+            0,
+            "memory.store should not be called for slash session commands"
+        );
+    }
+
+    /// Instrumented memory wrapper that counts recall/store invocations for testing.
+    #[derive(Default)]
+    struct CountingMemory {
+        recall_calls: std::sync::atomic::AtomicUsize,
+        store_calls: std::sync::atomic::AtomicUsize,
+        inner: NoneMemory,
+    }
+
+    #[async_trait::async_trait]
+    impl Memory for CountingMemory {
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: usize,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            self.recall_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.recall(_query, _limit, _session_id).await
+        }
+
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: crate::memory::MemoryCategory,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<()> {
+            self.store_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner
+                .store(_key, _content, _category, _session_id)
+                .await
+        }
+
+        fn name(&self) -> &str {
+            self.inner.name()
+        }
+
+        async fn get(&self, key: &str) -> anyhow::Result<Option<crate::memory::MemoryEntry>> {
+            self.inner.get(key).await
+        }
+
+        async fn list(
+            &self,
+            category: Option<&crate::memory::MemoryCategory>,
+            session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            self.inner.list(category, session_id).await
+        }
+
+        async fn forget(&self, key: &str) -> anyhow::Result<bool> {
+            self.inner.forget(key).await
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            self.inner.count().await
+        }
+
+        async fn health_check(&self) -> bool {
+            self.inner.health_check().await
+        }
     }
 
     #[derive(Default)]

@@ -1,5 +1,47 @@
 use crate::memory::ResumableSessionEntry;
 
+/// Sanitize storage errors for user-facing messages.
+/// Strips sensitive information like file paths and connection strings.
+pub(crate) fn sanitize_storage_error(error: &anyhow::Error) -> String {
+    let error_str = error.to_string();
+
+    // List of patterns that may contain sensitive information
+    let sensitive_patterns = [
+        // File paths that may leak system info
+        r"/[a-zA-Z0-9_/.-]+",
+        // Connection strings that may contain credentials
+        r"sqlite://[^\s]+",
+        r"postgresql://[^\s]+",
+        r"mysql://[^\s]+",
+    ];
+
+    let mut sanitized = error_str.clone();
+    for pattern in sensitive_patterns {
+        if let Ok(re) = regex::Regex::new(pattern) {
+            sanitized = re.replace_all(&sanitized, "[REDACTED]").to_string();
+        }
+    }
+
+    // If the sanitized message is too different, return a generic message
+    if sanitized.len() > 100 && sanitized != error_str {
+        return "storage unavailable".to_string();
+    }
+
+    // Check for common error types and map to user-friendly messages
+    let lower = sanitized.to_lowercase();
+    if lower.contains("no such file") || lower.contains("not found") {
+        return "storage not found".to_string();
+    }
+    if lower.contains("permission") || lower.contains("access denied") {
+        return "storage access denied".to_string();
+    }
+    if lower.contains("locked") || lower.contains("busy") {
+        return "storage is busy".to_string();
+    }
+
+    sanitized
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionSlashCommand {
     Resume {

@@ -401,6 +401,8 @@ pub(crate) async fn execute(
     .await
     {
         IngressDecision::SessionCommand { result, .. } => {
+            // SessionCommand is a metadata-only operation — frames intentionally omitted.
+            // No agent execution occurs, so there are no tool calls or events to report.
             return WebhookTurnResult {
                 session_id: request.session_id.clone(),
                 model: model.to_string(),

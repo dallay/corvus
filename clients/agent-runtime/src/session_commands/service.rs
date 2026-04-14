@@ -1,4 +1,4 @@
-use super::types::{SessionCommandError, SessionCommandResult};
+use super::types::{sanitize_storage_error, SessionCommandError, SessionCommandResult};
 use crate::memory::{
     is_slash_session_unsupported_error, Memory, SessionFieldPatch, SessionSnapshotKind,
     SessionStatePatch, SessionStatus, SlashSessionLifecycle,
@@ -196,7 +196,32 @@ impl<'a> SessionCommandService<'a> {
                     session_id: target_session_id.to_string(),
                 });
             }
-            let state = self.require_state(target_session_id).await?;
+
+            // Caller ownership check: validate the caller can access this session.
+            // Use list_resumable_sessions to check visibility - if the caller can see it,
+            // they can resume it. This enforces the same visibility rules as listing.
+            if let Some(caller_hash) = caller_token_hash {
+                let visible = self
+                    .memory
+                    .list_resumable_sessions(Some(caller_hash), 100, 0)
+                    .await
+                    .map_err(|error| self.map_storage_error(error))?
+                    .iter()
+                    .any(|entry| entry.session_id == target_session_id);
+                if !visible {
+                    return Err(SessionCommandError::InvalidResumeTarget {
+                        session_id: target_session_id.to_string(),
+                    });
+                }
+            }
+
+            // Use non-panicking state lookup instead of require_state
+            let state = self.get_session_state_optional(target_session_id).await?;
+            let Some(state) = state else {
+                return Err(SessionCommandError::InvalidResumeTarget {
+                    session_id: target_session_id.to_string(),
+                });
+            };
             if state.lifecycle != SlashSessionLifecycle::Suspended {
                 return Err(SessionCommandError::InvalidResumeTarget {
                     session_id: target_session_id.to_string(),
@@ -314,6 +339,19 @@ impl<'a> SessionCommandService<'a> {
             })
     }
 
+    /// Non-panicking version of require_state for targeted resume.
+    /// Returns None if no state record exists (instead of error).
+    async fn get_session_state_optional(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<crate::memory::SessionStateRecord>, SessionCommandError> {
+        self.memory
+            .get_session_state_record(session_id)
+            .await
+            .map_err(|error| self.map_storage_error(error))
+    }
+
+    /// Get the token_hash for a session to validate caller ownership.
     async fn require_resume_capable_snapshot(
         &self,
         session_id: &str,
@@ -346,8 +384,11 @@ impl<'a> SessionCommandService<'a> {
                 backend: self.memory.name().to_string(),
             }
         } else {
+            // Log the detailed error for internal debugging
+            tracing::error!(error = %error, "storage error details (for internal logs)");
+            // Return sanitized message for user-facing error
             SessionCommandError::StorageFailure {
-                detail: error.to_string(),
+                detail: sanitize_storage_error(&error),
             }
         }
     }

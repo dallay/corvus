@@ -296,15 +296,20 @@ impl SqliteMemory {
              FROM session_snapshots WHERE id = ?1",
         )?;
         let mut rows = stmt.query_map(params![snapshot_id], |row| {
-            Ok(SessionSnapshotRecord {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                kind: Self::snapshot_kind_from_row(row.get::<_, String>(2)?)?,
-                created_at: row.get(3)?,
-                payload: serde_json::from_str::<serde_json::Value>(&row.get::<_, String>(4)?)
-                    .unwrap_or(serde_json::Value::Null),
-                resume_capable: row.get::<_, i64>(5)? != 0,
-            })
+            let payload_str: String = row.get(4)?;
+            match serde_json::from_str::<serde_json::Value>(&payload_str) {
+                Ok(payload) => Ok(SessionSnapshotRecord {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    kind: Self::snapshot_kind_from_row(row.get::<_, String>(2)?)?,
+                    created_at: row.get(3)?,
+                    payload,
+                    resume_capable: row.get::<_, i64>(5)? != 0,
+                }),
+                Err(e) => Err(rusqlite::Error::InvalidParameterName(format!(
+                    "failed to deserialize snapshot payload: {e}"
+                ))),
+            }
         })?;
         match rows.next() {
             Some(Ok(record)) => Ok(Some(record)),
@@ -1452,9 +1457,13 @@ impl Memory for SqliteMemory {
             )?;
             let rows = stmt
                 .query_map(params![limit, offset, caller_token_hash], |row| {
+                    let payload_str = row.get::<_, String>(5)?;
                     let payload =
-                        serde_json::from_str::<serde_json::Value>(&row.get::<_, String>(5)?)
-                            .unwrap_or(serde_json::Value::Null);
+                        serde_json::from_str::<serde_json::Value>(&payload_str).map_err(|e| {
+                            rusqlite::Error::InvalidParameterName(format!(
+                                "failed to deserialize snapshot payload: {e}"
+                            ))
+                        })?;
                     let preview = payload
                         .get("preview")
                         .and_then(serde_json::Value::as_str)
