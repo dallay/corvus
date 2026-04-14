@@ -2028,16 +2028,41 @@ mod tests {
         let (_tmp, mem) = temp_sqlite();
         mem.upsert_session("session-1", None).await.unwrap();
 
+        let snapshot = mem
+            .create_session_snapshot(
+                "session-1",
+                SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "Preview A",
+                    "summary": "Preview A",
+                    "resume_context": "Preview A",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+
         mem.apply_session_state_patch(SessionStatePatch {
             session_id: "session-1".into(),
             lifecycle: Some(SlashSessionLifecycle::Active),
             latest_tldr_snapshot_id: SessionFieldPatch::Keep,
             latest_compact_snapshot_id: SessionFieldPatch::Keep,
-            pending_hydration_snapshot_id: SessionFieldPatch::Set("missing-snapshot".into()),
+            pending_hydration_snapshot_id: SessionFieldPatch::Set(snapshot.id.clone()),
             suspended_at: SessionFieldPatch::Clear,
         })
         .await
         .unwrap();
+
+        {
+            let conn = mem.conn.lock();
+            conn.execute("PRAGMA foreign_keys = OFF", []).unwrap();
+            conn.execute(
+                "DELETE FROM session_snapshots WHERE id = ?1",
+                params![snapshot.id],
+            )
+            .unwrap();
+            conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
+        }
 
         let error = mem
             .take_pending_resume_hydration("session-1")
@@ -2054,7 +2079,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             state.pending_hydration_snapshot_id.as_deref(),
-            Some("missing-snapshot")
+            Some(snapshot.id.as_str())
         );
     }
 

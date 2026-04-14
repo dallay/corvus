@@ -4669,7 +4669,7 @@ mod tests {
         let sent_messages = channel_impl.sent_messages.lock().await;
         assert_eq!(sent_messages.len(), 1);
         assert!(sent_messages[0].contains("request blocked"));
-        assert!(sent_messages[0].contains("[session:test-channel-approval-1]"));
+        assert!(sent_messages[0].contains("[session:test-channel_alice]"));
     }
 
     #[tokio::test]
