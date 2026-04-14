@@ -68,6 +68,7 @@ pub mod runtime;
 pub mod search;
 pub mod security;
 pub mod service;
+pub mod session_commands;
 pub mod skills;
 pub mod tools;
 pub mod transcription;

@@ -73,6 +73,7 @@ mod runtime;
 mod search;
 mod security;
 mod service;
+mod session_commands;
 mod skillforge;
 mod skills;
 #[cfg(test)]
@@ -1396,6 +1397,13 @@ async fn handle_agent_command(
 ) -> Result<()> {
     maybe_print_update_notice_bounded(&config).await;
 
+    if let Some(raw_message) = message.as_deref() {
+        if let Some(result) = maybe_handle_cli_session_command(&config, raw_message).await? {
+            println!("{}", result.message);
+            return Ok(());
+        }
+    }
+
     let canonical_prompt = message
         .clone()
         .unwrap_or_else(|| "interactive-session".to_string());
@@ -1511,6 +1519,24 @@ async fn handle_agent_command(
     }
 
     run_result
+}
+
+async fn maybe_handle_cli_session_command(
+    config: &Config,
+    message: &str,
+) -> Result<Option<crate::session_commands::SessionCommandResult>> {
+    if crate::session_commands::SessionCommandParser::parse(message).is_none() {
+        return Ok(None);
+    }
+
+    let (memory, _observer) = crate::bootstrap::create_memory_and_observer(config)?;
+    let session_id =
+        std::env::var("CORVUS_SESSION_ID").unwrap_or_else(|_| "interactive-session".to_string());
+    match crate::pre_execution::evaluate_ingress(memory.as_ref(), &session_id, message).await {
+        crate::pre_execution::IngressDecision::SessionCommand(result) => Ok(Some(result)),
+        crate::pre_execution::IngressDecision::Blocking(_)
+        | crate::pre_execution::IngressDecision::Continue => Ok(None),
+    }
 }
 
 async fn handle_code_command(
@@ -3357,5 +3383,21 @@ mod tests {
         .unwrap();
         assert_eq!(result.scope, crate::cost::CostResetScope::Day);
         assert_eq!(result.removed_requests, 1);
+    }
+
+    #[tokio::test]
+    async fn cli_session_commands_are_handled_before_agent_execution() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = crate::test_support::test_config(&tmp);
+        config.memory.backend = "none".into();
+
+        let handled = maybe_handle_cli_session_command(&config, "/tldr")
+            .await
+            .unwrap();
+
+        assert!(handled.is_some());
+        assert!(handled
+            .as_ref()
+            .is_some_and(|result| result.message.contains("require sqlite")));
     }
 }

@@ -1,10 +1,21 @@
 use crate::agent::unified_entrypoint::{self, CanonicalOutcome};
+use crate::memory::Memory;
+use crate::session_commands::{
+    dispatch, CommandContext, SessionCommandParser, SessionCommandResult, SessionCommandService,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockingOutcome {
     ApprovalRequired { tool: String },
     TimeoutAborted,
     Fallback { response: String },
+}
+
+#[derive(Debug, Clone)]
+pub enum IngressDecision {
+    Continue,
+    Blocking(BlockingOutcome),
+    SessionCommand(SessionCommandResult),
 }
 
 pub fn approval_granted_from_env() -> bool {
@@ -27,6 +38,40 @@ pub async fn evaluate(session_id: String, prompt: &str) -> CanonicalOutcome {
     .await
 }
 
+pub async fn evaluate_ingress(
+    memory: &dyn Memory,
+    session_id: &str,
+    prompt: &str,
+) -> IngressDecision {
+    if let Some(command) = SessionCommandParser::parse(prompt) {
+        let service = SessionCommandService::new(memory);
+        return match dispatch(
+            &service,
+            CommandContext {
+                session_id,
+                command,
+            },
+        )
+        .await
+        {
+            Ok(result) => IngressDecision::SessionCommand(result),
+            Err(error) => IngressDecision::SessionCommand(SessionCommandResult {
+                command: "slash-session-error",
+                session_id: session_id.to_string(),
+                message: error.message(),
+                resumed_session_id: None,
+                resumable_sessions: Vec::new(),
+            }),
+        };
+    }
+
+    let canonical = evaluate(session_id.to_string(), prompt).await;
+    match classify_blocking(&canonical) {
+        Some(blocking) => IngressDecision::Blocking(blocking),
+        None => IngressDecision::Continue,
+    }
+}
+
 pub fn classify_blocking(outcome: &CanonicalOutcome) -> Option<BlockingOutcome> {
     if let Some(tool) = &outcome.approval_required {
         return Some(BlockingOutcome::ApprovalRequired { tool: tool.clone() });
@@ -47,6 +92,60 @@ pub fn classify_blocking(outcome: &CanonicalOutcome) -> Option<BlockingOutcome> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::{Memory, MemoryCategory, MemoryEntry};
+    use async_trait::async_trait;
+
+    struct IngressMemory;
+
+    #[async_trait]
+    impl Memory for IngressMemory {
+        fn name(&self) -> &str {
+            "none"
+        }
+
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: MemoryCategory,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: usize,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<MemoryEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+            Ok(None)
+        }
+
+        async fn list(
+            &self,
+            _category: Option<&MemoryCategory>,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<MemoryEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            Ok(0)
+        }
+
+        async fn health_check(&self) -> bool {
+            true
+        }
+    }
 
     #[test]
     fn classify_prefers_approval_required() {
@@ -127,5 +226,19 @@ mod tests {
             classify_blocking(&outcome),
             Some(BlockingOutcome::TimeoutAborted)
         );
+    }
+
+    #[tokio::test]
+    async fn ingress_classifies_supported_slash_commands_before_pre_execution() {
+        let decision = evaluate_ingress(&IngressMemory, "session-1", "/tldr").await;
+
+        assert!(matches!(decision, IngressDecision::SessionCommand(_)));
+    }
+
+    #[tokio::test]
+    async fn ingress_preserves_unknown_slash_like_input() {
+        let decision = evaluate_ingress(&IngressMemory, "session-1", "/resume-later").await;
+
+        assert!(matches!(decision, IngressDecision::Continue));
     }
 }

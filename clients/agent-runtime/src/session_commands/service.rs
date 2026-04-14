@@ -1,0 +1,945 @@
+use super::types::{SessionCommandError, SessionCommandResult};
+use crate::memory::{
+    Memory, SessionSnapshotKind, SessionStateMutation, SessionStatus, SlashSessionLifecycle,
+};
+use serde_json::json;
+
+const DEFAULT_EXCERPT_LIMIT: usize = 8;
+const PREVIEW_LIMIT: usize = 120;
+
+pub struct SessionCommandService<'a> {
+    memory: &'a dyn Memory,
+}
+
+impl<'a> SessionCommandService<'a> {
+    pub fn new(memory: &'a dyn Memory) -> Self {
+        Self { memory }
+    }
+
+    pub async fn handle_tldr(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionCommandResult, SessionCommandError> {
+        self.ensure_sqlite()?;
+        let session = self.require_active_session(session_id).await?;
+        let state = self.current_state(session_id).await?;
+        if state == SlashSessionLifecycle::Suspended {
+            return Err(SessionCommandError::InvalidState {
+                session_id: session_id.to_string(),
+                detail: "session is suspended",
+            });
+        }
+
+        let excerpt = self
+            .memory
+            .load_session_transcript_excerpt(session_id, DEFAULT_EXCERPT_LIMIT)
+            .await
+            .map_err(|_| SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            })?;
+        let summary = build_summary(&excerpt, PREVIEW_LIMIT);
+        let snapshot = self
+            .memory
+            .create_session_snapshot(
+                session_id,
+                SessionSnapshotKind::Tldr,
+                json!({
+                    "summary": summary,
+                    "excerpt_count": excerpt.len(),
+                    "message_count": session.message_count,
+                    "last_activity": session.last_activity,
+                }),
+                false,
+            )
+            .await
+            .map_err(|_| SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            })?;
+        self.memory
+            .update_session_state_record(SessionStateMutation {
+                session_id: session_id.to_string(),
+                lifecycle: SlashSessionLifecycle::Active,
+                latest_tldr_snapshot_id: Some(snapshot.id),
+                latest_compact_snapshot_id: self
+                    .memory
+                    .get_session_state_record(session_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|state| state.latest_compact_snapshot_id),
+                pending_hydration_snapshot_id: None,
+                suspended_at: None,
+            })
+            .await
+            .map_err(|_| SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            })?;
+
+        Ok(SessionCommandResult {
+            command: "/tldr",
+            session_id: session_id.to_string(),
+            message: summary,
+            resumed_session_id: None,
+            resumable_sessions: Vec::new(),
+        })
+    }
+
+    pub async fn handle_compact(
+        &self,
+        session_id: &str,
+        args: &str,
+    ) -> Result<SessionCommandResult, SessionCommandError> {
+        self.ensure_sqlite()?;
+        let session = self.require_active_session(session_id).await?;
+        let state = self.current_state(session_id).await?;
+        if state == SlashSessionLifecycle::Suspended {
+            return Err(SessionCommandError::InvalidState {
+                session_id: session_id.to_string(),
+                detail: "session is suspended",
+            });
+        }
+
+        let excerpt = self
+            .memory
+            .load_session_transcript_excerpt(session_id, DEFAULT_EXCERPT_LIMIT)
+            .await
+            .map_err(|_| SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            })?;
+        let summary = build_summary(&excerpt, PREVIEW_LIMIT);
+        let resume_context = build_resume_context(session_id, &summary, &excerpt, args);
+        let preview = truncate_preview(&summary, PREVIEW_LIMIT);
+        let snapshot = self
+            .memory
+            .create_session_snapshot(
+                session_id,
+                SessionSnapshotKind::Compact,
+                json!({
+                    "summary": summary,
+                    "resume_context": resume_context,
+                    "preview": preview,
+                    "message_count": session.message_count,
+                    "last_activity": session.last_activity,
+                    "excerpt_count": excerpt.len(),
+                }),
+                true,
+            )
+            .await
+            .map_err(|_| SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            })?;
+        self.memory
+            .update_session_state_record(SessionStateMutation {
+                session_id: session_id.to_string(),
+                lifecycle: SlashSessionLifecycle::Active,
+                latest_tldr_snapshot_id: self
+                    .memory
+                    .get_session_state_record(session_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|state| state.latest_tldr_snapshot_id),
+                latest_compact_snapshot_id: Some(snapshot.id),
+                pending_hydration_snapshot_id: None,
+                suspended_at: None,
+            })
+            .await
+            .map_err(|_| SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            })?;
+
+        Ok(SessionCommandResult {
+            command: "/compact",
+            session_id: session_id.to_string(),
+            message: format!("[session:{session_id}] session compacted and ready for resume"),
+            resumed_session_id: None,
+            resumable_sessions: Vec::new(),
+        })
+    }
+
+    pub async fn handle_suspend(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionCommandResult, SessionCommandError> {
+        self.ensure_sqlite()?;
+        self.require_active_session(session_id).await?;
+        let state = self.require_state(session_id).await?;
+        if state.lifecycle == SlashSessionLifecycle::Suspended {
+            return Err(SessionCommandError::InvalidState {
+                session_id: session_id.to_string(),
+                detail: "session is already suspended",
+            });
+        }
+        let Some(snapshot_id) = state.latest_compact_snapshot_id.clone() else {
+            return Err(SessionCommandError::MissingSnapshot {
+                session_id: session_id.to_string(),
+            });
+        };
+        self.require_resume_capable_snapshot(session_id, &snapshot_id)
+            .await?;
+        self.memory
+            .update_session_state_record(SessionStateMutation {
+                session_id: session_id.to_string(),
+                lifecycle: SlashSessionLifecycle::Suspended,
+                latest_tldr_snapshot_id: state.latest_tldr_snapshot_id,
+                latest_compact_snapshot_id: Some(snapshot_id),
+                pending_hydration_snapshot_id: None,
+                suspended_at: Some(chrono::Utc::now().to_rfc3339()),
+            })
+            .await
+            .map_err(|_| SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            })?;
+
+        Ok(SessionCommandResult {
+            command: "/suspend",
+            session_id: session_id.to_string(),
+            message: format!("[session:{session_id}] session suspended"),
+            resumed_session_id: None,
+            resumable_sessions: Vec::new(),
+        })
+    }
+
+    pub async fn handle_resume(
+        &self,
+        current_session_id: &str,
+        target: Option<&str>,
+    ) -> Result<SessionCommandResult, SessionCommandError> {
+        self.ensure_sqlite()?;
+        if let Some(target_session_id) = target {
+            let session = self
+                .memory
+                .get_session(target_session_id)
+                .await
+                .map_err(|_| SessionCommandError::UnsupportedBackend {
+                    backend: self.memory.name().to_string(),
+                })?
+                .ok_or_else(|| SessionCommandError::InvalidResumeTarget {
+                    session_id: target_session_id.to_string(),
+                })?;
+            if session.status == SessionStatus::Ended {
+                return Err(SessionCommandError::InvalidResumeTarget {
+                    session_id: target_session_id.to_string(),
+                });
+            }
+            let state = self.require_state(target_session_id).await?;
+            if state.lifecycle != SlashSessionLifecycle::Suspended {
+                return Err(SessionCommandError::InvalidResumeTarget {
+                    session_id: target_session_id.to_string(),
+                });
+            }
+            let Some(snapshot_id) = state.latest_compact_snapshot_id else {
+                return Err(SessionCommandError::MissingSnapshot {
+                    session_id: target_session_id.to_string(),
+                });
+            };
+            self.require_resume_capable_snapshot(target_session_id, &snapshot_id)
+                .await?;
+            self.memory
+                .update_session_state_record(SessionStateMutation {
+                    session_id: target_session_id.to_string(),
+                    lifecycle: SlashSessionLifecycle::Active,
+                    latest_tldr_snapshot_id: state.latest_tldr_snapshot_id,
+                    latest_compact_snapshot_id: Some(snapshot_id.clone()),
+                    pending_hydration_snapshot_id: Some(snapshot_id),
+                    suspended_at: None,
+                })
+                .await
+                .map_err(|_| SessionCommandError::UnsupportedBackend {
+                    backend: self.memory.name().to_string(),
+                })?;
+
+            return Ok(SessionCommandResult {
+                command: "/resume",
+                session_id: current_session_id.to_string(),
+                message: format!(
+                    "[session:{target_session_id}] resumed from persisted compact snapshot"
+                ),
+                resumed_session_id: Some(target_session_id.to_string()),
+                resumable_sessions: Vec::new(),
+            });
+        }
+
+        let resumable_sessions =
+            self.memory
+                .list_resumable_sessions(20, 0)
+                .await
+                .map_err(|_| SessionCommandError::UnsupportedBackend {
+                    backend: self.memory.name().to_string(),
+                })?;
+        let message = if resumable_sessions.is_empty() {
+            "No resumable suspended sessions.".to_string()
+        } else {
+            let lines = resumable_sessions
+                .iter()
+                .map(|entry| format!("- {}: {}", entry.session_id, entry.preview))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("Resumable sessions:\n{lines}")
+        };
+
+        Ok(SessionCommandResult {
+            command: "/resume",
+            session_id: current_session_id.to_string(),
+            message,
+            resumed_session_id: None,
+            resumable_sessions,
+        })
+    }
+
+    fn ensure_sqlite(&self) -> Result<(), SessionCommandError> {
+        if self.memory.name() == "sqlite" {
+            Ok(())
+        } else {
+            Err(SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            })
+        }
+    }
+
+    async fn require_active_session(
+        &self,
+        session_id: &str,
+    ) -> Result<crate::memory::SessionEntry, SessionCommandError> {
+        let session = self
+            .memory
+            .get_session(session_id)
+            .await
+            .map_err(|_| SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            })?
+            .ok_or_else(|| SessionCommandError::UnknownSession {
+                session_id: session_id.to_string(),
+            })?;
+        if session.status == SessionStatus::Ended {
+            return Err(SessionCommandError::InvalidState {
+                session_id: session_id.to_string(),
+                detail: "session is ended",
+            });
+        }
+        Ok(session)
+    }
+
+    async fn current_state(
+        &self,
+        session_id: &str,
+    ) -> Result<SlashSessionLifecycle, SessionCommandError> {
+        Ok(self
+            .memory
+            .get_session_state_record(session_id)
+            .await
+            .map_err(|_| SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            })?
+            .map(|state| state.lifecycle)
+            .unwrap_or(SlashSessionLifecycle::Active))
+    }
+
+    async fn require_state(
+        &self,
+        session_id: &str,
+    ) -> Result<crate::memory::SessionStateRecord, SessionCommandError> {
+        self.memory
+            .get_session_state_record(session_id)
+            .await
+            .map_err(|_| SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            })?
+            .ok_or_else(|| SessionCommandError::MissingSnapshot {
+                session_id: session_id.to_string(),
+            })
+    }
+
+    async fn require_resume_capable_snapshot(
+        &self,
+        session_id: &str,
+        snapshot_id: &str,
+    ) -> Result<crate::memory::SessionSnapshotRecord, SessionCommandError> {
+        let snapshot = self
+            .memory
+            .get_session_snapshot(snapshot_id)
+            .await
+            .map_err(|_| SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            })?
+            .ok_or_else(|| SessionCommandError::MissingSnapshot {
+                session_id: session_id.to_string(),
+            })?;
+
+        if snapshot.session_id != session_id
+            || snapshot.kind != SessionSnapshotKind::Compact
+            || !snapshot.resume_capable
+        {
+            return Err(SessionCommandError::MissingSnapshot {
+                session_id: session_id.to_string(),
+            });
+        }
+
+        Ok(snapshot)
+    }
+}
+
+fn build_summary(entries: &[crate::memory::MemoryEntry], preview_limit: usize) -> String {
+    if entries.is_empty() {
+        return "No persisted session transcript is available yet.".to_string();
+    }
+    let summary = entries
+        .iter()
+        .map(|entry| format!("{}: {}", entry.key, entry.content.trim()))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    truncate_preview(&summary, preview_limit)
+}
+
+fn build_resume_context(
+    session_id: &str,
+    summary: &str,
+    entries: &[crate::memory::MemoryEntry],
+    args: &str,
+) -> String {
+    let mut context = format!(
+        "Session {session_id} summary: {summary}\nRecent transcript:\n{}",
+        entries
+            .iter()
+            .map(|entry| format!("- {}: {}", entry.key, entry.content.trim()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    if !args.trim().is_empty() {
+        context.push_str("\nOperator notes: ");
+        context.push_str(args.trim());
+    }
+    context
+}
+
+fn truncate_preview(value: &str, max_len: usize) -> String {
+    let trimmed = value.trim();
+    if trimmed.chars().count() <= max_len {
+        return trimmed.to_string();
+    }
+    trimmed
+        .chars()
+        .take(max_len.saturating_sub(1))
+        .collect::<String>()
+        + "…"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::{
+        MemoryCategory, MemoryEntry, ResumableSessionEntry, SessionEntry, SessionSnapshotKind,
+        SessionSnapshotRecord, SessionStateMutation, SessionStateRecord,
+    };
+    use async_trait::async_trait;
+    use std::sync::Mutex;
+
+    struct FakeMemory {
+        backend: &'static str,
+        session: Option<SessionEntry>,
+        transcript: Vec<MemoryEntry>,
+        state: Mutex<Option<SessionStateRecord>>,
+        snapshots: Mutex<Vec<SessionSnapshotRecord>>,
+        listed: Vec<ResumableSessionEntry>,
+    }
+
+    impl Default for FakeMemory {
+        fn default() -> Self {
+            Self {
+                backend: "sqlite",
+                session: None,
+                transcript: Vec::new(),
+                state: Mutex::new(None),
+                snapshots: Mutex::new(Vec::new()),
+                listed: Vec::new(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Memory for FakeMemory {
+        fn name(&self) -> &str {
+            self.backend
+        }
+
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: MemoryCategory,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: usize,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<MemoryEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+            Ok(None)
+        }
+
+        async fn list(
+            &self,
+            _category: Option<&MemoryCategory>,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<MemoryEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            Ok(0)
+        }
+
+        async fn health_check(&self) -> bool {
+            true
+        }
+
+        async fn get_session(&self, _session_id: &str) -> anyhow::Result<Option<SessionEntry>> {
+            Ok(self.session.clone())
+        }
+
+        async fn load_session_transcript_excerpt(
+            &self,
+            _session_id: &str,
+            _limit: usize,
+        ) -> anyhow::Result<Vec<MemoryEntry>> {
+            Ok(self.transcript.clone())
+        }
+
+        async fn create_session_snapshot(
+            &self,
+            session_id: &str,
+            kind: SessionSnapshotKind,
+            payload: serde_json::Value,
+            resume_capable: bool,
+        ) -> anyhow::Result<SessionSnapshotRecord> {
+            let snapshot = SessionSnapshotRecord {
+                id: format!("snapshot-{}", self.snapshots.lock().unwrap().len() + 1),
+                session_id: session_id.to_string(),
+                kind,
+                created_at: "now".to_string(),
+                payload,
+                resume_capable,
+            };
+            self.snapshots.lock().unwrap().push(snapshot.clone());
+            Ok(snapshot)
+        }
+
+        async fn get_session_state_record(
+            &self,
+            _session_id: &str,
+        ) -> anyhow::Result<Option<SessionStateRecord>> {
+            Ok(self.state.lock().unwrap().clone())
+        }
+
+        async fn get_session_snapshot(
+            &self,
+            snapshot_id: &str,
+        ) -> anyhow::Result<Option<SessionSnapshotRecord>> {
+            Ok(self
+                .snapshots
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|snapshot| snapshot.id == snapshot_id)
+                .cloned())
+        }
+
+        async fn update_session_state_record(
+            &self,
+            state: SessionStateMutation,
+        ) -> anyhow::Result<SessionStateRecord> {
+            let updated = SessionStateRecord {
+                session_id: state.session_id,
+                lifecycle: state.lifecycle,
+                latest_tldr_snapshot_id: state.latest_tldr_snapshot_id,
+                latest_compact_snapshot_id: state.latest_compact_snapshot_id,
+                pending_hydration_snapshot_id: state.pending_hydration_snapshot_id,
+                suspended_at: state.suspended_at,
+                updated_at: "now".to_string(),
+            };
+            *self.state.lock().unwrap() = Some(updated.clone());
+            Ok(updated)
+        }
+
+        async fn list_resumable_sessions(
+            &self,
+            _limit: u32,
+            _offset: u32,
+        ) -> anyhow::Result<Vec<ResumableSessionEntry>> {
+            Ok(self.listed.clone())
+        }
+
+        async fn take_pending_resume_hydration(
+            &self,
+            _session_id: &str,
+        ) -> anyhow::Result<Option<SessionSnapshotRecord>> {
+            Ok(None)
+        }
+    }
+
+    fn active_session() -> SessionEntry {
+        SessionEntry {
+            id: "session-1".into(),
+            started_at: "started".into(),
+            ended_at: None,
+            status: SessionStatus::Active,
+            message_count: 3,
+            last_activity: "now".into(),
+            metadata: None,
+        }
+    }
+
+    fn transcript() -> Vec<MemoryEntry> {
+        vec![MemoryEntry {
+            id: "1".into(),
+            key: "msg-1".into(),
+            content: "Discuss release checklist".into(),
+            category: MemoryCategory::Conversation,
+            timestamp: "now".into(),
+            session_id: Some("session-1".into()),
+            score: None,
+        }]
+    }
+
+    #[tokio::test]
+    async fn rejects_non_sqlite_backends() {
+        let memory = FakeMemory {
+            backend: "markdown",
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let error = service.handle_tldr("session-1").await.unwrap_err();
+        assert_eq!(
+            error,
+            SessionCommandError::UnsupportedBackend {
+                backend: "markdown".to_string(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn tldr_is_deterministic_and_persists_snapshot() {
+        let memory = FakeMemory {
+            backend: "sqlite",
+            session: Some(active_session()),
+            transcript: transcript(),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = service.handle_tldr("session-1").await.unwrap();
+
+        assert_eq!(result.command, "/tldr");
+        assert!(result.message.contains("Discuss release checklist"));
+        assert_eq!(memory.snapshots.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn compact_creates_resume_capable_snapshot() {
+        let memory = FakeMemory {
+            backend: "sqlite",
+            session: Some(active_session()),
+            transcript: transcript(),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = service
+            .handle_compact("session-1", "keep goals")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.message,
+            "[session:session-1] session compacted and ready for resume"
+        );
+        assert!(memory.snapshots.lock().unwrap()[0].resume_capable);
+    }
+
+    #[tokio::test]
+    async fn suspend_requires_compact_snapshot() {
+        let memory = FakeMemory {
+            backend: "sqlite",
+            session: Some(active_session()),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let error = service.handle_suspend("session-1").await.unwrap_err();
+        assert_eq!(
+            error,
+            SessionCommandError::MissingSnapshot {
+                session_id: "session-1".to_string(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn suspend_succeeds_with_resume_capable_snapshot() {
+        let memory = FakeMemory {
+            backend: "sqlite",
+            session: Some(active_session()),
+            state: Mutex::new(Some(SessionStateRecord {
+                session_id: "session-1".into(),
+                lifecycle: SlashSessionLifecycle::Active,
+                latest_tldr_snapshot_id: None,
+                latest_compact_snapshot_id: Some("snapshot-1".into()),
+                pending_hydration_snapshot_id: None,
+                suspended_at: None,
+                updated_at: "now".into(),
+            })),
+            snapshots: Mutex::new(vec![SessionSnapshotRecord {
+                id: "snapshot-1".into(),
+                session_id: "session-1".into(),
+                kind: SessionSnapshotKind::Compact,
+                created_at: "now".into(),
+                payload: json!({"preview": "resume me"}),
+                resume_capable: true,
+            }]),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = service.handle_suspend("session-1").await.unwrap();
+
+        assert_eq!(result.command, "/suspend");
+        assert_eq!(result.message, "[session:session-1] session suspended");
+        assert_eq!(
+            memory
+                .state
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|state| state.lifecycle),
+            Some(SlashSessionLifecycle::Suspended)
+        );
+    }
+
+    #[tokio::test]
+    async fn suspend_rejects_invalid_snapshot_reference() {
+        let memory = FakeMemory {
+            backend: "sqlite",
+            session: Some(active_session()),
+            state: Mutex::new(Some(SessionStateRecord {
+                session_id: "session-1".into(),
+                lifecycle: SlashSessionLifecycle::Active,
+                latest_tldr_snapshot_id: None,
+                latest_compact_snapshot_id: Some("snapshot-missing".into()),
+                pending_hydration_snapshot_id: None,
+                suspended_at: None,
+                updated_at: "now".into(),
+            })),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let error = service.handle_suspend("session-1").await.unwrap_err();
+
+        assert_eq!(
+            error,
+            SessionCommandError::MissingSnapshot {
+                session_id: "session-1".to_string(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_target_sets_pending_hydration() {
+        let memory = FakeMemory {
+            backend: "sqlite",
+            session: Some(active_session()),
+            snapshots: Mutex::new(vec![SessionSnapshotRecord {
+                id: "snapshot-1".into(),
+                session_id: "session-1".into(),
+                kind: SessionSnapshotKind::Compact,
+                created_at: "now".into(),
+                payload: json!({"preview": "resume me"}),
+                resume_capable: true,
+            }]),
+            state: Mutex::new(Some(SessionStateRecord {
+                session_id: "session-1".into(),
+                lifecycle: SlashSessionLifecycle::Suspended,
+                latest_tldr_snapshot_id: None,
+                latest_compact_snapshot_id: Some("snapshot-1".into()),
+                pending_hydration_snapshot_id: None,
+                suspended_at: Some("now".into()),
+                updated_at: "now".into(),
+            })),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = service
+            .handle_resume("session-2", Some("session-1"))
+            .await
+            .unwrap();
+
+        assert_eq!(result.resumed_session_id.as_deref(), Some("session-1"));
+        assert_eq!(
+            memory
+                .state
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|state| state.pending_hydration_snapshot_id.clone())
+                .as_deref(),
+            Some("snapshot-1")
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_target_rejects_missing_session() {
+        let memory = FakeMemory {
+            backend: "sqlite",
+            session: None,
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let error = service
+            .handle_resume("session-current", Some("missing-session"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            SessionCommandError::InvalidResumeTarget {
+                session_id: "missing-session".to_string(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_target_rejects_ended_session() {
+        let mut session = active_session();
+        session.status = SessionStatus::Ended;
+        let memory = FakeMemory {
+            backend: "sqlite",
+            session: Some(session),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let error = service
+            .handle_resume("session-current", Some("session-1"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            SessionCommandError::InvalidResumeTarget {
+                session_id: "session-1".to_string(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_target_rejects_invalid_snapshot_reference() {
+        let memory = FakeMemory {
+            backend: "sqlite",
+            session: Some(active_session()),
+            state: Mutex::new(Some(SessionStateRecord {
+                session_id: "session-1".into(),
+                lifecycle: SlashSessionLifecycle::Suspended,
+                latest_tldr_snapshot_id: None,
+                latest_compact_snapshot_id: Some("snapshot-missing".into()),
+                pending_hydration_snapshot_id: None,
+                suspended_at: Some("now".into()),
+                updated_at: "now".into(),
+            })),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let error = service
+            .handle_resume("session-current", Some("session-1"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            SessionCommandError::MissingSnapshot {
+                session_id: "session-1".to_string(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_without_target_lists_resumable_sessions() {
+        let memory = FakeMemory {
+            backend: "sqlite",
+            listed: vec![ResumableSessionEntry {
+                session_id: "session-1".into(),
+                started_at: "started".into(),
+                last_activity: "now".into(),
+                snapshot_id: "snapshot-1".into(),
+                snapshot_created_at: "now".into(),
+                preview: "Discuss release checklist".into(),
+            }],
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = service
+            .handle_resume("session-current", None)
+            .await
+            .unwrap();
+
+        assert!(result.message.contains("Resumable sessions:"));
+        assert_eq!(result.resumable_sessions.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn ended_session_rejects_deterministically() {
+        let mut session = active_session();
+        session.status = SessionStatus::Ended;
+        let memory = FakeMemory {
+            backend: "sqlite",
+            session: Some(session),
+            transcript: transcript(),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let error = service.handle_tldr("session-1").await.unwrap_err();
+        assert_eq!(
+            error,
+            SessionCommandError::InvalidState {
+                session_id: "session-1".to_string(),
+                detail: "session is ended",
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn tldr_unknown_session_fails_clearly() {
+        let memory = FakeMemory {
+            backend: "sqlite",
+            session: None,
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let error = service.handle_tldr("session-1").await.unwrap_err();
+
+        assert_eq!(
+            error,
+            SessionCommandError::UnknownSession {
+                session_id: "session-1".to_string(),
+            }
+        );
+    }
+}

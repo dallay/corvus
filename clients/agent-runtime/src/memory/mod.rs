@@ -24,7 +24,9 @@ pub use sqlite::SqliteMemory;
 pub use traits::Memory;
 #[allow(unused_imports)]
 pub use traits::{
-    MemoryCategory, MemoryEntry, MemoryStats, MemoryValidationResult, SessionEntry, SessionStatus,
+    MemoryCategory, MemoryEntry, MemoryStats, MemoryValidationResult, ResumableSessionEntry,
+    SessionEntry, SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation,
+    SessionStateRecord, SessionStatus, SlashSessionLifecycle,
 };
 
 use crate::config::MemoryConfig;

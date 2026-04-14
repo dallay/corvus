@@ -7,7 +7,7 @@ use crate::cost::UsagePeriod;
 use crate::gateway::resolve_webhook_execution_mode;
 use crate::memory::Memory;
 use crate::observability::Observer;
-use crate::pre_execution::BlockingOutcome;
+use crate::pre_execution::{BlockingOutcome, IngressDecision};
 use crate::providers::traits::{
     ProviderCapabilities, StreamChunk, StreamOptions, StreamResult, ToolsPayload,
 };
@@ -391,10 +391,24 @@ pub(crate) async fn execute(
     model: &str,
     request: WebhookTurnRequest,
 ) -> WebhookTurnResult {
-    let canonical =
-        crate::pre_execution::evaluate(request.session_id.clone(), &request.message).await;
-    if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
-        match blocking {
+    match crate::pre_execution::evaluate_ingress(
+        memory.as_ref(),
+        &request.session_id,
+        &request.message,
+    )
+    .await
+    {
+        IngressDecision::SessionCommand(result) => {
+            return WebhookTurnResult {
+                session_id: request.session_id.clone(),
+                model: model.to_string(),
+                outcome: WebhookTerminalOutcome::Completed,
+                response_text: Some(result.message),
+                event_frames: Vec::new(),
+                tools_called: Vec::new(),
+            };
+        }
+        IngressDecision::Blocking(blocking) => match blocking {
             BlockingOutcome::ApprovalRequired { tool } => {
                 return map_canonical_result(
                     &request,
@@ -409,7 +423,8 @@ pub(crate) async fn execute(
                     CanonicalWebhookResult::Blocking(other),
                 );
             }
-        }
+        },
+        IngressDecision::Continue => {}
     }
 
     let mut effective_config = config.clone();
@@ -1014,5 +1029,39 @@ mod tests {
                 ..
             } if tool == "file_write"
         ));
+    }
+
+    #[tokio::test]
+    async fn execute_intercepts_slash_session_commands_before_provider_execution() {
+        let (_temp, config) = test_config();
+        let provider_impl = Arc::new(ScriptedProvider::new(vec![ChatResponse {
+            text: Some("should not be called".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let result = execute(
+            &config,
+            provider,
+            Arc::new(TestMemory),
+            Arc::new(NoopObserver) as Arc<dyn Observer>,
+            None,
+            "test-model",
+            WebhookTurnRequest {
+                session_id: "session-slash".into(),
+                session_source: WebhookSessionSource::Explicit,
+                message: "/tldr".into(),
+                execution_mode: ExecutionMode::Standard,
+                include_sse_frames: false,
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(result.outcome, WebhookTerminalOutcome::Completed);
+        assert!(result
+            .response_text
+            .as_deref()
+            .is_some_and(|text| text.contains("require sqlite")));
     }
 }

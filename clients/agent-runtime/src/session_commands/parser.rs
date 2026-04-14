@@ -1,0 +1,93 @@
+use super::types::SessionSlashCommand;
+
+pub struct SessionCommandParser;
+
+impl SessionCommandParser {
+    pub fn parse(prompt: &str) -> Option<SessionSlashCommand> {
+        let input = prompt.trim_end();
+        Self::parse_with_prefix(input, "/tldr", |_| Some(SessionSlashCommand::Tldr))
+            .or_else(|| {
+                Self::parse_with_prefix(input, "/suspend", |_| Some(SessionSlashCommand::Suspend))
+            })
+            .or_else(|| {
+                Self::parse_with_prefix(input, "/compact", |rest| {
+                    Some(SessionSlashCommand::Compact {
+                        args: rest.trim_start().to_string(),
+                    })
+                })
+            })
+            .or_else(|| {
+                Self::parse_with_prefix(input, "/resume", |rest| {
+                    let args = rest.trim_start().to_string();
+                    let target = args
+                        .split_whitespace()
+                        .next()
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string);
+                    Some(SessionSlashCommand::Resume { target, args })
+                })
+            })
+    }
+
+    fn parse_with_prefix<F, T>(input: &str, command: &str, build: F) -> Option<T>
+    where
+        F: FnOnce(&str) -> Option<T>,
+    {
+        let rest = input.strip_prefix(command)?;
+        if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+            return None;
+        }
+        build(rest)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_exact_commands() {
+        assert_eq!(
+            SessionCommandParser::parse("/tldr"),
+            Some(SessionSlashCommand::Tldr)
+        );
+        assert_eq!(
+            SessionCommandParser::parse("/suspend"),
+            Some(SessionSlashCommand::Suspend)
+        );
+    }
+
+    #[test]
+    fn parses_resume_target_and_compact_trailing_args() {
+        assert_eq!(
+            SessionCommandParser::parse("/resume abc-123"),
+            Some(SessionSlashCommand::Resume {
+                target: Some("abc-123".to_string()),
+                args: "abc-123".to_string(),
+            })
+        );
+        assert_eq!(
+            SessionCommandParser::parse("/compact keep only the latest goals"),
+            Some(SessionSlashCommand::Compact {
+                args: "keep only the latest goals".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn resume_without_target_lists_sessions() {
+        assert_eq!(
+            SessionCommandParser::parse("/resume   \n"),
+            Some(SessionSlashCommand::Resume {
+                target: None,
+                args: String::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn slash_like_unknown_inputs_fall_through() {
+        assert_eq!(SessionCommandParser::parse("/resume-later"), None);
+        assert_eq!(SessionCommandParser::parse("hello /tldr"), None);
+    }
+}

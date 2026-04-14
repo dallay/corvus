@@ -694,7 +694,6 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
     };
 
     let user_text = extract_user_text(&msg);
-    let enriched_message = enrich_with_memory(&ctx, &msg, &user_text).await;
 
     if update_visibility_enabled(ctx.config.as_ref()) {
         let _ = crate::update::maybe_send_opportunistic_update_notice(
@@ -706,8 +705,9 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
         .await;
     }
 
-    if handle_canonical_blocking_outcome(
+    if handle_ingress_outcome(
         target_channel.as_ref(),
+        ctx.memory.as_ref(),
         &session_id,
         &msg.reply_target,
         &user_text,
@@ -717,6 +717,8 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
     {
         return;
     }
+
+    let enriched_message = enrich_with_memory(&ctx, &msg, &user_text).await;
 
     let (image_route_metadata, staged_guard) =
         match prepare_image_turn(ctx.as_ref(), &msg, &session_id, target_channel.as_ref()).await {
@@ -1841,35 +1843,43 @@ fn build_history(
     history
 }
 
-async fn handle_canonical_blocking_outcome(
+async fn handle_ingress_outcome(
     channel: Option<&Arc<dyn Channel>>,
+    memory: &dyn Memory,
     session_id: &str,
     reply_target: &str,
     content: &str,
 ) -> Option<()> {
-    let canonical = crate::pre_execution::evaluate(session_id.to_string(), content).await;
-
-    if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
-        if let Some(ch) = channel {
-            let text = match blocking {
-                crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
-                    format!(
+    match crate::pre_execution::evaluate_ingress(memory, session_id, content).await {
+        crate::pre_execution::IngressDecision::SessionCommand(result) => {
+            if let Some(ch) = channel {
+                let _ = ch
+                    .send(&SendMessage::new(result.message, reply_target))
+                    .await;
+            }
+            Some(())
+        }
+        crate::pre_execution::IngressDecision::Blocking(blocking) => {
+            if let Some(ch) = channel {
+                let text = match blocking {
+                    crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
+                        format!(
                         "[session:{session_id}] approval required for `{tool}`; request blocked"
                     )
-                }
-                crate::pre_execution::BlockingOutcome::TimeoutAborted => {
-                    channel_timeout_abort_text(session_id)
-                }
-                crate::pre_execution::BlockingOutcome::Fallback { response } => {
-                    format!("[session:{session_id}] {response}")
-                }
-            };
-            let _ = ch.send(&SendMessage::new(text, reply_target)).await;
+                    }
+                    crate::pre_execution::BlockingOutcome::TimeoutAborted => {
+                        channel_timeout_abort_text(session_id)
+                    }
+                    crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                        format!("[session:{session_id}] {response}")
+                    }
+                };
+                let _ = ch.send(&SendMessage::new(text, reply_target)).await;
+            }
+            Some(())
         }
-        return Some(());
+        crate::pre_execution::IngressDecision::Continue => None,
     }
-
-    None
 }
 
 async fn setup_streaming(
@@ -3060,7 +3070,7 @@ mod tests {
     use super::*;
     use crate::agent::prompt::DEFAULT_BOOTSTRAP_MAX_CHARS;
     use crate::config::{SlackConfig, StreamMode, TelegramConfig};
-    use crate::memory::{Memory, MemoryCategory, SqliteMemory};
+    use crate::memory::{Memory, MemoryCategory, NoneMemory, SqliteMemory};
     use crate::observability::{ImageIngressEvent, ImageIngressOutcome, NoopObserver, Observer};
     use crate::providers::traits::ProviderCapabilities;
     use crate::providers::{ChatMessage, ChatRequest, ChatResponse, Provider, ToolCall};
@@ -3190,6 +3200,27 @@ mod tests {
             self.stop_typing_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
+    }
+
+    #[tokio::test]
+    async fn ingress_outcome_handles_slash_session_commands_before_memory_enrichment() {
+        let channel = Arc::new(RecordingChannel::default());
+        let channel_dyn: Arc<dyn Channel> = channel.clone();
+        let memory = NoneMemory::new();
+
+        let handled = handle_ingress_outcome(
+            Some(&channel_dyn),
+            &memory,
+            "session-1",
+            "reply-target",
+            "/tldr",
+        )
+        .await;
+
+        assert_eq!(handled, Some(()));
+        let sent = channel.sent_messages.lock().await.clone();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("require sqlite"));
     }
 
     #[derive(Default)]

@@ -26,7 +26,7 @@ use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, Multipart, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{
-        sse::{Event, Sse},
+        sse::{Event, KeepAlive, Sse},
         IntoResponse, Json,
     },
     routing::{get, post},
@@ -1762,10 +1762,18 @@ async fn canonical_outcome_early_response(
     session_id: &str,
     scrubbed_message: &str,
 ) -> Option<(WebhookResponse, bool)> {
-    let canonical = crate::pre_execution::evaluate(session_id.to_string(), scrubbed_message).await;
-
-    if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
-        match blocking {
+    match crate::pre_execution::evaluate_ingress(state.mem.as_ref(), session_id, scrubbed_message)
+        .await
+    {
+        crate::pre_execution::IngressDecision::SessionCommand(result) => {
+            let body = serde_json::json!({
+                "response": result.message,
+                "model": state.model,
+                "session_id": session_id,
+            });
+            return Some(((StatusCode::OK, Json(body)), true));
+        }
+        crate::pre_execution::IngressDecision::Blocking(blocking) => match blocking {
             crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
                 let denial_reason = match evaluate_tool_risk(&tool) {
                     DispatchAction::ApprovalRequired(reason) => {
@@ -1805,7 +1813,8 @@ async fn canonical_outcome_early_response(
                 });
                 return Some(((StatusCode::OK, Json(body)), true));
             }
-        }
+        },
+        crate::pre_execution::IngressDecision::Continue => {}
     }
 
     None
@@ -2139,6 +2148,27 @@ async fn handle_chat_stream(
         Error(serde_json::Value),
     }
 
+    let ingress_decision =
+        crate::pre_execution::evaluate_ingress(state.mem.as_ref(), &session_id, &scrubbed_message)
+            .await;
+
+    if let crate::pre_execution::IngressDecision::SessionCommand(result) = &ingress_decision {
+        let sid = session_id.clone();
+        let message_id = Uuid::new_v4().to_string();
+        let events = vec![
+            Ok(Event::default().event("chunk").data(result.message.clone())),
+            Ok(Event::default()
+                .event("done")
+                .json_data(serde_json::json!({
+                    "message_id": message_id,
+                    "session_id": sid,
+                    "tools_called": [],
+                }))
+                .expect("serializable done event")),
+        ];
+        return Ok(Sse::new(futures::stream::iter(events)).keep_alive(KeepAlive::default()));
+    }
+
     let stream_outcome = if dispatcher_enabled {
         log_webhook_runtime_path(&session_id, true, "stream_dispatcher");
         let result = webhook_dispatch::execute(
@@ -2227,6 +2257,37 @@ async fn handle_chat_stream(
                 "code": "cost_governance_requires_dispatcher",
                 "message": "Cost governance requires the webhook dispatcher path when cost.enabled=true",
             }))
+        } else if let crate::pre_execution::IngressDecision::Blocking(blocking) = ingress_decision {
+            let payload = match blocking {
+                crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
+                    serde_json::json!({
+                        "code": "approval_required",
+                        "tool": tool,
+                        "message": "Approval required",
+                    })
+                }
+                crate::pre_execution::BlockingOutcome::TimeoutAborted => serde_json::json!({
+                    "code": "timeout",
+                    "message": "Request timed out",
+                }),
+                crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                    return Ok(Sse::new(futures::stream::iter(vec![
+                        Ok(Event::default()
+                            .event("chunk")
+                            .data(scrub_sensitive_boundary_text(&response))),
+                        Ok(Event::default()
+                            .event("done")
+                            .json_data(serde_json::json!({
+                                "message_id": Uuid::new_v4().to_string(),
+                                "session_id": session_id,
+                                "tools_called": [],
+                            }))
+                            .expect("serializable done event")),
+                    ]))
+                    .keep_alive(KeepAlive::default()));
+                }
+            };
+            StreamProcessingOutcome::Error(payload)
         } else {
             if state.auto_save {
                 let key = webhook_memory_key();
@@ -2290,7 +2351,7 @@ async fn handle_chat_stream(
         }
     };
 
-    Ok(Sse::new(futures::stream::iter(events)))
+    Ok(Sse::new(futures::stream::iter(events)).keep_alive(KeepAlive::default()))
 }
 
 // ── Audio gateway handler types and helpers ──────────────────────────────────
@@ -3761,6 +3822,69 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok("ok".into())
         }
+    }
+
+    #[tokio::test]
+    async fn canonical_outcome_early_response_intercepts_slash_session_commands() {
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: true,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = canonical_outcome_early_response(&state, "session-1", "/tldr")
+            .await
+            .expect("slash session command should short-circuit");
+        let ((status, Json(body)), _persist) = response;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["session_id"], "session-1");
+        assert!(body["response"]
+            .as_str()
+            .is_some_and(|text| text.contains("require sqlite")));
+    }
+
+    #[tokio::test]
+    async fn canonical_outcome_early_response_ignores_unknown_slash_like_input() {
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: true,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = canonical_outcome_early_response(&state, "session-1", "/resume-later").await;
+
+        assert!(response.is_none());
     }
 
     #[derive(Default)]
@@ -5796,6 +5920,57 @@ always_ask = []
         assert!(body_str.contains(r#""execution_mode":"plan""#));
         assert!(body_str.contains("Plan Mode allows analysis-only capabilities"));
         assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn web_chat_stream_returns_deterministic_slash_session_sse_without_provider_execution() {
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("should not run".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(r#"{"message":"/tldr"}"#))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: chunk"));
+        assert!(body_str.contains("event: done"));
+        assert!(body_str.contains("require sqlite"));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
         assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
     }
 
