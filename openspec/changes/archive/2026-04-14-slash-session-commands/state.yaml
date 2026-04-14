@@ -1,5 +1,5 @@
 change: slash-session-commands
-current_phase: verify
+current_phase: archive
 completed:
   - explore
   - propose
@@ -8,5 +8,6 @@ completed:
   - tasks
   - apply
   - verify
-next: archive
+  - archive
+next: none
 updated: 2026-04-14
