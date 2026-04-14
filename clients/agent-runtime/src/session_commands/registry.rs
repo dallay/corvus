@@ -24,7 +24,11 @@ pub async fn dispatch(
     match context.command {
         SessionSlashCommand::Resume { target, .. } => {
             service
-                .handle_resume(context.session_id, target.as_deref())
+                .handle_resume(
+                    context.session_id,
+                    target.as_deref(),
+                    context.caller_token_hash,
+                )
                 .await
         }
         SessionSlashCommand::Suspend => service.handle_suspend(context.session_id).await,

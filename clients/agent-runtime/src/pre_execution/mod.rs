@@ -15,7 +15,10 @@ pub enum BlockingOutcome {
 pub enum IngressDecision {
     Continue,
     Blocking(BlockingOutcome),
-    SessionCommand(SessionCommandResult),
+    SessionCommand {
+        result: SessionCommandResult,
+        success: bool,
+    },
 }
 
 pub fn approval_granted_from_env() -> bool {
@@ -42,6 +45,7 @@ pub async fn evaluate_ingress(
     memory: &dyn Memory,
     session_id: &str,
     prompt: &str,
+    caller_token_hash: Option<&str>,
 ) -> IngressDecision {
     if let Some(command) = SessionCommandParser::parse(prompt) {
         let service = SessionCommandService::new(memory);
@@ -49,19 +53,26 @@ pub async fn evaluate_ingress(
             &service,
             CommandContext {
                 session_id,
+                caller_token_hash,
                 command,
             },
         )
         .await
         {
-            Ok(result) => IngressDecision::SessionCommand(result),
-            Err(error) => IngressDecision::SessionCommand(SessionCommandResult {
-                command: "slash-session-error",
-                session_id: session_id.to_string(),
-                message: error.message(),
-                resumed_session_id: None,
-                resumable_sessions: Vec::new(),
-            }),
+            Ok(result) => IngressDecision::SessionCommand {
+                result,
+                success: true,
+            },
+            Err(error) => IngressDecision::SessionCommand {
+                result: SessionCommandResult {
+                    command: "slash-session-error",
+                    session_id: session_id.to_string(),
+                    message: error.message(),
+                    resumed_session_id: None,
+                    resumable_sessions: Vec::new(),
+                },
+                success: false,
+            },
         };
     }
 
@@ -230,14 +241,17 @@ mod tests {
 
     #[tokio::test]
     async fn ingress_classifies_supported_slash_commands_before_pre_execution() {
-        let decision = evaluate_ingress(&IngressMemory, "session-1", "/tldr").await;
+        let decision = evaluate_ingress(&IngressMemory, "session-1", "/tldr", None).await;
 
-        assert!(matches!(decision, IngressDecision::SessionCommand(_)));
+        assert!(matches!(
+            decision,
+            IngressDecision::SessionCommand { success: false, .. }
+        ));
     }
 
     #[tokio::test]
     async fn ingress_preserves_unknown_slash_like_input() {
-        let decision = evaluate_ingress(&IngressMemory, "session-1", "/resume-later").await;
+        let decision = evaluate_ingress(&IngressMemory, "session-1", "/resume-later", None).await;
 
         assert!(matches!(decision, IngressDecision::Continue));
     }

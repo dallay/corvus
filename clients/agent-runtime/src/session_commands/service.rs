@@ -1,6 +1,7 @@
 use super::types::{SessionCommandError, SessionCommandResult};
 use crate::memory::{
-    Memory, SessionSnapshotKind, SessionStateMutation, SessionStatus, SlashSessionLifecycle,
+    is_slash_session_unsupported_error, Memory, SessionFieldPatch, SessionSnapshotKind,
+    SessionStatePatch, SessionStatus, SlashSessionLifecycle,
 };
 use serde_json::json;
 
@@ -34,9 +35,7 @@ impl<'a> SessionCommandService<'a> {
             .memory
             .load_session_transcript_excerpt(session_id, DEFAULT_EXCERPT_LIMIT)
             .await
-            .map_err(|_| SessionCommandError::UnsupportedBackend {
-                backend: self.memory.name().to_string(),
-            })?;
+            .map_err(|error| self.map_storage_error(error))?;
         let summary = build_summary(&excerpt, PREVIEW_LIMIT);
         let snapshot = self
             .memory
@@ -52,28 +51,18 @@ impl<'a> SessionCommandService<'a> {
                 false,
             )
             .await
-            .map_err(|_| SessionCommandError::UnsupportedBackend {
-                backend: self.memory.name().to_string(),
-            })?;
+            .map_err(|error| self.map_storage_error(error))?;
         self.memory
-            .update_session_state_record(SessionStateMutation {
+            .apply_session_state_patch(SessionStatePatch {
                 session_id: session_id.to_string(),
-                lifecycle: SlashSessionLifecycle::Active,
-                latest_tldr_snapshot_id: Some(snapshot.id),
-                latest_compact_snapshot_id: self
-                    .memory
-                    .get_session_state_record(session_id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|state| state.latest_compact_snapshot_id),
-                pending_hydration_snapshot_id: None,
-                suspended_at: None,
+                lifecycle: Some(SlashSessionLifecycle::Active),
+                latest_tldr_snapshot_id: SessionFieldPatch::Set(snapshot.id),
+                latest_compact_snapshot_id: SessionFieldPatch::Keep,
+                pending_hydration_snapshot_id: SessionFieldPatch::Clear,
+                suspended_at: SessionFieldPatch::Clear,
             })
             .await
-            .map_err(|_| SessionCommandError::UnsupportedBackend {
-                backend: self.memory.name().to_string(),
-            })?;
+            .map_err(|error| self.map_storage_error(error))?;
 
         Ok(SessionCommandResult {
             command: "/tldr",
@@ -103,9 +92,7 @@ impl<'a> SessionCommandService<'a> {
             .memory
             .load_session_transcript_excerpt(session_id, DEFAULT_EXCERPT_LIMIT)
             .await
-            .map_err(|_| SessionCommandError::UnsupportedBackend {
-                backend: self.memory.name().to_string(),
-            })?;
+            .map_err(|error| self.map_storage_error(error))?;
         let summary = build_summary(&excerpt, PREVIEW_LIMIT);
         let resume_context = build_resume_context(session_id, &summary, &excerpt, args);
         let preview = truncate_preview(&summary, PREVIEW_LIMIT);
@@ -125,28 +112,18 @@ impl<'a> SessionCommandService<'a> {
                 true,
             )
             .await
-            .map_err(|_| SessionCommandError::UnsupportedBackend {
-                backend: self.memory.name().to_string(),
-            })?;
+            .map_err(|error| self.map_storage_error(error))?;
         self.memory
-            .update_session_state_record(SessionStateMutation {
+            .apply_session_state_patch(SessionStatePatch {
                 session_id: session_id.to_string(),
-                lifecycle: SlashSessionLifecycle::Active,
-                latest_tldr_snapshot_id: self
-                    .memory
-                    .get_session_state_record(session_id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|state| state.latest_tldr_snapshot_id),
-                latest_compact_snapshot_id: Some(snapshot.id),
-                pending_hydration_snapshot_id: None,
-                suspended_at: None,
+                lifecycle: Some(SlashSessionLifecycle::Active),
+                latest_tldr_snapshot_id: SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: SessionFieldPatch::Clear,
+                suspended_at: SessionFieldPatch::Clear,
             })
             .await
-            .map_err(|_| SessionCommandError::UnsupportedBackend {
-                backend: self.memory.name().to_string(),
-            })?;
+            .map_err(|error| self.map_storage_error(error))?;
 
         Ok(SessionCommandResult {
             command: "/compact",
@@ -178,18 +155,16 @@ impl<'a> SessionCommandService<'a> {
         self.require_resume_capable_snapshot(session_id, &snapshot_id)
             .await?;
         self.memory
-            .update_session_state_record(SessionStateMutation {
+            .apply_session_state_patch(SessionStatePatch {
                 session_id: session_id.to_string(),
-                lifecycle: SlashSessionLifecycle::Suspended,
-                latest_tldr_snapshot_id: state.latest_tldr_snapshot_id,
-                latest_compact_snapshot_id: Some(snapshot_id),
-                pending_hydration_snapshot_id: None,
-                suspended_at: Some(chrono::Utc::now().to_rfc3339()),
+                lifecycle: Some(SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: SessionFieldPatch::Keep,
+                pending_hydration_snapshot_id: SessionFieldPatch::Clear,
+                suspended_at: SessionFieldPatch::Set(chrono::Utc::now().to_rfc3339()),
             })
             .await
-            .map_err(|_| SessionCommandError::UnsupportedBackend {
-                backend: self.memory.name().to_string(),
-            })?;
+            .map_err(|error| self.map_storage_error(error))?;
 
         Ok(SessionCommandResult {
             command: "/suspend",
@@ -204,6 +179,7 @@ impl<'a> SessionCommandService<'a> {
         &self,
         current_session_id: &str,
         target: Option<&str>,
+        caller_token_hash: Option<&str>,
     ) -> Result<SessionCommandResult, SessionCommandError> {
         self.ensure_sqlite()?;
         if let Some(target_session_id) = target {
@@ -211,9 +187,7 @@ impl<'a> SessionCommandService<'a> {
                 .memory
                 .get_session(target_session_id)
                 .await
-                .map_err(|_| SessionCommandError::UnsupportedBackend {
-                    backend: self.memory.name().to_string(),
-                })?
+                .map_err(|error| self.map_storage_error(error))?
                 .ok_or_else(|| SessionCommandError::InvalidResumeTarget {
                     session_id: target_session_id.to_string(),
                 })?;
@@ -236,18 +210,16 @@ impl<'a> SessionCommandService<'a> {
             self.require_resume_capable_snapshot(target_session_id, &snapshot_id)
                 .await?;
             self.memory
-                .update_session_state_record(SessionStateMutation {
+                .apply_session_state_patch(SessionStatePatch {
                     session_id: target_session_id.to_string(),
-                    lifecycle: SlashSessionLifecycle::Active,
-                    latest_tldr_snapshot_id: state.latest_tldr_snapshot_id,
-                    latest_compact_snapshot_id: Some(snapshot_id.clone()),
-                    pending_hydration_snapshot_id: Some(snapshot_id),
-                    suspended_at: None,
+                    lifecycle: Some(SlashSessionLifecycle::Active),
+                    latest_tldr_snapshot_id: SessionFieldPatch::Keep,
+                    latest_compact_snapshot_id: SessionFieldPatch::Keep,
+                    pending_hydration_snapshot_id: SessionFieldPatch::Set(snapshot_id),
+                    suspended_at: SessionFieldPatch::Clear,
                 })
                 .await
-                .map_err(|_| SessionCommandError::UnsupportedBackend {
-                    backend: self.memory.name().to_string(),
-                })?;
+                .map_err(|error| self.map_storage_error(error))?;
 
             return Ok(SessionCommandResult {
                 command: "/resume",
@@ -260,13 +232,11 @@ impl<'a> SessionCommandService<'a> {
             });
         }
 
-        let resumable_sessions =
-            self.memory
-                .list_resumable_sessions(20, 0)
-                .await
-                .map_err(|_| SessionCommandError::UnsupportedBackend {
-                    backend: self.memory.name().to_string(),
-                })?;
+        let resumable_sessions = self
+            .memory
+            .list_resumable_sessions(caller_token_hash, 20, 0)
+            .await
+            .map_err(|error| self.map_storage_error(error))?;
         let message = if resumable_sessions.is_empty() {
             "No resumable suspended sessions.".to_string()
         } else {
@@ -305,9 +275,7 @@ impl<'a> SessionCommandService<'a> {
             .memory
             .get_session(session_id)
             .await
-            .map_err(|_| SessionCommandError::UnsupportedBackend {
-                backend: self.memory.name().to_string(),
-            })?
+            .map_err(|error| self.map_storage_error(error))?
             .ok_or_else(|| SessionCommandError::UnknownSession {
                 session_id: session_id.to_string(),
             })?;
@@ -328,9 +296,7 @@ impl<'a> SessionCommandService<'a> {
             .memory
             .get_session_state_record(session_id)
             .await
-            .map_err(|_| SessionCommandError::UnsupportedBackend {
-                backend: self.memory.name().to_string(),
-            })?
+            .map_err(|error| self.map_storage_error(error))?
             .map(|state| state.lifecycle)
             .unwrap_or(SlashSessionLifecycle::Active))
     }
@@ -342,9 +308,7 @@ impl<'a> SessionCommandService<'a> {
         self.memory
             .get_session_state_record(session_id)
             .await
-            .map_err(|_| SessionCommandError::UnsupportedBackend {
-                backend: self.memory.name().to_string(),
-            })?
+            .map_err(|error| self.map_storage_error(error))?
             .ok_or_else(|| SessionCommandError::MissingSnapshot {
                 session_id: session_id.to_string(),
             })
@@ -359,9 +323,7 @@ impl<'a> SessionCommandService<'a> {
             .memory
             .get_session_snapshot(snapshot_id)
             .await
-            .map_err(|_| SessionCommandError::UnsupportedBackend {
-                backend: self.memory.name().to_string(),
-            })?
+            .map_err(|error| self.map_storage_error(error))?
             .ok_or_else(|| SessionCommandError::MissingSnapshot {
                 session_id: session_id.to_string(),
             })?;
@@ -376,6 +338,18 @@ impl<'a> SessionCommandService<'a> {
         }
 
         Ok(snapshot)
+    }
+
+    fn map_storage_error(&self, error: anyhow::Error) -> SessionCommandError {
+        if is_slash_session_unsupported_error(&error) {
+            SessionCommandError::UnsupportedBackend {
+                backend: self.memory.name().to_string(),
+            }
+        } else {
+            SessionCommandError::StorageFailure {
+                detail: error.to_string(),
+            }
+        }
     }
 }
 
@@ -428,8 +402,8 @@ fn truncate_preview(value: &str, max_len: usize) -> String {
 mod tests {
     use super::*;
     use crate::memory::{
-        MemoryCategory, MemoryEntry, ResumableSessionEntry, SessionEntry, SessionSnapshotKind,
-        SessionSnapshotRecord, SessionStateMutation, SessionStateRecord,
+        MemoryCategory, MemoryEntry, ResumableSessionEntry, SessionEntry, SessionFieldPatch,
+        SessionSnapshotKind, SessionSnapshotRecord, SessionStatePatch, SessionStateRecord,
     };
     use async_trait::async_trait;
     use std::sync::Mutex;
@@ -556,17 +530,47 @@ mod tests {
                 .cloned())
         }
 
-        async fn update_session_state_record(
+        async fn apply_session_state_patch(
             &self,
-            state: SessionStateMutation,
+            patch: SessionStatePatch,
         ) -> anyhow::Result<SessionStateRecord> {
+            let current = self.state.lock().unwrap().clone();
             let updated = SessionStateRecord {
-                session_id: state.session_id,
-                lifecycle: state.lifecycle,
-                latest_tldr_snapshot_id: state.latest_tldr_snapshot_id,
-                latest_compact_snapshot_id: state.latest_compact_snapshot_id,
-                pending_hydration_snapshot_id: state.pending_hydration_snapshot_id,
-                suspended_at: state.suspended_at,
+                session_id: patch.session_id,
+                lifecycle: patch.lifecycle.unwrap_or(
+                    current
+                        .as_ref()
+                        .map(|state| state.lifecycle)
+                        .unwrap_or(SlashSessionLifecycle::Active),
+                ),
+                latest_tldr_snapshot_id: match patch.latest_tldr_snapshot_id {
+                    SessionFieldPatch::Keep => current
+                        .as_ref()
+                        .and_then(|state| state.latest_tldr_snapshot_id.clone()),
+                    SessionFieldPatch::Set(value) => Some(value),
+                    SessionFieldPatch::Clear => None,
+                },
+                latest_compact_snapshot_id: match patch.latest_compact_snapshot_id {
+                    SessionFieldPatch::Keep => current
+                        .as_ref()
+                        .and_then(|state| state.latest_compact_snapshot_id.clone()),
+                    SessionFieldPatch::Set(value) => Some(value),
+                    SessionFieldPatch::Clear => None,
+                },
+                pending_hydration_snapshot_id: match patch.pending_hydration_snapshot_id {
+                    SessionFieldPatch::Keep => current
+                        .as_ref()
+                        .and_then(|state| state.pending_hydration_snapshot_id.clone()),
+                    SessionFieldPatch::Set(value) => Some(value),
+                    SessionFieldPatch::Clear => None,
+                },
+                suspended_at: match patch.suspended_at {
+                    SessionFieldPatch::Keep => current
+                        .as_ref()
+                        .and_then(|state| state.suspended_at.clone()),
+                    SessionFieldPatch::Set(value) => Some(value),
+                    SessionFieldPatch::Clear => None,
+                },
                 updated_at: "now".to_string(),
             };
             *self.state.lock().unwrap() = Some(updated.clone());
@@ -575,6 +579,7 @@ mod tests {
 
         async fn list_resumable_sessions(
             &self,
+            _caller_token_hash: Option<&str>,
             _limit: u32,
             _offset: u32,
         ) -> anyhow::Result<Vec<ResumableSessionEntry>> {
@@ -783,7 +788,7 @@ mod tests {
         let service = SessionCommandService::new(&memory);
 
         let result = service
-            .handle_resume("session-2", Some("session-1"))
+            .handle_resume("session-2", Some("session-1"), None)
             .await
             .unwrap();
 
@@ -810,7 +815,7 @@ mod tests {
         let service = SessionCommandService::new(&memory);
 
         let error = service
-            .handle_resume("session-current", Some("missing-session"))
+            .handle_resume("session-current", Some("missing-session"), None)
             .await
             .unwrap_err();
 
@@ -834,7 +839,7 @@ mod tests {
         let service = SessionCommandService::new(&memory);
 
         let error = service
-            .handle_resume("session-current", Some("session-1"))
+            .handle_resume("session-current", Some("session-1"), None)
             .await
             .unwrap_err();
 
@@ -865,7 +870,7 @@ mod tests {
         let service = SessionCommandService::new(&memory);
 
         let error = service
-            .handle_resume("session-current", Some("session-1"))
+            .handle_resume("session-current", Some("session-1"), None)
             .await
             .unwrap_err();
 
@@ -894,7 +899,7 @@ mod tests {
         let service = SessionCommandService::new(&memory);
 
         let result = service
-            .handle_resume("session-current", None)
+            .handle_resume("session-current", None, None)
             .await
             .unwrap();
 

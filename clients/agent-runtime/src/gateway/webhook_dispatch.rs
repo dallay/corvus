@@ -25,6 +25,7 @@ pub enum WebhookSessionSource {
 pub struct WebhookTurnRequest {
     pub session_id: String,
     pub session_source: WebhookSessionSource,
+    pub caller_token_hash: Option<String>,
     pub message: String,
     pub execution_mode: ExecutionMode,
     pub include_sse_frames: bool,
@@ -395,10 +396,11 @@ pub(crate) async fn execute(
         memory.as_ref(),
         &request.session_id,
         &request.message,
+        request.caller_token_hash.as_deref(),
     )
     .await
     {
-        IngressDecision::SessionCommand(result) => {
+        IngressDecision::SessionCommand { result, .. } => {
             return WebhookTurnResult {
                 session_id: request.session_id.clone(),
                 model: model.to_string(),
@@ -561,6 +563,7 @@ mod tests {
         WebhookTurnRequest {
             session_id: "webhook-123".into(),
             session_source,
+            caller_token_hash: None,
             message: "hello".into(),
             execution_mode: ExecutionMode::Standard,
             include_sse_frames: false,
@@ -725,6 +728,7 @@ mod tests {
             WebhookTurnRequest {
                 session_id: "session-budget".into(),
                 session_source: WebhookSessionSource::Explicit,
+                caller_token_hash: None,
                 message: "hello".into(),
                 execution_mode: ExecutionMode::Standard,
                 include_sse_frames: false,
@@ -969,6 +973,7 @@ mod tests {
             WebhookTurnRequest {
                 session_id: "session-shell".into(),
                 session_source: WebhookSessionSource::Explicit,
+                caller_token_hash: None,
                 message: "run shell".into(),
                 execution_mode: ExecutionMode::Standard,
                 include_sse_frames: false,
@@ -1014,6 +1019,7 @@ mod tests {
             WebhookTurnRequest {
                 session_id: "session-plan".into(),
                 session_source: WebhookSessionSource::Explicit,
+                caller_token_hash: None,
                 message: "write file".into(),
                 execution_mode: ExecutionMode::Plan,
                 include_sse_frames: false,
@@ -1050,6 +1056,7 @@ mod tests {
             WebhookTurnRequest {
                 session_id: "session-slash".into(),
                 session_source: WebhookSessionSource::Explicit,
+                caller_token_hash: None,
                 message: "/tldr".into(),
                 execution_mode: ExecutionMode::Standard,
                 include_sse_frames: false,

@@ -24,8 +24,9 @@ pub use sqlite::SqliteMemory;
 pub use traits::Memory;
 #[allow(unused_imports)]
 pub use traits::{
-    MemoryCategory, MemoryEntry, MemoryStats, MemoryValidationResult, ResumableSessionEntry,
-    SessionEntry, SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation,
+    is_slash_session_unsupported_error, MemoryCategory, MemoryEntry, MemoryStats,
+    MemoryValidationResult, ResumableSessionEntry, SessionEntry, SessionFieldPatch,
+    SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation, SessionStatePatch,
     SessionStateRecord, SessionStatus, SlashSessionLifecycle,
 };
 

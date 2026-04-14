@@ -6,8 +6,8 @@ This change adds a small, deterministic slash-session layer in `clients/agent-ru
 
 The design keeps risk low by reusing existing session identity and listing through the `sessions` table, extending the existing `Memory` contract only for slash-session persistence, and touching ingress call sites with a shared classifier/dispatcher instead of rewriting the agent loop. Delta specs referenced here are:
 
-- `openspec/changes/slash-session-commands/specs/agent-loop/spec.md`
-- `openspec/changes/slash-session-commands/specs/sessions/spec.md`
+- `openspec/changes/archive/2026-04-14-slash-session-commands/specs/agent-loop/spec.md`
+- `openspec/changes/archive/2026-04-14-slash-session-commands/specs/sessions/spec.md`
 
 ## Architecture Decisions
 

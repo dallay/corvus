@@ -268,8 +268,7 @@ the existing session identity/listing model.
 
 The `/resume` command MUST support deterministic list and load behavior for suspended sessions.
 
-- When invoked without a target, `/resume` MUST return a list of resumable suspended sessions based
-  on the existing `sessions` identity/listing records combined with authoritative suspended state.
+- When invoked without a target, `/resume` MUST return a list of resumable suspended sessions visible to the authenticated caller based on the existing `sessions` identity/listing records combined with authoritative suspended state.
 - When invoked with a target session identifier, `/resume {session_id}` MUST validate that the target
   exists, is suspended, and has a valid resume-capable snapshot.
 - On successful resume, the runtime MUST load the authoritative resume snapshot for that session,
@@ -277,9 +276,9 @@ The `/resume` command MUST support deterministic list and load behavior for susp
 
 #### Scenario: Resume without target lists suspended sessions
 
-- GIVEN suspended sessions `abc-123` and `xyz-789` both have valid resume-capable snapshots
+- GIVEN suspended sessions `abc-123` and `xyz-789` both have valid resume-capable snapshots and are visible to the authenticated caller
 - WHEN the user runs `/resume`
-- THEN the system MUST return a deterministic list of resumable suspended sessions
+- THEN the system MUST return a deterministic list of resumable suspended sessions limited to sessions owned by or otherwise accessible to that caller
 - AND each listed item MUST identify the session and expose enough information for explicit selection.
 
 #### Scenario: Resume target loads snapshot and reactivates session

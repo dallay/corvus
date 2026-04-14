@@ -1532,8 +1532,9 @@ async fn maybe_handle_cli_session_command(
     let (memory, _observer) = crate::bootstrap::create_memory_and_observer(config)?;
     let session_id =
         std::env::var("CORVUS_SESSION_ID").unwrap_or_else(|_| "interactive-session".to_string());
-    match crate::pre_execution::evaluate_ingress(memory.as_ref(), &session_id, message).await {
-        crate::pre_execution::IngressDecision::SessionCommand(result) => Ok(Some(result)),
+    match crate::pre_execution::evaluate_ingress(memory.as_ref(), &session_id, message, None).await
+    {
+        crate::pre_execution::IngressDecision::SessionCommand { result, .. } => Ok(Some(result)),
         crate::pre_execution::IngressDecision::Blocking(_)
         | crate::pre_execution::IngressDecision::Continue => Ok(None),
     }

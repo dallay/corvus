@@ -1,5 +1,5 @@
 use crate::config::MemoryCerebroConfig;
-use crate::memory::{Memory, MemoryEntry, SessionSnapshotKind};
+use crate::memory::{is_slash_session_unsupported_error, Memory, MemoryEntry, SessionSnapshotKind};
 use crate::security::egress::enforce_cerebro_egress;
 use crate::security::policy::ToolOperation;
 use crate::tools::mcp::{cerebro, normalize};
@@ -170,7 +170,7 @@ async fn append_pending_resume_context(
     };
     let pending = match memory.take_pending_resume_hydration(session_id).await {
         Ok(snapshot) => snapshot,
-        Err(error) if error.to_string().contains("require sqlite") => return Ok(false),
+        Err(error) if is_slash_session_unsupported_error(&error) => return Ok(false),
         Err(error) => return Err(error),
     };
     let Some(snapshot) = pending else {

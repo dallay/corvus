@@ -156,7 +156,7 @@ fn conversation_memory_key(msg: &traits::ChannelMessage) -> String {
 }
 
 fn channel_session_id(msg: &traits::ChannelMessage) -> String {
-    format!("{}-{}", msg.channel, msg.id)
+    format!("{}_{}", msg.channel, msg.sender)
 }
 
 fn channel_timeout_abort_text(session_id: &str) -> String {
@@ -695,16 +695,6 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
 
     let user_text = extract_user_text(&msg);
 
-    if update_visibility_enabled(ctx.config.as_ref()) {
-        let _ = crate::update::maybe_send_opportunistic_update_notice(
-            ctx.config.as_ref(),
-            &msg,
-            target_channel.as_ref(),
-            env!("CARGO_PKG_VERSION"),
-        )
-        .await;
-    }
-
     if handle_ingress_outcome(
         target_channel.as_ref(),
         ctx.memory.as_ref(),
@@ -716,6 +706,16 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
     .is_some()
     {
         return;
+    }
+
+    if update_visibility_enabled(ctx.config.as_ref()) {
+        let _ = crate::update::maybe_send_opportunistic_update_notice(
+            ctx.config.as_ref(),
+            &msg,
+            target_channel.as_ref(),
+            env!("CARGO_PKG_VERSION"),
+        )
+        .await;
     }
 
     let enriched_message = enrich_with_memory(&ctx, &msg, &user_text).await;
@@ -1850,8 +1850,8 @@ async fn handle_ingress_outcome(
     reply_target: &str,
     content: &str,
 ) -> Option<()> {
-    match crate::pre_execution::evaluate_ingress(memory, session_id, content).await {
-        crate::pre_execution::IngressDecision::SessionCommand(result) => {
+    match crate::pre_execution::evaluate_ingress(memory, session_id, content, None).await {
+        crate::pre_execution::IngressDecision::SessionCommand { result, .. } => {
             if let Some(ch) = channel {
                 let _ = ch
                     .send(&SendMessage::new(result.message, reply_target))

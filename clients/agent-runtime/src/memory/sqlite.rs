@@ -1,8 +1,8 @@
 use super::embeddings::EmbeddingProvider;
 use super::traits::{
     Memory, MemoryCategory, MemoryEntry, MemoryStats, ResumableSessionEntry, SessionEntry,
-    SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation, SessionStateRecord,
-    SessionStatus, SlashSessionLifecycle,
+    SessionFieldPatch, SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation,
+    SessionStatePatch, SessionStateRecord, SessionStatus, SlashSessionLifecycle,
 };
 use super::vector;
 use anyhow::Context;
@@ -337,6 +337,14 @@ impl SqliteMemory {
             Some(Ok(record)) => Ok(Some(record)),
             Some(Err(error)) => Err(error.into()),
             None => Ok(None),
+        }
+    }
+
+    fn apply_field_patch<T: Clone>(current: Option<T>, patch: &SessionFieldPatch<T>) -> Option<T> {
+        match patch {
+            SessionFieldPatch::Keep => current,
+            SessionFieldPatch::Set(value) => Some(value.clone()),
+            SessionFieldPatch::Clear => None,
         }
     }
 
@@ -1347,12 +1355,84 @@ impl Memory for SqliteMemory {
         .await?
     }
 
+    async fn apply_session_state_patch(
+        &self,
+        patch: SessionStatePatch,
+    ) -> anyhow::Result<SessionStateRecord> {
+        let conn = self.conn.clone();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<SessionStateRecord> {
+            let conn = conn.lock();
+            Self::ensure_session_exists(&conn, &patch.session_id)?;
+
+            let existing = Self::read_session_state(&conn, &patch.session_id)?;
+            let next_state = SessionStateMutation {
+                session_id: patch.session_id.clone(),
+                lifecycle: patch
+                    .lifecycle
+                    .unwrap_or(existing.as_ref().map(|state| state.lifecycle).unwrap_or(SlashSessionLifecycle::Active)),
+                latest_tldr_snapshot_id: Self::apply_field_patch(
+                    existing
+                        .as_ref()
+                        .and_then(|state| state.latest_tldr_snapshot_id.clone()),
+                    &patch.latest_tldr_snapshot_id,
+                ),
+                latest_compact_snapshot_id: Self::apply_field_patch(
+                    existing
+                        .as_ref()
+                        .and_then(|state| state.latest_compact_snapshot_id.clone()),
+                    &patch.latest_compact_snapshot_id,
+                ),
+                pending_hydration_snapshot_id: Self::apply_field_patch(
+                    existing
+                        .as_ref()
+                        .and_then(|state| state.pending_hydration_snapshot_id.clone()),
+                    &patch.pending_hydration_snapshot_id,
+                ),
+                suspended_at: Self::apply_field_patch(
+                    existing.as_ref().and_then(|state| state.suspended_at.clone()),
+                    &patch.suspended_at,
+                ),
+            };
+
+            let updated_at = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "INSERT INTO session_state (
+                    session_id, lifecycle_state, latest_tldr_snapshot_id, latest_compact_snapshot_id,
+                    pending_hydration_snapshot_id, suspended_at, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(session_id) DO UPDATE SET
+                    lifecycle_state = excluded.lifecycle_state,
+                    latest_tldr_snapshot_id = excluded.latest_tldr_snapshot_id,
+                    latest_compact_snapshot_id = excluded.latest_compact_snapshot_id,
+                    pending_hydration_snapshot_id = excluded.pending_hydration_snapshot_id,
+                    suspended_at = excluded.suspended_at,
+                    updated_at = excluded.updated_at",
+                params![
+                    next_state.session_id,
+                    next_state.lifecycle.as_str(),
+                    next_state.latest_tldr_snapshot_id,
+                    next_state.latest_compact_snapshot_id,
+                    next_state.pending_hydration_snapshot_id,
+                    next_state.suspended_at,
+                    updated_at,
+                ],
+            )?;
+            Self::read_session_state(&conn, &patch.session_id)?.ok_or_else(|| {
+                anyhow::anyhow!("session state missing after patch for {}", patch.session_id)
+            })
+        })
+        .await?
+    }
+
     async fn list_resumable_sessions(
         &self,
+        caller_token_hash: Option<&str>,
         limit: u32,
         offset: u32,
     ) -> anyhow::Result<Vec<ResumableSessionEntry>> {
         let conn = self.conn.clone();
+        let caller_token_hash = caller_token_hash.map(str::to_string);
         let limit = Self::capped_list_limit(limit.max(1));
         let offset = i64::from(offset);
 
@@ -1363,14 +1443,15 @@ impl Memory for SqliteMemory {
                  FROM sessions s
                  JOIN session_state state ON state.session_id = s.id
                  JOIN session_snapshots snap ON snap.id = state.latest_compact_snapshot_id
-                 WHERE s.status != 'ended'
-                   AND state.lifecycle_state = 'suspended'
-                   AND snap.is_resume_capable = 1
-                 ORDER BY s.last_activity DESC, s.id DESC
-                 LIMIT ?1 OFFSET ?2",
+                  WHERE s.status != 'ended'
+                    AND state.lifecycle_state = 'suspended'
+                    AND snap.is_resume_capable = 1
+                    AND s.token_hash IS ?3
+                  ORDER BY s.last_activity DESC, s.id DESC
+                  LIMIT ?1 OFFSET ?2",
             )?;
             let rows = stmt
-                .query_map(params![limit, offset], |row| {
+                .query_map(params![limit, offset, caller_token_hash], |row| {
                     let payload =
                         serde_json::from_str::<serde_json::Value>(&row.get::<_, String>(5)?)
                             .unwrap_or(serde_json::Value::Null);
@@ -1418,13 +1499,17 @@ impl Memory for SqliteMemory {
                 return Ok(None);
             };
             let snapshot = Self::load_snapshot_by_id(&tx, &snapshot_id)?;
+            let Some(snapshot) = snapshot else {
+                tx.commit()?;
+                anyhow::bail!("pending resume snapshot missing: {snapshot_id}");
+            };
             tx.execute(
                 "UPDATE session_state SET pending_hydration_snapshot_id = NULL, updated_at = ?2
                  WHERE session_id = ?1",
                 params![session_id, chrono::Utc::now().to_rfc3339()],
             )?;
             tx.commit()?;
-            Ok(snapshot)
+            Ok(Some(snapshot))
         })
         .await?
     }
@@ -1900,13 +1985,13 @@ mod tests {
             .await
             .unwrap();
         let state = mem
-            .update_session_state_record(SessionStateMutation {
+            .apply_session_state_patch(SessionStatePatch {
                 session_id: "session-1".into(),
-                lifecycle: SlashSessionLifecycle::Suspended,
-                latest_tldr_snapshot_id: None,
-                latest_compact_snapshot_id: Some(snapshot.id.clone()),
-                pending_hydration_snapshot_id: Some(snapshot.id.clone()),
-                suspended_at: Some("now".into()),
+                lifecycle: Some(SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: SessionFieldPatch::Clear,
+                latest_compact_snapshot_id: SessionFieldPatch::Set(snapshot.id.clone()),
+                pending_hydration_snapshot_id: SessionFieldPatch::Set(snapshot.id.clone()),
+                suspended_at: SessionFieldPatch::Set("now".into()),
             })
             .await
             .unwrap();
@@ -1917,7 +2002,7 @@ mod tests {
             Some(snapshot.id.as_str())
         );
 
-        let resumable = mem.list_resumable_sessions(10, 0).await.unwrap();
+        let resumable = mem.list_resumable_sessions(None, 10, 0).await.unwrap();
         assert_eq!(resumable.len(), 1);
         assert_eq!(resumable[0].session_id, "session-1");
 
@@ -1936,6 +2021,97 @@ mod tests {
             Some(snapshot.id.as_str())
         );
         assert!(second_hydration.is_none());
+    }
+
+    #[tokio::test]
+    async fn pending_hydration_missing_snapshot_keeps_pointer_for_retry() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-1", None).await.unwrap();
+
+        mem.apply_session_state_patch(SessionStatePatch {
+            session_id: "session-1".into(),
+            lifecycle: Some(SlashSessionLifecycle::Active),
+            latest_tldr_snapshot_id: SessionFieldPatch::Keep,
+            latest_compact_snapshot_id: SessionFieldPatch::Keep,
+            pending_hydration_snapshot_id: SessionFieldPatch::Set("missing-snapshot".into()),
+            suspended_at: SessionFieldPatch::Clear,
+        })
+        .await
+        .unwrap();
+
+        let error = mem
+            .take_pending_resume_hydration("session-1")
+            .await
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("pending resume snapshot missing"));
+
+        let state = mem
+            .get_session_state_record("session-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            state.pending_hydration_snapshot_id.as_deref(),
+            Some("missing-snapshot")
+        );
+    }
+
+    #[tokio::test]
+    async fn list_resumable_sessions_filters_by_token_scope() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-a", Some("token-a"))
+            .await
+            .unwrap();
+        mem.upsert_session("session-b", Some("token-b"))
+            .await
+            .unwrap();
+
+        for (session_id, preview) in [("session-a", "Preview A"), ("session-b", "Preview B")] {
+            let snapshot = mem
+                .create_session_snapshot(
+                    session_id,
+                    SessionSnapshotKind::Compact,
+                    serde_json::json!({
+                        "preview": preview,
+                        "summary": preview,
+                        "resume_context": preview,
+                    }),
+                    true,
+                )
+                .await
+                .unwrap();
+            mem.apply_session_state_patch(SessionStatePatch {
+                session_id: session_id.into(),
+                lifecycle: Some(SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: SessionFieldPatch::Clear,
+                suspended_at: SessionFieldPatch::Set("now".into()),
+            })
+            .await
+            .unwrap();
+        }
+
+        let token_a_results = mem
+            .list_resumable_sessions(Some("token-a"), 10, 0)
+            .await
+            .unwrap();
+        assert_eq!(token_a_results.len(), 1);
+        assert_eq!(token_a_results[0].session_id, "session-a");
+        assert_eq!(token_a_results[0].preview, "Preview A");
+
+        let token_b_results = mem
+            .list_resumable_sessions(Some("token-b"), 10, 0)
+            .await
+            .unwrap();
+        assert_eq!(token_b_results.len(), 1);
+        assert_eq!(token_b_results[0].session_id, "session-b");
+        assert_eq!(token_b_results[0].preview, "Preview B");
+
+        let unscoped_results = mem.list_resumable_sessions(None, 10, 0).await.unwrap();
+        assert!(unscoped_results.is_empty());
     }
 
     // ── FTS5 sync trigger tests ──────────────────────────────────

@@ -18,12 +18,14 @@ impl SessionCommandParser {
             })
             .or_else(|| {
                 Self::parse_with_prefix(input, "/resume", |rest| {
-                    let args = rest.trim_start().to_string();
-                    let target = args
-                        .split_whitespace()
-                        .next()
-                        .filter(|value| !value.is_empty())
-                        .map(str::to_string);
+                    let trimmed = rest.trim_start();
+                    let target_end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
+                    let target = if target_end == 0 {
+                        None
+                    } else {
+                        Some(trimmed[..target_end].to_string())
+                    };
+                    let args = trimmed.to_string();
                     Some(SessionSlashCommand::Resume { target, args })
                 })
             })

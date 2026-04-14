@@ -27,6 +27,7 @@ impl SessionSlashCommand {
 #[derive(Debug, Clone)]
 pub struct CommandContext<'a> {
     pub session_id: &'a str,
+    pub caller_token_hash: Option<&'a str>,
     pub command: SessionSlashCommand,
 }
 
@@ -57,6 +58,9 @@ pub enum SessionCommandError {
     InvalidResumeTarget {
         session_id: String,
     },
+    StorageFailure {
+        detail: String,
+    },
 }
 
 impl SessionCommandError {
@@ -76,6 +80,9 @@ impl SessionCommandError {
             }
             Self::InvalidResumeTarget { session_id } => {
                 format!("[session:{session_id}] invalid resume target")
+            }
+            Self::StorageFailure { detail } => {
+                format!("slash-session storage failure: {detail}")
             }
         }
     }

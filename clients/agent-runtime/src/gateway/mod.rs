@@ -1761,17 +1761,23 @@ async fn canonical_outcome_early_response(
     state: &AppState,
     session_id: &str,
     scrubbed_message: &str,
+    caller_token_hash: Option<&str>,
 ) -> Option<(WebhookResponse, bool)> {
-    match crate::pre_execution::evaluate_ingress(state.mem.as_ref(), session_id, scrubbed_message)
-        .await
+    match crate::pre_execution::evaluate_ingress(
+        state.mem.as_ref(),
+        session_id,
+        scrubbed_message,
+        caller_token_hash,
+    )
+    .await
     {
-        crate::pre_execution::IngressDecision::SessionCommand(result) => {
+        crate::pre_execution::IngressDecision::SessionCommand { result, success } => {
             let body = serde_json::json!({
                 "response": result.message,
                 "model": state.model,
                 "session_id": session_id,
             });
-            return Some(((StatusCode::OK, Json(body)), true));
+            return Some(((StatusCode::OK, Json(body)), success));
         }
         crate::pre_execution::IngressDecision::Blocking(blocking) => match blocking {
             crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
@@ -1986,6 +1992,7 @@ async fn handle_webhook(
             webhook_dispatch::WebhookTurnRequest {
                 session_id: session_id.clone(),
                 session_source,
+                caller_token_hash: token_hash.clone(),
                 message: message.clone(),
                 execution_mode: resolve_webhook_execution_mode(
                     server_execution_mode,
@@ -2050,20 +2057,23 @@ async fn handle_webhook(
         return response;
     }
 
-    if !is_preview {
-        if let Some((response, persist_idempotency)) =
-            canonical_outcome_early_response(&state, &session_id, &scrubbed_message).await
-        {
-            release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
-            update_session_activity_if_persisted(
-                &state,
-                &session_id,
-                token_hash.as_deref(),
-                persist_idempotency,
-            )
-            .await;
-            return response;
-        }
+    if let Some((response, persist_idempotency)) = canonical_outcome_early_response(
+        &state,
+        &session_id,
+        &scrubbed_message,
+        token_hash.as_deref(),
+    )
+    .await
+    {
+        release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+        update_session_activity_if_persisted(
+            &state,
+            &session_id,
+            token_hash.as_deref(),
+            persist_idempotency,
+        )
+        .await;
+        return response;
     }
 
     if state.auto_save {
@@ -2148,11 +2158,16 @@ async fn handle_chat_stream(
         Error(serde_json::Value),
     }
 
-    let ingress_decision =
-        crate::pre_execution::evaluate_ingress(state.mem.as_ref(), &session_id, &scrubbed_message)
-            .await;
+    let ingress_decision = crate::pre_execution::evaluate_ingress(
+        state.mem.as_ref(),
+        &session_id,
+        &scrubbed_message,
+        token_hash.as_deref(),
+    )
+    .await;
 
-    if let crate::pre_execution::IngressDecision::SessionCommand(result) = &ingress_decision {
+    if let crate::pre_execution::IngressDecision::SessionCommand { result, .. } = &ingress_decision
+    {
         let sid = session_id.clone();
         let message_id = Uuid::new_v4().to_string();
         let events = vec![
@@ -2181,6 +2196,7 @@ async fn handle_chat_stream(
             webhook_dispatch::WebhookTurnRequest {
                 session_id: session_id.clone(),
                 session_source,
+                caller_token_hash: token_hash.clone(),
                 message: message.clone(),
                 execution_mode: resolve_webhook_execution_mode(
                     server_execution_mode,
@@ -3847,7 +3863,7 @@ mod tests {
             audio_config: crate::config::AudioConfig::default(),
         };
 
-        let response = canonical_outcome_early_response(&state, "session-1", "/tldr")
+        let response = canonical_outcome_early_response(&state, "session-1", "/tldr", None)
             .await
             .expect("slash session command should short-circuit");
         let ((status, Json(body)), _persist) = response;
@@ -3882,7 +3898,8 @@ mod tests {
             audio_config: crate::config::AudioConfig::default(),
         };
 
-        let response = canonical_outcome_early_response(&state, "session-1", "/resume-later").await;
+        let response =
+            canonical_outcome_early_response(&state, "session-1", "/resume-later", None).await;
 
         assert!(response.is_none());
     }
@@ -4425,6 +4442,59 @@ mod tests {
 
         assert_eq!(payload["session_id"], "session-e2e");
         assert!(payload.get("events_sse").is_none());
+    }
+
+    #[tokio::test]
+    async fn legacy_webhook_preview_intercepts_slash_session_commands() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
+        let provider_impl = Arc::new(MockProvider::default());
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: provider_impl.clone(),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("preview-slash"));
+
+        let _preview = EnvVarGuard::set("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "1");
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(WebhookBody {
+                message: "/tldr".to_string(),
+                execution_mode: None,
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(payload["session_id"], "preview-slash");
+        assert!(payload["response"]
+            .as_str()
+            .is_some_and(|text| text.contains("require sqlite")));
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

@@ -2,8 +2,23 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug, thiserror::Error)]
+#[error("slash-session commands require sqlite memory backend (backend={backend})")]
+pub struct SlashSessionUnsupportedBackendError {
+    pub backend: String,
+}
+
 pub fn slash_session_unsupported_error(backend: &str) -> anyhow::Error {
-    anyhow::anyhow!("slash-session commands require sqlite memory backend (backend={backend})")
+    SlashSessionUnsupportedBackendError {
+        backend: backend.to_string(),
+    }
+    .into()
+}
+
+pub fn is_slash_session_unsupported_error(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<SlashSessionUnsupportedBackendError>()
+        .is_some()
 }
 
 /// A single memory entry.
@@ -166,6 +181,23 @@ pub struct SessionStateMutation {
     pub latest_compact_snapshot_id: Option<String>,
     pub pending_hydration_snapshot_id: Option<String>,
     pub suspended_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SessionFieldPatch<T> {
+    Keep,
+    Set(T),
+    Clear,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionStatePatch {
+    pub session_id: String,
+    pub lifecycle: Option<SlashSessionLifecycle>,
+    pub latest_tldr_snapshot_id: SessionFieldPatch<String>,
+    pub latest_compact_snapshot_id: SessionFieldPatch<String>,
+    pub pending_hydration_snapshot_id: SessionFieldPatch<String>,
+    pub suspended_at: SessionFieldPatch<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -361,8 +393,16 @@ pub trait Memory: Send + Sync {
         Err(slash_session_unsupported_error(self.name()))
     }
 
+    async fn apply_session_state_patch(
+        &self,
+        _patch: SessionStatePatch,
+    ) -> anyhow::Result<SessionStateRecord> {
+        Err(slash_session_unsupported_error(self.name()))
+    }
+
     async fn list_resumable_sessions(
         &self,
+        _caller_token_hash: Option<&str>,
         _limit: u32,
         _offset: u32,
     ) -> anyhow::Result<Vec<ResumableSessionEntry>> {

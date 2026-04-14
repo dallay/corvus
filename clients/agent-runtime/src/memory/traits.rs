@@ -2,8 +2,8 @@
 
 #[allow(unused_imports)]
 pub use corvus_traits::memory::{
-    slash_session_unsupported_error, Memory, MemoryCategory, MemoryEntry, MemoryStats,
-    MemoryValidationResult, ResumableSessionEntry, SessionEntry, SessionSnapshotKind,
-    SessionSnapshotRecord, SessionStateMutation, SessionStateRecord, SessionStatus,
-    SlashSessionLifecycle,
+    is_slash_session_unsupported_error, slash_session_unsupported_error, Memory, MemoryCategory,
+    MemoryEntry, MemoryStats, MemoryValidationResult, ResumableSessionEntry, SessionEntry,
+    SessionFieldPatch, SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation,
+    SessionStatePatch, SessionStateRecord, SessionStatus, SlashSessionLifecycle,
 };
