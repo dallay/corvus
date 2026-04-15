@@ -154,7 +154,7 @@ fn built_in_registrations() -> [SlashCommandRegistration; 4] {
         SlashCommandRegistration {
             descriptor: SlashCommandDescriptor {
                 canonical_name: "/resume",
-                aliases: &[],
+                aliases: &["/continue"],
                 description: "Resume a suspended session or list resumable sessions.",
                 argument_shape: SlashCommandArgumentShape::OptionalTargetThenText,
                 requirements: SlashCommandRequirements {
@@ -632,6 +632,68 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(result, SessionCommandError::Unauthorized);
+    }
+
+    #[tokio::test]
+    async fn dispatch_resolves_alias_to_canonical_handler() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let memory = crate::memory::SqliteMemory::new(temp_dir.path()).unwrap();
+        let service = SessionCommandService::new(&memory);
+        let mut registry = SlashCommandRegistry::empty();
+        registry
+            .register(SlashCommandRegistration {
+                descriptor: SlashCommandDescriptor {
+                    canonical_name: "/resume",
+                    aliases: &["/continue"],
+                    description: "resume a session",
+                    argument_shape: SlashCommandArgumentShape::OptionalTargetThenText,
+                    requirements: SlashCommandRequirements::default(),
+                },
+                handler: Arc::new(ResumeHandler),
+            })
+            .unwrap();
+
+        let result = registry
+            .dispatch(
+                &service,
+                CommandContext {
+                    session_id: "session-1",
+                    caller_token_hash: None,
+                },
+                "/continue",
+            )
+            .await
+            .expect("alias should resolve to canonical command")
+            .unwrap_err();
+
+        assert_eq!(result, SessionCommandError::Unauthorized);
+    }
+
+    #[tokio::test]
+    async fn dispatch_routes_suspend_via_registry() {
+        let memory = CountingRegistryMemory::default();
+        let service = SessionCommandService::new(&memory);
+
+        let result = default_registry()
+            .dispatch(
+                &service,
+                CommandContext {
+                    session_id: "session-1",
+                    caller_token_hash: None,
+                },
+                "/suspend",
+            )
+            .await
+            .expect("built-in command should resolve")
+            .unwrap_err();
+
+        assert_eq!(
+            result,
+            SessionCommandError::UnsupportedBackend {
+                backend: "none".to_string(),
+            }
+        );
+        assert!(memory.name_calls.load(Ordering::SeqCst) >= 1);
     }
 
     struct RegistryMemory;
