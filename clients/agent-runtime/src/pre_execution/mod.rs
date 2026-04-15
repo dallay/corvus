@@ -6,7 +6,7 @@ use crate::session_commands::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockingOutcome {
-    ApprovalRequired { tool: String },
+    ApprovalRequired { tool: String, reason: String },
     TimeoutAborted,
     Fallback { response: String },
 }
@@ -85,7 +85,13 @@ pub async fn evaluate_ingress(
 
 pub fn classify_blocking(outcome: &CanonicalOutcome) -> Option<BlockingOutcome> {
     if let Some(tool) = &outcome.approval_required {
-        return Some(BlockingOutcome::ApprovalRequired { tool: tool.clone() });
+        return Some(BlockingOutcome::ApprovalRequired {
+            tool: tool.clone(),
+            reason: outcome
+                .approval_reason
+                .clone()
+                .unwrap_or_else(|| format!("approval required for `{tool}`")),
+        });
     }
 
     if outcome.timeout_aborted {
@@ -164,6 +170,7 @@ mod tests {
             session_id: "s1".to_string(),
             events: Vec::new(),
             approval_required: Some("tool-1".to_string()),
+            approval_reason: None,
             timeout_aborted: true,
             fallback_response: Some("fallback".to_string()),
         };
@@ -172,6 +179,7 @@ mod tests {
             classify_blocking(&outcome),
             Some(BlockingOutcome::ApprovalRequired {
                 tool: "tool-1".to_string(),
+                reason: "approval required for `tool-1`".to_string(),
             })
         );
     }
@@ -182,6 +190,7 @@ mod tests {
             session_id: "s1".to_string(),
             events: Vec::new(),
             approval_required: None,
+            approval_reason: None,
             timeout_aborted: true,
             fallback_response: None,
         };
@@ -198,6 +207,7 @@ mod tests {
             session_id: "s1".to_string(),
             events: Vec::new(),
             approval_required: None,
+            approval_reason: None,
             timeout_aborted: false,
             fallback_response: Some("fallback response".to_string()),
         };
@@ -216,6 +226,7 @@ mod tests {
             session_id: "s1".to_string(),
             events: Vec::new(),
             approval_required: None,
+            approval_reason: None,
             timeout_aborted: false,
             fallback_response: None,
         };
@@ -229,6 +240,7 @@ mod tests {
             session_id: "s1".to_string(),
             events: Vec::new(),
             approval_required: None,
+            approval_reason: None,
             timeout_aborted: true,
             fallback_response: Some("fallback response".to_string()),
         };

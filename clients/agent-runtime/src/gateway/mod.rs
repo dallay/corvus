@@ -7,7 +7,8 @@
 //! - Request timeouts (30s) to prevent slow-loris attacks
 //! - Header sanitization (handled by axum/hyper)
 
-use crate::agent::dispatcher::{evaluate_tool_risk, DispatchAction};
+// DISPATCH_ACTION_REMOVED: intentionally removed unused imports
+// use crate::agent::dispatcher::{evaluate_tool_risk, DispatchAction};
 use crate::bootstrap;
 use crate::channels::{Channel, SendMessage, WhatsAppChannel};
 use crate::config::{Config, ExecutionMode};
@@ -673,7 +674,7 @@ fn loop_event_name(event: &crate::agent::unified_loop::LoopEvent) -> &'static st
             "tool_dispatch_completed"
         }
         crate::agent::unified_loop::LoopEvent::CompactionTriggered => "compaction_triggered",
-        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_) => "approval_required",
+        crate::agent::unified_loop::LoopEvent::ApprovalRequired(..) => "approval_required",
         crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
         crate::agent::unified_loop::LoopEvent::Error(_) => "error",
     }
@@ -685,9 +686,11 @@ fn loop_event_payload(event: &crate::agent::unified_loop::LoopEvent) -> String {
         crate::agent::unified_loop::LoopEvent::LLMProgress(text)
         | crate::agent::unified_loop::LoopEvent::ToolDispatchStarted(text)
         | crate::agent::unified_loop::LoopEvent::ToolDispatchCompleted(text)
-        | crate::agent::unified_loop::LoopEvent::ApprovalRequired(text)
         | crate::agent::unified_loop::LoopEvent::Complete(text)
         | crate::agent::unified_loop::LoopEvent::Error(text) => scrub_sensitive_boundary_text(text),
+        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_, description) => {
+            scrub_sensitive_boundary_text(description)
+        }
         crate::agent::unified_loop::LoopEvent::CompactionTriggered => {
             "compaction_triggered".to_string()
         }
@@ -802,6 +805,7 @@ fn log_webhook_terminal_outcome(session_id: &str, runtime_path: &str, outcome: &
 fn webhook_outcome_label(outcome: &webhook_dispatch::WebhookTerminalOutcome) -> &'static str {
     match outcome {
         webhook_dispatch::WebhookTerminalOutcome::Completed => "completed",
+        webhook_dispatch::WebhookTerminalOutcome::Failed => "failed",
         webhook_dispatch::WebhookTerminalOutcome::BudgetExceeded { .. } => "budget_exceeded",
         webhook_dispatch::WebhookTerminalOutcome::ApprovalRequired { .. } => "approval_required",
         webhook_dispatch::WebhookTerminalOutcome::PlanModeBlocked { .. } => "plan_mode_blocked",
@@ -1780,20 +1784,8 @@ async fn canonical_outcome_early_response(
             return Some(((StatusCode::OK, Json(body)), success));
         }
         crate::pre_execution::IngressDecision::Blocking(blocking) => match blocking {
-            crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
-                let denial_reason = match evaluate_tool_risk(&tool) {
-                    DispatchAction::ApprovalRequired(reason) => {
-                        if reason.trim().is_empty() {
-                            format!("approval required before executing `{tool}`")
-                        } else {
-                            reason
-                        }
-                    }
-                    DispatchAction::Execute | DispatchAction::Blocked { .. } => {
-                        format!("approval required for `{tool}`")
-                    }
-                };
-                let denial = crate::approval::structured_denial_payload(&tool, &denial_reason);
+            crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => {
+                let denial = crate::approval::structured_denial_payload(&tool, &reason);
                 let err = serde_json::json!({
                     "error": denial,
                     "session_id": session_id,
@@ -1844,6 +1836,20 @@ fn webhook_response_from_dispatch_result(
                 body["events_sse"] = serde_json::json!(result.event_frames);
             }
             ((StatusCode::OK, Json(body)), true)
+        }
+        webhook_dispatch::WebhookTerminalOutcome::Failed => {
+            let response_text = result
+                .response_text
+                .map(|text| scrub_sensitive_boundary_text(&text))
+                .unwrap_or_default();
+            let body = serde_json::json!({
+                "error": {
+                    "code": "session_command_failed",
+                    "message": response_text,
+                },
+                "session_id": result.session_id,
+            });
+            ((StatusCode::UNPROCESSABLE_ENTITY, Json(body)), false)
         }
         webhook_dispatch::WebhookTerminalOutcome::BudgetExceeded {
             current_usd,
@@ -2020,6 +2026,27 @@ async fn handle_webhook(
         return response;
     }
 
+    // Intercept deterministic session commands (e.g. /tldr, /resume) before plan/cost guards
+    // so they can short-circuit without being blocked by execution-mode or cost checks.
+    if let Some((response, persist_idempotency)) = canonical_outcome_early_response(
+        &state,
+        &session_id,
+        &scrubbed_message,
+        token_hash.as_deref(),
+    )
+    .await
+    {
+        release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+        update_session_activity_if_persisted(
+            &state,
+            &session_id,
+            token_hash.as_deref(),
+            persist_idempotency,
+        )
+        .await;
+        return response;
+    }
+
     // Plan mode enforcement: fail-closed if dispatcher is disabled but Plan mode is requested
     let resolved_execution_mode =
         resolve_webhook_execution_mode(server_execution_mode, webhook_body.execution_mode);
@@ -2054,25 +2081,6 @@ async fn handle_webhook(
         release_idempotency_key(&state, reserved_idempotency_key, false);
         update_session_activity_if_persisted(&state, &session_id, token_hash.as_deref(), false)
             .await;
-        return response;
-    }
-
-    if let Some((response, persist_idempotency)) = canonical_outcome_early_response(
-        &state,
-        &session_id,
-        &scrubbed_message,
-        token_hash.as_deref(),
-    )
-    .await
-    {
-        release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
-        update_session_activity_if_persisted(
-            &state,
-            &session_id,
-            token_hash.as_deref(),
-            persist_idempotency,
-        )
-        .await;
         return response;
     }
 
@@ -2274,6 +2282,16 @@ async fn handle_chat_stream(
                 "execution_mode": execution_mode,
                 "message": format!("Plan mode blocked tool `{tool}`: {reason}"),
             })),
+            webhook_dispatch::WebhookTerminalOutcome::Failed => {
+                let message = result
+                    .response_text
+                    .map(|t| scrub_sensitive_boundary_text(&t))
+                    .unwrap_or_else(|| "session command failed".to_string());
+                StreamProcessingOutcome::Error(serde_json::json!({
+                    "code": "session_command_failed",
+                    "message": message,
+                }))
+            }
         }
     } else {
         log_webhook_runtime_path(&session_id, false, "stream_legacy");
@@ -2300,10 +2318,11 @@ async fn handle_chat_stream(
             }))
         } else if let crate::pre_execution::IngressDecision::Blocking(blocking) = ingress_decision {
             let payload = match blocking {
-                crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
+                crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => {
                     serde_json::json!({
                         "code": "approval_required",
                         "tool": tool,
+                        "reason": reason,
                         "message": "Approval required",
                     })
                 }

@@ -1,7 +1,7 @@
 use super::embeddings::EmbeddingProvider;
 use super::traits::{
     Memory, MemoryCategory, MemoryEntry, MemoryStats, ResumableSessionEntry, SessionEntry,
-    SessionFieldPatch, SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation,
+    SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation,
     SessionStatePatch, SessionStateRecord, SessionStatus, SlashSessionLifecycle,
 };
 use super::vector;
@@ -1402,7 +1402,9 @@ impl Memory for SqliteMemory {
                 crate::memory::SessionFieldPatch::Keep => (None, false),
                 crate::memory::SessionFieldPatch::Clear => (None, true),
             };
-            let clear_lifecycle = patch.lifecycle.is_none();
+            // lifecycle uses Option<SlashSessionLifecycle>: None means Keep (preserve existing),
+            // Some(v) means Set. It is never nullable (NOT NULL column), so clear is never valid.
+            let clear_lifecycle = false;
             let lifecycle_value = patch.lifecycle.as_ref().map(|l| l.as_str().to_string());
 
             conn.execute(
@@ -1414,7 +1416,7 @@ impl Memory for SqliteMemory {
                     pending_hydration_snapshot_id,
                     suspended_at,
                     updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                ) VALUES (?1, COALESCE(?2, 'active'), ?3, ?4, ?5, ?6, ?7)
                 ON CONFLICT(session_id) DO UPDATE SET
                     lifecycle_state = CASE WHEN ?8 THEN NULL ELSE COALESCE(excluded.lifecycle_state, session_state.lifecycle_state) END,
                     latest_tldr_snapshot_id = CASE WHEN ?9 THEN NULL ELSE COALESCE(excluded.latest_tldr_snapshot_id, session_state.latest_tldr_snapshot_id) END,
@@ -3269,7 +3271,11 @@ mod tests {
         .await
         .unwrap();
 
-        let state = mem.get_session_state_record("session-1").await.unwrap().unwrap();
+        let state = mem
+            .get_session_state_record("session-1")
+            .await
+            .unwrap()
+            .unwrap();
         assert!(state.latest_tldr_snapshot_id.is_some());
 
         mem.apply_session_state_patch(SessionStatePatch {
@@ -3283,7 +3289,11 @@ mod tests {
         .await
         .unwrap();
 
-        let state = mem.get_session_state_record("session-1").await.unwrap().unwrap();
+        let state = mem
+            .get_session_state_record("session-1")
+            .await
+            .unwrap()
+            .unwrap();
         assert!(
             state.latest_tldr_snapshot_id.is_none(),
             "Clear should have set latest_tldr_snapshot_id to NULL"

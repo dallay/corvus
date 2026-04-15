@@ -1534,7 +1534,13 @@ async fn maybe_handle_cli_session_command(
         std::env::var("CORVUS_SESSION_ID").unwrap_or_else(|_| "interactive-session".to_string());
     match crate::pre_execution::evaluate_ingress(memory.as_ref(), &session_id, message, None).await
     {
-        crate::pre_execution::IngressDecision::SessionCommand { result, .. } => Ok(Some(result)),
+        crate::pre_execution::IngressDecision::SessionCommand { result, success } => {
+            if success {
+                Ok(Some(result))
+            } else {
+                Err(anyhow::anyhow!("{}", result.message))
+            }
+        }
         crate::pre_execution::IngressDecision::Blocking(_)
         | crate::pre_execution::IngressDecision::Continue => Ok(None),
     }
@@ -1550,6 +1556,18 @@ async fn handle_code_command(
     plan: bool,
 ) -> Result<()> {
     let config = apply_code_session_config(config, provider, model, temperature, plan);
+
+    // Intercept slash session commands before agent initialization
+    if let Some(raw_message) = message.as_deref() {
+        if let Some(result) = maybe_handle_cli_session_command(&config, raw_message).await? {
+            println!("{}", result.message);
+            return Ok(());
+        }
+    }
+
+    // Reconstruct message for later use after the interception consumed the reference
+    let message = message;
+
     info!("Starting code-specialist session (profile=code)");
     let provider_name = config
         .default_provider

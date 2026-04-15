@@ -4,6 +4,7 @@ use crate::security::egress::enforce_cerebro_egress;
 use crate::security::policy::ToolOperation;
 use crate::tools::mcp::{cerebro, normalize};
 use crate::tools::traits::Tool;
+use anyhow::Context as _;
 use async_trait::async_trait;
 use serde_json::json;
 use std::fmt::Write;
@@ -181,7 +182,11 @@ async fn append_pending_resume_context(
     let pending = match memory.take_pending_resume_hydration(session_id).await {
         Ok(snapshot) => snapshot,
         Err(error) if is_slash_session_unsupported_error(&error) => return Ok(false),
-        Err(error) => return Err(error),
+        Err(error) => {
+            return Err(error).context(format!(
+                "pending resume hydration failed for session {session_id}"
+            ))
+        }
     };
     let Some(snapshot) = pending else {
         return Ok(false);

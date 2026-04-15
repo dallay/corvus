@@ -182,6 +182,12 @@ impl<'a> SessionCommandService<'a> {
         caller_token_hash: Option<&str>,
     ) -> Result<SessionCommandResult, SessionCommandError> {
         self.ensure_sqlite()?;
+
+        // Caller identity is mandatory for resume/listing resumable sessions
+        let Some(caller_hash) = caller_token_hash else {
+            return Err(SessionCommandError::Unauthorized);
+        };
+
         if let Some(target_session_id) = target {
             let session = self
                 .memory
@@ -199,31 +205,28 @@ impl<'a> SessionCommandService<'a> {
 
             // Caller ownership check: verify the caller owns or has access to the target session.
             // Use targeted lookup instead of pagination-based check to avoid missing sessions beyond page 1.
-            if let Some(caller_hash) = caller_token_hash {
-                // First verify session exists
-                let _session = self
-                    .memory
-                    .get_session(target_session_id)
-                    .await
-                    .map_err(|error| self.map_storage_error(error))?
-                    .ok_or_else(|| SessionCommandError::InvalidResumeTarget {
-                        session_id: target_session_id.to_string(),
-                    })?;
+            let _session = self
+                .memory
+                .get_session(target_session_id)
+                .await
+                .map_err(|error| self.map_storage_error(error))?
+                .ok_or_else(|| SessionCommandError::InvalidResumeTarget {
+                    session_id: target_session_id.to_string(),
+                })?;
 
-                // Use list_resumable_sessions to verify visibility (same filter as listing)
-                let visible = self
-                    .memory
-                    .list_resumable_sessions(Some(caller_hash), 1000, 0)
-                    .await
-                    .map_err(|error| self.map_storage_error(error))?
-                    .iter()
-                    .any(|entry| entry.session_id == target_session_id);
+            // Use list_resumable_sessions to verify visibility (same filter as listing)
+            let visible = self
+                .memory
+                .list_resumable_sessions(Some(caller_hash), 1000, 0)
+                .await
+                .map_err(|error| self.map_storage_error(error))?
+                .iter()
+                .any(|entry| entry.session_id == target_session_id);
 
-                if !visible {
-                    return Err(SessionCommandError::InvalidResumeTarget {
-                        session_id: target_session_id.to_string(),
-                    });
-                }
+            if !visible {
+                return Err(SessionCommandError::InvalidResumeTarget {
+                    session_id: target_session_id.to_string(),
+                });
             }
 
             // Use non-panicking state lookup instead of require_state
@@ -257,7 +260,7 @@ impl<'a> SessionCommandService<'a> {
                 .await
                 .map_err(|error| self.map_storage_error(error))?;
 
-            return Ok(SessionCommandResult {
+            Ok(SessionCommandResult {
                 command: "/resume",
                 session_id: current_session_id.to_string(),
                 message: format!(
@@ -265,32 +268,32 @@ impl<'a> SessionCommandService<'a> {
                 ),
                 resumed_session_id: Some(target_session_id.to_string()),
                 resumable_sessions: Vec::new(),
-            });
-        }
-
-        let resumable_sessions = self
-            .memory
-            .list_resumable_sessions(caller_token_hash, 20, 0)
-            .await
-            .map_err(|error| self.map_storage_error(error))?;
-        let message = if resumable_sessions.is_empty() {
-            "No resumable suspended sessions.".to_string()
+            })
         } else {
-            let lines = resumable_sessions
-                .iter()
-                .map(|entry| format!("- {}: {}", entry.session_id, entry.preview))
-                .collect::<Vec<_>>()
-                .join("\n");
-            format!("Resumable sessions:\n{lines}")
-        };
+            let resumable_sessions = self
+                .memory
+                .list_resumable_sessions(Some(caller_hash), 10, 0)
+                .await
+                .map_err(|error| self.map_storage_error(error))?;
+            let message = if resumable_sessions.is_empty() {
+                "No resumable suspended sessions.".to_string()
+            } else {
+                let lines = resumable_sessions
+                    .iter()
+                    .map(|entry| format!("- {}: {}", entry.session_id, entry.preview))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("Resumable sessions:\n{lines}")
+            };
 
-        Ok(SessionCommandResult {
-            command: "/resume",
-            session_id: current_session_id.to_string(),
-            message,
-            resumed_session_id: None,
-            resumable_sessions,
-        })
+            Ok(SessionCommandResult {
+                command: "/resume",
+                session_id: current_session_id.to_string(),
+                message,
+                resumed_session_id: None,
+                resumable_sessions,
+            })
+        }
     }
 
     fn ensure_sqlite(&self) -> Result<(), SessionCommandError> {
@@ -836,12 +839,20 @@ mod tests {
                 suspended_at: Some("now".into()),
                 updated_at: "now".into(),
             })),
+            listed: vec![ResumableSessionEntry {
+                session_id: "session-1".into(),
+                started_at: "now".into(),
+                last_activity: "now".into(),
+                snapshot_id: "snapshot-1".into(),
+                snapshot_created_at: "now".into(),
+                preview: "resume me".into(),
+            }],
             ..Default::default()
         };
         let service = SessionCommandService::new(&memory);
 
         let result = service
-            .handle_resume("session-2", Some("session-1"), None)
+            .handle_resume("session-2", Some("session-1"), Some("caller-hash"))
             .await
             .unwrap();
 
@@ -868,7 +879,11 @@ mod tests {
         let service = SessionCommandService::new(&memory);
 
         let error = service
-            .handle_resume("session-current", Some("missing-session"), None)
+            .handle_resume(
+                "session-current",
+                Some("missing-session"),
+                Some("caller-hash"),
+            )
             .await
             .unwrap_err();
 
@@ -892,7 +907,7 @@ mod tests {
         let service = SessionCommandService::new(&memory);
 
         let error = service
-            .handle_resume("session-current", Some("session-1"), None)
+            .handle_resume("session-current", Some("session-1"), Some("caller-hash"))
             .await
             .unwrap_err();
 
@@ -918,12 +933,20 @@ mod tests {
                 suspended_at: Some("now".into()),
                 updated_at: "now".into(),
             })),
+            listed: vec![ResumableSessionEntry {
+                session_id: "session-1".into(),
+                started_at: "now".into(),
+                last_activity: "now".into(),
+                snapshot_id: "snapshot-missing".into(),
+                snapshot_created_at: "now".into(),
+                preview: "resume me".into(),
+            }],
             ..Default::default()
         };
         let service = SessionCommandService::new(&memory);
 
         let error = service
-            .handle_resume("session-current", Some("session-1"), None)
+            .handle_resume("session-current", Some("session-1"), Some("caller-hash"))
             .await
             .unwrap_err();
 
@@ -952,7 +975,7 @@ mod tests {
         let service = SessionCommandService::new(&memory);
 
         let result = service
-            .handle_resume("session-current", None, None)
+            .handle_resume("session-current", None, Some("caller-hash"))
             .await
             .unwrap();
 

@@ -101,6 +101,7 @@ pub enum SessionCommandError {
     InvalidResumeTarget {
         session_id: String,
     },
+    Unauthorized,
     StorageFailure {
         detail: String,
     },
@@ -124,6 +125,7 @@ impl SessionCommandError {
             Self::InvalidResumeTarget { session_id } => {
                 format!("[session:{session_id}] invalid resume target")
             }
+            Self::Unauthorized => "unauthorized: verifiable caller identity required".to_string(),
             Self::StorageFailure { detail } => {
                 format!("slash-session storage failure: {detail}")
             }

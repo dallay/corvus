@@ -330,7 +330,7 @@ fn map_loop_event_to_channel_content(
         crate::agent::unified_loop::LoopEvent::CompactionTriggered => {
             Some(format!("{prefix}Context compacted for stability."))
         }
-        crate::agent::unified_loop::LoopEvent::ApprovalRequired(tool) => {
+        crate::agent::unified_loop::LoopEvent::ApprovalRequired(tool, _) => {
             Some(format!("{prefix}Approval required for `{tool}`"))
         }
         crate::agent::unified_loop::LoopEvent::Error(message) => {
@@ -705,6 +705,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
         target_channel.as_ref(),
         ctx.memory.as_ref(),
         &session_id,
+        &msg.sender,
         &msg.reply_target,
         &user_text,
     )
@@ -1853,10 +1854,27 @@ async fn handle_ingress_outcome(
     channel: Option<&Arc<dyn Channel>>,
     memory: &dyn Memory,
     session_id: &str,
+    sender: &str,
     reply_target: &str,
     content: &str,
 ) -> Option<()> {
-    match crate::pre_execution::evaluate_ingress(memory, session_id, content, None).await {
+    let caller_scope = channel.map(|ch| {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(ch.name().as_bytes());
+        hasher.update(b":");
+        hasher.update(sender.as_bytes());
+        hex::encode(hasher.finalize())
+    });
+
+    match crate::pre_execution::evaluate_ingress(
+        memory,
+        session_id,
+        content,
+        caller_scope.as_deref(),
+    )
+    .await
+    {
         crate::pre_execution::IngressDecision::SessionCommand { result, .. } => {
             if let Some(ch) = channel {
                 let _ = ch
@@ -1868,7 +1886,7 @@ async fn handle_ingress_outcome(
         crate::pre_execution::IngressDecision::Blocking(blocking) => {
             if let Some(ch) = channel {
                 let text = match blocking {
-                    crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
+                    crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, .. } => {
                         format!(
                         "[session:{session_id}] approval required for `{tool}`; request blocked"
                     )
@@ -3218,6 +3236,7 @@ mod tests {
             Some(&channel_dyn),
             &memory,
             "session-1",
+            "tester",
             "reply-target",
             "/tldr",
         )
@@ -4630,7 +4649,10 @@ mod tests {
     fn loop_event_mapping_surfaces_approval_request() {
         let mapped = map_loop_event_to_channel_content(
             "session-123",
-            &crate::agent::unified_loop::LoopEvent::ApprovalRequired("shell".to_string()),
+            &crate::agent::unified_loop::LoopEvent::ApprovalRequired(
+                "shell".to_string(),
+                "approval required for `shell`".to_string(),
+            ),
         )
         .unwrap();
 

@@ -11,7 +11,7 @@
 - [x] 2.1 Add RED SQLite persistence tests in `clients/agent-runtime/src/memory/sqlite.rs` for additive/idempotent `session_snapshots` + `session_state` migrations, snapshot creation, resume listing, and pending-hydration take-once behavior.
 - [x] 2.2 Implement the new SQLite schema and slash-session CRUD/query helpers in `clients/agent-runtime/src/memory/sqlite.rs`, keeping `sessions` as identity/listing only.
 - [x] 2.3 Add RED unsupported-backend tests, then implement explicit slash-session unsupported errors in `clients/agent-runtime/src/memory/{markdown.rs,lucid.rs,none.rs}`.
-- [x] 2.4 Add RED hydration tests in `clients/agent-runtime/src/agent/memory_loader.rs` for prepending persisted resume context before normal recall and clearing `pending_hydration_snapshot_id` atomically.
+- [x] 2.4 Add RED hydration tests in `clients/agent-runtime/src/agent/memory_loader.rs` for normal recall performed first, then any persisted resume context prepended into the final assembled context, and clearing `pending_hydration_snapshot_id` atomically when hydration completes.
 - [x] 2.5 Implement resume hydration in `clients/agent-runtime/src/agent/memory_loader.rs` using the new `Memory::take_pending_resume_hydration` seam.
 
 ## Phase 3: Deterministic command service and ingress wiring

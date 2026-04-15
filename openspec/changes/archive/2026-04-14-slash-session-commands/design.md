@@ -124,10 +124,10 @@ Ingress
   -> return resumed session result with resumed session id
 
 Next normal turn for abc-123
+  -> normal memory recall runs first
   -> MemoryLoader asks memory for pending hydration snapshot
-  -> snapshot payload is prepended as resume context
+  -> snapshot payload is prepended as one-shot resume context
   -> pending_hydration_snapshot_id cleared atomically
-  -> normal memory recall runs after hydration seed
 ```
 
 ## File Changes
@@ -257,6 +257,13 @@ pub trait Memory: Send + Sync {
         anyhow::bail!("slash-session commands require sqlite memory backend")
     }
 
+    async fn get_session_snapshot(
+        &self,
+        _snapshot_id: &str,
+    ) -> anyhow::Result<Option<SessionSnapshotRecord>> {
+        anyhow::bail!("slash-session commands require sqlite memory backend")
+    }
+
     async fn get_session_state_record(
         &self,
         _session_id: &str,
@@ -264,15 +271,16 @@ pub trait Memory: Send + Sync {
         anyhow::bail!("slash-session commands require sqlite memory backend")
     }
 
-    async fn update_session_state_record(
+    async fn apply_session_state_patch(
         &self,
-        _state: SessionStateMutation,
+        _patch: SessionStatePatch,
     ) -> anyhow::Result<SessionStateRecord> {
         anyhow::bail!("slash-session commands require sqlite memory backend")
     }
 
     async fn list_resumable_sessions(
         &self,
+        _caller_token_hash: Option<&str>,
         _limit: u32,
         _offset: u32,
     ) -> anyhow::Result<Vec<ResumableSessionEntry>> {
@@ -397,10 +405,11 @@ The hydration path intentionally avoids process-local state.
 
 1. `/resume {session_id}` stores the chosen compact snapshot id in `session_state.pending_hydration_snapshot_id`.
 2. The next normal turn for that same `session_id` reaches `DefaultMemoryLoader::load_context(...)`.
-3. `MemoryLoader` first asks `memory.take_pending_resume_hydration(session_id)`.
-4. If present, the compact snapshot payload's `resume_context` is appended to context as a dedicated block before standard memory recall.
-5. The pending marker is cleared atomically as part of the read, making hydration single-use.
-6. Standard session recall still runs afterward as a secondary enrichment layer, but the compact snapshot remains the authoritative resume source.
+3. Normal memory recall runs first via `memory.recall(...)`.
+4. `MemoryLoader` then asks `memory.take_pending_resume_hydration(session_id)` for the pending snapshot.
+5. If present, the compact snapshot payload's `resume_context` is appended to context as a dedicated one-shot resumed context block.
+6. The pending marker is cleared atomically as part of the read, making hydration single-use.
+7. Standard session recall has already run as the primary enrichment layer; the compact snapshot remains the authoritative resume source.
 
 Example context prefix:
 

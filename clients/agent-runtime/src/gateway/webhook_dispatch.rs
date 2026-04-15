@@ -34,6 +34,7 @@ pub struct WebhookTurnRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub enum WebhookTerminalOutcome {
     Completed,
+    Failed,
     BudgetExceeded {
         current_usd: f64,
         limit_usd: f64,
@@ -258,7 +259,7 @@ pub(crate) fn map_canonical_result(
             ),
             tools_called: vec![],
         },
-        CanonicalWebhookResult::Blocking(BlockingOutcome::ApprovalRequired { tool }) => {
+        CanonicalWebhookResult::Blocking(BlockingOutcome::ApprovalRequired { tool, .. }) => {
             let reason = approval_reason_for_tool(&tool);
             WebhookTurnResult {
                 session_id: request.session_id.clone(),
@@ -400,24 +401,32 @@ pub(crate) async fn execute(
     )
     .await
     {
-        IngressDecision::SessionCommand { result, .. } => {
+        IngressDecision::SessionCommand { result, success } => {
             // SessionCommand is a metadata-only operation — frames intentionally omitted.
             // No agent execution occurs, so there are no tool calls or events to report.
+            let outcome = if success {
+                WebhookTerminalOutcome::Completed
+            } else {
+                WebhookTerminalOutcome::Failed
+            };
             return WebhookTurnResult {
                 session_id: request.session_id.clone(),
                 model: model.to_string(),
-                outcome: WebhookTerminalOutcome::Completed,
+                outcome,
                 response_text: Some(result.message),
                 event_frames: Vec::new(),
                 tools_called: Vec::new(),
             };
         }
         IngressDecision::Blocking(blocking) => match blocking {
-            BlockingOutcome::ApprovalRequired { tool } => {
+            BlockingOutcome::ApprovalRequired { tool, reason } => {
                 return map_canonical_result(
                     &request,
                     model,
-                    CanonicalWebhookResult::Blocking(BlockingOutcome::ApprovalRequired { tool }),
+                    CanonicalWebhookResult::Blocking(BlockingOutcome::ApprovalRequired {
+                        tool,
+                        reason,
+                    }),
                 );
             }
             other => {
@@ -626,6 +635,7 @@ mod tests {
             "test-model",
             CanonicalWebhookResult::Blocking(BlockingOutcome::ApprovalRequired {
                 tool: "shell".into(),
+                reason: "approval required for `shell`".into(),
             }),
         );
 
@@ -1067,7 +1077,7 @@ mod tests {
         .await;
 
         assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
-        assert_eq!(result.outcome, WebhookTerminalOutcome::Completed);
+        assert_eq!(result.outcome, WebhookTerminalOutcome::Failed);
         assert!(result
             .response_text
             .as_deref()

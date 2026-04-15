@@ -146,8 +146,7 @@ The `/resume` command MUST support deterministic list and load behavior for susp
 - When invoked without a target, `/resume` MUST return a list of resumable suspended sessions visible to the authenticated caller based on the existing `sessions` identity/listing records combined with authoritative suspended state.
 - When invoked with a target session identifier, `/resume {session_id}` MUST validate that the target
   exists, is suspended, and has a valid resume-capable snapshot.
-- On successful resume, the runtime MUST load the authoritative resume snapshot for that session,
-  reactivate the session, and return a user-visible result that identifies the resumed session.
+- On successful resume, the runtime MUST record the authoritative resume snapshot reference for that session by setting `pending_hydration_snapshot_id` and reactivate the session, returning a user-visible result that identifies the resumed session. The actual context payload is NOT injected immediately; instead, it is loaded by the memory loader on the next normal turn, where normal memory recall runs first and then the persisted resume context is prepended as a one-shot resumed context block.
 
 #### Scenario: Resume without target lists suspended sessions
 
@@ -160,9 +159,10 @@ The `/resume` command MUST support deterministic list and load behavior for susp
 
 - GIVEN session `abc-123` is suspended and has a valid authoritative compact snapshot
 - WHEN the user runs `/resume abc-123`
-- THEN the runtime MUST load the referenced resume snapshot for session `abc-123`
+- THEN the runtime MUST set `pending_hydration_snapshot_id` to the referenced resume snapshot for session `abc-123` (deferred hydration — the context payload is NOT loaded immediately)
 - AND the session state MUST transition from `suspended` to `active`
-- AND the user-visible result MUST identify that session `abc-123` was resumed from persisted state.
+- AND the user-visible result MUST identify that session `abc-123` was resumed from persisted state
+- AND the actual context injection will occur on the next normal turn when the memory loader detects the pending hydration marker.
 
 #### Scenario: Resume target is invalid
 

@@ -41,6 +41,7 @@ pub struct CanonicalOutcome {
     pub session_id: String,
     pub events: Vec<LoopEvent>,
     pub approval_required: Option<String>,
+    pub approval_reason: Option<String>,
     pub timeout_aborted: bool,
     pub fallback_response: Option<String>,
 }
@@ -149,6 +150,7 @@ pub async fn run_canonical_outcome(
             session_id,
             events: Vec::new(),
             approval_required: None,
+            approval_reason: None,
             timeout_aborted: false,
             fallback_response: None,
         };
@@ -172,10 +174,16 @@ pub async fn run_canonical_outcome(
     let result =
         execute_with_retry_backoff(session_id.clone(), prompt, &loop_config, options).await;
 
-    let approval_required = result.events.iter().find_map(|event| match event {
-        LoopEvent::ApprovalRequired(tool) => Some(tool.clone()),
-        _ => None,
-    });
+    let mut approval_required = None;
+    let mut approval_reason = None;
+
+    for event in &result.events {
+        if let LoopEvent::ApprovalRequired(tool, reason) = event {
+            approval_required = Some(tool.clone());
+            approval_reason = Some(reason.clone());
+            break;
+        }
+    }
 
     let timeout_aborted = result
         .events
@@ -191,16 +199,17 @@ pub async fn run_canonical_outcome(
         None
     };
 
-    let approval_required = if approval_granted {
-        None
+    let (approval_required, approval_reason) = if approval_granted {
+        (None, None)
     } else {
-        approval_required
+        (approval_required, approval_reason)
     };
 
     CanonicalOutcome {
         session_id,
         events: result.events,
         approval_required,
+        approval_reason,
         timeout_aborted,
         fallback_response,
     }

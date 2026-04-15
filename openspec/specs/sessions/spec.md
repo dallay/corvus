@@ -273,6 +273,12 @@ The `/resume` command MUST support deterministic list and load behavior for susp
   exists, is suspended, has a valid resume-capable snapshot, AND is visible to the authenticated caller.
   The runtime MUST enforce the same caller-scoped visibility/ownership rules used for the no-target listing —
   only sessions the caller is authorized to view can be resumed.
+- For requests without a verifiable caller identity (e.g., channel messages or CLI invocations without a bearer token),
+  the runtime MUST derive a caller scope from the originating channel identity or CLI user identity and apply
+  the same visibility/ownership rules used for bearer-token requests. If no verifiable caller identity can be
+  established, `/resume` with a target MUST return an authorization/unsupported response and the resumable
+  sessions listing MUST be restricted to sessions visible within the derived scope (or return an empty list
+  if no scope can be derived).
 - On successful resume, the runtime MUST load the authoritative resume snapshot for that session,
   reactivate the session, and return a user-visible result that identifies the resumed session.
 
