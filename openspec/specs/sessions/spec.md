@@ -248,6 +248,13 @@ a suspended state only if an authoritative resume-capable snapshot is available 
 Suspension MUST be reflected in the dedicated session-state record and MUST remain listable through
 the existing session identity/listing model.
 
+Sessions with state "suspended" (as recorded in the session-state table by `/suspend`) MUST be excluded
+from normal activity-counting updates (SESS-3) and from the stale auto-close rule (SESS-5) that closes
+sessions where `ended_at` IS NULL and `last_activity` is older than the configured threshold. Suspended
+sessions MUST NOT be auto-closed by the hygiene pass until they are explicitly resumed via `/resume` or
+explicitly ended by another mechanism. The runtime MUST ensure that the suspended lifecycle state takes
+precedence over activity-based auto-close logic, so only active sessions are subject to stale detection.
+
 #### Scenario: Suspend marks a session as suspended and listable
 
 - GIVEN an active session `abc-123` with a latest authoritative resume-capable snapshot
@@ -571,7 +578,7 @@ unsupported rather than silently succeeding.
 #### Scenario: SQLite backend exposes slash-session persistence operations
 
 - GIVEN the runtime is backed by SQLite
-- WHEN `/compact` or `/resume` requires snapshot/state persistence APIs
+- WHEN `/compact` or `/resume` needs snapshot/state persistence operations
 - THEN the runtime MUST provide deterministic session snapshot/state operations that succeed when the underlying data is valid.
 
 #### Scenario: Non-SQLite backend rejects slash-session persistence operations

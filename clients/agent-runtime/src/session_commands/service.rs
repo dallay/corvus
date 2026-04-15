@@ -204,16 +204,6 @@ impl<'a> SessionCommandService<'a> {
             }
 
             // Caller ownership check: verify the caller owns or has access to the target session.
-            // Use targeted lookup instead of pagination-based check to avoid missing sessions beyond page 1.
-            let _session = self
-                .memory
-                .get_session(target_session_id)
-                .await
-                .map_err(|error| self.map_storage_error(error))?
-                .ok_or_else(|| SessionCommandError::InvalidResumeTarget {
-                    session_id: target_session_id.to_string(),
-                })?;
-
             // Use list_resumable_sessions to verify visibility (same filter as listing)
             let visible = self
                 .memory

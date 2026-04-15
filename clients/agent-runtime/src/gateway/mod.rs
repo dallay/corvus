@@ -1776,12 +1776,23 @@ async fn canonical_outcome_early_response(
     .await
     {
         crate::pre_execution::IngressDecision::SessionCommand { result, success } => {
-            let body = serde_json::json!({
-                "response": result.message,
-                "model": state.model,
-                "session_id": session_id,
-            });
-            return Some(((StatusCode::OK, Json(body)), success));
+            if success {
+                let body = serde_json::json!({
+                    "response": result.message,
+                    "model": state.model,
+                    "session_id": session_id,
+                });
+                return Some(((StatusCode::OK, Json(body)), true));
+            } else {
+                let error_body = serde_json::json!({
+                    "error": {
+                        "code": "session_command_failed",
+                        "message": result.message,
+                    },
+                    "session_id": session_id,
+                });
+                return Some(((StatusCode::UNPROCESSABLE_ENTITY, Json(error_body)), false));
+            }
         }
         crate::pre_execution::IngressDecision::Blocking(blocking) => match blocking {
             crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => {
@@ -2174,7 +2185,7 @@ async fn handle_chat_stream(
     )
     .await;
 
-    if let crate::pre_execution::IngressDecision::SessionCommand { result, .. } = &ingress_decision
+    if let crate::pre_execution::IngressDecision::SessionCommand { result, success } = &ingress_decision
     {
         // Update session activity before returning early
         if let Err(e) = state
@@ -2186,18 +2197,30 @@ async fn handle_chat_stream(
         }
 
         let sid = session_id.clone();
-        let message_id = Uuid::new_v4().to_string();
-        let events = vec![
-            Ok(Event::default().event("chunk").data(result.message.clone())),
-            Ok(Event::default()
-                .event("done")
-                .json_data(serde_json::json!({
-                    "message_id": message_id,
-                    "session_id": sid,
-                    "tools_called": [],
-                }))
-                .expect("serializable done event")),
-        ];
+        let events = if *success {
+            let message_id = Uuid::new_v4().to_string();
+            vec![
+                Ok(Event::default().event("chunk").data(result.message.clone())),
+                Ok(Event::default()
+                    .event("done")
+                    .json_data(serde_json::json!({
+                        "message_id": message_id,
+                        "session_id": sid,
+                        "tools_called": [],
+                    }))
+                    .expect("serializable done event")),
+            ]
+        } else {
+            vec![
+                Ok(Event::default()
+                    .event("error")
+                    .json_data(serde_json::json!({
+                        "code": "session_command_failed",
+                        "message": result.message,
+                    }))
+                    .expect("serializable error event")),
+            ]
+        };
         return Ok(Sse::new(futures::stream::iter(events)).keep_alive(KeepAlive::default()));
     }
 
