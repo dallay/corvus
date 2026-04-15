@@ -744,7 +744,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
     // ── Provider dispatch ────────────────────────────────
     println!("  ⏳ Processing message...");
 
-    let history_key = format!("{}_{}", msg.channel, msg.sender);
+    let history_key = channel_session_id(&msg);
     let prior_turns = ctx
         .conversation_histories
         .lock()

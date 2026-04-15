@@ -263,7 +263,14 @@ impl SqliteMemory {
         match value.as_str() {
             "active" => Ok(SlashSessionLifecycle::Active),
             "suspended" => Ok(SlashSessionLifecycle::Suspended),
-            _ => Err(rusqlite::Error::InvalidQuery),
+            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown lifecycle_state value: {value}"),
+                )),
+            )),
         }
     }
 
@@ -271,7 +278,14 @@ impl SqliteMemory {
         match value.as_str() {
             "tldr" => Ok(SessionSnapshotKind::Tldr),
             "compact" => Ok(SessionSnapshotKind::Compact),
-            _ => Err(rusqlite::Error::InvalidQuery),
+            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown snapshot_kind value: {value}"),
+                )),
+            )),
         }
     }
 
@@ -344,14 +358,6 @@ impl SqliteMemory {
             Some(Ok(record)) => Ok(Some(record)),
             Some(Err(error)) => Err(error.into()),
             None => Ok(None),
-        }
-    }
-
-    fn apply_field_patch<T: Clone>(current: Option<T>, patch: &SessionFieldPatch<T>) -> Option<T> {
-        match patch {
-            SessionFieldPatch::Keep => current,
-            SessionFieldPatch::Set(value) => Some(value.clone()),
-            SessionFieldPatch::Clear => None,
         }
     }
 
@@ -1374,23 +1380,29 @@ impl Memory for SqliteMemory {
 
             let updated_at = chrono::Utc::now().to_rfc3339();
 
-            // Convert SessionFieldPatch to params - Set maps to Some, Keep/Clear become None (COALESCE keeps existing)
-            let latest_tldr = match patch.latest_tldr_snapshot_id {
-                crate::memory::SessionFieldPatch::Set(v) => Some(v),
-                crate::memory::SessionFieldPatch::Keep | crate::memory::SessionFieldPatch::Clear => None,
+            // Convert SessionFieldPatch to params with explicit clear flags.
+            // Clear must set NULL via CASE WHEN; Set uses the provided value; Keep preserves existing via COALESCE.
+            let (latest_tldr, clear_latest_tldr) = match patch.latest_tldr_snapshot_id {
+                crate::memory::SessionFieldPatch::Set(v) => (Some(v), false),
+                crate::memory::SessionFieldPatch::Keep => (None, false),
+                crate::memory::SessionFieldPatch::Clear => (None, true),
             };
-            let latest_compact = match patch.latest_compact_snapshot_id {
-                crate::memory::SessionFieldPatch::Set(v) => Some(v),
-                crate::memory::SessionFieldPatch::Keep | crate::memory::SessionFieldPatch::Clear => None,
+            let (latest_compact, clear_latest_compact) = match patch.latest_compact_snapshot_id {
+                crate::memory::SessionFieldPatch::Set(v) => (Some(v), false),
+                crate::memory::SessionFieldPatch::Keep => (None, false),
+                crate::memory::SessionFieldPatch::Clear => (None, true),
             };
-            let pending_hydration = match patch.pending_hydration_snapshot_id {
-                crate::memory::SessionFieldPatch::Set(v) => Some(v),
-                crate::memory::SessionFieldPatch::Keep | crate::memory::SessionFieldPatch::Clear => None,
+            let (pending_hydration, clear_pending_hydration) = match patch.pending_hydration_snapshot_id {
+                crate::memory::SessionFieldPatch::Set(v) => (Some(v), false),
+                crate::memory::SessionFieldPatch::Keep => (None, false),
+                crate::memory::SessionFieldPatch::Clear => (None, true),
             };
-            let suspended_at = match patch.suspended_at {
-                crate::memory::SessionFieldPatch::Set(v) => Some(v),
-                crate::memory::SessionFieldPatch::Keep | crate::memory::SessionFieldPatch::Clear => None,
+            let (suspended_at_val, clear_suspended_at) = match patch.suspended_at {
+                crate::memory::SessionFieldPatch::Set(v) => (Some(v), false),
+                crate::memory::SessionFieldPatch::Keep => (None, false),
+                crate::memory::SessionFieldPatch::Clear => (None, true),
             };
+            let clear_lifecycle = patch.lifecycle.is_none();
             let lifecycle_value = patch.lifecycle.as_ref().map(|l| l.as_str().to_string());
 
             conn.execute(
@@ -1404,11 +1416,11 @@ impl Memory for SqliteMemory {
                     updated_at
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                 ON CONFLICT(session_id) DO UPDATE SET
-                    lifecycle_state = COALESCE(excluded.lifecycle_state, session_state.lifecycle_state),
-                    latest_tldr_snapshot_id = COALESCE(excluded.latest_tldr_snapshot_id, session_state.latest_tldr_snapshot_id),
-                    latest_compact_snapshot_id = COALESCE(excluded.latest_compact_snapshot_id, session_state.latest_compact_snapshot_id),
-                    pending_hydration_snapshot_id = COALESCE(excluded.pending_hydration_snapshot_id, session_state.pending_hydration_snapshot_id),
-                    suspended_at = COALESCE(excluded.suspended_at, session_state.suspended_at),
+                    lifecycle_state = CASE WHEN ?8 THEN NULL ELSE COALESCE(excluded.lifecycle_state, session_state.lifecycle_state) END,
+                    latest_tldr_snapshot_id = CASE WHEN ?9 THEN NULL ELSE COALESCE(excluded.latest_tldr_snapshot_id, session_state.latest_tldr_snapshot_id) END,
+                    latest_compact_snapshot_id = CASE WHEN ?10 THEN NULL ELSE COALESCE(excluded.latest_compact_snapshot_id, session_state.latest_compact_snapshot_id) END,
+                    pending_hydration_snapshot_id = CASE WHEN ?11 THEN NULL ELSE COALESCE(excluded.pending_hydration_snapshot_id, session_state.pending_hydration_snapshot_id) END,
+                    suspended_at = CASE WHEN ?12 THEN NULL ELSE COALESCE(excluded.suspended_at, session_state.suspended_at) END,
                     updated_at = excluded.updated_at",
                 params![
                     patch.session_id,
@@ -1416,8 +1428,13 @@ impl Memory for SqliteMemory {
                     latest_tldr,
                     latest_compact,
                     pending_hydration,
-                    suspended_at,
+                    suspended_at_val,
                     updated_at,
+                    clear_lifecycle,
+                    clear_latest_tldr,
+                    clear_latest_compact,
+                    clear_pending_hydration,
+                    clear_suspended_at,
                 ],
             )?;
 
@@ -3223,5 +3240,53 @@ mod tests {
         assert_eq!(sessions.len(), 3);
         let ids: Vec<_> = sessions.into_iter().map(|session| session.id).collect();
         assert_eq!(ids, vec!["c", "b", "a"]);
+    }
+
+    #[tokio::test]
+    async fn clear_patch_actually_clears_previously_set_field() {
+        let (_temp, mem) = temp_sqlite();
+
+        mem.upsert_session("session-1", None).await.unwrap();
+
+        let snapshot = mem
+            .create_session_snapshot(
+                "session-1",
+                SessionSnapshotKind::Compact,
+                serde_json::json!({"summary": "test"}),
+                true,
+            )
+            .await
+            .unwrap();
+
+        mem.apply_session_state_patch(SessionStatePatch {
+            session_id: "session-1".to_string(),
+            lifecycle: None,
+            latest_tldr_snapshot_id: SessionFieldPatch::Set(snapshot.id.clone()),
+            latest_compact_snapshot_id: SessionFieldPatch::Keep,
+            pending_hydration_snapshot_id: SessionFieldPatch::Keep,
+            suspended_at: SessionFieldPatch::Clear,
+        })
+        .await
+        .unwrap();
+
+        let state = mem.get_session_state_record("session-1").await.unwrap().unwrap();
+        assert!(state.latest_tldr_snapshot_id.is_some());
+
+        mem.apply_session_state_patch(SessionStatePatch {
+            session_id: "session-1".to_string(),
+            lifecycle: None,
+            latest_tldr_snapshot_id: SessionFieldPatch::Clear,
+            latest_compact_snapshot_id: SessionFieldPatch::Keep,
+            pending_hydration_snapshot_id: SessionFieldPatch::Keep,
+            suspended_at: SessionFieldPatch::Clear,
+        })
+        .await
+        .unwrap();
+
+        let state = mem.get_session_state_record("session-1").await.unwrap().unwrap();
+        assert!(
+            state.latest_tldr_snapshot_id.is_none(),
+            "Clear should have set latest_tldr_snapshot_id to NULL"
+        );
     }
 }

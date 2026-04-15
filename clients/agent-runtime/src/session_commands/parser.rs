@@ -5,9 +5,9 @@ pub struct SessionCommandParser;
 impl SessionCommandParser {
     pub fn parse(prompt: &str) -> Option<SessionSlashCommand> {
         let input = prompt.trim_end();
-        Self::parse_with_prefix(input, "/tldr", |_| Some(SessionSlashCommand::Tldr))
+        Self::parse_exact(input, "/tldr", |_| Some(SessionSlashCommand::Tldr))
             .or_else(|| {
-                Self::parse_with_prefix(input, "/suspend", |_| Some(SessionSlashCommand::Suspend))
+                Self::parse_exact(input, "/suspend", |_| Some(SessionSlashCommand::Suspend))
             })
             .or_else(|| {
                 Self::parse_with_prefix(input, "/compact", |rest| {
@@ -29,6 +29,19 @@ impl SessionCommandParser {
                     Some(SessionSlashCommand::Resume { target, args })
                 })
             })
+    }
+
+    /// Parse a command that must match the input exactly (no trailing args).
+    fn parse_exact<F, T>(input: &str, command: &str, build: F) -> Option<T>
+    where
+        F: FnOnce(&str) -> Option<T>,
+    {
+        let rest = input.strip_prefix(command)?;
+        if rest.trim().is_empty() {
+            build(rest)
+        } else {
+            None
+        }
     }
 
     fn parse_with_prefix<F, T>(input: &str, command: &str, build: F) -> Option<T>
@@ -91,5 +104,25 @@ mod tests {
     fn slash_like_unknown_inputs_fall_through() {
         assert_eq!(SessionCommandParser::parse("/resume-later"), None);
         assert_eq!(SessionCommandParser::parse("hello /tldr"), None);
+    }
+
+    #[test]
+    fn tldr_and_suspend_reject_trailing_args() {
+        assert_eq!(SessionCommandParser::parse("/tldr please"), None);
+        assert_eq!(SessionCommandParser::parse("/suspend now"), None);
+        assert_eq!(SessionCommandParser::parse("/tldr extra args"), None);
+        assert_eq!(SessionCommandParser::parse("/suspend extra"), None);
+    }
+
+    #[test]
+    fn tldr_and_suspend_accept_trailing_whitespace() {
+        assert_eq!(
+            SessionCommandParser::parse("/tldr   "),
+            Some(SessionSlashCommand::Tldr)
+        );
+        assert_eq!(
+            SessionCommandParser::parse("/suspend  \n"),
+            Some(SessionSlashCommand::Suspend)
+        );
     }
 }

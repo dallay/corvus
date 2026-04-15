@@ -2,8 +2,13 @@ use crate::memory::ResumableSessionEntry;
 
 /// Sanitize storage errors for user-facing messages.
 /// Strips sensitive information like file paths and connection strings.
+/// The detailed error is always logged internally; callers receive a fixed
+/// public message to prevent leaking backend internals.
 pub(crate) fn sanitize_storage_error(error: &anyhow::Error) -> String {
     let error_str = error.to_string();
+
+    // Always log the full error detail internally for debugging
+    tracing::debug!(error = %error_str, "storage error (internal log)");
 
     // List of patterns that may contain sensitive information
     let sensitive_patterns = [
@@ -22,11 +27,6 @@ pub(crate) fn sanitize_storage_error(error: &anyhow::Error) -> String {
         }
     }
 
-    // If the sanitized message is too different, return a generic message
-    if sanitized.len() > 100 && sanitized != error_str {
-        return "storage unavailable".to_string();
-    }
-
     // Check for common error types and map to user-friendly messages
     let lower = sanitized.to_lowercase();
     if lower.contains("no such file") || lower.contains("not found") {
@@ -39,7 +39,8 @@ pub(crate) fn sanitize_storage_error(error: &anyhow::Error) -> String {
         return "storage is busy".to_string();
     }
 
-    sanitized
+    // Final fallback: never return raw sanitized text to callers
+    "storage unavailable".to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
