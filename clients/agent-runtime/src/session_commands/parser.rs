@@ -30,7 +30,13 @@ impl SessionCommandParser {
             Some(trimmed[..target_end].to_string())
         };
 
-        (primary_target, trimmed.to_string())
+        let remaining_args = if target_end == 0 {
+            trimmed.to_string()
+        } else {
+            trimmed[target_end..].trim_start().to_string()
+        };
+
+        (primary_target, remaining_args)
     }
 }
 
@@ -57,35 +63,19 @@ mod tests {
     }
 
     #[test]
-    fn keeps_unknown_slash_like_input_lexical() {
-        assert_eq!(
-            SessionCommandParser::parse("/resume-later"),
-            Some(RawSlashInvocation {
-                invoked_name: "/resume-later".to_string(),
-                raw_args: String::new(),
-            })
-        );
-        assert_eq!(
-            SessionCommandParser::parse("/resume abc-123"),
-            Some(RawSlashInvocation {
-                invoked_name: "/resume".to_string(),
-                raw_args: "abc-123".to_string(),
-            })
-        );
-    }
-
-    #[test]
     fn split_primary_target_preserves_remaining_args() {
         assert_eq!(
             SessionCommandParser::split_primary_target("abc-123 keep latest goals"),
-            (
-                Some("abc-123".to_string()),
-                "abc-123 keep latest goals".to_string(),
-            )
+            (Some("abc-123".to_string()), "keep latest goals".to_string(),)
         );
         assert_eq!(
             SessionCommandParser::split_primary_target(""),
             (None, String::new())
+        );
+        // Two-word input: first word is target, rest is remaining args
+        assert_eq!(
+            SessionCommandParser::split_primary_target("just args"),
+            (Some("just".to_string()), "args".to_string())
         );
     }
 

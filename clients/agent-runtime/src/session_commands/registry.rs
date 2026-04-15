@@ -78,6 +78,28 @@ impl SlashCommandRegistry {
             }
         }
 
+        // Check canonical name doesn't conflict with existing alias
+        if let Some(existing_index) = self.by_alias.get(registration.descriptor.canonical_name) {
+            return Err(SlashRegistryError::AliasCollidesWithCanonical {
+                alias: registration.descriptor.canonical_name.to_string(),
+                canonical_name: self.registrations[*existing_index]
+                    .descriptor
+                    .canonical_name
+                    .to_string(),
+            });
+        }
+
+        // Detect duplicate aliases inside the same descriptor
+        let mut seen_aliases = std::collections::HashSet::new();
+        for alias in registration.descriptor.aliases {
+            if !seen_aliases.insert(alias.to_string()) {
+                return Err(SlashRegistryError::DuplicateAlias {
+                    alias: alias.to_string(),
+                    existing_canonical_name: registration.descriptor.canonical_name.to_string(),
+                });
+            }
+        }
+
         let index = self.registrations.len();
         self.by_canonical_name
             .insert(registration.descriptor.canonical_name, index);
@@ -272,12 +294,12 @@ impl SlashCommandHandler for CompactHandler {
 }
 
 fn validate_name(name: &str) -> Result<(), SlashRegistryError> {
-    let valid = !name.is_empty()
-        && name.starts_with('/')
-        && name.chars().enumerate().all(|(index, ch)| match index {
-            0 => ch == '/',
-            1 => ch.is_ascii_lowercase(),
-            _ => ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-',
+    let chars = name.chars().collect::<Vec<_>>();
+    let valid = chars.len() >= 2
+        && chars[0] == '/'
+        && chars[1].is_ascii_lowercase()
+        && chars[1..].iter().all(|ch| {
+            ch.is_ascii_lowercase() || ch.is_ascii_digit() || *ch == '-'
         });
 
     if valid {

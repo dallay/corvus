@@ -203,21 +203,6 @@ impl<'a> SessionCommandService<'a> {
                 });
             }
 
-            // Caller ownership check: verify the caller owns or has access to the target session.
-            // Use targeted lookup instead of paginated list to avoid false-negatives with >1000 sessions
-            let target_exists = self
-                .memory
-                .get_session(target_session_id)
-                .await
-                .map_err(|error| self.map_storage_error(error))?
-                .is_some();
-
-            if !target_exists {
-                return Err(SessionCommandError::InvalidResumeTarget {
-                    session_id: target_session_id.to_string(),
-                });
-            }
-
             // Verify caller can resume this session via state check
             let state = self.get_session_state_optional(target_session_id).await?;
             let Some(state) = state else {
@@ -453,15 +438,14 @@ fn build_resume_context(
     }
 
     // Enforce global max length by trimming from the end if needed
+    // Take first MAX_CONTEXT_LENGTH chars, then trim to last complete entry boundary
     if context.chars().count() > MAX_CONTEXT_LENGTH {
-        let excess = context.chars().count() - MAX_CONTEXT_LENGTH;
-        context = context.chars().skip(excess).collect::<String>();
-        // Ensure we don't start mid-entry
-        if let Some(pos) = context.find("\n- ") {
-            let adjustment: String = context.chars().skip(pos).collect();
-            if adjustment.starts_with("- ") {
-                context = adjustment;
-            }
+        let prefix: String = context.chars().take(MAX_CONTEXT_LENGTH).collect();
+        // Find last occurrence of "\n- " to keep only complete entries
+        if let Some(last_entry_pos) = prefix.rfind("\n- ") {
+            context = prefix[..last_entry_pos].to_string();
+        } else {
+            context = prefix;
         }
     }
 

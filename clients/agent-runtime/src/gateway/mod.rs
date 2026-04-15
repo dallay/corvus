@@ -2167,7 +2167,7 @@ async fn handle_chat_stream(
         return Err(rejection);
     }
 
-    let webhook_body = parse_webhook_body(body)?;
+let webhook_body = parse_webhook_body(body)?;
     let message = &webhook_body.message;
     let scrubbed_message = scrub_sensitive_boundary_text(message);
     let (session_id, session_source) = resolve_session_id(&headers)?;
@@ -2210,18 +2210,8 @@ async fn handle_chat_stream(
     )
     .await;
 
-    if let crate::pre_execution::IngressDecision::SessionCommand { result, success } =
-        &ingress_decision
-    {
-        // Update session activity before returning early
-        if let Err(e) = state
-            .mem
-            .update_session_activity(&session_id, token_hash.as_deref())
-            .await
-        {
-            tracing::debug!("session activity update best-effort failed: {e}");
-        }
-
+    // Handle SessionCommand after session exists to ensure session-dependent commands work
+    if let crate::pre_execution::IngressDecision::SessionCommand { result, success } = &ingress_decision {
         let sid = session_id.clone();
         let events = if *success {
             let message_id = Uuid::new_v4().to_string();
@@ -6233,6 +6223,11 @@ always_ask = []
         let body_str = std::str::from_utf8(&collected.to_bytes())
             .unwrap()
             .to_owned();
+
+        // Debug: print body if test fails
+        if !body_str.contains("event: chunk") {
+            eprintln!("body_str: {:?}", body_str);
+        }
 
         // Streaming stays on the shared ingress seam and returns the slash-session response without
         // invoking the provider path.

@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: slash-command-registry-core
 **Version**: N/A

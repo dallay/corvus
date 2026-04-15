@@ -74,7 +74,7 @@ validation, duplicate detection, alias resolution, and dispatch contracts, while
 remain responsible for command-specific behavior.
 
 Keep `pre_execution::evaluate_ingress(...)` as the canonical short-circuit seam so CLI, gateway,
-webhook, and channel-backed flows continue to intercept slash commands before normal prompt side
+webhook, and channel-backed flows continue to intercept slash commands before normal prompt side-effects
 effects. Existing session commands should be adapted to register into the new core instead of being
 dispatched through hard-coded branching.
 
