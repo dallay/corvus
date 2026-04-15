@@ -21,7 +21,7 @@ Inicializa tu espacio de trabajo y configuración.
 - `--channels-only`: Reconfigura solo los canales.
 - `--api-key <KEY>`: Clave de API para configuración rápida.
 - `--provider <NAME>`: Nombre del proveedor (por defecto: openrouter).
-- `--memory <TYPE>`: Backend de memoria (sqlite, lucid, surreal-graphs, surreal, markdown, none).
+- `--memory <TYPE>`: Backend de memoria (sqlite, lucid, markdown, none).
 
 **Ejemplo:**
 
@@ -31,18 +31,45 @@ corvus onboard --interactive
 
 ### `agent`
 
-Inicia el bucle del agente de IA.
+Inicia el bucle del agente de IA (o compone desde el manifiesto).
 
-- `-m, --message <TEXT>`: Modo de mensaje único.
-- `-p, --provider <NAME>`: Proveedor a utilizar.
+- `-m, --message <TEXT>`: Modo de mensaje único (no entra en modo interactivo).
+- `-p, --provider <NAME>`: Proveedor a utilizar (openrouter, anthropic, openai, openai-codex).
 - `--model <MODEL>`: Modelo específico a utilizar.
-- `-t, --temperature <VALUE>`: Temperatura (0.0 - 2.0).
+- `-t, --temperature <VALUE>`: Temperatura (0.0 - 2.0, por defecto: 0.7).
 - `--peripheral <BOARD:PATH>`: Conecta un periférico (ej., `nucleo-f401re:/dev/ttyACM0`).
+- `--override-budget`: Permite exactamente una solicitud por encima del presupuesto para esta sesión de la CLI.
+- `--plan`: Ejecuta el turno en modo de plan (ejecución de herramientas solo para análisis).
+
+**Subcomandos:**
+
+- `build --manifest <PATH>`: Construye un agente desde un archivo de manifiesto TOML.
+  - `--output <DIR>`: Directorio de salida para el agente compilado.
+- `run --manifest <PATH>`: Ejecuta un agente directamente desde un manifiesto (composición en tiempo de arranque).
+- `new --template <NAME> --name <NAME>`: Crea un nuevo agente desde una plantilla.
+  - `--output <DIR>`: Directorio de salida (opcional).
 
 **Ejemplo:**
 
 ```bash
 corvus agent -m "Hola, ¿cómo puedes ayudarme hoy?"
+```
+
+### `code`
+
+Ejecuta una sesión de especialista en código (inspeccionar, planificar, editar, verificar, informar).
+
+- `-m, --message <TEXT>`: Descripción de la tarea o instrucción para la sesión de código.
+- `-p, --provider <NAME>`: Proveedor a utilizar (openrouter, anthropic, openai).
+- `--model <MODEL>`: Modelo específico a utilizar.
+- `-t, --temperature <VALUE>`: Temperatura (0.0 - 2.0, por defecto: 0.7).
+- `--override-budget`: Permite exactamente una solicitud por encima del presupuesto para esta sesión de la CLI.
+- `--plan`: Ejecuta la sesión en modo de plan (ejecución de herramientas solo para análisis).
+
+**Ejemplo:**
+
+```bash
+corvus code -m "Corrige el error en el módulo de autenticación"
 ```
 
 ### `daemon`
@@ -328,4 +355,22 @@ Administrar actualizaciones del runtime.
 
 ```bash
 corvus update check
+```
+
+### `cost`
+
+Inspecciona y gestiona el estado de costos del runtime.
+
+- `summary`: Muestra el resumen de costos actual (sesión, diario, mensual).
+- `history`: Muestra el historial de costos agregados.
+  - `--period <PERIOD>`: Período de agregación (session, day, month).
+  - `--window <SIZE>`: Número de bloques a incluir (por defecto: 30).
+- `reset`: Restablece los costos rastreados para un alcance específico.
+  - `--scope <SCOPE>`: Alcance del restablecimiento (session, day, month).
+  - `--reason <TEXT>`: Motivo opcional registrado en el historial de auditoría de costos.
+
+**Ejemplo:**
+
+```bash
+corvus cost summary
 ```
