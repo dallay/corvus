@@ -2167,7 +2167,7 @@ async fn handle_chat_stream(
         return Err(rejection);
     }
 
-let webhook_body = parse_webhook_body(body)?;
+    let webhook_body = parse_webhook_body(body)?;
     let message = &webhook_body.message;
     let scrubbed_message = scrub_sensitive_boundary_text(message);
     let (session_id, session_source) = resolve_session_id(&headers)?;
@@ -2211,7 +2211,9 @@ let webhook_body = parse_webhook_body(body)?;
     .await;
 
     // Handle SessionCommand after session exists to ensure session-dependent commands work
-    if let crate::pre_execution::IngressDecision::SessionCommand { result, success } = &ingress_decision {
+    if let crate::pre_execution::IngressDecision::SessionCommand { result, success } =
+        &ingress_decision
+    {
         let sid = session_id.clone();
         let events = if *success {
             let message_id = Uuid::new_v4().to_string();

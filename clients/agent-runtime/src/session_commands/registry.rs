@@ -298,9 +298,9 @@ fn validate_name(name: &str) -> Result<(), SlashRegistryError> {
     let valid = chars.len() >= 2
         && chars[0] == '/'
         && chars[1].is_ascii_lowercase()
-        && chars[1..].iter().all(|ch| {
-            ch.is_ascii_lowercase() || ch.is_ascii_digit() || *ch == '-'
-        });
+        && chars[1..]
+            .iter()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || *ch == '-');
 
     if valid {
         Ok(())
