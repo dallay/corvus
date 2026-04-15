@@ -455,10 +455,7 @@ fn build_resume_context(
     // Enforce global max length by trimming from the end if needed
     if context.chars().count() > MAX_CONTEXT_LENGTH {
         let excess = context.chars().count() - MAX_CONTEXT_LENGTH;
-        context = context
-            .chars()
-            .skip(excess)
-            .collect::<String>();
+        context = context.chars().skip(excess).collect::<String>();
         // Ensure we don't start mid-entry
         if let Some(pos) = context.find("\n- ") {
             let adjustment: String = context.chars().skip(pos).collect();
