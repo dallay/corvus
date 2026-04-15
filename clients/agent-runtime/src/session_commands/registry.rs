@@ -553,6 +553,12 @@ mod tests {
             vec!["verifiable-caller-identity"]
         );
         assert_eq!(resume.requirements.backend_tags, vec!["sqlite"]);
+
+        let resume_alias = registry
+            .get("/continue")
+            .expect("/continue alias should resolve to /resume");
+        assert_eq!(resume_alias.canonical_name, "/resume");
+
         assert_eq!(
             registry
                 .get("/compact")
