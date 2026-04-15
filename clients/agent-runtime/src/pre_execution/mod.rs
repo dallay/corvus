@@ -1,7 +1,7 @@
 use crate::agent::unified_entrypoint::{self, CanonicalOutcome};
 use crate::memory::Memory;
 use crate::session_commands::{
-    dispatch, CommandContext, SessionCommandParser, SessionCommandResult, SessionCommandService,
+    default_registry, CommandContext, SessionCommandResult, SessionCommandService,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,18 +47,19 @@ pub async fn evaluate_ingress(
     prompt: &str,
     caller_token_hash: Option<&str>,
 ) -> IngressDecision {
-    if let Some(command) = SessionCommandParser::parse(prompt) {
-        let service = SessionCommandService::new(memory);
-        return match dispatch(
+    let service = SessionCommandService::new(memory);
+    if let Some(result) = default_registry()
+        .dispatch(
             &service,
             CommandContext {
                 session_id,
                 caller_token_hash,
-                command,
             },
+            prompt,
         )
         .await
-        {
+    {
+        return match result {
             Ok(result) => IngressDecision::SessionCommand {
                 result,
                 success: true,
@@ -255,10 +256,16 @@ mod tests {
     async fn ingress_classifies_supported_slash_commands_before_pre_execution() {
         let decision = evaluate_ingress(&IngressMemory, "session-1", "/tldr", None).await;
 
-        assert!(matches!(
-            decision,
-            IngressDecision::SessionCommand { success: false, .. }
-        ));
+        match decision {
+            IngressDecision::SessionCommand { result, success } => {
+                assert!(!success);
+                assert_eq!(
+                    result.message,
+                    "slash-session commands require sqlite memory backend (backend=none)"
+                );
+            }
+            other => panic!("expected session command interception, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -266,5 +273,21 @@ mod tests {
         let decision = evaluate_ingress(&IngressMemory, "session-1", "/resume-later", None).await;
 
         assert!(matches!(decision, IngressDecision::Continue));
+    }
+
+    #[tokio::test]
+    async fn ingress_reports_invalid_argument_shape_for_recognized_command() {
+        let decision =
+            evaluate_ingress(&IngressMemory, "session-1", "/tldr extra args", None).await;
+
+        match decision {
+            IngressDecision::SessionCommand { result, success } => {
+                assert!(!success);
+                assert!(result
+                    .message
+                    .contains("invalid slash command usage for /tldr"));
+            }
+            other => panic!("expected session command error, got {other:?}"),
+        }
     }
 }

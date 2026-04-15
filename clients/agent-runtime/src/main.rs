@@ -715,7 +715,7 @@ async fn collect_unified_loop_result(
         if preview.events.iter().any(|event| {
             matches!(
                 event,
-                crate::agent::unified_loop::LoopEvent::ApprovalRequired(_)
+                crate::agent::unified_loop::LoopEvent::ApprovalRequired(..)
             )
         }) && !preview.events.iter().any(|event| {
             matches!(
@@ -735,6 +735,7 @@ async fn collect_unified_loop_result(
             session_id: preview.session_id,
             events: preview.events,
             approval_required: None,
+            approval_reason: None,
             timeout_aborted: false,
             fallback_response: if preview.used_fallback {
                 Some("fallback response: temporary tool/runtime issue".to_string())
@@ -778,7 +779,7 @@ fn loop_event_kind(event: &crate::agent::unified_loop::LoopEvent) -> &'static st
             "tool_dispatch_completed"
         }
         crate::agent::unified_loop::LoopEvent::CompactionTriggered => "compaction_triggered",
-        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_) => "approval_required",
+        crate::agent::unified_loop::LoopEvent::ApprovalRequired(..) => "approval_required",
         crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
         crate::agent::unified_loop::LoopEvent::Error(_) => "error",
     }
@@ -1418,7 +1419,7 @@ async fn handle_agent_command(
 
     if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
         match blocking {
-            crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
+            crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, .. } => {
                 return Err(anyhow!(
                     "[session:{}] approval required for `{tool}`; request blocked",
                     canonical.session_id
@@ -1525,7 +1526,7 @@ async fn maybe_handle_cli_session_command(
     config: &Config,
     message: &str,
 ) -> Result<Option<crate::session_commands::SessionCommandResult>> {
-    if crate::session_commands::SessionCommandParser::parse(message).is_none() {
+    if !crate::session_commands::default_registry().recognizes(message) {
         return Ok(None);
     }
 
@@ -1564,9 +1565,6 @@ async fn handle_code_command(
             return Ok(());
         }
     }
-
-    // Reconstruct message for later use after the interception consumed the reference
-    let message = message;
 
     info!("Starting code-specialist session (profile=code)");
     let provider_name = config
@@ -3410,13 +3408,22 @@ mod tests {
         let mut config = crate::test_support::test_config(&tmp);
         config.memory.backend = "none".into();
 
-        let handled = maybe_handle_cli_session_command(&config, "/tldr")
+        let error = maybe_handle_cli_session_command(&config, "/tldr")
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("require sqlite"));
+    }
+
+    #[tokio::test]
+    async fn cli_unknown_slash_like_input_falls_through() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+
+        let handled = maybe_handle_cli_session_command(&config, "/resume-later")
             .await
             .unwrap();
 
-        assert!(handled.is_some());
-        assert!(handled
-            .as_ref()
-            .is_some_and(|result| result.message.contains("require sqlite")));
+        assert!(handled.is_none());
     }
 }
