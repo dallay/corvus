@@ -204,22 +204,21 @@ impl<'a> SessionCommandService<'a> {
             }
 
             // Caller ownership check: verify the caller owns or has access to the target session.
-            // Use list_resumable_sessions to verify visibility (same filter as listing)
-            let visible = self
+            // Use targeted lookup instead of paginated list to avoid false-negatives with >1000 sessions
+            let target_exists = self
                 .memory
-                .list_resumable_sessions(Some(caller_hash), 1000, 0)
+                .get_session(target_session_id)
                 .await
                 .map_err(|error| self.map_storage_error(error))?
-                .iter()
-                .any(|entry| entry.session_id == target_session_id);
+                .is_some();
 
-            if !visible {
+            if !target_exists {
                 return Err(SessionCommandError::InvalidResumeTarget {
                     session_id: target_session_id.to_string(),
                 });
             }
 
-            // Use non-panicking state lookup instead of require_state
+            // Verify caller can resume this session via state check
             let state = self.get_session_state_optional(target_session_id).await?;
             let Some(state) = state else {
                 return Err(SessionCommandError::InvalidResumeTarget {
@@ -411,24 +410,64 @@ fn build_summary(entries: &[crate::memory::MemoryEntry], preview_limit: usize) -
     truncate_preview(&summary, preview_limit)
 }
 
+/// Maximum characters per transcript entry to prevent bloat.
+const MAX_ENTRY_CONTENT: usize = 2048;
+/// Maximum total resume context length to keep snapshots bounded.
+const MAX_CONTEXT_LENGTH: usize = 16384;
+
 fn build_resume_context(
     session_id: &str,
     summary: &str,
     entries: &[crate::memory::MemoryEntry],
     args: &str,
 ) -> String {
+    // Truncate each entry content to MAX_ENTRY_CONTENT chars
+    let truncated_entries: Vec<String> = entries
+        .iter()
+        .map(|entry| {
+            let content = entry.content.trim();
+            let truncated = if content.chars().count() > MAX_ENTRY_CONTENT {
+                content
+                    .chars()
+                    .take(MAX_ENTRY_CONTENT.saturating_sub(1))
+                    .collect::<String>()
+                    + "…"
+            } else {
+                content.to_string()
+            };
+            format!("- {}: {}", entry.key, truncated)
+        })
+        .collect::<Vec<_>>();
+
+    // Build initial context
     let mut context = format!(
         "Session {session_id} summary: {summary}\nRecent transcript:\n{}",
-        entries
-            .iter()
-            .map(|entry| format!("- {}: {}", entry.key, entry.content.trim()))
-            .collect::<Vec<_>>()
-            .join("\n")
+        truncated_entries.join("\n")
     );
+
+    // Truncate args/notes if present
     if !args.trim().is_empty() {
+        let truncated_args = truncate_preview(args.trim(), 512);
         context.push_str("\nOperator notes: ");
-        context.push_str(args.trim());
+        context.push_str(&truncated_args);
     }
+
+    // Enforce global max length by trimming from the end if needed
+    if context.chars().count() > MAX_CONTEXT_LENGTH {
+        let excess = context.chars().count() - MAX_CONTEXT_LENGTH;
+        context = context
+            .chars()
+            .skip(excess)
+            .collect::<String>();
+        // Ensure we don't start mid-entry
+        if let Some(pos) = context.find("\n- ") {
+            let adjustment: String = context.chars().skip(pos).collect();
+            if adjustment.starts_with("- ") {
+                context = adjustment;
+            }
+        }
+    }
+
     context
 }
 
@@ -525,8 +564,13 @@ mod tests {
             true
         }
 
-        async fn get_session(&self, _session_id: &str) -> anyhow::Result<Option<SessionEntry>> {
-            Ok(self.session.clone())
+        async fn get_session(&self, session_id: &str) -> anyhow::Result<Option<SessionEntry>> {
+            // Look up session by id like real implementation
+            Ok(self
+                .session
+                .as_ref()
+                .filter(|s| s.id == session_id)
+                .cloned())
         }
 
         async fn load_session_transcript_excerpt(

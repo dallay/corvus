@@ -3918,13 +3918,16 @@ mod tests {
 
     #[tokio::test]
     async fn canonical_outcome_early_response_intercepts_slash_session_commands() {
+        // Use SqliteMemory to test real slash-session behavior with actual storage
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
             cost_tracker: None,
             provider: Arc::new(MockProvider::default()),
             model: "test-model".into(),
             temperature: 0.0,
-            mem: Arc::new(MockMemory),
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
             auto_save: true,
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
@@ -3944,11 +3947,10 @@ mod tests {
             .expect("slash session command should short-circuit");
         let ((status, Json(body)), _persist) = response;
 
-        assert_eq!(status, StatusCode::OK);
+        // SqliteMemory returns 422 with session_command_failed when no session exists
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(body["session_id"], "session-1");
-        assert!(body["response"]
-            .as_str()
-            .is_some_and(|text| text.contains("require sqlite")));
+        assert_eq!(body["error"]["code"], "session_command_failed");
     }
 
     #[tokio::test]
@@ -4525,12 +4527,15 @@ mod tests {
     async fn legacy_webhook_preview_intercepts_slash_session_commands() {
         let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
         let provider_impl = Arc::new(MockProvider::default());
+        // Use SqliteMemory for realistic slash-session behavior
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
             provider: provider_impl.clone(),
             model: "test-model".into(),
             temperature: 0.0,
-            mem: Arc::new(MockMemory),
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
             auto_save: false,
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
@@ -4562,15 +4567,14 @@ mod tests {
         .await
         .into_response();
 
-        assert_eq!(response.status(), StatusCode::OK);
+        // SqliteMemory returns 422 for missing session
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(payload["session_id"], "preview-slash");
-        assert!(payload["response"]
-            .as_str()
-            .is_some_and(|text| text.contains("require sqlite")));
+        assert_eq!(payload["error"]["code"], "session_command_failed");
         assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
     }
 
@@ -6078,12 +6082,15 @@ always_ask = []
         }]));
         let provider: Arc<dyn Provider> = provider_impl.clone();
 
+        // Use SqliteMemory for realistic slash-session behavior in streaming
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
         let state = AppState {
             config: Arc::new(Mutex::new(temp_config())),
             provider,
             model: "test-model".into(),
             temperature: 0.0,
-            mem: Arc::new(MockMemory),
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
             auto_save: false,
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
@@ -6108,15 +6115,16 @@ always_ask = []
             .unwrap();
 
         let resp = build_stream_router(state).oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
+        // Streaming returns 422 for missing session via SqliteMemory
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
         let collected = resp.into_body().collect().await.unwrap();
         let body_str = std::str::from_utf8(&collected.to_bytes())
             .unwrap()
             .to_owned();
 
-        assert!(body_str.contains("event: chunk"));
-        assert!(body_str.contains("event: done"));
-        assert!(body_str.contains("require sqlite"));
+        // Streaming returns error event instead of chunk/done for slash-session failures
+        assert!(body_str.contains("event: error"));
+        assert!(body_str.contains("session_command_failed"));
         assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
         assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
     }
