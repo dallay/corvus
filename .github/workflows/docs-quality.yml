@@ -74,3 +74,21 @@ jobs:
 
       - name: Build docs site
         run: pnpm run build
+
+      - name: Upload docs preview artifact
+        if: success()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: docs-preview-${{ github.run_id }}
+          path: clients/web/apps/docs/dist
+          retention-days: 7
+
+      - name: Summarize preview artifact
+        if: success()
+        run: |
+          {
+            echo "## Docs preview artifact"
+            echo ""
+            echo "Preview site bundle uploaded as artifact: \`docs-preview-${{ github.run_id }}\`"
+            echo "Download it from the workflow run artifacts to inspect unreleased docs safely."
+          } >> "$GITHUB_STEP_SUMMARY"
