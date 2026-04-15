@@ -1,7 +1,7 @@
 use crate::agent::unified_entrypoint::{self, CanonicalOutcome};
 use crate::memory::Memory;
 use crate::session_commands::{
-    default_registry, CommandContext, SessionCommandResult, SessionCommandService,
+    default_registry, CommandContext, SessionCommandOutcome, SessionCommandService,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,10 +15,7 @@ pub enum BlockingOutcome {
 pub enum IngressDecision {
     Continue,
     Blocking(BlockingOutcome),
-    SessionCommand {
-        result: SessionCommandResult,
-        success: bool,
-    },
+    SessionCommand { outcome: SessionCommandOutcome },
 }
 
 pub fn approval_granted_from_env() -> bool {
@@ -43,38 +40,13 @@ pub async fn evaluate(session_id: String, prompt: &str) -> CanonicalOutcome {
 
 pub async fn evaluate_ingress(
     memory: &dyn Memory,
-    session_id: &str,
+    context: CommandContext,
     prompt: &str,
-    caller_token_hash: Option<&str>,
 ) -> IngressDecision {
     let service = SessionCommandService::new(memory);
-    if let Some(result) = default_registry()
-        .dispatch(
-            &service,
-            CommandContext {
-                session_id,
-                caller_token_hash,
-            },
-            prompt,
-        )
-        .await
-    {
-        return match result {
-            Ok(result) => IngressDecision::SessionCommand {
-                result,
-                success: true,
-            },
-            Err(error) => IngressDecision::SessionCommand {
-                result: SessionCommandResult {
-                    command: "slash-session-error",
-                    session_id: session_id.to_string(),
-                    message: error.message(),
-                    resumed_session_id: None,
-                    resumable_sessions: Vec::new(),
-                },
-                success: false,
-            },
-        };
+    let session_id = context.session.session_id.clone();
+    if let Some(outcome) = default_registry().dispatch(&service, context, prompt).await {
+        return IngressDecision::SessionCommand { outcome };
     }
 
     let canonical = evaluate(session_id.to_string(), prompt).await;
@@ -110,7 +82,12 @@ pub fn classify_blocking(outcome: &CanonicalOutcome) -> Option<BlockingOutcome> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::ExecutionMode;
     use crate::memory::{Memory, MemoryCategory, MemoryEntry};
+    use crate::session_commands::{
+        CommandCaller, CommandIngressSource, CommandSessionSource, SessionCommandFailureKind,
+        SessionCommandOutcome,
+    };
     use async_trait::async_trait;
 
     struct IngressMemory;
@@ -254,14 +231,30 @@ mod tests {
 
     #[tokio::test]
     async fn ingress_classifies_supported_slash_commands_before_pre_execution() {
-        let decision = evaluate_ingress(&IngressMemory, "session-1", "/tldr", None).await;
+        let decision = evaluate_ingress(
+            &IngressMemory,
+            CommandContext::for_cli(
+                "session-1",
+                CommandSessionSource::Existing,
+                ExecutionMode::Standard,
+                None,
+            ),
+            "/tldr",
+        )
+        .await;
 
         match decision {
-            IngressDecision::SessionCommand { result, success } => {
-                assert!(!success);
+            IngressDecision::SessionCommand { outcome } => {
                 assert_eq!(
-                    result.message,
-                    "slash-session commands require sqlite memory backend (backend=none)"
+                    outcome,
+                    SessionCommandOutcome::Failure(crate::session_commands::SessionCommandFailure {
+                        command: "/tldr",
+                        kind: SessionCommandFailureKind::UnsupportedBackend,
+                        session_id: Some("session-1".to_string()),
+                        message:
+                            "slash-session commands require sqlite memory backend (backend=none)"
+                                .to_string(),
+                    })
                 );
             }
             other => panic!("expected session command interception, got {other:?}"),
@@ -270,24 +263,102 @@ mod tests {
 
     #[tokio::test]
     async fn ingress_preserves_unknown_slash_like_input() {
-        let decision = evaluate_ingress(&IngressMemory, "session-1", "/resume-later", None).await;
+        let decision = evaluate_ingress(
+            &IngressMemory,
+            CommandContext::for_cli(
+                "session-1",
+                CommandSessionSource::Existing,
+                ExecutionMode::Standard,
+                None,
+            ),
+            "/resume-later",
+        )
+        .await;
 
         assert!(matches!(decision, IngressDecision::Continue));
     }
 
     #[tokio::test]
     async fn ingress_reports_invalid_argument_shape_for_recognized_command() {
-        let decision =
-            evaluate_ingress(&IngressMemory, "session-1", "/tldr extra args", None).await;
+        let decision = evaluate_ingress(
+            &IngressMemory,
+            CommandContext::for_cli(
+                "session-1",
+                CommandSessionSource::Existing,
+                ExecutionMode::Standard,
+                None,
+            ),
+            "/tldr extra args",
+        )
+        .await;
 
         match decision {
-            IngressDecision::SessionCommand { result, success } => {
-                assert!(!success);
-                assert!(result
-                    .message
-                    .contains("invalid slash command usage for /tldr"));
+            IngressDecision::SessionCommand { outcome } => {
+                assert!(matches!(
+                    outcome,
+                    SessionCommandOutcome::Failure(
+                        crate::session_commands::SessionCommandFailure {
+                            kind: SessionCommandFailureKind::InvalidArguments,
+                            ..
+                        }
+                    )
+                ));
             }
             other => panic!("expected session command error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn typed_context_builders_preserve_transport_specific_caller_semantics() {
+        let cli = CommandContext::for_cli(
+            "session-cli",
+            CommandSessionSource::Existing,
+            ExecutionMode::Standard,
+            Some("cli-scope".to_string()),
+        );
+        let gateway = CommandContext::for_gateway_http(
+            "session-http",
+            CommandSessionSource::Explicit,
+            ExecutionMode::Plan,
+            Some("verified-scope".to_string()),
+        );
+        let channel = CommandContext::for_channel(
+            "session-channel",
+            CommandSessionSource::Generated,
+            ExecutionMode::Standard,
+            "discord",
+            Some("channel-scope".to_string()),
+        );
+
+        assert!(matches!(cli.ingress.source, CommandIngressSource::Cli));
+        assert!(matches!(
+            cli.caller,
+            CommandCaller::DerivedCliScope { ref scope_key } if scope_key == "cli-scope"
+        ));
+
+        assert!(matches!(
+            gateway.ingress.source,
+            CommandIngressSource::GatewayHttp
+        ));
+        assert!(matches!(
+            gateway.ingress.execution_mode,
+            ExecutionMode::Plan
+        ));
+        assert!(matches!(
+            gateway.caller,
+            CommandCaller::VerifiedTokenHash { ref scope_key } if scope_key == "verified-scope"
+        ));
+
+        assert!(matches!(
+            channel.ingress.source,
+            CommandIngressSource::Channel { ref name } if name == "discord"
+        ));
+        assert!(matches!(
+            channel.caller,
+            CommandCaller::DerivedChannelScope {
+                ref channel,
+                ref scope_key,
+            } if channel == "discord" && scope_key == "channel-scope"
+        ));
     }
 }

@@ -1767,32 +1767,38 @@ async fn canonical_outcome_early_response(
     scrubbed_message: &str,
     caller_token_hash: Option<&str>,
 ) -> Option<(WebhookResponse, bool)> {
-    match crate::pre_execution::evaluate_ingress(
-        state.mem.as_ref(),
+    let context = crate::session_commands::CommandContext::for_gateway_http(
         session_id,
-        scrubbed_message,
-        caller_token_hash,
-    )
-    .await
+        crate::session_commands::CommandSessionSource::Explicit,
+        state.config.lock().agent.execution_mode,
+        caller_token_hash.map(str::to_string),
+    );
+
+    match crate::pre_execution::evaluate_ingress(state.mem.as_ref(), context, scrubbed_message)
+        .await
     {
-        crate::pre_execution::IngressDecision::SessionCommand { result, success } => {
-            if success {
+        crate::pre_execution::IngressDecision::SessionCommand { outcome } => {
+            if let crate::session_commands::SessionCommandOutcome::Success(success) = outcome {
                 let body = serde_json::json!({
-                    "response": result.message,
+                    "response": success.message,
                     "model": state.model,
                     "session_id": session_id,
                 });
                 return Some(((StatusCode::OK, Json(body)), true));
-            } else {
-                let error_body = serde_json::json!({
-                    "error": {
-                        "code": "session_command_failed",
-                        "message": result.message,
-                    },
-                    "session_id": session_id,
-                });
-                return Some(((StatusCode::UNPROCESSABLE_ENTITY, Json(error_body)), false));
             }
+
+            let failure = match outcome {
+                crate::session_commands::SessionCommandOutcome::Failure(failure) => failure,
+                crate::session_commands::SessionCommandOutcome::Success(_) => unreachable!(),
+            };
+            let error_body = serde_json::json!({
+                "error": {
+                    "code": "session_command_failed",
+                    "message": failure.message,
+                },
+                "session_id": session_id,
+            });
+            return Some(((StatusCode::UNPROCESSABLE_ENTITY, Json(error_body)), false));
         }
         crate::pre_execution::IngressDecision::Blocking(blocking) => match blocking {
             crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => {
@@ -1960,6 +1966,25 @@ async fn handle_webhook(
         Ok(resolved) => resolved,
         Err(response) => return response,
     };
+    let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
+    let config = state.config.lock().clone();
+    let server_execution_mode = config.agent.execution_mode;
+    let dispatcher_enabled = webhook_dispatcher_enabled(&config);
+    let token_hash = utils::extract_bearer_token(&headers).map(|t| compute_token_hash(&t));
+
+    if is_preview && !dispatcher_enabled {
+        if let Some((response, persist_idempotency)) = canonical_outcome_early_response(
+            &state,
+            &session_id,
+            &scrubbed_message,
+            token_hash.as_deref(),
+        )
+        .await
+        {
+            release_idempotency_key(&state, None, persist_idempotency);
+            return response;
+        }
+    }
 
     // Idempotency guard: reject duplicates before any side-effects.
     let reserved_idempotency_key = if let Some(idempotency_key) = webhook_idempotency_key(&headers)
@@ -1976,7 +2001,6 @@ async fn handle_webhook(
     // When a bearer token is present, session tracking is required for
     // token-scoped ownership — fail the request if upsert fails.
     // Without a token, tracking is best-effort/observational.
-    let token_hash = utils::extract_bearer_token(&headers).map(|t| compute_token_hash(&t));
     if let Err(e) = state
         .mem
         .upsert_session(&session_id, token_hash.as_deref())
@@ -1993,10 +2017,6 @@ async fn handle_webhook(
         tracing::debug!("session upsert best-effort failed: {e}");
     }
 
-    let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
-    let config = state.config.lock().clone();
-    let server_execution_mode = config.agent.execution_mode;
-    let dispatcher_enabled = webhook_dispatcher_enabled(&config);
     if dispatcher_enabled {
         log_webhook_runtime_path(&session_id, true, "dispatcher_flag_enabled");
         let dispatch_result = webhook_dispatch::execute(
@@ -2177,16 +2197,27 @@ async fn handle_chat_stream(
         Error(serde_json::Value),
     }
 
+    let ingress_context = crate::session_commands::CommandContext::for_gateway_stream(
+        &session_id,
+        match session_source {
+            webhook_dispatch::WebhookSessionSource::Explicit => {
+                crate::session_commands::CommandSessionSource::Explicit
+            }
+            webhook_dispatch::WebhookSessionSource::Generated => {
+                crate::session_commands::CommandSessionSource::Generated
+            }
+        },
+        server_execution_mode,
+        token_hash.clone(),
+    );
     let ingress_decision = crate::pre_execution::evaluate_ingress(
         state.mem.as_ref(),
-        &session_id,
+        ingress_context,
         &scrubbed_message,
-        token_hash.as_deref(),
     )
     .await;
 
-    if let crate::pre_execution::IngressDecision::SessionCommand { result, success } = &ingress_decision
-    {
+    if let crate::pre_execution::IngressDecision::SessionCommand { outcome } = &ingress_decision {
         // Update session activity before returning early
         if let Err(e) = state
             .mem
@@ -2197,30 +2228,35 @@ async fn handle_chat_stream(
         }
 
         let sid = session_id.clone();
-        let events = if *success {
-            let message_id = Uuid::new_v4().to_string();
-            vec![
-                Ok(Event::default().event("chunk").data(result.message.clone())),
-                Ok(Event::default()
-                    .event("done")
-                    .json_data(serde_json::json!({
-                        "message_id": message_id,
-                        "session_id": sid,
-                        "tools_called": [],
-                    }))
-                    .expect("serializable done event")),
-            ]
-        } else {
-            vec![
-                Ok(Event::default()
+        let events =
+            if let crate::session_commands::SessionCommandOutcome::Success(success) = outcome {
+                let message_id = Uuid::new_v4().to_string();
+                vec![
+                    Ok(Event::default()
+                        .event("chunk")
+                        .data(success.message.clone())),
+                    Ok(Event::default()
+                        .event("done")
+                        .json_data(serde_json::json!({
+                            "message_id": message_id,
+                            "session_id": sid,
+                            "tools_called": [],
+                        }))
+                        .expect("serializable done event")),
+                ]
+            } else {
+                let failure = match outcome {
+                    crate::session_commands::SessionCommandOutcome::Failure(failure) => failure,
+                    crate::session_commands::SessionCommandOutcome::Success(_) => unreachable!(),
+                };
+                vec![Ok(Event::default()
                     .event("error")
                     .json_data(serde_json::json!({
                         "code": "session_command_failed",
-                        "message": result.message,
+                        "message": failure.message,
                     }))
-                    .expect("serializable error event")),
-            ]
-        };
+                    .expect("serializable error event"))]
+            };
         return Ok(Sse::new(futures::stream::iter(events)).keep_alive(KeepAlive::default()));
     }
 

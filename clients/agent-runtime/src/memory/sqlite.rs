@@ -1503,6 +1503,59 @@ impl Memory for SqliteMemory {
         .await?
     }
 
+    async fn get_resumable_session_for_scope(
+        &self,
+        session_id: &str,
+        caller_scope_key: &str,
+    ) -> anyhow::Result<Option<ResumableSessionEntry>> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+        let caller_scope_key = caller_scope_key.to_string();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Option<ResumableSessionEntry>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT s.id, s.started_at, s.last_activity, snap.id, snap.created_at, snap.payload
+                 FROM sessions s
+                 JOIN session_state state ON state.session_id = s.id
+                 JOIN session_snapshots snap ON snap.id = state.latest_compact_snapshot_id
+                  WHERE s.id = ?1
+                    AND s.status != 'ended'
+                    AND state.lifecycle_state = 'suspended'
+                    AND snap.is_resume_capable = 1
+                    AND s.token_hash IS ?2",
+            )?;
+
+            stmt.query_row(params![session_id, caller_scope_key], |row| {
+                let payload_str = row.get::<_, String>(5)?;
+                let payload =
+                    serde_json::from_str::<serde_json::Value>(&payload_str).map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            5,
+                            rusqlite::types::Type::Text,
+                            Box::new(e),
+                        )
+                    })?;
+                let preview = payload
+                    .get("preview")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_default();
+                Ok(ResumableSessionEntry {
+                    session_id: row.get(0)?,
+                    started_at: row.get(1)?,
+                    last_activity: row.get(2)?,
+                    snapshot_id: row.get(3)?,
+                    snapshot_created_at: row.get(4)?,
+                    preview,
+                })
+            })
+            .optional()
+            .map_err(Into::into)
+        })
+        .await?
+    }
+
     async fn take_pending_resume_hydration(
         &self,
         session_id: &str,
@@ -2166,6 +2219,58 @@ mod tests {
 
         let unscoped_results = mem.list_resumable_sessions(None, 10, 0).await.unwrap();
         assert!(unscoped_results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_resumable_session_for_scope_enforces_target_visibility() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-a", Some("token-a"))
+            .await
+            .unwrap();
+        mem.upsert_session("session-b", Some("token-b"))
+            .await
+            .unwrap();
+
+        for (session_id, preview) in [("session-a", "Preview A"), ("session-b", "Preview B")] {
+            let snapshot = mem
+                .create_session_snapshot(
+                    session_id,
+                    SessionSnapshotKind::Compact,
+                    serde_json::json!({
+                        "preview": preview,
+                        "summary": preview,
+                        "resume_context": preview,
+                    }),
+                    true,
+                )
+                .await
+                .unwrap();
+            mem.apply_session_state_patch(SessionStatePatch {
+                session_id: session_id.into(),
+                lifecycle: Some(SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: SessionFieldPatch::Clear,
+                suspended_at: SessionFieldPatch::Set("now".into()),
+            })
+            .await
+            .unwrap();
+        }
+
+        let owned = mem
+            .get_resumable_session_for_scope("session-a", "token-a")
+            .await
+            .unwrap();
+        assert_eq!(
+            owned.as_ref().map(|entry| entry.session_id.as_str()),
+            Some("session-a")
+        );
+
+        let denied = mem
+            .get_resumable_session_for_scope("session-b", "token-a")
+            .await
+            .unwrap();
+        assert!(denied.is_none());
     }
 
     // ── FTS5 sync trigger tests ──────────────────────────────────

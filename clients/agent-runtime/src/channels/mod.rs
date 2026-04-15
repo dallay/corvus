@@ -43,7 +43,7 @@ use crate::agent::prompt::{
     COMPACT_CONTEXT_BOOTSTRAP_MAX_CHARS,
 };
 use crate::bootstrap;
-use crate::config::Config;
+use crate::config::{Config, ExecutionMode};
 use crate::memory::Memory;
 use crate::observability::Observer;
 use crate::providers::{ChatMessage, ChatRequest, ConversationMessage, Provider};
@@ -1867,19 +1867,22 @@ async fn handle_ingress_outcome(
         hex::encode(hasher.finalize())
     });
 
-    match crate::pre_execution::evaluate_ingress(
-        memory,
+    let ingress_context = crate::session_commands::CommandContext::for_channel(
         session_id,
-        content,
-        caller_scope.as_deref(),
-    )
-    .await
-    {
-        crate::pre_execution::IngressDecision::SessionCommand { result, .. } => {
+        crate::session_commands::CommandSessionSource::Existing,
+        ExecutionMode::Standard,
+        channel.map(|ch| ch.name()).unwrap_or("channel"),
+        caller_scope,
+    );
+
+    match crate::pre_execution::evaluate_ingress(memory, ingress_context, content).await {
+        crate::pre_execution::IngressDecision::SessionCommand { outcome } => {
+            let message = match outcome {
+                crate::session_commands::SessionCommandOutcome::Success(success) => success.message,
+                crate::session_commands::SessionCommandOutcome::Failure(failure) => failure.message,
+            };
             if let Some(ch) = channel {
-                let _ = ch
-                    .send(&SendMessage::new(result.message, reply_target))
-                    .await;
+                let _ = ch.send(&SendMessage::new(message, reply_target)).await;
             }
             Some(())
         }

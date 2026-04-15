@@ -10,7 +10,10 @@ pub use registry::{default_registry, SlashCommandRegistry};
 pub use service::SessionCommandService;
 #[allow(unused_imports)]
 pub use types::{
-    CommandContext, RawSlashInvocation, SessionCommandError, SessionCommandResult,
+    CommandBackend, CommandCaller, CommandCapability, CommandContext, CommandContextFacts,
+    CommandIngressContext, CommandIngressSource, CommandPermission, CommandSessionContext,
+    CommandSessionSource, RawSlashInvocation, SessionCommandFailure, SessionCommandFailureKind,
+    SessionCommandOutcome, SessionCommandSuccess, SessionCommandSuccessData,
     SlashCommandArgumentShape, SlashCommandDescriptor, SlashCommandHandler,
     SlashCommandRegistration, SlashCommandRequirements, SlashInvocation, SlashRegistryError,
 };
