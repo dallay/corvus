@@ -3,7 +3,14 @@ pub mod registry;
 pub mod service;
 pub mod types;
 
+#[allow(unused_imports)]
 pub use parser::SessionCommandParser;
-pub use registry::dispatch;
+#[allow(unused_imports)]
+pub use registry::{default_registry, SlashCommandRegistry};
 pub use service::SessionCommandService;
-pub use types::{CommandContext, SessionCommandResult};
+#[allow(unused_imports)]
+pub use types::{
+    CommandContext, RawSlashInvocation, SessionCommandError, SessionCommandResult,
+    SlashCommandArgumentShape, SlashCommandDescriptor, SlashCommandHandler,
+    SlashCommandRegistration, SlashCommandRequirements, SlashInvocation, SlashRegistryError,
+};

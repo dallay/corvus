@@ -1,8 +1,8 @@
 use super::embeddings::EmbeddingProvider;
 use super::traits::{
     Memory, MemoryCategory, MemoryEntry, MemoryStats, ResumableSessionEntry, SessionEntry,
-    SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation,
-    SessionStatePatch, SessionStateRecord, SessionStatus, SlashSessionLifecycle,
+    SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation, SessionStatePatch,
+    SessionStateRecord, SessionStatus, SlashSessionLifecycle,
 };
 use super::vector;
 use anyhow::Context;
@@ -1596,6 +1596,7 @@ impl Memory for SqliteMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::SessionFieldPatch;
     use tempfile::TempDir;
 
     fn temp_sqlite() -> (TempDir, SqliteMemory) {

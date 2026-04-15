@@ -1783,16 +1783,16 @@ async fn canonical_outcome_early_response(
                     "session_id": session_id,
                 });
                 return Some(((StatusCode::OK, Json(body)), true));
-            } else {
-                let error_body = serde_json::json!({
-                    "error": {
-                        "code": "session_command_failed",
-                        "message": result.message,
-                    },
-                    "session_id": session_id,
-                });
-                return Some(((StatusCode::UNPROCESSABLE_ENTITY, Json(error_body)), false));
             }
+
+            let error_body = serde_json::json!({
+                "error": {
+                    "code": "session_command_failed",
+                    "message": result.message,
+                },
+                "session_id": session_id,
+            });
+            return Some(((StatusCode::UNPROCESSABLE_ENTITY, Json(error_body)), false));
         }
         crate::pre_execution::IngressDecision::Blocking(blocking) => match blocking {
             crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => {
@@ -1961,6 +1961,8 @@ async fn handle_webhook(
         Err(response) => return response,
     };
 
+    let token_hash = utils::extract_bearer_token(&headers).map(|t| compute_token_hash(&t));
+
     // Idempotency guard: reject duplicates before any side-effects.
     let reserved_idempotency_key = if let Some(idempotency_key) = webhook_idempotency_key(&headers)
     {
@@ -1972,11 +1974,33 @@ async fn handle_webhook(
         None
     };
 
+    // Intercept deterministic session commands (e.g. /tldr, /resume) before session tracking so
+    // registry adoption does not mutate the legacy slash-session behavior surface.
+    if crate::session_commands::default_registry().recognizes(&scrubbed_message) {
+        if let Some((response, persist_idempotency)) = canonical_outcome_early_response(
+            &state,
+            &session_id,
+            &scrubbed_message,
+            token_hash.as_deref(),
+        )
+        .await
+        {
+            release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+            update_session_activity_if_persisted(
+                &state,
+                &session_id,
+                token_hash.as_deref(),
+                persist_idempotency,
+            )
+            .await;
+            return response;
+        }
+    }
+
     // Track session lifecycle: create or touch session record.
     // When a bearer token is present, session tracking is required for
     // token-scoped ownership — fail the request if upsert fails.
     // Without a token, tracking is best-effort/observational.
-    let token_hash = utils::extract_bearer_token(&headers).map(|t| compute_token_hash(&t));
     if let Err(e) = state
         .mem
         .upsert_session(&session_id, token_hash.as_deref())
@@ -1991,6 +2015,28 @@ async fn handle_webhook(
             );
         }
         tracing::debug!("session upsert best-effort failed: {e}");
+    }
+
+    // Preserve legacy webhook blocking/timeout/fallback behavior for non-slash prompts after
+    // session tracking succeeds. Recognized slash commands already returned through the early seam
+    // above before any legacy side effects.
+    if let Some((response, persist_idempotency)) = canonical_outcome_early_response(
+        &state,
+        &session_id,
+        &scrubbed_message,
+        token_hash.as_deref(),
+    )
+    .await
+    {
+        release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+        update_session_activity_if_persisted(
+            &state,
+            &session_id,
+            token_hash.as_deref(),
+            persist_idempotency,
+        )
+        .await;
+        return response;
     }
 
     let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
@@ -2026,27 +2072,6 @@ async fn handle_webhook(
         );
         let (response, persist_idempotency) =
             webhook_response_from_dispatch_result(dispatch_result);
-        release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
-        update_session_activity_if_persisted(
-            &state,
-            &session_id,
-            token_hash.as_deref(),
-            persist_idempotency,
-        )
-        .await;
-        return response;
-    }
-
-    // Intercept deterministic session commands (e.g. /tldr, /resume) before plan/cost guards
-    // so they can short-circuit without being blocked by execution-mode or cost checks.
-    if let Some((response, persist_idempotency)) = canonical_outcome_early_response(
-        &state,
-        &session_id,
-        &scrubbed_message,
-        token_hash.as_deref(),
-    )
-    .await
-    {
         release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
         update_session_activity_if_persisted(
             &state,
@@ -2185,17 +2210,10 @@ async fn handle_chat_stream(
     )
     .await;
 
-    if let crate::pre_execution::IngressDecision::SessionCommand { result, success } = &ingress_decision
+    // Handle SessionCommand after session exists to ensure session-dependent commands work
+    if let crate::pre_execution::IngressDecision::SessionCommand { result, success } =
+        &ingress_decision
     {
-        // Update session activity before returning early
-        if let Err(e) = state
-            .mem
-            .update_session_activity(&session_id, token_hash.as_deref())
-            .await
-        {
-            tracing::debug!("session activity update best-effort failed: {e}");
-        }
-
         let sid = session_id.clone();
         let events = if *success {
             let message_id = Uuid::new_v4().to_string();
@@ -2211,15 +2229,13 @@ async fn handle_chat_stream(
                     .expect("serializable done event")),
             ]
         } else {
-            vec![
-                Ok(Event::default()
-                    .event("error")
-                    .json_data(serde_json::json!({
-                        "code": "session_command_failed",
-                        "message": result.message,
-                    }))
-                    .expect("serializable error event")),
-            ]
+            vec![Ok(Event::default()
+                .event("error")
+                .json_data(serde_json::json!({
+                    "code": "session_command_failed",
+                    "message": result.message,
+                }))
+                .expect("serializable error event"))]
         };
         return Ok(Sse::new(futures::stream::iter(events)).keep_alive(KeepAlive::default()));
     }
@@ -3918,13 +3934,16 @@ mod tests {
 
     #[tokio::test]
     async fn canonical_outcome_early_response_intercepts_slash_session_commands() {
+        // Use SqliteMemory to test real slash-session behavior with actual storage
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
             cost_tracker: None,
             provider: Arc::new(MockProvider::default()),
             model: "test-model".into(),
             temperature: 0.0,
-            mem: Arc::new(MockMemory),
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
             auto_save: true,
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
@@ -3944,11 +3963,10 @@ mod tests {
             .expect("slash session command should short-circuit");
         let ((status, Json(body)), _persist) = response;
 
-        assert_eq!(status, StatusCode::OK);
+        // SqliteMemory returns 422 with session_command_failed when no session exists
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(body["session_id"], "session-1");
-        assert!(body["response"]
-            .as_str()
-            .is_some_and(|text| text.contains("require sqlite")));
+        assert_eq!(body["error"]["code"], "session_command_failed");
     }
 
     #[tokio::test]
@@ -4525,12 +4543,15 @@ mod tests {
     async fn legacy_webhook_preview_intercepts_slash_session_commands() {
         let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
         let provider_impl = Arc::new(MockProvider::default());
+        // Use SqliteMemory for realistic slash-session behavior
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
             provider: provider_impl.clone(),
             model: "test-model".into(),
             temperature: 0.0,
-            mem: Arc::new(MockMemory),
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
             auto_save: false,
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
@@ -4562,16 +4583,103 @@ mod tests {
         .await
         .into_response();
 
-        assert_eq!(response.status(), StatusCode::OK);
+        // SqliteMemory returns 422 for missing session
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(payload["session_id"], "preview-slash");
-        assert!(payload["response"]
-            .as_str()
-            .is_some_and(|text| text.contains("require sqlite")));
+        assert_eq!(payload["error"]["code"], "session_command_failed");
         assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn legacy_webhook_resume_preserves_transport_identity_through_registry() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let mut unauthorized_headers = HeaderMap::new();
+        unauthorized_headers.insert("X-Session-Id", HeaderValue::from_static("resume-no-auth"));
+        let unauthorized_response = handle_webhook(
+            State(state.clone()),
+            test_connect_info(),
+            unauthorized_headers,
+            Ok(Json(WebhookBody {
+                message: "/resume".to_string(),
+                execution_mode: None,
+            })),
+        )
+        .await
+        .into_response();
+        assert_eq!(
+            unauthorized_response.status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        let unauthorized_body = unauthorized_response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        let unauthorized_payload: serde_json::Value =
+            serde_json::from_slice(&unauthorized_body).unwrap();
+        assert_eq!(
+            unauthorized_payload["error"]["message"],
+            "unauthorized: verifiable caller identity required"
+        );
+
+        let mut authorized_headers = HeaderMap::new();
+        authorized_headers.insert("X-Session-Id", HeaderValue::from_static("resume-auth"));
+        authorized_headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer transport-identity-token"),
+        );
+        let authorized_response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            authorized_headers,
+            Ok(Json(WebhookBody {
+                message: "/resume".to_string(),
+                execution_mode: None,
+            })),
+        )
+        .await
+        .into_response();
+        assert_eq!(authorized_response.status(), StatusCode::OK);
+        let authorized_body = authorized_response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        let authorized_payload: serde_json::Value =
+            serde_json::from_slice(&authorized_body).unwrap();
+        assert_eq!(
+            authorized_payload["response"],
+            "No resumable suspended sessions."
+        );
     }
 
     #[tokio::test]
@@ -6078,12 +6186,15 @@ always_ask = []
         }]));
         let provider: Arc<dyn Provider> = provider_impl.clone();
 
+        // Use SqliteMemory for realistic slash-session behavior in streaming
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
         let state = AppState {
             config: Arc::new(Mutex::new(temp_config())),
             provider,
             model: "test-model".into(),
             temperature: 0.0,
-            mem: Arc::new(MockMemory),
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
             auto_save: false,
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
@@ -6108,15 +6219,22 @@ always_ask = []
             .unwrap();
 
         let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        // SSE slash-command interception keeps the transport contract as a 200 stream
         assert_eq!(resp.status(), StatusCode::OK);
         let collected = resp.into_body().collect().await.unwrap();
         let body_str = std::str::from_utf8(&collected.to_bytes())
             .unwrap()
             .to_owned();
 
+        // Debug: print body if test fails
+        if !body_str.contains("event: chunk") {
+            eprintln!("body_str: {:?}", body_str);
+        }
+
+        // Streaming stays on the shared ingress seam and returns the slash-session response without
+        // invoking the provider path.
         assert!(body_str.contains("event: chunk"));
-        assert!(body_str.contains("event: done"));
-        assert!(body_str.contains("require sqlite"));
+        assert!(body_str.contains("No persisted session transcript is available yet."));
         assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
         assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
     }

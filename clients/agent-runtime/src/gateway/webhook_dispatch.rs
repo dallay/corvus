@@ -1083,4 +1083,35 @@ mod tests {
             .as_deref()
             .is_some_and(|text| text.contains("require sqlite")));
     }
+
+    #[tokio::test]
+    async fn execute_preserves_unknown_slash_like_input_for_normal_provider_flow() {
+        let (_temp, config) = test_config();
+        let provider_impl = Arc::new(ScriptedProvider::new(vec![ChatResponse {
+            text: Some("provider ran".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let result = execute(
+            &config,
+            provider,
+            Arc::new(TestMemory),
+            Arc::new(NoopObserver) as Arc<dyn Observer>,
+            None,
+            "test-model",
+            WebhookTurnRequest {
+                session_id: "session-slash-unknown".into(),
+                session_source: WebhookSessionSource::Explicit,
+                caller_token_hash: None,
+                message: "/resume-later".into(),
+                execution_mode: ExecutionMode::Standard,
+                include_sse_frames: false,
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(result.outcome, WebhookTerminalOutcome::Completed);
+    }
 }

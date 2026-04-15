@@ -1,4 +1,5 @@
 use crate::memory::ResumableSessionEntry;
+use std::sync::Arc;
 
 /// Sanitize storage errors for user-facing messages.
 /// Strips sensitive information like file paths and connection strings.
@@ -44,34 +45,83 @@ pub(crate) fn sanitize_storage_error(error: &anyhow::Error) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SessionSlashCommand {
-    Resume {
-        target: Option<String>,
-        args: String,
-    },
-    Suspend,
-    Tldr,
-    Compact {
-        args: String,
-    },
+pub enum SlashCommandArgumentShape {
+    None,
+    OptionalText,
+    OptionalTargetThenText,
 }
 
-impl SessionSlashCommand {
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Resume { .. } => "/resume",
-            Self::Suspend => "/suspend",
-            Self::Tldr => "/tldr",
-            Self::Compact { .. } => "/compact",
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SlashCommandRequirements {
+    pub capability_tags: Vec<&'static str>,
+    pub permission_tags: Vec<&'static str>,
+    pub backend_tags: Vec<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlashCommandDescriptor {
+    pub canonical_name: &'static str,
+    pub aliases: &'static [&'static str],
+    pub description: &'static str,
+    pub argument_shape: SlashCommandArgumentShape,
+    pub requirements: SlashCommandRequirements,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawSlashInvocation {
+    pub invoked_name: String,
+    pub raw_args: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlashInvocation {
+    pub invoked_name: String,
+    pub canonical_name: &'static str,
+    pub raw_args: String,
+    pub primary_target: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct CommandContext<'a> {
     pub session_id: &'a str,
     pub caller_token_hash: Option<&'a str>,
-    pub command: SessionSlashCommand,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SlashRegistryError {
+    InvalidName {
+        name: String,
+    },
+    EmptyDescription {
+        canonical_name: String,
+    },
+    DuplicateCanonicalName {
+        canonical_name: String,
+    },
+    DuplicateAlias {
+        alias: String,
+        existing_canonical_name: String,
+    },
+    AliasCollidesWithCanonical {
+        alias: String,
+        canonical_name: String,
+    },
+}
+
+#[async_trait::async_trait]
+pub trait SlashCommandHandler: Send + Sync {
+    async fn handle(
+        &self,
+        service: &super::service::SessionCommandService<'_>,
+        context: CommandContext<'_>,
+        invocation: SlashInvocation,
+    ) -> Result<SessionCommandResult, SessionCommandError>;
+}
+
+#[derive(Clone)]
+pub struct SlashCommandRegistration {
+    pub descriptor: SlashCommandDescriptor,
+    pub handler: Arc<dyn SlashCommandHandler>,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +151,10 @@ pub enum SessionCommandError {
     InvalidResumeTarget {
         session_id: String,
     },
+    InvalidArguments {
+        command: &'static str,
+        detail: String,
+    },
     Unauthorized,
     StorageFailure {
         detail: String,
@@ -124,6 +178,9 @@ impl SessionCommandError {
             }
             Self::InvalidResumeTarget { session_id } => {
                 format!("[session:{session_id}] invalid resume target")
+            }
+            Self::InvalidArguments { command, detail } => {
+                format!("invalid slash command usage for {command}: {detail}")
             }
             Self::Unauthorized => "unauthorized: verifiable caller identity required".to_string(),
             Self::StorageFailure { detail } => {
