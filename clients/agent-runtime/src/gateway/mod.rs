@@ -2153,10 +2153,7 @@ async fn handle_chat_stream(
     ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     body: WebhookJsonBody,
-) -> Result<
-    Sse<impl futures::stream::Stream<Item = Result<Event, std::convert::Infallible>>>,
-    WebhookResponse,
-> {
+) -> Result<axum::response::Response, WebhookResponse> {
     // ── Auth (same as /webhook) ──────────────────────────
     if let Some(rejection) = webhook_auth_rejection(&state, peer_addr, &headers) {
         return Err(rejection);
@@ -2228,7 +2225,7 @@ async fn handle_chat_stream(
         }
 
         let sid = session_id.clone();
-        let events =
+        let events: Vec<Result<Event, std::convert::Infallible>> =
             if let crate::session_commands::SessionCommandOutcome::Success(success) = outcome {
                 let message_id = Uuid::new_v4().to_string();
                 vec![
@@ -2257,7 +2254,16 @@ async fn handle_chat_stream(
                     }))
                     .expect("serializable error event"))]
             };
-        return Ok(Sse::new(futures::stream::iter(events)).keep_alive(KeepAlive::default()));
+        let mut response = Sse::new(futures::stream::iter(events))
+            .keep_alive(KeepAlive::default())
+            .into_response();
+        if matches!(
+            outcome,
+            crate::session_commands::SessionCommandOutcome::Failure(_)
+        ) {
+            *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
+        }
+        return Ok(response);
     }
 
     let stream_outcome = if dispatcher_enabled {
@@ -2360,14 +2366,15 @@ async fn handle_chat_stream(
             webhook_body.execution_mode,
         );
         if effective_mode == ExecutionMode::Plan {
-            return Ok(Sse::new(futures::stream::iter(vec![Ok(Event::default()
+            return Ok(Sse::new(futures::stream::iter(vec![Ok::<Event, std::convert::Infallible>(Event::default()
                 .event("error")
                 .data(serde_json::json!({
                     "code": "plan_mode_blocked",
                     "reason": "Plan mode requires dispatcher; dispatcher is not enabled on this server",
                     "execution_mode": "plan",
                 }).to_string()))]))
-            .keep_alive(KeepAlive::default()));
+            .keep_alive(KeepAlive::default())
+            .into_response());
         }
 
         if config.cost.enabled {
@@ -2400,19 +2407,24 @@ async fn handle_chat_stream(
                     }
 
                     return Ok(Sse::new(futures::stream::iter(vec![
-                        Ok(Event::default()
-                            .event("chunk")
-                            .data(scrub_sensitive_boundary_text(&response))),
-                        Ok(Event::default()
-                            .event("done")
-                            .json_data(serde_json::json!({
-                                "message_id": Uuid::new_v4().to_string(),
-                                "session_id": session_id,
-                                "tools_called": [],
-                            }))
-                            .expect("serializable done event")),
+                        Ok::<Event, std::convert::Infallible>(
+                            Event::default()
+                                .event("chunk")
+                                .data(scrub_sensitive_boundary_text(&response)),
+                        ),
+                        Ok::<Event, std::convert::Infallible>(
+                            Event::default()
+                                .event("done")
+                                .json_data(serde_json::json!({
+                                    "message_id": Uuid::new_v4().to_string(),
+                                    "session_id": session_id,
+                                    "tools_called": [],
+                                }))
+                                .expect("serializable done event"),
+                        ),
                     ]))
-                    .keep_alive(KeepAlive::default()));
+                    .keep_alive(KeepAlive::default())
+                    .into_response());
                 }
             };
             StreamProcessingOutcome::Error(payload)
@@ -2479,7 +2491,9 @@ async fn handle_chat_stream(
         }
     };
 
-    Ok(Sse::new(futures::stream::iter(events)).keep_alive(KeepAlive::default()))
+    Ok(Sse::new(futures::stream::iter(events))
+        .keep_alive(KeepAlive::default())
+        .into_response())
 }
 
 // ── Audio gateway handler types and helpers ──────────────────────────────────
@@ -6151,16 +6165,16 @@ always_ask = []
             .unwrap();
 
         let resp = build_stream_router(state).oneshot(req).await.unwrap();
-        // Streaming returns 422 for missing session via SqliteMemory
-        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        // `/tldr` without persisted transcript returns a deterministic SSE success payload
+        assert_eq!(resp.status(), StatusCode::OK);
         let collected = resp.into_body().collect().await.unwrap();
         let body_str = std::str::from_utf8(&collected.to_bytes())
             .unwrap()
             .to_owned();
 
-        // Streaming returns error event instead of chunk/done for slash-session failures
-        assert!(body_str.contains("event: error"));
-        assert!(body_str.contains("session_command_failed"));
+        assert!(body_str.contains("event: chunk"));
+        assert!(body_str.contains("No persisted session transcript is available yet."));
+        assert!(body_str.contains("event: done"));
         assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
         assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
     }
