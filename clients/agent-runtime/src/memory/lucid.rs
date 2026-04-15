@@ -489,6 +489,25 @@ exit 1
         script_path.display().to_string()
     }
 
+    #[tokio::test]
+    async fn lucid_rejects_slash_session_operations() {
+        let tmp = TempDir::new().unwrap();
+        let local = crate::memory::SqliteMemory::new(tmp.path()).unwrap();
+        let lucid = LucidMemory::new(tmp.path(), local);
+
+        let error = lucid
+            .create_session_snapshot(
+                "session-1",
+                super::super::traits::SessionSnapshotKind::Compact,
+                serde_json::json!({"preview": "hello"}),
+                true,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("backend=lucid"));
+    }
+
     fn test_memory(workspace: &Path, cmd: String) -> LucidMemory {
         let sqlite = SqliteMemory::new(workspace).unwrap();
         LucidMemory::with_options(

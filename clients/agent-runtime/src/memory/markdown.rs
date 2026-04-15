@@ -289,6 +289,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn markdown_rejects_slash_session_operations() {
+        let (_tmp, mem) = temp_workspace();
+
+        let error = mem
+            .create_session_snapshot(
+                "session-1",
+                super::super::traits::SessionSnapshotKind::Compact,
+                serde_json::json!({"preview": "hello"}),
+                true,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("backend=markdown"));
+    }
+
+    #[tokio::test]
     async fn markdown_store_core() {
         let (_tmp, mem) = temp_workspace();
         mem.store("pref", "User likes Rust", MemoryCategory::Core, None)

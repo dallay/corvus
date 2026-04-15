@@ -84,4 +84,21 @@ mod tests {
         assert_eq!(memory.count().await.unwrap(), 0);
         assert!(memory.health_check().await);
     }
+
+    #[tokio::test]
+    async fn none_memory_rejects_slash_session_operations() {
+        let memory = NoneMemory::new();
+
+        let error = memory
+            .create_session_snapshot(
+                "session-1",
+                super::super::traits::SessionSnapshotKind::Compact,
+                serde_json::json!({"preview": "hello"}),
+                true,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("backend=none"));
+    }
 }

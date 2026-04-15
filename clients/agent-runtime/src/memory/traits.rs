@@ -1,6 +1,9 @@
 //! Compatibility shim for extracted memory contracts.
 
+#[allow(unused_imports)]
 pub use corvus_traits::memory::{
-    Memory, MemoryCategory, MemoryEntry, MemoryStats, MemoryValidationResult, SessionEntry,
-    SessionStatus,
+    is_slash_session_unsupported_error, slash_session_unsupported_error, Memory, MemoryCategory,
+    MemoryEntry, MemoryStats, MemoryValidationResult, ResumableSessionEntry, SessionEntry,
+    SessionFieldPatch, SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation,
+    SessionStatePatch, SessionStateRecord, SessionStatus, SlashSessionLifecycle,
 };

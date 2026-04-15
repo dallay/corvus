@@ -156,7 +156,13 @@ fn conversation_memory_key(msg: &traits::ChannelMessage) -> String {
 }
 
 fn channel_session_id(msg: &traits::ChannelMessage) -> String {
-    format!("{}-{}", msg.channel, msg.id)
+    // Include reply_target to distinguish different conversations/threads from the same sender
+    let reply_placeholder = if msg.reply_target.is_empty() {
+        "-"
+    } else {
+        &msg.reply_target
+    };
+    format!("{}_{}_{}", msg.channel, msg.sender, reply_placeholder)
 }
 
 fn channel_timeout_abort_text(session_id: &str) -> String {
@@ -694,7 +700,19 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
     };
 
     let user_text = extract_user_text(&msg);
-    let enriched_message = enrich_with_memory(&ctx, &msg, &user_text).await;
+
+    if handle_ingress_outcome(
+        target_channel.as_ref(),
+        ctx.memory.as_ref(),
+        &session_id,
+        &msg.reply_target,
+        &user_text,
+    )
+    .await
+    .is_some()
+    {
+        return;
+    }
 
     if update_visibility_enabled(ctx.config.as_ref()) {
         let _ = crate::update::maybe_send_opportunistic_update_notice(
@@ -706,17 +724,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
         .await;
     }
 
-    if handle_canonical_blocking_outcome(
-        target_channel.as_ref(),
-        &session_id,
-        &msg.reply_target,
-        &user_text,
-    )
-    .await
-    .is_some()
-    {
-        return;
-    }
+    let enriched_message = enrich_with_memory(&ctx, &msg, &user_text).await;
 
     let (image_route_metadata, staged_guard) =
         match prepare_image_turn(ctx.as_ref(), &msg, &session_id, target_channel.as_ref()).await {
@@ -1841,35 +1849,43 @@ fn build_history(
     history
 }
 
-async fn handle_canonical_blocking_outcome(
+async fn handle_ingress_outcome(
     channel: Option<&Arc<dyn Channel>>,
+    memory: &dyn Memory,
     session_id: &str,
     reply_target: &str,
     content: &str,
 ) -> Option<()> {
-    let canonical = crate::pre_execution::evaluate(session_id.to_string(), content).await;
-
-    if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
-        if let Some(ch) = channel {
-            let text = match blocking {
-                crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
-                    format!(
+    match crate::pre_execution::evaluate_ingress(memory, session_id, content, None).await {
+        crate::pre_execution::IngressDecision::SessionCommand { result, .. } => {
+            if let Some(ch) = channel {
+                let _ = ch
+                    .send(&SendMessage::new(result.message, reply_target))
+                    .await;
+            }
+            Some(())
+        }
+        crate::pre_execution::IngressDecision::Blocking(blocking) => {
+            if let Some(ch) = channel {
+                let text = match blocking {
+                    crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
+                        format!(
                         "[session:{session_id}] approval required for `{tool}`; request blocked"
                     )
-                }
-                crate::pre_execution::BlockingOutcome::TimeoutAborted => {
-                    channel_timeout_abort_text(session_id)
-                }
-                crate::pre_execution::BlockingOutcome::Fallback { response } => {
-                    format!("[session:{session_id}] {response}")
-                }
-            };
-            let _ = ch.send(&SendMessage::new(text, reply_target)).await;
+                    }
+                    crate::pre_execution::BlockingOutcome::TimeoutAborted => {
+                        channel_timeout_abort_text(session_id)
+                    }
+                    crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                        format!("[session:{session_id}] {response}")
+                    }
+                };
+                let _ = ch.send(&SendMessage::new(text, reply_target)).await;
+            }
+            Some(())
         }
-        return Some(());
+        crate::pre_execution::IngressDecision::Continue => None,
     }
-
-    None
 }
 
 async fn setup_streaming(
@@ -3060,7 +3076,7 @@ mod tests {
     use super::*;
     use crate::agent::prompt::DEFAULT_BOOTSTRAP_MAX_CHARS;
     use crate::config::{SlackConfig, StreamMode, TelegramConfig};
-    use crate::memory::{Memory, MemoryCategory, SqliteMemory};
+    use crate::memory::{Memory, MemoryCategory, NoneMemory, SqliteMemory};
     use crate::observability::{ImageIngressEvent, ImageIngressOutcome, NoopObserver, Observer};
     use crate::providers::traits::ProviderCapabilities;
     use crate::providers::{ChatMessage, ChatRequest, ChatResponse, Provider, ToolCall};
@@ -3189,6 +3205,101 @@ mod tests {
         async fn stop_typing(&self, _recipient: &str) -> anyhow::Result<()> {
             self.stop_typing_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn ingress_outcome_handles_slash_session_commands_before_memory_enrichment() {
+        let channel = Arc::new(RecordingChannel::default());
+        let channel_dyn: Arc<dyn Channel> = channel.clone();
+        let memory = CountingMemory::default();
+
+        let handled = handle_ingress_outcome(
+            Some(&channel_dyn),
+            &memory,
+            "session-1",
+            "reply-target",
+            "/tldr",
+        )
+        .await;
+
+        assert_eq!(handled, Some(()));
+        let sent = channel.sent_messages.lock().await.clone();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("require sqlite"));
+        // Verify that memory enrichment (recall/store) was NOT called — slash commands
+        // are handled before memory enrichment, so counters must remain zero.
+        assert_eq!(
+            memory.recall_calls.load(Ordering::SeqCst),
+            0,
+            "memory.recall should not be called for slash session commands"
+        );
+        assert_eq!(
+            memory.store_calls.load(Ordering::SeqCst),
+            0,
+            "memory.store should not be called for slash session commands"
+        );
+    }
+
+    /// Instrumented memory wrapper that counts recall/store invocations for testing.
+    #[derive(Default)]
+    struct CountingMemory {
+        recall_calls: std::sync::atomic::AtomicUsize,
+        store_calls: std::sync::atomic::AtomicUsize,
+        inner: NoneMemory,
+    }
+
+    #[async_trait::async_trait]
+    impl Memory for CountingMemory {
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: usize,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            self.recall_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.recall(_query, _limit, _session_id).await
+        }
+
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: crate::memory::MemoryCategory,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<()> {
+            self.store_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner
+                .store(_key, _content, _category, _session_id)
+                .await
+        }
+
+        fn name(&self) -> &str {
+            self.inner.name()
+        }
+
+        async fn get(&self, key: &str) -> anyhow::Result<Option<crate::memory::MemoryEntry>> {
+            self.inner.get(key).await
+        }
+
+        async fn list(
+            &self,
+            category: Option<&crate::memory::MemoryCategory>,
+            session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            self.inner.list(category, session_id).await
+        }
+
+        async fn forget(&self, key: &str) -> anyhow::Result<bool> {
+            self.inner.forget(key).await
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            self.inner.count().await
+        }
+
+        async fn health_check(&self) -> bool {
+            self.inner.health_check().await
         }
     }
 
@@ -4638,7 +4749,8 @@ mod tests {
         let sent_messages = channel_impl.sent_messages.lock().await;
         assert_eq!(sent_messages.len(), 1);
         assert!(sent_messages[0].contains("request blocked"));
-        assert!(sent_messages[0].contains("[session:test-channel-approval-1]"));
+        // Session ID now includes reply_target: test-channel_alice_chat-1
+        assert!(sent_messages[0].contains("[session:test-channel_alice_chat-1]"));
     }
 
     #[tokio::test]

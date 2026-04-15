@@ -2,6 +2,25 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug, thiserror::Error)]
+#[error("slash-session commands require sqlite memory backend (backend={backend})")]
+pub struct SlashSessionUnsupportedBackendError {
+    pub backend: String,
+}
+
+pub fn slash_session_unsupported_error(backend: &str) -> anyhow::Error {
+    SlashSessionUnsupportedBackendError {
+        backend: backend.to_string(),
+    }
+    .into()
+}
+
+pub fn is_slash_session_unsupported_error(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<SlashSessionUnsupportedBackendError>()
+        .is_some()
+}
+
 /// A single memory entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEntry {
@@ -75,6 +94,120 @@ pub struct SessionEntry {
     pub message_count: u32,
     pub last_activity: String,
     pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlashSessionLifecycle {
+    Active,
+    Suspended,
+}
+
+impl SlashSessionLifecycle {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Suspended => "suspended",
+        }
+    }
+}
+
+impl std::str::FromStr for SlashSessionLifecycle {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "active" => Ok(Self::Active),
+            "suspended" => Ok(Self::Suspended),
+            other => Err(anyhow::anyhow!("unknown slash session lifecycle: {other}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionSnapshotKind {
+    Tldr,
+    Compact,
+}
+
+impl SessionSnapshotKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Tldr => "tldr",
+            Self::Compact => "compact",
+        }
+    }
+}
+
+impl std::str::FromStr for SessionSnapshotKind {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "tldr" => Ok(Self::Tldr),
+            "compact" => Ok(Self::Compact),
+            other => Err(anyhow::anyhow!("unknown session snapshot kind: {other}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSnapshotRecord {
+    pub id: String,
+    pub session_id: String,
+    pub kind: SessionSnapshotKind,
+    pub created_at: String,
+    pub payload: serde_json::Value,
+    pub resume_capable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionStateRecord {
+    pub session_id: String,
+    pub lifecycle: SlashSessionLifecycle,
+    pub latest_tldr_snapshot_id: Option<String>,
+    pub latest_compact_snapshot_id: Option<String>,
+    pub pending_hydration_snapshot_id: Option<String>,
+    pub suspended_at: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionStateMutation {
+    pub session_id: String,
+    pub lifecycle: SlashSessionLifecycle,
+    pub latest_tldr_snapshot_id: Option<String>,
+    pub latest_compact_snapshot_id: Option<String>,
+    pub pending_hydration_snapshot_id: Option<String>,
+    pub suspended_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SessionFieldPatch<T> {
+    Keep,
+    Set(T),
+    Clear,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionStatePatch {
+    pub session_id: String,
+    pub lifecycle: Option<SlashSessionLifecycle>,
+    pub latest_tldr_snapshot_id: SessionFieldPatch<String>,
+    pub latest_compact_snapshot_id: SessionFieldPatch<String>,
+    pub pending_hydration_snapshot_id: SessionFieldPatch<String>,
+    pub suspended_at: SessionFieldPatch<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResumableSessionEntry {
+    pub session_id: String,
+    pub started_at: String,
+    pub last_activity: String,
+    pub snapshot_id: String,
+    pub snapshot_created_at: String,
+    pub preview: String,
 }
 
 /// Aggregated memory statistics.
@@ -220,11 +353,125 @@ pub trait Memory: Send + Sync {
     async fn memory_stats(&self) -> anyhow::Result<MemoryStats> {
         Ok(MemoryStats::default())
     }
+
+    async fn load_session_transcript_excerpt(
+        &self,
+        _session_id: &str,
+        _limit: usize,
+    ) -> anyhow::Result<Vec<MemoryEntry>> {
+        Err(slash_session_unsupported_error(self.name()))
+    }
+
+    async fn create_session_snapshot(
+        &self,
+        _session_id: &str,
+        _kind: SessionSnapshotKind,
+        _payload: serde_json::Value,
+        _resume_capable: bool,
+    ) -> anyhow::Result<SessionSnapshotRecord> {
+        Err(slash_session_unsupported_error(self.name()))
+    }
+
+    async fn get_session_snapshot(
+        &self,
+        _snapshot_id: &str,
+    ) -> anyhow::Result<Option<SessionSnapshotRecord>> {
+        Err(slash_session_unsupported_error(self.name()))
+    }
+
+    async fn get_session_state_record(
+        &self,
+        _session_id: &str,
+    ) -> anyhow::Result<Option<SessionStateRecord>> {
+        Err(slash_session_unsupported_error(self.name()))
+    }
+
+    async fn update_session_state_record(
+        &self,
+        _state: SessionStateMutation,
+    ) -> anyhow::Result<SessionStateRecord> {
+        Err(slash_session_unsupported_error(self.name()))
+    }
+
+    async fn apply_session_state_patch(
+        &self,
+        _patch: SessionStatePatch,
+    ) -> anyhow::Result<SessionStateRecord> {
+        Err(slash_session_unsupported_error(self.name()))
+    }
+
+    async fn list_resumable_sessions(
+        &self,
+        _caller_token_hash: Option<&str>,
+        _limit: u32,
+        _offset: u32,
+    ) -> anyhow::Result<Vec<ResumableSessionEntry>> {
+        Err(slash_session_unsupported_error(self.name()))
+    }
+
+    async fn take_pending_resume_hydration(
+        &self,
+        _session_id: &str,
+    ) -> anyhow::Result<Option<SessionSnapshotRecord>> {
+        Err(slash_session_unsupported_error(self.name()))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct MinimalMemory;
+
+    #[async_trait]
+    impl Memory for MinimalMemory {
+        fn name(&self) -> &str {
+            "minimal"
+        }
+
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: MemoryCategory,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: usize,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<MemoryEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+            Ok(None)
+        }
+
+        async fn list(
+            &self,
+            _category: Option<&MemoryCategory>,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<MemoryEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            Ok(0)
+        }
+
+        async fn health_check(&self) -> bool {
+            true
+        }
+    }
 
     #[test]
     fn memory_category_display_outputs_expected_values() {
@@ -279,5 +526,42 @@ mod tests {
         assert_eq!(parsed.id, "id-1");
         assert_eq!(parsed.session_id.as_deref(), Some("session-abc"));
         assert_eq!(parsed.score, Some(0.98));
+    }
+
+    #[tokio::test]
+    async fn slash_session_defaults_fail_explicitly_for_non_sqlite_backends() {
+        let memory = MinimalMemory;
+
+        let transcript_error = memory
+            .load_session_transcript_excerpt("session-1", 5)
+            .await
+            .unwrap_err();
+        assert!(transcript_error.to_string().contains("require sqlite"));
+
+        let snapshot_error = memory
+            .create_session_snapshot(
+                "session-1",
+                SessionSnapshotKind::Compact,
+                serde_json::json!({"preview": "hello"}),
+                true,
+            )
+            .await
+            .unwrap_err();
+        assert!(snapshot_error.to_string().contains("backend=minimal"));
+
+        let state_error = memory
+            .update_session_state_record(SessionStateMutation {
+                session_id: "session-1".into(),
+                lifecycle: SlashSessionLifecycle::Active,
+                latest_tldr_snapshot_id: None,
+                latest_compact_snapshot_id: None,
+                pending_hydration_snapshot_id: None,
+                suspended_at: None,
+            })
+            .await
+            .unwrap_err();
+        assert!(state_error
+            .to_string()
+            .contains("slash-session commands require sqlite"));
     }
 }
