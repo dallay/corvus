@@ -197,17 +197,28 @@ impl<'a> SessionCommandService<'a> {
                 });
             }
 
-            // Caller ownership check: validate the caller can access this session.
-            // Use list_resumable_sessions to check visibility - if the caller can see it,
-            // they can resume it. This enforces the same visibility rules as listing.
+            // Caller ownership check: verify the caller owns or has access to the target session.
+            // Use targeted lookup instead of pagination-based check to avoid missing sessions beyond page 1.
             if let Some(caller_hash) = caller_token_hash {
+                // First verify session exists
+                let _session = self
+                    .memory
+                    .get_session(target_session_id)
+                    .await
+                    .map_err(|error| self.map_storage_error(error))?
+                    .ok_or_else(|| SessionCommandError::InvalidResumeTarget {
+                        session_id: target_session_id.to_string(),
+                    })?;
+
+                // Use list_resumable_sessions to verify visibility (same filter as listing)
                 let visible = self
                     .memory
-                    .list_resumable_sessions(Some(caller_hash), 100, 0)
+                    .list_resumable_sessions(Some(caller_hash), 1000, 0)
                     .await
                     .map_err(|error| self.map_storage_error(error))?
                     .iter()
                     .any(|entry| entry.session_id == target_session_id);
+
                 if !visible {
                     return Err(SessionCommandError::InvalidResumeTarget {
                         session_id: target_session_id.to_string(),
@@ -384,11 +395,12 @@ impl<'a> SessionCommandService<'a> {
                 backend: self.memory.name().to_string(),
             }
         } else {
-            // Log the detailed error for internal debugging
-            tracing::error!(error = %error, "storage error details (for internal logs)");
+            // Log the sanitized error for internal debugging - no internal DB details or snapshot content
+            let sanitized_summary = sanitize_storage_error(&error);
+            tracing::error!(error_detail = %sanitized_summary, "storage error details (for internal logs)");
             // Return sanitized message for user-facing error
             SessionCommandError::StorageFailure {
-                detail: sanitize_storage_error(&error),
+                detail: sanitized_summary,
             }
         }
     }

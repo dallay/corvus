@@ -377,18 +377,19 @@ Notes:
 #### Without target
 
 1. Parse `/resume` with no target.
-2. Query `sessions` joined with `session_state` and `session_snapshots` for suspended rows that still have a valid resume-capable compact snapshot.
+2. Query `sessions` joined with `session_state` and `session_snapshots` for suspended rows that still have a valid resume-capable compact snapshot, filtered by the request's caller token (same ownership check as listing).
 3. Return a deterministic list; no state mutation.
 
 #### With target
 
 1. Parse `/resume {session_id}`.
 2. Reject if backend is not SQLite.
-3. Validate `sessions.id` exists and `sessions.status != ended`.
-4. Validate `session_state.lifecycle_state='suspended'`.
-5. Validate `latest_compact_snapshot_id` points to a resume-capable snapshot.
-6. Update `session_state.lifecycle_state='active'`, clear `suspended_at`, set `pending_hydration_snapshot_id=latest_compact_snapshot_id`, bump `updated_at`.
-7. Return a success result identifying the resumed session id and snapshot preview.
+3. **Verify caller authorization**: confirm the caller token matches the session's owner (same check as step 2's query).
+4. Validate `sessions.id` exists and `sessions.status != ended`.
+5. Validate `session_state.lifecycle_state='suspended'`.
+6. Validate `latest_compact_snapshot_id` points to a resume-capable snapshot.
+7. Update `session_state.lifecycle_state='active'`, clear `suspended_at`, set `pending_hydration_snapshot_id=latest_compact_snapshot_id`, bump `updated_at`.
+8. Return a success result identifying the resumed session id and snapshot preview.
 
 ## `/resume` Hydration Path
 
@@ -481,5 +482,5 @@ This keeps `/resume` deterministic while ensuring the first post-resume turn use
 
 ## Open Questions
 
-- [ ] Channel-backed `/resume {session_id}` can reactivate any target session in persistence, but continuing that resumed session still depends on the channel producing the same canonical `session_id` on later turns. This design keeps persistence correct and transport-agnostic, but a follow-up may be needed if channels require explicit session-switch UX.
+- [ ] Channel-backed `/resume {session_id}` can reactivate a persisted session only if the caller (channel principal) is authorized/owns that session — resume is restricted by session visibility/ownership (same rule as listing). The follow-up question is whether channels need explicit session-switch UX to let users pick which session to resume when multiple sessions are visible.
 - [ ] The first slice uses deterministic summarization from bounded session memory excerpts. If operators later want richer summaries, that should be a separate change with explicit spec updates because it would alter the non-LLM guarantee.

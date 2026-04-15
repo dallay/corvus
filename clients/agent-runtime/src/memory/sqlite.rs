@@ -306,9 +306,11 @@ impl SqliteMemory {
                     payload,
                     resume_capable: row.get::<_, i64>(5)? != 0,
                 }),
-                Err(e) => Err(rusqlite::Error::InvalidParameterName(format!(
-                    "failed to deserialize snapshot payload: {e}"
-                ))),
+                Err(e) => Err(rusqlite::Error::FromSqlConversionFailure(
+                    4, // column index for payload (TEXT)
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )),
             }
         })?;
         match rows.next() {
@@ -1370,59 +1372,55 @@ impl Memory for SqliteMemory {
             let conn = conn.lock();
             Self::ensure_session_exists(&conn, &patch.session_id)?;
 
-            let existing = Self::read_session_state(&conn, &patch.session_id)?;
-            let next_state = SessionStateMutation {
-                session_id: patch.session_id.clone(),
-                lifecycle: patch
-                    .lifecycle
-                    .unwrap_or(existing.as_ref().map(|state| state.lifecycle).unwrap_or(SlashSessionLifecycle::Active)),
-                latest_tldr_snapshot_id: Self::apply_field_patch(
-                    existing
-                        .as_ref()
-                        .and_then(|state| state.latest_tldr_snapshot_id.clone()),
-                    &patch.latest_tldr_snapshot_id,
-                ),
-                latest_compact_snapshot_id: Self::apply_field_patch(
-                    existing
-                        .as_ref()
-                        .and_then(|state| state.latest_compact_snapshot_id.clone()),
-                    &patch.latest_compact_snapshot_id,
-                ),
-                pending_hydration_snapshot_id: Self::apply_field_patch(
-                    existing
-                        .as_ref()
-                        .and_then(|state| state.pending_hydration_snapshot_id.clone()),
-                    &patch.pending_hydration_snapshot_id,
-                ),
-                suspended_at: Self::apply_field_patch(
-                    existing.as_ref().and_then(|state| state.suspended_at.clone()),
-                    &patch.suspended_at,
-                ),
-            };
-
             let updated_at = chrono::Utc::now().to_rfc3339();
+
+            // Convert SessionFieldPatch to params - Set maps to Some, Keep/Clear become None (COALESCE keeps existing)
+            let latest_tldr = match patch.latest_tldr_snapshot_id {
+                crate::memory::SessionFieldPatch::Set(v) => Some(v),
+                crate::memory::SessionFieldPatch::Keep | crate::memory::SessionFieldPatch::Clear => None,
+            };
+            let latest_compact = match patch.latest_compact_snapshot_id {
+                crate::memory::SessionFieldPatch::Set(v) => Some(v),
+                crate::memory::SessionFieldPatch::Keep | crate::memory::SessionFieldPatch::Clear => None,
+            };
+            let pending_hydration = match patch.pending_hydration_snapshot_id {
+                crate::memory::SessionFieldPatch::Set(v) => Some(v),
+                crate::memory::SessionFieldPatch::Keep | crate::memory::SessionFieldPatch::Clear => None,
+            };
+            let suspended_at = match patch.suspended_at {
+                crate::memory::SessionFieldPatch::Set(v) => Some(v),
+                crate::memory::SessionFieldPatch::Keep | crate::memory::SessionFieldPatch::Clear => None,
+            };
+            let lifecycle_value = patch.lifecycle.as_ref().map(|l| l.as_str().to_string());
+
             conn.execute(
                 "INSERT INTO session_state (
-                    session_id, lifecycle_state, latest_tldr_snapshot_id, latest_compact_snapshot_id,
-                    pending_hydration_snapshot_id, suspended_at, updated_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                 ON CONFLICT(session_id) DO UPDATE SET
-                    lifecycle_state = excluded.lifecycle_state,
-                    latest_tldr_snapshot_id = excluded.latest_tldr_snapshot_id,
-                    latest_compact_snapshot_id = excluded.latest_compact_snapshot_id,
-                    pending_hydration_snapshot_id = excluded.pending_hydration_snapshot_id,
-                    suspended_at = excluded.suspended_at,
+                    session_id,
+                    lifecycle_state,
+                    latest_tldr_snapshot_id,
+                    latest_compact_snapshot_id,
+                    pending_hydration_snapshot_id,
+                    suspended_at,
+                    updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    lifecycle_state = COALESCE(excluded.lifecycle_state, session_state.lifecycle_state),
+                    latest_tldr_snapshot_id = COALESCE(excluded.latest_tldr_snapshot_id, session_state.latest_tldr_snapshot_id),
+                    latest_compact_snapshot_id = COALESCE(excluded.latest_compact_snapshot_id, session_state.latest_compact_snapshot_id),
+                    pending_hydration_snapshot_id = COALESCE(excluded.pending_hydration_snapshot_id, session_state.pending_hydration_snapshot_id),
+                    suspended_at = COALESCE(excluded.suspended_at, session_state.suspended_at),
                     updated_at = excluded.updated_at",
                 params![
-                    next_state.session_id,
-                    next_state.lifecycle.as_str(),
-                    next_state.latest_tldr_snapshot_id,
-                    next_state.latest_compact_snapshot_id,
-                    next_state.pending_hydration_snapshot_id,
-                    next_state.suspended_at,
+                    patch.session_id,
+                    lifecycle_value,
+                    latest_tldr,
+                    latest_compact,
+                    pending_hydration,
+                    suspended_at,
                     updated_at,
                 ],
             )?;
+
             Self::read_session_state(&conn, &patch.session_id)?.ok_or_else(|| {
                 anyhow::anyhow!("session state missing after patch for {}", patch.session_id)
             })
@@ -1460,9 +1458,11 @@ impl Memory for SqliteMemory {
                     let payload_str = row.get::<_, String>(5)?;
                     let payload =
                         serde_json::from_str::<serde_json::Value>(&payload_str).map_err(|e| {
-                            rusqlite::Error::InvalidParameterName(format!(
-                                "failed to deserialize snapshot payload: {e}"
-                            ))
+                            rusqlite::Error::FromSqlConversionFailure(
+                                5, // column index for payload (TEXT)
+                                rusqlite::types::Type::Text,
+                                Box::new(e),
+                            )
                         })?;
                     let preview = payload
                         .get("preview")

@@ -2168,22 +2168,6 @@ async fn handle_chat_stream(
 
     if let crate::pre_execution::IngressDecision::SessionCommand { result, .. } = &ingress_decision
     {
-        // Deny-by-default: reject plan mode when dispatcher is disabled
-        let effective_mode = resolve_webhook_execution_mode(
-            config.agent.execution_mode,
-            webhook_body.execution_mode,
-        );
-        if effective_mode == ExecutionMode::Plan {
-            return Ok(Sse::new(futures::stream::iter(vec![Ok(Event::default()
-                .event("error")
-                .data(serde_json::json!({
-                    "code": "plan_mode_blocked",
-                    "reason": "Plan mode requires dispatcher; dispatcher is not enabled on this server",
-                    "execution_mode": "plan",
-                }).to_string()))]))
-            .keep_alive(KeepAlive::default()));
-        }
-
         // Update session activity before returning early
         if let Err(e) = state
             .mem

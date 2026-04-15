@@ -156,7 +156,13 @@ fn conversation_memory_key(msg: &traits::ChannelMessage) -> String {
 }
 
 fn channel_session_id(msg: &traits::ChannelMessage) -> String {
-    format!("{}_{}", msg.channel, msg.sender)
+    // Include reply_target to distinguish different conversations/threads from the same sender
+    let reply_placeholder = if msg.reply_target.is_empty() {
+        "-"
+    } else {
+        &msg.reply_target
+    };
+    format!("{}_{}_{}", msg.channel, msg.sender, reply_placeholder)
 }
 
 fn channel_timeout_abort_text(session_id: &str) -> String {
@@ -4743,7 +4749,8 @@ mod tests {
         let sent_messages = channel_impl.sent_messages.lock().await;
         assert_eq!(sent_messages.len(), 1);
         assert!(sent_messages[0].contains("request blocked"));
-        assert!(sent_messages[0].contains("[session:test-channel_alice]"));
+        // Session ID now includes reply_target: test-channel_alice_chat-1
+        assert!(sent_messages[0].contains("[session:test-channel_alice_chat-1]"));
     }
 
     #[tokio::test]

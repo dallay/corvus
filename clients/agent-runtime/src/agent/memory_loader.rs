@@ -65,9 +65,13 @@ impl MemoryLoader for DefaultMemoryLoader {
         user_message: &str,
         session_id: Option<&str>,
     ) -> anyhow::Result<String> {
+        // Call recall first - if it fails, don't consume the one-shot resume context
+        let entries = memory.recall(user_message, self.limit, session_id).await?;
+
+        // Now try to append pending resume context (safe to call after recall succeeded)
         let mut context = String::new();
         let added_resume = append_pending_resume_context(&mut context, memory, session_id).await?;
-        let entries = memory.recall(user_message, self.limit, session_id).await?;
+
         let added = append_local_entries(&mut context, &entries, self.min_relevance_score);
         if !added && !added_resume {
             return Ok(String::new());
@@ -86,9 +90,13 @@ impl MemoryLoader for CerebroMemoryLoader {
         user_message: &str,
         session_id: Option<&str>,
     ) -> anyhow::Result<String> {
+        // Call recall first - if it fails, don't consume the one-shot resume context
+        let entries = memory.recall(user_message, self.limit, session_id).await?;
+
+        // Now append pending resume context after recall succeeded
         let mut context = String::new();
         let added_resume = append_pending_resume_context(&mut context, memory, session_id).await?;
-        let entries = memory.recall(user_message, self.limit, session_id).await?;
+
         let mut added = append_local_entries(&mut context, &entries, self.min_relevance_score);
         added = added || added_resume;
 
