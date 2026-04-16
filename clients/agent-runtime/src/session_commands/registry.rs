@@ -1,7 +1,8 @@
 use super::parser::SessionCommandParser;
 use super::service::SessionCommandService;
 use super::types::{
-    CommandContext, RawSlashInvocation, SessionCommandError, SessionCommandResult,
+    CommandBackend, CommandCapability, CommandContext, CommandPermission, RawSlashInvocation,
+    SessionCommandFailure, SessionCommandFailureKind, SessionCommandOutcome,
     SlashCommandArgumentShape, SlashCommandDescriptor, SlashCommandHandler,
     SlashCommandRegistration, SlashCommandRequirements, SlashInvocation, SlashRegistryError,
 };
@@ -130,14 +131,14 @@ impl SlashCommandRegistry {
     pub async fn dispatch(
         &self,
         service: &SessionCommandService<'_>,
-        context: CommandContext<'_>,
+        context: CommandContext,
         prompt: &str,
-    ) -> Option<Result<SessionCommandResult, SessionCommandError>> {
+    ) -> Option<SessionCommandOutcome> {
         let raw = SessionCommandParser::parse(prompt)?;
         let registration = self.resolve_registration(&raw.invoked_name)?;
         let invocation = match validate_invocation(&registration.descriptor, raw) {
             Ok(invocation) => invocation,
-            Err(error) => return Some(Err(error)),
+            Err(error) => return Some(SessionCommandOutcome::Failure(error)),
         };
 
         Some(
@@ -172,6 +173,15 @@ fn build_default_registry() -> SlashCommandRegistry {
 }
 
 fn built_in_registrations() -> [SlashCommandRegistration; 4] {
+    const SESSION_LIFECYCLE: &[CommandCapability] = &[CommandCapability::SessionLifecycle];
+    const SESSION_SUMMARY: &[CommandCapability] = &[CommandCapability::SessionSummary];
+    const RESUME_PERMISSIONS: &[CommandPermission] = &[
+        CommandPermission::RequiresCallerScope,
+        CommandPermission::RequiresResumableSessionVisibility,
+    ];
+    const NO_PERMISSIONS: &[CommandPermission] = &[];
+    const SQLITE_BACKEND: &[CommandBackend] = &[CommandBackend::SqliteSlashSessions];
+
     [
         SlashCommandRegistration {
             descriptor: SlashCommandDescriptor {
@@ -180,9 +190,9 @@ fn built_in_registrations() -> [SlashCommandRegistration; 4] {
                 description: "Resume a suspended session or list resumable sessions.",
                 argument_shape: SlashCommandArgumentShape::OptionalTargetThenText,
                 requirements: SlashCommandRequirements {
-                    capability_tags: vec!["session-lifecycle"],
-                    permission_tags: vec!["verifiable-caller-identity"],
-                    backend_tags: vec!["sqlite"],
+                    capabilities: SESSION_LIFECYCLE,
+                    permissions: RESUME_PERMISSIONS,
+                    backends: SQLITE_BACKEND,
                 },
             },
             handler: Arc::new(ResumeHandler),
@@ -194,9 +204,9 @@ fn built_in_registrations() -> [SlashCommandRegistration; 4] {
                 description: "Suspend the current session using the latest compact snapshot.",
                 argument_shape: SlashCommandArgumentShape::None,
                 requirements: SlashCommandRequirements {
-                    capability_tags: vec!["session-lifecycle"],
-                    permission_tags: vec![],
-                    backend_tags: vec!["sqlite"],
+                    capabilities: SESSION_LIFECYCLE,
+                    permissions: NO_PERMISSIONS,
+                    backends: SQLITE_BACKEND,
                 },
             },
             handler: Arc::new(SuspendHandler),
@@ -208,9 +218,9 @@ fn built_in_registrations() -> [SlashCommandRegistration; 4] {
                 description: "Persist a concise session summary snapshot.",
                 argument_shape: SlashCommandArgumentShape::None,
                 requirements: SlashCommandRequirements {
-                    capability_tags: vec!["session-summary"],
-                    permission_tags: vec![],
-                    backend_tags: vec!["sqlite"],
+                    capabilities: SESSION_SUMMARY,
+                    permissions: NO_PERMISSIONS,
+                    backends: SQLITE_BACKEND,
                 },
             },
             handler: Arc::new(TldrHandler),
@@ -222,9 +232,9 @@ fn built_in_registrations() -> [SlashCommandRegistration; 4] {
                 description: "Create a resume-capable compact snapshot for the current session.",
                 argument_shape: SlashCommandArgumentShape::OptionalText,
                 requirements: SlashCommandRequirements {
-                    capability_tags: vec!["session-summary"],
-                    permission_tags: vec![],
-                    backend_tags: vec!["sqlite"],
+                    capabilities: SESSION_SUMMARY,
+                    permissions: NO_PERMISSIONS,
+                    backends: SQLITE_BACKEND,
                 },
             },
             handler: Arc::new(CompactHandler),
@@ -242,15 +252,11 @@ impl SlashCommandHandler for ResumeHandler {
     async fn handle(
         &self,
         service: &SessionCommandService<'_>,
-        context: CommandContext<'_>,
+        context: CommandContext,
         invocation: SlashInvocation,
-    ) -> Result<SessionCommandResult, SessionCommandError> {
+    ) -> SessionCommandOutcome {
         service
-            .handle_resume(
-                context.session_id,
-                invocation.primary_target.as_deref(),
-                context.caller_token_hash,
-            )
+            .handle_resume(&context, invocation.primary_target.as_deref())
             .await
     }
 }
@@ -260,10 +266,10 @@ impl SlashCommandHandler for SuspendHandler {
     async fn handle(
         &self,
         service: &SessionCommandService<'_>,
-        context: CommandContext<'_>,
+        context: CommandContext,
         _invocation: SlashInvocation,
-    ) -> Result<SessionCommandResult, SessionCommandError> {
-        service.handle_suspend(context.session_id).await
+    ) -> SessionCommandOutcome {
+        service.handle_suspend(&context.session.session_id).await
     }
 }
 
@@ -272,10 +278,10 @@ impl SlashCommandHandler for TldrHandler {
     async fn handle(
         &self,
         service: &SessionCommandService<'_>,
-        context: CommandContext<'_>,
+        context: CommandContext,
         _invocation: SlashInvocation,
-    ) -> Result<SessionCommandResult, SessionCommandError> {
-        service.handle_tldr(context.session_id).await
+    ) -> SessionCommandOutcome {
+        service.handle_tldr(&context.session.session_id).await
     }
 }
 
@@ -284,11 +290,11 @@ impl SlashCommandHandler for CompactHandler {
     async fn handle(
         &self,
         service: &SessionCommandService<'_>,
-        context: CommandContext<'_>,
+        context: CommandContext,
         invocation: SlashInvocation,
-    ) -> Result<SessionCommandResult, SessionCommandError> {
+    ) -> SessionCommandOutcome {
         service
-            .handle_compact(context.session_id, &invocation.raw_args)
+            .handle_compact(&context.session.session_id, &invocation.raw_args)
             .await
     }
 }
@@ -314,7 +320,7 @@ fn validate_name(name: &str) -> Result<(), SlashRegistryError> {
 fn validate_invocation(
     descriptor: &SlashCommandDescriptor,
     raw: RawSlashInvocation,
-) -> Result<SlashInvocation, SessionCommandError> {
+) -> Result<SlashInvocation, SessionCommandFailure> {
     match descriptor.argument_shape {
         SlashCommandArgumentShape::None => {
             if raw.raw_args.is_empty() {
@@ -325,9 +331,14 @@ fn validate_invocation(
                     primary_target: None,
                 })
             } else {
-                Err(SessionCommandError::InvalidArguments {
+                Err(SessionCommandFailure {
                     command: descriptor.canonical_name,
-                    detail: "this command does not accept trailing arguments".to_string(),
+                    kind: SessionCommandFailureKind::InvalidArguments,
+                    session_id: None,
+                    message: format!(
+                        "invalid slash command usage for {}: this command does not accept trailing arguments",
+                        descriptor.canonical_name
+                    ),
                 })
             }
         }
@@ -353,7 +364,9 @@ fn validate_invocation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::ExecutionMode;
     use crate::memory::{Memory, MemoryCategory, MemoryEntry};
+    use crate::session_commands::{CommandSessionSource, SessionCommandOutcome};
     use async_trait::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -364,9 +377,9 @@ mod tests {
         async fn handle(
             &self,
             _service: &SessionCommandService<'_>,
-            _context: CommandContext<'_>,
+            _context: CommandContext,
             _invocation: SlashInvocation,
-        ) -> Result<SessionCommandResult, SessionCommandError> {
+        ) -> SessionCommandOutcome {
             unreachable!("handler should not run in registry validation tests")
         }
     }
@@ -567,14 +580,20 @@ mod tests {
             "Resume a suspended session or list resumable sessions."
         );
         assert_eq!(
-            resume.requirements.capability_tags,
-            vec!["session-lifecycle"]
+            resume.requirements.capabilities,
+            &[CommandCapability::SessionLifecycle]
         );
         assert_eq!(
-            resume.requirements.permission_tags,
-            vec!["verifiable-caller-identity"]
+            resume.requirements.permissions,
+            &[
+                CommandPermission::RequiresCallerScope,
+                CommandPermission::RequiresResumableSessionVisibility,
+            ]
         );
-        assert_eq!(resume.requirements.backend_tags, vec!["sqlite"]);
+        assert_eq!(
+            resume.requirements.backends,
+            &[CommandBackend::SqliteSlashSessions]
+        );
 
         let resume_alias = registry
             .get("/continue")
@@ -596,18 +615,21 @@ mod tests {
         let result = default_registry()
             .dispatch(
                 &service,
-                CommandContext {
-                    session_id: "session-1",
-                    caller_token_hash: None,
-                },
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
                 "/tldr extra args",
             )
             .await;
 
         assert!(matches!(
             result,
-            Some(Err(SessionCommandError::InvalidArguments {
+            Some(SessionCommandOutcome::Failure(SessionCommandFailure {
                 command: "/tldr",
+                kind: SessionCommandFailureKind::InvalidArguments,
                 ..
             }))
         ));
@@ -621,22 +643,24 @@ mod tests {
         let result = default_registry()
             .dispatch(
                 &service,
-                CommandContext {
-                    session_id: "session-1",
-                    caller_token_hash: None,
-                },
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
                 "/compact keep latest goals",
             )
             .await
-            .expect("built-in command should resolve")
-            .unwrap_err();
+            .expect("built-in command should resolve");
 
-        assert_eq!(
+        assert!(matches!(
             result,
-            SessionCommandError::UnsupportedBackend {
-                backend: "none".to_string(),
-            }
-        );
+            SessionCommandOutcome::Failure(SessionCommandFailure {
+                kind: SessionCommandFailureKind::UnsupportedBackend,
+                ..
+            })
+        ));
         assert!(memory.name_calls.load(Ordering::SeqCst) >= 1);
     }
 
@@ -649,17 +673,24 @@ mod tests {
         let result = default_registry()
             .dispatch(
                 &service,
-                CommandContext {
-                    session_id: "session-1",
-                    caller_token_hash: None,
-                },
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
                 "/resume",
             )
             .await
-            .expect("built-in command should resolve")
-            .unwrap_err();
+            .expect("built-in command should resolve");
 
-        assert_eq!(result, SessionCommandError::Unauthorized);
+        assert!(matches!(
+            result,
+            SessionCommandOutcome::Failure(SessionCommandFailure {
+                kind: SessionCommandFailureKind::MissingCallerScope,
+                ..
+            })
+        ));
     }
 
     #[tokio::test]
@@ -684,17 +715,25 @@ mod tests {
         let result = registry
             .dispatch(
                 &service,
-                CommandContext {
-                    session_id: "session-1",
-                    caller_token_hash: None,
-                },
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
                 "/continue",
             )
             .await
-            .expect("alias should resolve to canonical command")
-            .unwrap_err();
+            .expect("alias should resolve to canonical command");
 
-        assert_eq!(result, SessionCommandError::Unauthorized);
+        assert!(matches!(
+            result,
+            SessionCommandOutcome::Failure(SessionCommandFailure {
+                command: "/resume",
+                kind: SessionCommandFailureKind::MissingCallerScope,
+                ..
+            })
+        ));
     }
 
     #[tokio::test]
@@ -705,22 +744,24 @@ mod tests {
         let result = default_registry()
             .dispatch(
                 &service,
-                CommandContext {
-                    session_id: "session-1",
-                    caller_token_hash: None,
-                },
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
                 "/suspend",
             )
             .await
-            .expect("built-in command should resolve")
-            .unwrap_err();
+            .expect("built-in command should resolve");
 
-        assert_eq!(
+        assert!(matches!(
             result,
-            SessionCommandError::UnsupportedBackend {
-                backend: "none".to_string(),
-            }
-        );
+            SessionCommandOutcome::Failure(SessionCommandFailure {
+                kind: SessionCommandFailureKind::UnsupportedBackend,
+                ..
+            })
+        ));
         assert!(memory.name_calls.load(Ordering::SeqCst) >= 1);
     }
 

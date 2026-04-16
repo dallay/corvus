@@ -1398,9 +1398,27 @@ async fn handle_agent_command(
 ) -> Result<()> {
     maybe_print_update_notice_bounded(&config).await;
 
+    // Normalize agent flags BEFORE slash command handling so the fast path uses the correct mode
+    // and unsupported overrides are caught early.
+    let mut effective_config = config.clone();
+    if plan {
+        effective_config.agent.execution_mode = ExecutionMode::Plan;
+    } else {
+        effective_config.agent.execution_mode = ExecutionMode::Standard;
+    }
+    if !peripheral.is_empty() {
+        anyhow::bail!(
+            "peripheral overrides are not currently supported; found {} override(s): {:?}",
+            peripheral.len(),
+            peripheral
+        );
+    }
+    let mut config = effective_config;
+
     if let Some(raw_message) = message.as_deref() {
-        if let Some(result) = maybe_handle_cli_session_command(&config, raw_message).await? {
-            println!("{}", result.message);
+        if let Some(result_message) = maybe_handle_cli_session_command(&config, raw_message).await?
+        {
+            println!("{result_message}");
             return Ok(());
         }
     }
@@ -1445,39 +1463,26 @@ async fn handle_agent_command(
         return Ok(());
     }
 
-    let mut effective_config = config;
+    // Apply remaining config overrides before agent initialization
     if let Some(p) = provider {
-        effective_config.default_provider = Some(p);
+        config.default_provider = Some(p);
     }
     if let Some(m) = model {
-        effective_config.default_model = Some(m);
+        config.default_model = Some(m);
     }
-    effective_config.default_temperature = temperature;
-    effective_config.agent.execution_mode = if plan {
-        ExecutionMode::Plan
-    } else {
-        ExecutionMode::Standard
-    };
+    config.default_temperature = temperature;
 
-    if !peripheral.is_empty() {
-        anyhow::bail!(
-            "peripheral overrides are not currently supported; found {} override(s): {:?}",
-            peripheral.len(),
-            peripheral
-        );
-    }
-
-    let provider_name = effective_config
+    let provider_name = config
         .default_provider
         .as_deref()
         .unwrap_or("openrouter")
         .to_string();
-    let model_name = effective_config
+    let model_name = config
         .default_model
         .as_deref()
         .unwrap_or("anthropic/claude-sonnet-4-20250514")
         .to_string();
-    let mut agent = crate::agent::Agent::from_config(&effective_config)?;
+    let mut agent = crate::agent::Agent::from_config(&config)?;
     let session_start = Instant::now();
 
     if override_budget {
@@ -1525,23 +1530,35 @@ async fn handle_agent_command(
 async fn maybe_handle_cli_session_command(
     config: &Config,
     message: &str,
-) -> Result<Option<crate::session_commands::SessionCommandResult>> {
+) -> Result<Option<String>> {
     if !crate::session_commands::default_registry().recognizes(message) {
         return Ok(None);
     }
 
     let (memory, _observer) = crate::bootstrap::create_memory_and_observer(config)?;
-    let session_id =
-        std::env::var("CORVUS_SESSION_ID").unwrap_or_else(|_| "interactive-session".to_string());
-    match crate::pre_execution::evaluate_ingress(memory.as_ref(), &session_id, message, None).await
-    {
-        crate::pre_execution::IngressDecision::SessionCommand { result, success } => {
-            if success {
-                Ok(Some(result))
-            } else {
-                Err(anyhow::anyhow!("{}", result.message))
+    let session_id_env = std::env::var("CORVUS_SESSION_ID").ok();
+    let session_source = if session_id_env.is_some() {
+        crate::session_commands::CommandSessionSource::Explicit
+    } else {
+        crate::session_commands::CommandSessionSource::Generated
+    };
+    let session_id = session_id_env.unwrap_or_else(|| "interactive-session".to_string());
+    let context = crate::session_commands::CommandContext::for_cli(
+        session_id,
+        session_source,
+        config.agent.execution_mode,
+        None,
+    );
+
+    match crate::pre_execution::evaluate_ingress(memory.as_ref(), context, message).await {
+        crate::pre_execution::IngressDecision::SessionCommand { outcome } => match outcome {
+            crate::session_commands::SessionCommandOutcome::Success(success) => {
+                Ok(Some(success.message))
             }
-        }
+            crate::session_commands::SessionCommandOutcome::Failure(failure) => {
+                Err(anyhow::anyhow!("{}", failure.message))
+            }
+        },
         crate::pre_execution::IngressDecision::Blocking(_)
         | crate::pre_execution::IngressDecision::Continue => Ok(None),
     }
@@ -1560,8 +1577,9 @@ async fn handle_code_command(
 
     // Intercept slash session commands before agent initialization
     if let Some(raw_message) = message.as_deref() {
-        if let Some(result) = maybe_handle_cli_session_command(&config, raw_message).await? {
-            println!("{}", result.message);
+        if let Some(result_message) = maybe_handle_cli_session_command(&config, raw_message).await?
+        {
+            println!("{result_message}");
             return Ok(());
         }
     }

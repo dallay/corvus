@@ -1,3 +1,4 @@
+use crate::config::ExecutionMode;
 use crate::memory::ResumableSessionEntry;
 use std::sync::Arc;
 
@@ -53,9 +54,26 @@ pub enum SlashCommandArgumentShape {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SlashCommandRequirements {
-    pub capability_tags: Vec<&'static str>,
-    pub permission_tags: Vec<&'static str>,
-    pub backend_tags: Vec<&'static str>,
+    pub capabilities: &'static [CommandCapability],
+    pub permissions: &'static [CommandPermission],
+    pub backends: &'static [CommandBackend],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandCapability {
+    SessionLifecycle,
+    SessionSummary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandPermission {
+    RequiresCallerScope,
+    RequiresResumableSessionVisibility,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandBackend {
+    SqliteSlashSessions,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,10 +99,197 @@ pub struct SlashInvocation {
     pub primary_target: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct CommandContext<'a> {
-    pub session_id: &'a str,
-    pub caller_token_hash: Option<&'a str>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandContext {
+    pub session: CommandSessionContext,
+    pub caller: CommandCaller,
+    pub ingress: CommandIngressContext,
+    pub facts: CommandContextFacts,
+}
+
+impl CommandContext {
+    pub fn new(
+        session: CommandSessionContext,
+        caller: CommandCaller,
+        ingress: CommandIngressContext,
+    ) -> Self {
+        let facts = CommandContextFacts {
+            has_caller_scope: caller.scope_key().is_some(),
+        };
+
+        Self {
+            session,
+            caller,
+            ingress,
+            facts,
+        }
+    }
+
+    pub fn for_cli(
+        session_id: impl Into<String>,
+        session_source: CommandSessionSource,
+        execution_mode: ExecutionMode,
+        scope_key: Option<String>,
+    ) -> Self {
+        let caller = scope_key
+            .map(|scope_key| CommandCaller::DerivedCliScope { scope_key })
+            .unwrap_or(CommandCaller::Unavailable);
+
+        Self::new(
+            CommandSessionContext {
+                session_id: session_id.into(),
+                source: session_source,
+            },
+            caller,
+            CommandIngressContext {
+                source: CommandIngressSource::Cli,
+                execution_mode,
+            },
+        )
+    }
+
+    pub fn for_gateway_http(
+        session_id: impl Into<String>,
+        session_source: CommandSessionSource,
+        execution_mode: ExecutionMode,
+        caller_scope_key: Option<String>,
+    ) -> Self {
+        Self::new(
+            CommandSessionContext {
+                session_id: session_id.into(),
+                source: session_source,
+            },
+            verified_or_unavailable(caller_scope_key),
+            CommandIngressContext {
+                source: CommandIngressSource::GatewayHttp,
+                execution_mode,
+            },
+        )
+    }
+
+    pub fn for_gateway_stream(
+        session_id: impl Into<String>,
+        session_source: CommandSessionSource,
+        execution_mode: ExecutionMode,
+        caller_scope_key: Option<String>,
+    ) -> Self {
+        Self::new(
+            CommandSessionContext {
+                session_id: session_id.into(),
+                source: session_source,
+            },
+            verified_or_unavailable(caller_scope_key),
+            CommandIngressContext {
+                source: CommandIngressSource::GatewayStream,
+                execution_mode,
+            },
+        )
+    }
+
+    pub fn for_webhook(
+        session_id: impl Into<String>,
+        session_source: CommandSessionSource,
+        execution_mode: ExecutionMode,
+        caller_scope_key: Option<String>,
+    ) -> Self {
+        Self::new(
+            CommandSessionContext {
+                session_id: session_id.into(),
+                source: session_source,
+            },
+            verified_or_unavailable(caller_scope_key),
+            CommandIngressContext {
+                source: CommandIngressSource::Webhook,
+                execution_mode,
+            },
+        )
+    }
+
+    pub fn for_channel(
+        session_id: impl Into<String>,
+        session_source: CommandSessionSource,
+        execution_mode: ExecutionMode,
+        channel: impl Into<String>,
+        caller_scope_key: Option<String>,
+    ) -> Self {
+        let channel = channel.into();
+        let caller = caller_scope_key
+            .map(|scope_key| CommandCaller::DerivedChannelScope {
+                channel: channel.clone(),
+                scope_key,
+            })
+            .unwrap_or(CommandCaller::Unavailable);
+
+        Self::new(
+            CommandSessionContext {
+                session_id: session_id.into(),
+                source: session_source,
+            },
+            caller,
+            CommandIngressContext {
+                source: CommandIngressSource::Channel { name: channel },
+                execution_mode,
+            },
+        )
+    }
+}
+
+fn verified_or_unavailable(caller_scope_key: Option<String>) -> CommandCaller {
+    caller_scope_key
+        .map(|scope_key| CommandCaller::VerifiedTokenHash { scope_key })
+        .unwrap_or(CommandCaller::Unavailable)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandSessionContext {
+    pub session_id: String,
+    pub source: CommandSessionSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandSessionSource {
+    Existing,
+    Explicit,
+    Generated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandIngressContext {
+    pub source: CommandIngressSource,
+    pub execution_mode: ExecutionMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandIngressSource {
+    Cli,
+    GatewayHttp,
+    GatewayStream,
+    Webhook,
+    Channel { name: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandCaller {
+    VerifiedTokenHash { scope_key: String },
+    DerivedCliScope { scope_key: String },
+    DerivedChannelScope { channel: String, scope_key: String },
+    Unavailable,
+}
+
+impl CommandCaller {
+    pub fn scope_key(&self) -> Option<&str> {
+        match self {
+            Self::VerifiedTokenHash { scope_key }
+            | Self::DerivedCliScope { scope_key }
+            | Self::DerivedChannelScope { scope_key, .. } => Some(scope_key.as_str()),
+            Self::Unavailable => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandContextFacts {
+    pub has_caller_scope: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,9 +318,9 @@ pub trait SlashCommandHandler: Send + Sync {
     async fn handle(
         &self,
         service: &super::service::SessionCommandService<'_>,
-        context: CommandContext<'_>,
+        context: CommandContext,
         invocation: SlashInvocation,
-    ) -> Result<SessionCommandResult, SessionCommandError>;
+    ) -> SessionCommandOutcome;
 }
 
 #[derive(Clone)]
@@ -124,68 +329,57 @@ pub struct SlashCommandRegistration {
     pub handler: Arc<dyn SlashCommandHandler>,
 }
 
-#[derive(Debug, Clone)]
-pub struct SessionCommandResult {
+#[derive(Debug, Clone, PartialEq)]
+pub enum SessionCommandOutcome {
+    Success(SessionCommandSuccess),
+    Failure(SessionCommandFailure),
+}
+
+impl SessionCommandOutcome {
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Success(success) => success.message.as_str(),
+            Self::Failure(failure) => failure.message.as_str(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionCommandSuccess {
     pub command: &'static str,
     pub session_id: String,
     pub message: String,
-    pub resumed_session_id: Option<String>,
-    pub resumable_sessions: Vec<ResumableSessionEntry>,
+    pub data: SessionCommandSuccessData,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SessionCommandSuccessData {
+    None,
+    Resumed {
+        resumed_session_id: String,
+    },
+    ResumableSessions {
+        sessions: Vec<ResumableSessionEntry>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SessionCommandError {
-    UnsupportedBackend {
-        backend: String,
-    },
-    UnknownSession {
-        session_id: String,
-    },
-    InvalidState {
-        session_id: String,
-        detail: &'static str,
-    },
-    MissingSnapshot {
-        session_id: String,
-    },
-    InvalidResumeTarget {
-        session_id: String,
-    },
-    InvalidArguments {
-        command: &'static str,
-        detail: String,
-    },
-    Unauthorized,
-    StorageFailure {
-        detail: String,
-    },
+pub struct SessionCommandFailure {
+    pub command: &'static str,
+    pub kind: SessionCommandFailureKind,
+    pub session_id: Option<String>,
+    pub message: String,
 }
 
-impl SessionCommandError {
-    pub fn message(&self) -> String {
-        match self {
-            Self::UnsupportedBackend { backend } => {
-                format!("slash-session commands require sqlite memory backend (backend={backend})")
-            }
-            Self::UnknownSession { session_id } => {
-                format!("[session:{session_id}] unknown session")
-            }
-            Self::InvalidState { session_id, detail } => {
-                format!("[session:{session_id}] {detail}")
-            }
-            Self::MissingSnapshot { session_id } => {
-                format!("[session:{session_id}] missing resume-capable compact snapshot")
-            }
-            Self::InvalidResumeTarget { session_id } => {
-                format!("[session:{session_id}] invalid resume target")
-            }
-            Self::InvalidArguments { command, detail } => {
-                format!("invalid slash command usage for {command}: {detail}")
-            }
-            Self::Unauthorized => "unauthorized: verifiable caller identity required".to_string(),
-            Self::StorageFailure { detail } => {
-                format!("slash-session storage failure: {detail}")
-            }
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionCommandFailureKind {
+    UnsupportedBackend,
+    UnknownSession,
+    InvalidState,
+    MissingSnapshot,
+    InvalidResumeTarget,
+    InvalidArguments,
+    MissingCallerScope,
+    PermissionDenied,
+    StorageFailure,
 }

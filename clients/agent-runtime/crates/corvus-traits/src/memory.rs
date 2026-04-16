@@ -200,7 +200,7 @@ pub struct SessionStatePatch {
     pub suspended_at: SessionFieldPatch<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResumableSessionEntry {
     pub session_id: String,
     pub started_at: String,
@@ -409,6 +409,14 @@ pub trait Memory: Send + Sync {
         Err(slash_session_unsupported_error(self.name()))
     }
 
+    async fn get_resumable_session_for_scope(
+        &self,
+        _session_id: &str,
+        _caller_scope_key: &str,
+    ) -> anyhow::Result<Option<ResumableSessionEntry>> {
+        Err(slash_session_unsupported_error(self.name()))
+    }
+
     async fn take_pending_resume_hydration(
         &self,
         _session_id: &str,
@@ -563,5 +571,11 @@ mod tests {
         assert!(state_error
             .to_string()
             .contains("slash-session commands require sqlite"));
+
+        let scoped_error = memory
+            .get_resumable_session_for_scope("session-1", "caller-scope")
+            .await
+            .unwrap_err();
+        assert!(scoped_error.to_string().contains("backend=minimal"));
     }
 }

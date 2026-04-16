@@ -393,27 +393,43 @@ pub(crate) async fn execute(
     model: &str,
     request: WebhookTurnRequest,
 ) -> WebhookTurnResult {
-    match crate::pre_execution::evaluate_ingress(
-        memory.as_ref(),
+    // Compute clamped mode BEFORE creating ingress context so evaluation sees the enforced value
+    let clamped_mode =
+        resolve_webhook_execution_mode(config.agent.execution_mode, Some(request.execution_mode));
+
+    let ingress_context = crate::session_commands::CommandContext::for_webhook(
         &request.session_id,
-        &request.message,
-        request.caller_token_hash.as_deref(),
-    )
-    .await
+        match request.session_source {
+            WebhookSessionSource::Explicit => {
+                crate::session_commands::CommandSessionSource::Explicit
+            }
+            WebhookSessionSource::Generated => {
+                crate::session_commands::CommandSessionSource::Generated
+            }
+        },
+        clamped_mode,
+        request.caller_token_hash.clone(),
+    );
+
+    match crate::pre_execution::evaluate_ingress(memory.as_ref(), ingress_context, &request.message)
+        .await
     {
-        IngressDecision::SessionCommand { result, success } => {
+        IngressDecision::SessionCommand { outcome } => {
             // SessionCommand is a metadata-only operation — frames intentionally omitted.
             // No agent execution occurs, so there are no tool calls or events to report.
-            let outcome = if success {
-                WebhookTerminalOutcome::Completed
-            } else {
-                WebhookTerminalOutcome::Failed
+            let (terminal_outcome, response_text) = match outcome {
+                crate::session_commands::SessionCommandOutcome::Success(success) => {
+                    (WebhookTerminalOutcome::Completed, success.message)
+                }
+                crate::session_commands::SessionCommandOutcome::Failure(failure) => {
+                    (WebhookTerminalOutcome::Failed, failure.message)
+                }
             };
             return WebhookTurnResult {
                 session_id: request.session_id.clone(),
                 model: model.to_string(),
-                outcome,
-                response_text: Some(result.message),
+                outcome: terminal_outcome,
+                response_text: Some(response_text),
                 event_frames: Vec::new(),
                 tools_called: Vec::new(),
             };
