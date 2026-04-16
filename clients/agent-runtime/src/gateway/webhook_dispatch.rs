@@ -394,7 +394,8 @@ pub(crate) async fn execute(
     request: WebhookTurnRequest,
 ) -> WebhookTurnResult {
     // Compute clamped mode BEFORE creating ingress context so evaluation sees the enforced value
-    let clamped_mode = resolve_webhook_execution_mode(config.agent.execution_mode, Some(request.execution_mode));
+    let clamped_mode =
+        resolve_webhook_execution_mode(config.agent.execution_mode, Some(request.execution_mode));
 
     let ingress_context = crate::session_commands::CommandContext::for_webhook(
         &request.session_id,
