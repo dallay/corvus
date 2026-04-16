@@ -37,7 +37,7 @@ Introduce a shared command contract at the `clients/agent-runtime/src/session_co
 | `clients/agent-runtime/src/session_commands/service.rs` | Modified | Evaluate typed requirements and preserve explicit command outcome/error variants, including `/resume` ownership-sensitive checks. |
 | `clients/agent-runtime/src/pre_execution/mod.rs` | Modified | Standardize ingress-to-command context construction and error normalization at the shared seam. |
 | `clients/agent-runtime/src/{main.rs,gateway/mod.rs,gateway/webhook_dispatch.rs,channels/mod.rs}` | Modified | Pass the richer context inputs into the shared slash-command contract without expanding transport scope. |
-| `openspec/changes/slash-command-context-permissions-result-contract/specs/` | New | Follow-on delta specs for the shared contract, permission model, and result/error semantics. |
+| `openspec/changes/archive/2026-04-15-slash-command-context-permissions-result-contract/specs/` | New | Follow-on delta specs for the shared contract, permission model, and result/error semantics. |
 
 ## Risks
 

@@ -1398,6 +1398,23 @@ async fn handle_agent_command(
 ) -> Result<()> {
     maybe_print_update_notice_bounded(&config).await;
 
+    // Normalize agent flags BEFORE slash command handling so the fast path uses the correct mode
+    // and unsupported overrides are caught early.
+    let mut effective_config = config.clone();
+    if plan {
+        effective_config.agent.execution_mode = ExecutionMode::Plan;
+    } else {
+        effective_config.agent.execution_mode = ExecutionMode::Standard;
+    }
+    if !peripheral.is_empty() {
+        anyhow::bail!(
+            "peripheral overrides are not currently supported; found {} override(s): {:?}",
+            peripheral.len(),
+            peripheral
+        );
+    }
+    let mut config = effective_config;
+
     if let Some(raw_message) = message.as_deref() {
         if let Some(result_message) = maybe_handle_cli_session_command(&config, raw_message).await?
         {
@@ -1446,39 +1463,26 @@ async fn handle_agent_command(
         return Ok(());
     }
 
-    let mut effective_config = config;
+    // Apply remaining config overrides before agent initialization
     if let Some(p) = provider {
-        effective_config.default_provider = Some(p);
+        config.default_provider = Some(p);
     }
     if let Some(m) = model {
-        effective_config.default_model = Some(m);
+        config.default_model = Some(m);
     }
-    effective_config.default_temperature = temperature;
-    effective_config.agent.execution_mode = if plan {
-        ExecutionMode::Plan
-    } else {
-        ExecutionMode::Standard
-    };
+    config.default_temperature = temperature;
 
-    if !peripheral.is_empty() {
-        anyhow::bail!(
-            "peripheral overrides are not currently supported; found {} override(s): {:?}",
-            peripheral.len(),
-            peripheral
-        );
-    }
-
-    let provider_name = effective_config
+    let provider_name = config
         .default_provider
         .as_deref()
         .unwrap_or("openrouter")
         .to_string();
-    let model_name = effective_config
+    let model_name = config
         .default_model
         .as_deref()
         .unwrap_or("anthropic/claude-sonnet-4-20250514")
         .to_string();
-    let mut agent = crate::agent::Agent::from_config(&effective_config)?;
+    let mut agent = crate::agent::Agent::from_config(&config)?;
     let session_start = Instant::now();
 
     if override_budget {

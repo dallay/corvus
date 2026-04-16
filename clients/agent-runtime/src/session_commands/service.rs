@@ -576,9 +576,9 @@ fn build_resume_context(
     if context.chars().count() > MAX_CONTEXT_LENGTH {
         let excess = context.chars().count() - MAX_CONTEXT_LENGTH;
         context = context.chars().skip(excess).collect::<String>();
-        // Ensure we don't start mid-entry
+        // Ensure we don't start mid-entry: skip past the newline to land on the "- " of the list entry
         if let Some(pos) = context.find("\n- ") {
-            let adjustment: String = context.chars().skip(pos).collect();
+            let adjustment: String = context.chars().skip(pos + 1).collect();
             if adjustment.starts_with("- ") {
                 context = adjustment;
             }

@@ -166,6 +166,7 @@ pub enum CommandIngressSource {
 pub enum CommandCaller {
     VerifiedTokenHash { scope_key: String },
     DerivedChannelScope { channel: String, scope_key: String },
+    DerivedCliScope { scope_key: String },
     Unavailable,
 }
 

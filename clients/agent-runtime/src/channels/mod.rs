@@ -708,6 +708,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
         &msg.sender,
         &msg.reply_target,
         &user_text,
+        ctx.config.agent.execution_mode,
     )
     .await
     .is_some()
@@ -1857,6 +1858,7 @@ async fn handle_ingress_outcome(
     sender: &str,
     reply_target: &str,
     content: &str,
+    execution_mode: ExecutionMode,
 ) -> Option<()> {
     let caller_scope = channel.map(|ch| {
         use sha2::{Digest, Sha256};
@@ -1870,7 +1872,7 @@ async fn handle_ingress_outcome(
     let ingress_context = crate::session_commands::CommandContext::for_channel(
         session_id,
         crate::session_commands::CommandSessionSource::Existing,
-        ExecutionMode::Standard,
+        execution_mode,
         channel.map(|ch| ch.name()).unwrap_or("channel"),
         caller_scope,
     );
@@ -3242,6 +3244,7 @@ mod tests {
             "tester",
             "reply-target",
             "/tldr",
+            ExecutionMode::Standard,
         )
         .await;
 
@@ -3276,11 +3279,37 @@ mod tests {
             "tester",
             "reply-target",
             "/resume-later",
+            ExecutionMode::Standard,
         )
         .await;
 
         assert_eq!(handled, None);
         assert!(channel.sent_messages.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn ingress_outcome_handles_slash_commands_in_plan_mode() {
+        let channel = Arc::new(RecordingChannel::default());
+        let channel_dyn: Arc<dyn Channel> = channel.clone();
+        let memory = CountingMemory::default();
+
+        // Verify slash commands work in Plan mode too
+        let handled = handle_ingress_outcome(
+            Some(&channel_dyn),
+            &memory,
+            "session-plan",
+            "tester",
+            "reply-target",
+            "/tldr",
+            ExecutionMode::Plan,
+        )
+        .await;
+
+        assert_eq!(handled, Some(()));
+        let sent = channel.sent_messages.lock().await.clone();
+        assert_eq!(sent.len(), 1);
+        // Should still handle in Plan mode
+        assert!(sent[0].contains("require sqlite"));
     }
 
     /// Instrumented memory wrapper that counts recall/store invocations for testing.

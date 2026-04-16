@@ -14,7 +14,7 @@
 | Tasks complete | 11 |
 | Tasks incomplete | 0 |
 
-All tasks in `openspec/changes/slash-command-context-permissions-result-contract/tasks.md` remain marked complete.
+All tasks in `openspec/changes/archive/2026-04-15-slash-command-context-permissions-result-contract/tasks.md` remain marked complete.
 
 ---
 

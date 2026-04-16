@@ -39,6 +39,14 @@ The `/resume` command MUST support deterministic list and load behavior for susp
 - AND it MUST NOT treat the request as if it came from an authenticated gateway bearer caller
 - AND any denial or unsupported result MUST preserve that distinction internally.
 
+#### Scenario: Resume denied when no verifiable caller scope is available
+
+- GIVEN `/resume xyz-789` is invoked in a context where no verifiable caller identity or derivable scope can be established (e.g., absent token claims, tampered token, or unable to derive scope from the transport context)
+- WHEN the runtime evaluates authorization for the target resume
+- THEN the system MUST return an explicit authorization-denied or unsupported outcome
+- AND no session state MUST be modified
+- AND the system MUST NOT return the broader visibility that an authenticated caller would receive.
+
 #### Scenario: Resume target loads snapshot and reactivates session within authorized scope
 
 - GIVEN session `abc-123` is suspended and has a valid authoritative compact snapshot

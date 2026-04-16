@@ -1764,12 +1764,13 @@ fn parse_webhook_body(body: WebhookJsonBody) -> Result<WebhookBody, WebhookRespo
 async fn canonical_outcome_early_response(
     state: &AppState,
     session_id: &str,
+    session_source: crate::session_commands::CommandSessionSource,
     scrubbed_message: &str,
     caller_token_hash: Option<&str>,
 ) -> Option<(WebhookResponse, bool)> {
     let context = crate::session_commands::CommandContext::for_gateway_http(
         session_id,
-        crate::session_commands::CommandSessionSource::Explicit,
+        session_source,
         state.config.lock().agent.execution_mode,
         caller_token_hash.map(str::to_string),
     );
@@ -1972,21 +1973,8 @@ async fn handle_webhook(
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
     let token_hash = utils::extract_bearer_token(&headers).map(|t| compute_token_hash(&t));
 
-    if is_preview && !dispatcher_enabled {
-        if let Some((response, persist_idempotency)) = canonical_outcome_early_response(
-            &state,
-            &session_id,
-            &scrubbed_message,
-            token_hash.as_deref(),
-        )
-        .await
-        {
-            release_idempotency_key(&state, None, persist_idempotency);
-            return response;
-        }
-    }
-
-    // Idempotency guard: reject duplicates before any side-effects.
+    // Idempotency guard BEFORE preview short-circuit to ensure duplicate suppression
+    // applies to preview slash-command requests.
     let reserved_idempotency_key = if let Some(idempotency_key) = webhook_idempotency_key(&headers)
     {
         if !state.idempotency_store.record_if_new(idempotency_key) {
@@ -1996,6 +1984,29 @@ async fn handle_webhook(
     } else {
         None
     };
+
+    if is_preview && !dispatcher_enabled {
+        let http_source = match session_source {
+            webhook_dispatch::WebhookSessionSource::Explicit => {
+                crate::session_commands::CommandSessionSource::Explicit
+            }
+            webhook_dispatch::WebhookSessionSource::Generated => {
+                crate::session_commands::CommandSessionSource::Generated
+            }
+        };
+        if let Some((response, persist_idempotency)) = canonical_outcome_early_response(
+            &state,
+            &session_id,
+            http_source,
+            &scrubbed_message,
+            token_hash.as_deref(),
+        )
+        .await
+        {
+            release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+            return response;
+        }
+    }
 
     // Track session lifecycle: create or touch session record.
     // When a bearer token is present, session tracking is required for
@@ -2059,9 +2070,18 @@ async fn handle_webhook(
 
     // Intercept deterministic session commands (e.g. /tldr, /resume) before plan/cost guards
     // so they can short-circuit without being blocked by execution-mode or cost checks.
+    let http_source = match session_source {
+        webhook_dispatch::WebhookSessionSource::Explicit => {
+            crate::session_commands::CommandSessionSource::Explicit
+        }
+        webhook_dispatch::WebhookSessionSource::Generated => {
+            crate::session_commands::CommandSessionSource::Generated
+        }
+    };
     if let Some((response, persist_idempotency)) = canonical_outcome_early_response(
         &state,
         &session_id,
+        http_source,
         &scrubbed_message,
         token_hash.as_deref(),
     )
@@ -3992,9 +4012,15 @@ mod tests {
             audio_config: crate::config::AudioConfig::default(),
         };
 
-        let response = canonical_outcome_early_response(&state, "session-1", "/tldr", None)
-            .await
-            .expect("slash session command should short-circuit");
+        let response = canonical_outcome_early_response(
+            &state,
+            "session-1",
+            crate::session_commands::CommandSessionSource::Explicit,
+            "/tldr",
+            None,
+        )
+        .await
+        .expect("slash session command should short-circuit");
         let ((status, Json(body)), _persist) = response;
 
         // SqliteMemory returns 422 with session_command_failed when no session exists
@@ -4026,8 +4052,14 @@ mod tests {
             audio_config: crate::config::AudioConfig::default(),
         };
 
-        let response =
-            canonical_outcome_early_response(&state, "session-1", "/resume-later", None).await;
+        let response = canonical_outcome_early_response(
+            &state,
+            "session-1",
+            crate::session_commands::CommandSessionSource::Explicit,
+            "/resume-later",
+            None,
+        )
+        .await;
 
         assert!(response.is_none());
     }
