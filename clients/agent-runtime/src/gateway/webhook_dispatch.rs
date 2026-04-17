@@ -412,8 +412,13 @@ pub(crate) async fn execute(
     );
 
     match crate::pre_execution::adapt_handled_ingress(
-        crate::pre_execution::evaluate_ingress(memory.as_ref(), ingress_context, &request.message)
-            .await,
+        crate::pre_execution::evaluate_ingress(
+            memory.as_ref(),
+            ingress_context,
+            &request.message,
+            true,
+        )
+        .await,
     ) {
         HandledIngress::Handled(HandledIngressOutcome::SessionCommandSuccess(success)) => {
             return WebhookTurnResult {
@@ -1006,7 +1011,9 @@ mod tests {
                 latest_tldr_snapshot_id: crate::memory::SessionFieldPatch::Keep,
                 latest_compact_snapshot_id: crate::memory::SessionFieldPatch::Set(snapshot.id),
                 pending_hydration_snapshot_id: crate::memory::SessionFieldPatch::Clear,
-                suspended_at: crate::memory::SessionFieldPatch::Set("now".to_string()),
+                suspended_at: crate::memory::SessionFieldPatch::Set(
+                    "2026-04-17T00:00:00Z".to_string(),
+                ),
             })
             .await
             .unwrap();

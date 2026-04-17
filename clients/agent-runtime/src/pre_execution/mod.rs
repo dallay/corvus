@@ -6,7 +6,6 @@ use crate::session_commands::{
 
 mod session_command_adapter;
 
-#[allow(unused_imports)]
 pub use session_command_adapter::{
     adapt_handled_ingress, HandledIngress, HandledIngressOutcome, SessionCommandFailureClass,
 };
@@ -49,11 +48,16 @@ pub async fn evaluate_ingress(
     memory: &dyn Memory,
     context: CommandContext,
     prompt: &str,
+    include_blocking_fallback: bool,
 ) -> IngressDecision {
     let service = SessionCommandService::new(memory);
     let session_id = context.session.session_id.clone();
     if let Some(outcome) = default_registry().dispatch(&service, context, prompt).await {
         return IngressDecision::SessionCommand { outcome };
+    }
+
+    if !include_blocking_fallback {
+        return IngressDecision::Continue;
     }
 
     let canonical = evaluate(session_id.to_string(), prompt).await;
@@ -248,6 +252,7 @@ mod tests {
                 None,
             ),
             "/tldr",
+            true,
         )
         .await;
 
@@ -280,6 +285,7 @@ mod tests {
                 None,
             ),
             "/resume-later",
+            true,
         )
         .await;
 
@@ -297,6 +303,7 @@ mod tests {
                 None,
             ),
             "/tldr extra args",
+            true,
         )
         .await;
 

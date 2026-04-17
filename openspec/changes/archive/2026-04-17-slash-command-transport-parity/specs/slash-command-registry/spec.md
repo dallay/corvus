@@ -34,7 +34,7 @@ Transport-specific code MUST be limited to constructing the transport-appropriat
 - WHEN the transport evaluates ingress through `pre_execution::evaluate_ingress(...)`
 - THEN the shared handled-result adaptation contract MUST report that the input was not handled
 - AND each transport MUST preserve its existing non-command fallthrough behavior
-- AND no transport MUST require a separate pre-dispatch recognition branch to determine that fallthrough.
+- AND transports MUST NOT require a separate pre-dispatch recognition branch to determine fallthrough.
 
 #### Scenario: Blocking outcomes remain shared internally while outward wrappers stay transport-specific
 
@@ -67,7 +67,7 @@ Unknown commands or non-command input MUST preserve existing fallthrough behavio
 - GIVEN CLI/runtime message fast path, gateway HTTP `/webhook`, gateway streaming `/web/chat/stream`, webhook dispatcher execution, and channel-backed ingress each receive the same recognized slash command
 - WHEN they classify that input
 - THEN each transport MUST dispatch the command through `pre_execution::evaluate_ingress(...)`
-- AND no transport MUST bypass that seam with a transport-specific command execution path for the handled slash case.
+- AND transports MUST NOT bypass that seam with a transport-specific command execution path for the handled slash case.
 
 ### Requirement: Transport Parity for Recognized Slash Commands
 

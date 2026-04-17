@@ -1878,7 +1878,7 @@ async fn handle_ingress_outcome(
     );
 
     match crate::pre_execution::adapt_handled_ingress(
-        crate::pre_execution::evaluate_ingress(memory, ingress_context, content).await,
+        crate::pre_execution::evaluate_ingress(memory, ingress_context, content, true).await,
     ) {
         crate::pre_execution::HandledIngress::Handled(
             crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),

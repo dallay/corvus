@@ -9,6 +9,7 @@ The registry, typed command context, and shared `pre_execution::evaluate_ingress
 ## Scope
 
 ### In Scope
+
 - Introduce one shared handled-slash adaptation layer after `pre_execution::evaluate_ingress(...)` that preserves machine-readable outcome and failure-kind data while exposing a transport-neutral handled result.
 - Replace duplicated transport-side branching in CLI/runtime message mode, gateway HTTP `/webhook`, gateway streaming `/web/chat/stream`, webhook dispatcher, and channel ingress with that shared adapter.
 - Remove the extra CLI `recognizes(...)` pre-check so CLI/runtime message entry uses the same shared seam and handled-result contract as the other transports.
@@ -16,6 +17,7 @@ The registry, typed command context, and shared `pre_execution::evaluate_ingress
 - Add focused regression coverage proving the supported transports share dispatch and handled-result adaptation while keeping their current outward payload/text shapes.
 
 ### Out of Scope
+
 - Broad envelope unification across HTTP JSON, SSE, webhook results, CLI text, and channel message bodies.
 - New slash command families beyond the existing integrated command set needed to validate transport parity.
 - Reworking command handler authorization policy, backend persistence policy, or registry-core responsibilities beyond the minimal adapter integration required for #541.

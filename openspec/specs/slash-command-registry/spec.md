@@ -207,8 +207,7 @@ to adopt one shared external payload, event, or text schema.
 - AND transport-specific code MUST derive its outward error wrapper from that shared classified
   failure instead of reclassifying the denial independently.
 
-#### Scenario: Unknown slash-like input falls through consistently without transport-local
-recognition branches
+#### Scenario: Unknown slash-like input falls through consistently without transport-local recognition branches
 
 - GIVEN slash-like input does not resolve to a registered command in CLI/runtime message fast path,
   gateway HTTP `/webhook`, gateway streaming `/web/chat/stream`, webhook dispatcher execution, and
@@ -216,11 +215,10 @@ recognition branches
 - WHEN the transport evaluates ingress through `pre_execution::evaluate_ingress(...)`
 - THEN the shared handled-result adaptation contract MUST report that the input was not handled
 - AND each transport MUST preserve its existing non-command fallthrough behavior
-- AND no transport MUST require a separate pre-dispatch recognition branch to determine that
+- AND transports MUST NOT require a separate pre-dispatch recognition branch to determine
   fallthrough.
 
-#### Scenario: Blocking outcomes remain shared internally while outward wrappers stay
-transport-specific
+#### Scenario: Blocking outcomes remain shared internally while outward wrappers stay transport-specific
 
 - GIVEN a recognized slash command produces a blocking outcome through gateway HTTP `/webhook`,
   gateway streaming `/web/chat/stream`, webhook dispatcher execution, or channel-backed ingress

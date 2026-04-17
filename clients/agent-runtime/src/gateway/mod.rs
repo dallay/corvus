@@ -1776,7 +1776,8 @@ async fn canonical_outcome_early_response(
     );
 
     match crate::pre_execution::adapt_handled_ingress(
-        crate::pre_execution::evaluate_ingress(state.mem.as_ref(), context, scrubbed_message).await,
+        crate::pre_execution::evaluate_ingress(state.mem.as_ref(), context, scrubbed_message, true)
+            .await,
     ) {
         crate::pre_execution::HandledIngress::Handled(
             crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
@@ -1796,7 +1797,7 @@ async fn canonical_outcome_early_response(
         ) => {
             let error_body = serde_json::json!({
                 "error": {
-                    "code": "session_command_failed",
+                    "code": map_session_command_failure_code(&failure.kind),
                     "message": failure.message,
                 },
                 "session_id": session_id,
@@ -1838,6 +1839,28 @@ async fn canonical_outcome_early_response(
     }
 
     None
+}
+
+fn map_session_command_failure_code(
+    kind: &crate::session_commands::SessionCommandFailureKind,
+) -> &'static str {
+    match kind {
+        crate::session_commands::SessionCommandFailureKind::UnsupportedBackend => {
+            "unsupported_backend"
+        }
+        crate::session_commands::SessionCommandFailureKind::UnknownSession => "unknown_session",
+        crate::session_commands::SessionCommandFailureKind::InvalidState => "invalid_state",
+        crate::session_commands::SessionCommandFailureKind::MissingSnapshot => "missing_snapshot",
+        crate::session_commands::SessionCommandFailureKind::InvalidResumeTarget => {
+            "invalid_resume_target"
+        }
+        crate::session_commands::SessionCommandFailureKind::InvalidArguments => "invalid_arguments",
+        crate::session_commands::SessionCommandFailureKind::MissingCallerScope => {
+            "missing_caller_scope"
+        }
+        crate::session_commands::SessionCommandFailureKind::PermissionDenied => "permission_denied",
+        crate::session_commands::SessionCommandFailureKind::StorageFailure => "storage_failure",
+    }
 }
 
 fn webhook_response_from_dispatch_result(
@@ -2236,6 +2259,7 @@ async fn handle_chat_stream(
             state.mem.as_ref(),
             ingress_context,
             &scrubbed_message,
+            true,
         )
         .await,
     );
@@ -2284,12 +2308,12 @@ async fn handle_chat_stream(
                         Event::default()
                             .event("error")
                             .json_data(serde_json::json!({
-                                "code": "session_command_failed",
+                                "code": map_session_command_failure_code(&failure.kind),
                                 "message": failure.message,
                             }))
                             .expect("serializable error event"),
                     )],
-                    StatusCode::UNPROCESSABLE_ENTITY,
+                    StatusCode::OK,
                 ),
                 crate::pre_execution::HandledIngressOutcome::Blocking(blocking) => match blocking {
                     crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => (
@@ -4123,10 +4147,10 @@ mod tests {
         .expect("slash session command should short-circuit");
         let ((status, Json(body)), _persist) = response;
 
-        // SqliteMemory returns 422 with session_command_failed when no session exists
+        // Slash-session lookup failures still return 422 with a stable error code.
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(body["session_id"], "session-1");
-        assert_eq!(body["error"]["code"], "session_command_failed");
+        assert_eq!(body["error"]["code"], "unknown_session");
     }
 
     #[tokio::test]
@@ -4252,7 +4276,7 @@ mod tests {
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert!(!persist);
         assert_eq!(body["session_id"], "session-control");
-        assert_eq!(body["error"]["code"], "session_command_failed");
+        assert_eq!(body["error"]["code"], "permission_denied");
         assert_eq!(
             body["error"]["message"],
             "[session:session-target] permission denied"
@@ -4851,7 +4875,7 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(payload["session_id"], "preview-slash");
-        assert_eq!(payload["error"]["code"], "session_command_failed");
+        assert_eq!(payload["error"]["code"], "unsupported_backend");
         assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
     }
 
@@ -6558,14 +6582,14 @@ always_ask = []
             .unwrap();
 
         let resp = build_stream_router(state).oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(resp.status(), StatusCode::OK);
         let collected = resp.into_body().collect().await.unwrap();
         let body_str = std::str::from_utf8(&collected.to_bytes())
             .unwrap()
             .to_owned();
 
         assert!(body_str.contains("event: error"));
-        assert!(body_str.contains("session_command_failed"));
+        assert!(body_str.contains("unsupported_backend"));
         assert!(body_str.contains("require sqlite"));
         assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
         assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);

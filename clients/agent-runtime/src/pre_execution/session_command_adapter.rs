@@ -1,6 +1,6 @@
 use crate::pre_execution::{BlockingOutcome, IngressDecision};
 use crate::session_commands::{
-    SessionCommandFailure, SessionCommandFailureKind, SessionCommandSuccess,
+    SessionCommandFailure, SessionCommandFailureKind, SessionCommandOutcome, SessionCommandSuccess,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -32,12 +32,12 @@ pub fn adapt_handled_ingress(decision: IngressDecision) -> HandledIngress {
             HandledIngress::Handled(HandledIngressOutcome::Blocking(blocking))
         }
         IngressDecision::SessionCommand { outcome } => match outcome {
-            crate::session_commands::SessionCommandOutcome::Success(success) => {
+            SessionCommandOutcome::Success(success) => {
                 HandledIngress::Handled(HandledIngressOutcome::SessionCommandSuccess(success))
             }
-            crate::session_commands::SessionCommandOutcome::Failure(failure) => {
+            SessionCommandOutcome::Failure(failure) => {
                 HandledIngress::Handled(HandledIngressOutcome::SessionCommandFailure {
-                    class: classify_session_command_failure(&failure.kind),
+                    class: classify_session_command_failure(failure.kind.clone()),
                     failure,
                 })
             }
@@ -45,9 +45,7 @@ pub fn adapt_handled_ingress(decision: IngressDecision) -> HandledIngress {
     }
 }
 
-fn classify_session_command_failure(
-    kind: &SessionCommandFailureKind,
-) -> SessionCommandFailureClass {
+fn classify_session_command_failure(kind: SessionCommandFailureKind) -> SessionCommandFailureClass {
     match kind {
         SessionCommandFailureKind::MissingCallerScope
         | SessionCommandFailureKind::PermissionDenied => {
