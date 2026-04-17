@@ -1531,10 +1531,6 @@ async fn maybe_handle_cli_session_command(
     config: &Config,
     message: &str,
 ) -> Result<Option<String>> {
-    if !crate::session_commands::default_registry().recognizes(message) {
-        return Ok(None);
-    }
-
     let (memory, _observer) = crate::bootstrap::create_memory_and_observer(config)?;
     let session_id_env = std::env::var("CORVUS_SESSION_ID").ok();
     let session_source = if session_id_env.is_some() {
@@ -1550,17 +1546,19 @@ async fn maybe_handle_cli_session_command(
         None,
     );
 
-    match crate::pre_execution::evaluate_ingress(memory.as_ref(), context, message).await {
-        crate::pre_execution::IngressDecision::SessionCommand { outcome } => match outcome {
-            crate::session_commands::SessionCommandOutcome::Success(success) => {
-                Ok(Some(success.message))
-            }
-            crate::session_commands::SessionCommandOutcome::Failure(failure) => {
-                Err(anyhow::anyhow!("{}", failure.message))
-            }
-        },
-        crate::pre_execution::IngressDecision::Blocking(_)
-        | crate::pre_execution::IngressDecision::Continue => Ok(None),
+    match crate::pre_execution::adapt_handled_ingress(
+        crate::pre_execution::evaluate_ingress(memory.as_ref(), context, message).await,
+    ) {
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
+        ) => Ok(Some(success.message)),
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandFailure { failure, .. },
+        ) => Err(anyhow::anyhow!("{}", failure.message)),
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::Blocking(_),
+        )
+        | crate::pre_execution::HandledIngress::NotHandled => Ok(None),
     }
 }
 

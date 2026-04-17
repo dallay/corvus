@@ -1,0 +1,12 @@
+change: slash-command-transport-parity
+current_phase: verify
+completed:
+  - explore
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+next: archive
+updated: 2026-04-16T00:00:00Z

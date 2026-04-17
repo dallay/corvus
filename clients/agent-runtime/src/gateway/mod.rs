@@ -1775,23 +1775,25 @@ async fn canonical_outcome_early_response(
         caller_token_hash.map(str::to_string),
     );
 
-    match crate::pre_execution::evaluate_ingress(state.mem.as_ref(), context, scrubbed_message)
-        .await
-    {
-        crate::pre_execution::IngressDecision::SessionCommand { outcome } => {
-            if let crate::session_commands::SessionCommandOutcome::Success(success) = outcome {
-                let body = serde_json::json!({
-                    "response": success.message,
-                    "model": state.model,
-                    "session_id": session_id,
-                });
-                return Some(((StatusCode::OK, Json(body)), true));
-            }
-
-            let failure = match outcome {
-                crate::session_commands::SessionCommandOutcome::Failure(failure) => failure,
-                crate::session_commands::SessionCommandOutcome::Success(_) => unreachable!(),
-            };
+    match crate::pre_execution::adapt_handled_ingress(
+        crate::pre_execution::evaluate_ingress(state.mem.as_ref(), context, scrubbed_message).await,
+    ) {
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
+        ) => {
+            let body = serde_json::json!({
+                "response": success.message,
+                "model": state.model,
+                "session_id": session_id,
+            });
+            return Some(((StatusCode::OK, Json(body)), true));
+        }
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandFailure {
+                class: _,
+                failure,
+            },
+        ) => {
             let error_body = serde_json::json!({
                 "error": {
                     "code": "session_command_failed",
@@ -1801,7 +1803,9 @@ async fn canonical_outcome_early_response(
             });
             return Some(((StatusCode::UNPROCESSABLE_ENTITY, Json(error_body)), false));
         }
-        crate::pre_execution::IngressDecision::Blocking(blocking) => match blocking {
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::Blocking(blocking),
+        ) => match blocking {
             crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => {
                 let denial = crate::approval::structured_denial_payload(&tool, &reason);
                 let err = serde_json::json!({
@@ -1830,7 +1834,7 @@ async fn canonical_outcome_early_response(
                 return Some(((StatusCode::OK, Json(body)), true));
             }
         },
-        crate::pre_execution::IngressDecision::Continue => {}
+        crate::pre_execution::HandledIngress::NotHandled => {}
     }
 
     None
@@ -2227,14 +2231,16 @@ async fn handle_chat_stream(
         server_execution_mode,
         token_hash.clone(),
     );
-    let ingress_decision = crate::pre_execution::evaluate_ingress(
-        state.mem.as_ref(),
-        ingress_context,
-        &scrubbed_message,
-    )
-    .await;
+    let handled_ingress = crate::pre_execution::adapt_handled_ingress(
+        crate::pre_execution::evaluate_ingress(
+            state.mem.as_ref(),
+            ingress_context,
+            &scrubbed_message,
+        )
+        .await,
+    );
 
-    if let crate::pre_execution::IngressDecision::SessionCommand { outcome } = &ingress_decision {
+    if let crate::pre_execution::HandledIngress::Handled(handled) = &handled_ingress {
         // Update session activity before returning early
         if let Err(e) = state
             .mem
@@ -2245,44 +2251,100 @@ async fn handle_chat_stream(
         }
 
         let sid = session_id.clone();
-        let events: Vec<Result<Event, std::convert::Infallible>> =
-            if let crate::session_commands::SessionCommandOutcome::Success(success) = outcome {
-                let message_id = Uuid::new_v4().to_string();
-                vec![
-                    Ok(Event::default()
-                        .event("chunk")
-                        .data(success.message.clone())),
-                    Ok(Event::default()
-                        .event("done")
-                        .json_data(serde_json::json!({
-                            "message_id": message_id,
-                            "session_id": sid,
-                            "tools_called": [],
-                        }))
-                        .expect("serializable done event")),
-                ]
-            } else {
-                let failure = match outcome {
-                    crate::session_commands::SessionCommandOutcome::Failure(failure) => failure,
-                    crate::session_commands::SessionCommandOutcome::Success(_) => unreachable!(),
-                };
-                vec![Ok(Event::default()
-                    .event("error")
-                    .json_data(serde_json::json!({
-                        "code": "session_command_failed",
-                        "message": failure.message,
-                    }))
-                    .expect("serializable error event"))]
+        let (events, status) =
+            match handled {
+                crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success) => {
+                    let message_id = Uuid::new_v4().to_string();
+                    (
+                        vec![
+                            Ok::<Event, std::convert::Infallible>(
+                                Event::default()
+                                    .event("chunk")
+                                    .data(success.message.clone()),
+                            ),
+                            Ok::<Event, std::convert::Infallible>(
+                                Event::default()
+                                    .event("done")
+                                    .json_data(serde_json::json!({
+                                        "message_id": message_id,
+                                        "session_id": sid,
+                                        "tools_called": [],
+                                    }))
+                                    .expect("serializable done event"),
+                            ),
+                        ],
+                        StatusCode::OK,
+                    )
+                }
+                crate::pre_execution::HandledIngressOutcome::SessionCommandFailure {
+                    class: _,
+                    failure,
+                } => (
+                    vec![Ok::<Event, std::convert::Infallible>(
+                        Event::default()
+                            .event("error")
+                            .json_data(serde_json::json!({
+                                "code": "session_command_failed",
+                                "message": failure.message,
+                            }))
+                            .expect("serializable error event"),
+                    )],
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                ),
+                crate::pre_execution::HandledIngressOutcome::Blocking(blocking) => match blocking {
+                    crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => (
+                        vec![Ok::<Event, std::convert::Infallible>(Event::default()
+                            .event("error")
+                            .json_data(serde_json::json!({
+                                "code": "approval_required",
+                                "tool": tool,
+                                "reason": reason,
+                                "message": format!("Approval required for tool `{tool}`: {reason}"),
+                            }))
+                            .expect("serializable error event"))],
+                        StatusCode::FORBIDDEN,
+                    ),
+                    crate::pre_execution::BlockingOutcome::TimeoutAborted => (
+                        vec![Ok::<Event, std::convert::Infallible>(
+                            Event::default()
+                                .event("error")
+                                .json_data(serde_json::json!({
+                                    "code": "timeout",
+                                    "message": "Request timed out",
+                                }))
+                                .expect("serializable error event"),
+                        )],
+                        StatusCode::REQUEST_TIMEOUT,
+                    ),
+                    crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                        let message_id = Uuid::new_v4().to_string();
+                        (
+                            vec![
+                                Ok::<Event, std::convert::Infallible>(
+                                    Event::default()
+                                        .event("chunk")
+                                        .data(scrub_sensitive_boundary_text(response)),
+                                ),
+                                Ok::<Event, std::convert::Infallible>(
+                                    Event::default()
+                                        .event("done")
+                                        .json_data(serde_json::json!({
+                                            "message_id": message_id,
+                                            "session_id": sid,
+                                            "tools_called": [],
+                                        }))
+                                        .expect("serializable done event"),
+                                ),
+                            ],
+                            StatusCode::OK,
+                        )
+                    }
+                },
             };
         let mut response = Sse::new(futures::stream::iter(events))
             .keep_alive(KeepAlive::default())
             .into_response();
-        if matches!(
-            outcome,
-            crate::session_commands::SessionCommandOutcome::Failure(_)
-        ) {
-            *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
-        }
+        *response.status_mut() = status;
         return Ok(response);
     }
 
@@ -2402,7 +2464,10 @@ async fn handle_chat_stream(
                 "code": "cost_governance_requires_dispatcher",
                 "message": "Cost governance requires the webhook dispatcher path when cost.enabled=true",
             }))
-        } else if let crate::pre_execution::IngressDecision::Blocking(blocking) = ingress_decision {
+        } else if let crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::Blocking(blocking),
+        ) = &handled_ingress
+        {
             let payload = match blocking {
                 crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => {
                     serde_json::json!({
@@ -2430,7 +2495,7 @@ async fn handle_chat_stream(
                         Ok::<Event, std::convert::Infallible>(
                             Event::default()
                                 .event("chunk")
-                                .data(scrub_sensitive_boundary_text(&response)),
+                                .data(scrub_sensitive_boundary_text(response)),
                         ),
                         Ok::<Event, std::convert::Infallible>(
                             Event::default()
@@ -3986,6 +4051,41 @@ mod tests {
         }
     }
 
+    async fn seed_resumable_session(
+        memory: &crate::memory::SqliteMemory,
+        session_id: &str,
+        token_hash: &str,
+    ) {
+        memory
+            .upsert_session(session_id, Some(token_hash))
+            .await
+            .unwrap();
+        let snapshot = memory
+            .create_session_snapshot(
+                session_id,
+                crate::memory::SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "resume me",
+                    "summary": "resume me",
+                    "resume_context": "resume me",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+        memory
+            .apply_session_state_patch(crate::memory::SessionStatePatch {
+                session_id: session_id.to_string(),
+                lifecycle: Some(crate::memory::SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: crate::memory::SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: crate::memory::SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: crate::memory::SessionFieldPatch::Clear,
+                suspended_at: crate::memory::SessionFieldPatch::Set("now".to_string()),
+            })
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn canonical_outcome_early_response_intercepts_slash_session_commands() {
         // Use SqliteMemory to test real slash-session behavior with actual storage
@@ -4062,6 +4162,101 @@ mod tests {
         .await;
 
         assert!(response.is_none());
+    }
+
+    #[tokio::test]
+    async fn canonical_outcome_early_response_preserves_resume_success_for_authorized_scope() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
+        seed_resumable_session(mem.as_ref(), "session-target", "caller-hash").await;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: true,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = canonical_outcome_early_response(
+            &state,
+            "session-control",
+            crate::session_commands::CommandSessionSource::Explicit,
+            "/resume session-target",
+            Some("caller-hash"),
+        )
+        .await
+        .expect("authorized resume should short-circuit");
+        let ((status, Json(body)), persist) = response;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(persist);
+        assert_eq!(body["session_id"], "session-control");
+        assert_eq!(
+            body["response"],
+            "[session:session-target] resumed from persisted compact snapshot"
+        );
+    }
+
+    #[tokio::test]
+    async fn canonical_outcome_early_response_preserves_permission_denied_for_resume_target() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
+        seed_resumable_session(mem.as_ref(), "session-target", "owner-hash").await;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: true,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = canonical_outcome_early_response(
+            &state,
+            "session-control",
+            crate::session_commands::CommandSessionSource::Explicit,
+            "/resume session-target",
+            Some("other-hash"),
+        )
+        .await
+        .expect("denied resume should short-circuit");
+        let ((status, Json(body)), persist) = response;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(!persist);
+        assert_eq!(body["session_id"], "session-control");
+        assert_eq!(body["error"]["code"], "session_command_failed");
+        assert_eq!(
+            body["error"]["message"],
+            "[session:session-target] permission denied"
+        );
     }
 
     #[derive(Default)]
@@ -6209,6 +6404,112 @@ always_ask = []
         assert!(body_str.contains("event: done"));
         assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
         assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn web_chat_stream_returns_slash_session_error_sse_without_provider_execution() {
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("should not run".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let mut config = temp_config();
+        config.memory.backend = "none".into();
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(r#"{"message":"/tldr"}"#))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: error"));
+        assert!(body_str.contains("session_command_failed"));
+        assert!(body_str.contains("require sqlite"));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn web_chat_stream_unknown_slash_like_input_falls_through_to_provider_execution() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("provider ran".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(r#"{"message":"/resume-later"}"#))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: chunk"));
+        assert!(body_str.contains("legacy"));
+        assert!(body_str.contains("event: done"));
+        assert!(!body_str.contains("session_command_failed"));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
