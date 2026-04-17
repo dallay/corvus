@@ -1,0 +1,12 @@
+change: finalize-session-command-registry-routing
+current_phase: verify
+completed:
+  - explore
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+next: archive
+updated: 2026-04-17T00:00:00Z

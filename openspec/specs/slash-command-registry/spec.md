@@ -137,35 +137,34 @@ Unknown slash-like input MUST fall through without partial or best-effort matchi
 
 ### Requirement: Centralized Dispatch Through the Pre-Execution Seam
 
-The system MUST route recognized slash commands through the existing pre-execution ingress seam.
+The system MUST route `/resume`, `/suspend`, `/tldr`, and `/compact` through the existing
+registry-backed pre-execution ingress seam.
 
-`pre_execution::evaluate_ingress(...)` SHALL remain the canonical short-circuit seam for recognized
-slash commands. CLI/runtime message fast path, gateway HTTP request paths, gateway streaming paths,
-webhook dispatch, and channel-backed ingress MUST call that seam directly for slash interception
-instead of using transport-local recognition or command-specific branching before shared ingress
-evaluation.
+`pre_execution::evaluate_ingress(...)` SHALL remain the canonical production short-circuit seam for
+these four session commands. CLI/runtime message fast path, gateway HTTP request paths, gateway
+streaming paths, webhook dispatch, and channel-backed ingress MUST submit recognized in-scope
+session commands to that shared seam, and production routing MUST NOT depend on transport-local
+direct-handler branches for those commands.
 
-Unknown commands or non-command input MUST preserve existing fallthrough behavior into normal prompt
-handling or transport-specific non-command handling.
-
-#### Scenario: CLI/runtime fast path uses the shared seam without a transport-local recognition gate
-
-- GIVEN CLI/runtime message fast path receives a recognized slash command input
-- WHEN it evaluates ingress
-- THEN it MUST call `pre_execution::evaluate_ingress(...)` without requiring a separate
-  transport-local registry recognition pre-check
-- AND any handled slash result observed by the CLI/runtime fast path MUST come from the shared
-  post-seam handled-result adaptation contract.
-
-#### Scenario: Supported transports preserve one ingress dispatch path for recognized commands
+#### Scenario: In-scope session commands use the shared seam across supported ingress surfaces
 
 - GIVEN CLI/runtime message fast path, gateway HTTP `/webhook`, gateway streaming
-  `/web/chat/stream`, webhook dispatcher execution, and channel-backed ingress each receive the same
-  recognized slash command
-- WHEN they classify that input
-- THEN each transport MUST dispatch the command through `pre_execution::evaluate_ingress(...)`
-- AND no transport MUST bypass that seam with a transport-specific command execution path for the
-  handled slash case.
+  `/web/chat/stream`, webhook dispatcher execution, and channel-backed ingress each receive
+  `/resume`, `/suspend`, `/tldr`, or `/compact`
+- WHEN the runtime classifies that recognized command input
+- THEN each supported ingress surface MUST route the command through
+  `pre_execution::evaluate_ingress(...)`
+- AND the handled command dispatch MUST come from the registry-backed ingress path rather than a
+  transport-local command execution branch.
+
+#### Scenario: Unknown or non-command input still falls through normally
+
+- GIVEN any supported ingress surface receives non-command input or slash-like input that is not
+  `/resume`, `/suspend`, `/tldr`, or `/compact`
+- WHEN the runtime evaluates ingress
+- THEN the system MUST preserve existing non-command or unknown-command fallthrough behavior
+- AND this change MUST NOT introduce new command recognition behavior outside the four in-scope
+  session commands.
 
 ### Requirement: Shared Handled Slash Outcome Adaptation Contract
 
@@ -230,29 +229,66 @@ to adopt one shared external payload, event, or text schema.
 
 ### Requirement: Existing Slash Session Behavior Preservation
 
-The system MUST preserve the current user-visible and deterministic behavior of the existing slash
-session commands while moving them onto the central registry core.
+The system MUST preserve the current behavior of `/resume`, `/suspend`, `/tldr`, and `/compact`
+while finalizing their registry-backed routing.
 
-For this slice, `/resume`, `/suspend`, `/tldr`, and `/compact` MUST remain recognized slash session
-commands. Their existing deterministic handling, error behavior, persistence expectations, and
-session-state semantics defined by the session and agent-loop specifications MUST remain intact.
+For this change, registry-backed ingress routing MUST preserve the same command semantics already
+defined by the sessions specification. Authorization-sensitive `/resume` behavior,
+unsupported-backend outcomes for slash-session persistence commands, invalid-target handling,
+unknown-session handling, and success results MUST remain equivalent to the current
+session-command behavior. Routing cleanup for #542 MUST reorganize ingress and dispatch proof only;
+it MUST NOT broaden, weaken, or bypass service-layer authorization or backend checks.
 
-Registry adoption MUST reorganize lookup and dispatch only; it MUST NOT weaken or broaden current
-session-command behavior.
+#### Scenario: Resume authorization rules remain intact after registry-backed dispatch
 
-#### Scenario: Existing slash session commands remain available after registry adoption
+- GIVEN a recognized `/resume` command is routed through `pre_execution::evaluate_ingress(...)`
+- AND the current caller scope is not authorized to view or resume the target session under the
+  existing sessions rules
+- WHEN the registry-backed handler evaluates the command
+- THEN the system MUST return the same explicit authorization-denied outcome required by the
+  sessions specification
+- AND the runtime MUST NOT resume the target session
+- AND registry-backed routing MUST NOT bypass or reinterpret that authorization decision.
 
-- GIVEN a user invokes `/tldr`, `/compact`, `/suspend`, or `/resume`
-- WHEN the runtime uses the central slash command registry
-- THEN the system MUST recognize those commands through the registry
-- AND the user-visible command outcome MUST remain consistent with the existing session specifications.
+#### Scenario: Slash-session backend checks remain intact after registry-backed dispatch
 
-#### Scenario: Registry migration does not change unsupported-backend behavior
+- GIVEN a recognized `/suspend`, `/tldr`, `/compact`, or `/resume` command is routed through
+  `pre_execution::evaluate_ingress(...)`
+- AND the configured backend does not satisfy the existing slash-session persistence requirements
+- WHEN the registry-backed handler evaluates the command
+- THEN the system MUST return the same explicit unsupported outcome required by the sessions
+  specification
+- AND the system MUST NOT replace that outcome with fallback success, silent no-op behavior, or
+  generic conversational handling.
 
-- GIVEN the runtime is configured with a backend that does not satisfy the existing slash-session persistence requirements
-- WHEN a user invokes `/tldr`, `/compact`, `/suspend`, or `/resume`
-- THEN the system MUST preserve the existing explicit unsupported or authorization outcome for that command
-- AND the registry core MUST NOT replace that behavior with fallback success, silent no-op handling, or generic conversational execution.
+### Requirement: Registry Bindings Are the Sole Production Session-Command Dispatch Entry
+
+The system MUST treat the registry's built-in bindings for `/resume`, `/suspend`, `/tldr`, and
+`/compact` as the only production command-name-to-handler dispatch entry for those commands.
+
+Production runtime surfaces MAY keep transport-specific context construction and outward
+response-envelope adaptation, but they MUST NOT keep a separate production routing path that
+directly selects or invokes the four session-command handlers outside registry-backed dispatch. Any
+remaining compatibility or deprecation scaffolding MUST be isolated so it does not change
+production routing for the four in-scope commands.
+
+#### Scenario: Registry binding remains the only production dispatch entry for in-scope session commands
+
+- GIVEN `/resume`, `/suspend`, `/tldr`, and `/compact` are available as built-in session commands
+- WHEN production runtime code resolves one of those command names for execution
+- THEN the system MUST dispatch through the registry binding for that canonical command
+- AND production routing MUST NOT require a separate direct-handler selection path for that command
+  name.
+
+#### Scenario: Transport-specific wrappers stay outside the production dispatch decision
+
+- GIVEN a supported transport already has its own outward wrapper for handled slash-command results
+- WHEN `/resume`, `/suspend`, `/tldr`, or `/compact` completes through registry-backed ingress
+  dispatch
+- THEN the transport MAY keep its existing outward response wrapper
+- AND that wrapper MUST be applied after the shared handled-result classification
+- AND the wrapper MUST NOT become a separate production routing path for selecting the command
+  handler.
 
 ### Requirement: Transport Parity for Recognized Slash Commands
 
