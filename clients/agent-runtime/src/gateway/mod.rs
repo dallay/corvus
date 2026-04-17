@@ -4875,7 +4875,7 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(payload["session_id"], "preview-slash");
-        assert_eq!(payload["error"]["code"], "unsupported_backend");
+        assert_eq!(payload["error"]["code"], "unknown_session");
         assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
     }
 
