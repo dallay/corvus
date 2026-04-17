@@ -155,4 +155,12 @@ describe("SessionSidebar", () => {
       "Collapse sidebar"
     );
   });
+
+  it("applies minimum target classes to compact sidebar controls", () => {
+    const wrapper = mountSidebar();
+
+    expect(wrapper.find(".session-sidebar-toggle").classes()).toContain("touch-target");
+    expect(wrapper.find(".session-sidebar-new-chat").classes()).toContain("touch-target");
+    expect(wrapper.find(".session-sidebar-item").classes()).toContain("touch-target");
+  });
 });

@@ -10,7 +10,7 @@
 use crate::agent::dispatcher::{evaluate_tool_risk, DispatchAction};
 use crate::bootstrap;
 use crate::channels::{Channel, SendMessage, WhatsAppChannel};
-use crate::config::Config;
+use crate::config::{Config, ExecutionMode};
 use crate::cost::CostTracker;
 #[cfg(test)]
 use crate::gateway::utils::{
@@ -758,6 +758,21 @@ fn webhook_dispatcher_enabled(config: &Config) -> bool {
     config.gateway.webhook_dispatcher_enabled
 }
 
+/// Resolve the effective execution mode for a webhook request.
+/// Never allows a client-supplied mode to weaken the server-configured mode.
+pub fn resolve_webhook_execution_mode(
+    server_mode: ExecutionMode,
+    client_mode: Option<ExecutionMode>,
+) -> ExecutionMode {
+    match (server_mode, client_mode) {
+        // Server is Plan: always use Plan, ignore client request
+        (ExecutionMode::Plan, _) => ExecutionMode::Plan,
+        // Server is Standard: use client mode if provided, otherwise Standard
+        (ExecutionMode::Standard, Some(client)) => client,
+        (ExecutionMode::Standard, None) => ExecutionMode::Standard,
+    }
+}
+
 fn webhook_runtime_path_label(dispatcher_enabled: bool) -> &'static str {
     if dispatcher_enabled {
         "dispatcher_agent"
@@ -789,6 +804,7 @@ fn webhook_outcome_label(outcome: &webhook_dispatch::WebhookTerminalOutcome) -> 
         webhook_dispatch::WebhookTerminalOutcome::Completed => "completed",
         webhook_dispatch::WebhookTerminalOutcome::BudgetExceeded { .. } => "budget_exceeded",
         webhook_dispatch::WebhookTerminalOutcome::ApprovalRequired { .. } => "approval_required",
+        webhook_dispatch::WebhookTerminalOutcome::PlanModeBlocked { .. } => "plan_mode_blocked",
         webhook_dispatch::WebhookTerminalOutcome::Timeout => "timeout",
         webhook_dispatch::WebhookTerminalOutcome::Fallback => "fallback",
         webhook_dispatch::WebhookTerminalOutcome::Error => "error",
@@ -1628,6 +1644,8 @@ async fn handle_admin_cost_override_wrapper(
 #[derive(serde::Deserialize)]
 pub struct WebhookBody {
     pub message: String,
+    #[serde(default)]
+    pub execution_mode: Option<ExecutionMode>,
 }
 
 type WebhookResponse = (StatusCode, Json<serde_json::Value>);
@@ -1757,7 +1775,9 @@ async fn canonical_outcome_early_response(
                             reason
                         }
                     }
-                    DispatchAction::Execute => format!("approval required for `{tool}`"),
+                    DispatchAction::Execute | DispatchAction::Blocked { .. } => {
+                        format!("approval required for `{tool}`")
+                    }
                 };
                 let denial = crate::approval::structured_denial_payload(&tool, &denial_reason);
                 let err = serde_json::json!({
@@ -1833,6 +1853,22 @@ fn webhook_response_from_dispatch_result(
                     "code": "approval_required",
                     "tool": tool,
                     "reason": reason,
+                },
+                "session_id": result.session_id,
+            });
+            ((StatusCode::FORBIDDEN, Json(body)), false)
+        }
+        webhook_dispatch::WebhookTerminalOutcome::PlanModeBlocked {
+            tool,
+            reason,
+            execution_mode,
+        } => {
+            let body = serde_json::json!({
+                "error": {
+                    "code": "plan_mode_blocked",
+                    "tool": tool,
+                    "reason": reason,
+                    "execution_mode": execution_mode,
                 },
                 "session_id": result.session_id,
             });
@@ -1927,6 +1963,7 @@ async fn handle_webhook(
 
     let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
     let config = state.config.lock().clone();
+    let server_execution_mode = config.agent.execution_mode;
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
     if dispatcher_enabled {
         log_webhook_runtime_path(&session_id, true, "dispatcher_flag_enabled");
@@ -1941,6 +1978,10 @@ async fn handle_webhook(
                 session_id: session_id.clone(),
                 session_source,
                 message: message.clone(),
+                execution_mode: resolve_webhook_execution_mode(
+                    server_execution_mode,
+                    webhook_body.execution_mode,
+                ),
                 include_sse_frames: is_preview,
             },
         )
@@ -1960,6 +2001,25 @@ async fn handle_webhook(
             persist_idempotency,
         )
         .await;
+        return response;
+    }
+
+    // Plan mode enforcement: fail-closed if dispatcher is disabled but Plan mode is requested
+    let resolved_execution_mode =
+        resolve_webhook_execution_mode(server_execution_mode, webhook_body.execution_mode);
+    if resolved_execution_mode == ExecutionMode::Plan {
+        let response = (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": {
+                    "code": "plan_mode_requires_dispatcher",
+                    "message": "Plan mode requires webhook_dispatcher_enabled=true in server config",
+                }
+            })),
+        );
+        release_idempotency_key(&state, reserved_idempotency_key, false);
+        update_session_activity_if_persisted(&state, &session_id, token_hash.as_deref(), false)
+            .await;
         return response;
     }
 
@@ -2070,6 +2130,7 @@ async fn handle_chat_stream(
     }
 
     let config = state.config.lock().clone();
+    let server_execution_mode = config.agent.execution_mode;
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
 
     // ── Process message via existing dispatch ────────────
@@ -2091,6 +2152,10 @@ async fn handle_chat_stream(
                 session_id: session_id.clone(),
                 session_source,
                 message: message.clone(),
+                execution_mode: resolve_webhook_execution_mode(
+                    server_execution_mode,
+                    webhook_body.execution_mode,
+                ),
                 include_sse_frames: true,
             },
         )
@@ -2143,6 +2208,17 @@ async fn handle_chat_stream(
                     "message": format!("Approval required for tool `{tool}`: {reason}"),
                 }))
             }
+            webhook_dispatch::WebhookTerminalOutcome::PlanModeBlocked {
+                tool,
+                reason,
+                execution_mode,
+            } => StreamProcessingOutcome::Error(serde_json::json!({
+                "code": "plan_mode_blocked",
+                "tool": tool,
+                "reason": reason,
+                "execution_mode": execution_mode,
+                "message": format!("Plan mode blocked tool `{tool}`: {reason}"),
+            })),
         }
     } else {
         log_webhook_runtime_path(&session_id, false, "stream_legacy");
@@ -2957,6 +3033,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::future::Future;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use tower::ServiceExt;
     use tracing::field::{Field, Visit};
     use tracing::{Event, Subscriber};
     use tracing_subscriber::{layer::Context, prelude::*, Layer};
@@ -3196,6 +3273,48 @@ mod tests {
         let missing = r#"{"other": "field"}"#;
         let parsed: Result<WebhookBody, _> = serde_json::from_str(missing);
         assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn webhook_body_accepts_optional_execution_mode() {
+        let valid = r#"{"message": "hello", "execution_mode": "plan"}"#;
+        let parsed: Result<WebhookBody, _> = serde_json::from_str(valid);
+        assert!(parsed.is_ok());
+        assert_eq!(parsed.unwrap().execution_mode, Some(ExecutionMode::Plan));
+    }
+
+    #[test]
+    fn resolve_webhook_execution_mode_prevents_downgrade_from_plan() {
+        // Server in Plan mode: always use Plan, ignore client request
+        assert_eq!(
+            resolve_webhook_execution_mode(ExecutionMode::Plan, None),
+            ExecutionMode::Plan
+        );
+        assert_eq!(
+            resolve_webhook_execution_mode(ExecutionMode::Plan, Some(ExecutionMode::Plan)),
+            ExecutionMode::Plan
+        );
+        assert_eq!(
+            resolve_webhook_execution_mode(ExecutionMode::Plan, Some(ExecutionMode::Standard)),
+            ExecutionMode::Plan
+        );
+    }
+
+    #[test]
+    fn resolve_webhook_execution_mode_allows_client_mode_when_server_is_standard() {
+        // Server in Standard mode: use client mode if provided
+        assert_eq!(
+            resolve_webhook_execution_mode(ExecutionMode::Standard, None),
+            ExecutionMode::Standard
+        );
+        assert_eq!(
+            resolve_webhook_execution_mode(ExecutionMode::Standard, Some(ExecutionMode::Standard)),
+            ExecutionMode::Standard
+        );
+        assert_eq!(
+            resolve_webhook_execution_mode(ExecutionMode::Standard, Some(ExecutionMode::Plan)),
+            ExecutionMode::Plan
+        );
     }
 
     #[test]
@@ -4169,6 +4288,7 @@ mod tests {
             headers,
             Ok(Json(WebhookBody {
                 message: "timeout-preview".to_string(),
+                execution_mode: None,
             })),
         )
         .await
@@ -4218,6 +4338,7 @@ mod tests {
             headers,
             Ok(Json(WebhookBody {
                 message: "needs-approval".to_string(),
+                execution_mode: None,
             })),
         )
         .await
@@ -4270,6 +4391,7 @@ mod tests {
             headers,
             Ok(Json(WebhookBody {
                 message: "needs-approval".to_string(),
+                execution_mode: None,
             })),
         )
         .await
@@ -4311,6 +4433,7 @@ mod tests {
             headers,
             Ok(Json(WebhookBody {
                 message: "timeout".to_string(),
+                execution_mode: None,
             })),
         )
         .await
@@ -4362,6 +4485,7 @@ mod tests {
             headers.clone(),
             Ok(Json(WebhookBody {
                 message: "timeout".to_string(),
+                execution_mode: None,
             })),
         )
         .await
@@ -4374,6 +4498,7 @@ mod tests {
             headers,
             Ok(Json(WebhookBody {
                 message: "timeout".to_string(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5029,6 +5154,7 @@ always_ask = []
 
         let body = Ok(Json(WebhookBody {
             message: "hello".into(),
+            execution_mode: None,
         }));
         let first = handle_webhook(
             State(state.clone()),
@@ -5042,6 +5168,7 @@ always_ask = []
 
         let body = Ok(Json(WebhookBody {
             message: "hello".into(),
+            execution_mode: None,
         }));
         let second = handle_webhook(State(state), test_connect_info(), headers, body)
             .await
@@ -5091,6 +5218,7 @@ always_ask = []
             HeaderMap::new(),
             Ok(Json(WebhookBody {
                 message: "hello canonical".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5137,6 +5265,7 @@ always_ask = []
             HeaderMap::new(),
             Ok(Json(WebhookBody {
                 message: "hello canonical".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5190,6 +5319,7 @@ always_ask = []
             headers,
             Ok(Json(WebhookBody {
                 message: "hello canonical".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5262,6 +5392,7 @@ always_ask = []
             headers,
             Ok(Json(WebhookBody {
                 message: "run the safe echo tool".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5348,6 +5479,7 @@ always_ask = []
             headers.clone(),
             Ok(Json(WebhookBody {
                 message: "run shell".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5366,6 +5498,7 @@ always_ask = []
             headers,
             Ok(Json(WebhookBody {
                 message: "run shell".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5419,6 +5552,7 @@ always_ask = []
                 headers.clone(),
                 Ok(Json(WebhookBody {
                     message: "trigger failure".into(),
+                    execution_mode: None,
                 })),
             )
             .await
@@ -5431,6 +5565,7 @@ always_ask = []
                 headers,
                 Ok(Json(WebhookBody {
                     message: "trigger failure".into(),
+                    execution_mode: None,
                 })),
             )
             .await
@@ -5500,6 +5635,7 @@ always_ask = []
             HeaderMap::new(),
             Ok(Json(WebhookBody {
                 message: "use docs".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5514,6 +5650,153 @@ always_ask = []
             .as_str()
             .unwrap_or_default()
             .contains("approval"));
+    }
+
+    #[tokio::test]
+    async fn webhook_dispatcher_plan_mode_json_response_preserves_machine_readable_denial() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![
+            ChatResponse {
+                text: None,
+                tool_calls: vec![ToolCall {
+                    id: "tc-write".into(),
+                    name: "file_write".into(),
+                    arguments: r#"{"path":"x","content":"y"}"#.into(),
+                }],
+            },
+            ChatResponse {
+                text: Some("plan blocked".into()),
+                tool_calls: Vec::new(),
+            },
+        ]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Session-Id",
+            HeaderValue::from_static("session-plan-json"),
+        );
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(WebhookBody {
+                message: "write file".into(),
+                execution_mode: Some(ExecutionMode::Plan),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["session_id"], "session-plan-json");
+        assert_eq!(payload["error"]["code"], "plan_mode_blocked");
+        assert_eq!(payload["error"]["tool"], "file_write");
+        assert_eq!(payload["error"]["execution_mode"], "plan");
+        assert!(payload["error"]["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Plan Mode allows analysis-only capabilities"));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn stream_dispatcher_plan_mode_error_event_preserves_machine_readable_denial() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![
+            ChatResponse {
+                text: None,
+                tool_calls: vec![ToolCall {
+                    id: "tc-write".into(),
+                    name: "file_write".into(),
+                    arguments: r#"{"path":"x","content":"y"}"#.into(),
+                }],
+            },
+            ChatResponse {
+                text: Some("plan blocked".into()),
+                tool_calls: Vec::new(),
+            },
+        ]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(
+                r#"{"message":"write file","execution_mode":"plan"}"#,
+            ))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: error"));
+        assert!(body_str.contains(r#""code":"plan_mode_blocked""#));
+        assert!(body_str.contains(r#""tool":"file_write""#));
+        assert!(body_str.contains(r#""execution_mode":"plan""#));
+        assert!(body_str.contains("Plan Mode allows analysis-only capabilities"));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -5565,6 +5848,7 @@ always_ask = []
             HeaderMap::new(),
             Ok(Json(WebhookBody {
                 message: "hello".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5620,6 +5904,7 @@ always_ask = []
             headers,
             Ok(Json(WebhookBody {
                 message: "boom".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5666,6 +5951,7 @@ always_ask = []
             HeaderMap::new(),
             Ok(Json(WebhookBody {
                 message: "hello legacy".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5712,6 +5998,7 @@ always_ask = []
             HeaderMap::new(),
             Ok(Json(WebhookBody {
                 message: "hello blocked legacy".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5812,6 +6099,7 @@ always_ask = []
             HeaderMap::new(),
             Ok(Json(WebhookBody {
                 message: "image:http://example.test/photo.jpg".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -5863,6 +6151,7 @@ always_ask = []
                     headers,
                     Ok(Json(WebhookBody {
                         message: "hello dispatcher".into(),
+                        execution_mode: None,
                     })),
                 )
                 .await
@@ -5918,6 +6207,7 @@ always_ask = []
                     headers,
                     Ok(Json(WebhookBody {
                         message: "hello legacy".into(),
+                        execution_mode: None,
                     })),
                 )
                 .await
@@ -5977,6 +6267,7 @@ always_ask = []
                 headers,
                 Ok(Json(WebhookBody {
                     message: "use docs search".into(),
+                    execution_mode: None,
                 })),
             )
             .await
@@ -6285,6 +6576,7 @@ always_ask = []
 
         let body1 = Ok(Json(WebhookBody {
             message: "hello one".into(),
+            execution_mode: None,
         }));
         let first = handle_webhook(
             State(state.clone()),
@@ -6298,6 +6590,7 @@ always_ask = []
 
         let body2 = Ok(Json(WebhookBody {
             message: "hello two".into(),
+            execution_mode: None,
         }));
         let second = handle_webhook(State(state), test_connect_info(), headers, body2)
             .await
@@ -6350,6 +6643,7 @@ always_ask = []
             HeaderMap::new(),
             Ok(Json(WebhookBody {
                 message: "hello isolated dispatcher".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -6426,6 +6720,7 @@ always_ask = []
             HeaderMap::new(),
             Ok(Json(WebhookBody {
                 message: "hello".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -6472,6 +6767,7 @@ always_ask = []
             headers,
             Ok(Json(WebhookBody {
                 message: "hello".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -6518,6 +6814,7 @@ always_ask = []
             headers,
             Ok(Json(WebhookBody {
                 message: "hello".into(),
+                execution_mode: None,
             })),
         )
         .await
@@ -6562,6 +6859,7 @@ always_ask = []
             HeaderMap::new(),
             Ok(Json(WebhookBody {
                 message: "hello dispatcher".into(),
+                execution_mode: None,
             })),
         )
         .await

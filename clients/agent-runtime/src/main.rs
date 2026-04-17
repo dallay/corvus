@@ -42,12 +42,15 @@ use std::time::{Duration, Instant};
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
+use crate::config::ExecutionMode;
+
 mod agent;
 mod approval;
 mod auth;
 mod bootstrap;
 mod capabilities;
 mod channels;
+mod composer;
 mod config;
 mod cost;
 mod cron;
@@ -121,8 +124,12 @@ enum Commands {
         memory: Option<String>,
     },
 
-    /// Start the AI agent loop
+    /// Start the AI agent loop (or compose from manifest)
     Agent {
+        /// Agent subcommand (build, run, new) - if omitted, starts interactive agent loop
+        #[command(subcommand)]
+        agent_subcommand: Option<AgentCompositionCommands>,
+
         /// Single message mode (don't enter interactive mode)
         #[arg(short, long)]
         message: Option<String>,
@@ -146,6 +153,10 @@ enum Commands {
         /// Allow exactly one over-budget request for this CLI session
         #[arg(long)]
         override_budget: bool,
+
+        /// Run the turn in plan mode (analysis-only tool execution)
+        #[arg(long)]
+        plan: bool,
     },
 
     /// Run a code-specialist session (inspect, plan, edit, verify, report)
@@ -169,6 +180,10 @@ enum Commands {
         /// Allow exactly one over-budget request for this CLI session
         #[arg(long)]
         override_budget: bool,
+
+        /// Run the session in plan mode (analysis-only tool execution)
+        #[arg(long)]
+        plan: bool,
     },
 
     /// Start the gateway server (webhooks, websockets)
@@ -272,6 +287,43 @@ enum Commands {
     Cost {
         #[command(subcommand)]
         cost_command: CostCommands,
+    },
+}
+
+/// Agent composition subcommands (from Phase 4)
+#[derive(Subcommand, Debug)]
+enum AgentCompositionCommands {
+    /// Build an agent from a manifest
+    Build {
+        /// Path to agent manifest TOML file
+        #[arg(long)]
+        manifest: std::path::PathBuf,
+
+        /// Output directory for compiled agent
+        #[arg(long)]
+        output: Option<std::path::PathBuf>,
+    },
+
+    /// Run an agent directly from a manifest (boot-time composition)
+    Run {
+        /// Path to agent manifest TOML file
+        #[arg(long)]
+        manifest: std::path::PathBuf,
+    },
+
+    /// Create a new agent from a template
+    New {
+        /// Template name (e.g., chat-bot, support-bot)
+        #[arg(long)]
+        template: String,
+
+        /// Agent name
+        #[arg(long)]
+        name: String,
+
+        /// Output directory (optional)
+        #[arg(long)]
+        output: Option<std::path::PathBuf>,
     },
 }
 
@@ -820,23 +872,32 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
     match command {
         Commands::Onboard { .. } => anyhow::bail!("Onboard command should not reach dispatch"),
         Commands::Agent {
+            agent_subcommand,
             message,
             provider,
             model,
             temperature,
             peripheral,
             override_budget,
+            plan,
         } => {
-            dispatch_agent_command(
-                config,
-                message,
-                provider,
-                model,
-                temperature,
-                peripheral,
-                override_budget,
-            )
-            .await
+            // Handle agent composition subcommands (Phase 4)
+            if let Some(subcommand) = agent_subcommand {
+                handle_agent_composition_command(subcommand).await
+            } else {
+                // Legacy behavior: interactive agent loop
+                dispatch_agent_command(
+                    config,
+                    message,
+                    provider,
+                    model,
+                    temperature,
+                    peripheral,
+                    override_budget,
+                    plan,
+                )
+                .await
+            }
         }
         Commands::Code {
             message,
@@ -844,6 +905,7 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
             model,
             temperature,
             override_budget,
+            plan,
         } => {
             dispatch_code_command(
                 config,
@@ -852,6 +914,7 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
                 model,
                 temperature,
                 override_budget,
+                plan,
             )
             .await
         }
@@ -913,6 +976,7 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn dispatch_agent_command(
     config: Config,
     message: Option<String>,
@@ -921,6 +985,7 @@ async fn dispatch_agent_command(
     temperature: f64,
     peripheral: Vec<String>,
     override_budget: bool,
+    plan: bool,
 ) -> Result<()> {
     Box::pin(handle_agent_command(
         config,
@@ -930,6 +995,7 @@ async fn dispatch_agent_command(
         temperature,
         peripheral,
         override_budget,
+        plan,
     ))
     .await
 }
@@ -941,6 +1007,7 @@ async fn dispatch_code_command(
     model: Option<String>,
     temperature: f64,
     override_budget: bool,
+    plan: bool,
 ) -> Result<()> {
     Box::pin(handle_code_command(
         config,
@@ -949,6 +1016,7 @@ async fn dispatch_code_command(
         model,
         temperature,
         override_budget,
+        plan,
     ))
     .await
 }
@@ -1288,6 +1356,34 @@ fn handle_providers_command(config: Config) {
     println!("  anthropic-custom:<URL>  Any Anthropic-compatible endpoint");
 }
 
+/// Handle agent composition subcommands (Phase 4: corvus agent build/run/new)
+async fn handle_agent_composition_command(command: AgentCompositionCommands) -> Result<()> {
+    use crate::composer::handle_composer_command;
+
+    match command {
+        AgentCompositionCommands::Build { manifest, output } => {
+            handle_composer_command(crate::composer::ComposerCommands::Build { manifest, output })
+                .await
+        }
+        AgentCompositionCommands::Run { manifest } => {
+            handle_composer_command(crate::composer::ComposerCommands::Run { manifest }).await
+        }
+        AgentCompositionCommands::New {
+            template,
+            name,
+            output,
+        } => {
+            handle_composer_command(crate::composer::ComposerCommands::New {
+                template,
+                name,
+                output,
+            })
+            .await
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn handle_agent_command(
     config: Config,
     message: Option<String>,
@@ -1296,6 +1392,7 @@ async fn handle_agent_command(
     temperature: f64,
     peripheral: Vec<String>,
     override_budget: bool,
+    plan: bool,
 ) -> Result<()> {
     maybe_print_update_notice_bounded(&config).await;
 
@@ -1347,6 +1444,11 @@ async fn handle_agent_command(
         effective_config.default_model = Some(m);
     }
     effective_config.default_temperature = temperature;
+    effective_config.agent.execution_mode = if plan {
+        ExecutionMode::Plan
+    } else {
+        ExecutionMode::Standard
+    };
 
     if !peripheral.is_empty() {
         anyhow::bail!(
@@ -1376,11 +1478,27 @@ async fn handle_agent_command(
     agent.record_agent_start_event(&provider_name, &model_name);
 
     let run_result = if let Some(msg) = message {
-        let response = agent.run_single(&msg).await;
-        if let Ok(response) = &response {
-            println!("{response}");
+        let turn_result = agent
+            .turn_with_context(&msg, crate::agent::TurnContext::default())
+            .await;
+        if let Ok(turn_result) = &turn_result {
+            let blocking_err = cli_blocking_error_from_turn_result(turn_result);
+            if let Some(response) = turn_result.final_text.as_deref() {
+                println!("{response}");
+            }
+            if let Some(err) = blocking_err {
+                let summary_result = agent.session_cost_summary(chrono::Utc::now());
+                agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
+                match summary_result {
+                    Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Agent),
+                    Err(error) => {
+                        tracing::warn!("Failed to load agent session cost summary: {error}");
+                    }
+                }
+                return Err(err);
+            }
         }
-        response.map(|_| ())
+        turn_result.map(|_| ())
     } else {
         agent.run_interactive().await
     };
@@ -1402,8 +1520,9 @@ async fn handle_code_command(
     model: Option<String>,
     temperature: f64,
     override_budget: bool,
+    plan: bool,
 ) -> Result<()> {
-    let config = apply_code_session_config(config, provider, model, temperature);
+    let config = apply_code_session_config(config, provider, model, temperature, plan);
     info!("Starting code-specialist session (profile=code)");
     let provider_name = config
         .default_provider
@@ -1425,11 +1544,27 @@ async fn handle_code_command(
     agent.record_agent_start_event(&provider_name, &model_name);
 
     let run_result = if let Some(msg) = message {
-        let response = agent.run_single(&msg).await;
-        if let Ok(response) = &response {
-            println!("{response}");
+        let turn_result = agent
+            .turn_with_context(&msg, crate::agent::TurnContext::default())
+            .await;
+        if let Ok(turn_result) = &turn_result {
+            let blocking_err = cli_blocking_error_from_turn_result(turn_result);
+            if let Some(response) = turn_result.final_text.as_deref() {
+                println!("{response}");
+            }
+            if let Some(err) = blocking_err {
+                let summary_result = agent.session_cost_summary(chrono::Utc::now());
+                agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
+                match summary_result {
+                    Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Code),
+                    Err(error) => {
+                        tracing::warn!("Failed to load code session cost summary: {error}");
+                    }
+                }
+                return Err(err);
+            }
         }
-        response.map(|_| ())
+        turn_result.map(|_| ())
     } else {
         agent.run_interactive().await
     };
@@ -1449,6 +1584,7 @@ fn apply_code_session_config(
     provider: Option<String>,
     model: Option<String>,
     temperature: f64,
+    plan: bool,
 ) -> Config {
     if let Some(p) = provider {
         config.default_provider = Some(p);
@@ -1458,6 +1594,11 @@ fn apply_code_session_config(
     }
     config.default_temperature = temperature;
     config.agent.profile = "code".to_string();
+    config.agent.execution_mode = if plan {
+        ExecutionMode::Plan
+    } else {
+        ExecutionMode::Standard
+    };
     config.agent.code_session.enabled = true;
     config
 }
@@ -1481,6 +1622,56 @@ fn print_canonical_only(canonical: &crate::agent::unified_entrypoint::CanonicalO
         let event_kind = loop_event_kind(event);
         println!("loop_event={event_kind}");
     }
+}
+
+fn cli_blocking_error_from_turn_result(
+    turn_result: &crate::agent::AgentTurnResult,
+) -> Option<anyhow::Error> {
+    let session_prefix = turn_result
+        .session_id
+        .as_deref()
+        .map(|session_id| format!("[session:{session_id}] "))
+        .unwrap_or_default();
+
+    if let Some(policy_blocked) = turn_result.policy_blocked.as_ref() {
+        let code = policy_blocked
+            .get("code")
+            .and_then(serde_json::Value::as_str);
+        let tool = policy_blocked
+            .get("tool")
+            .and_then(serde_json::Value::as_str);
+        let reason = policy_blocked
+            .get("reason")
+            .and_then(serde_json::Value::as_str);
+
+        if code == Some(crate::security::PLAN_MODE_BLOCKED_CODE) {
+            let tool = tool.unwrap_or("unknown_tool");
+            let reason = reason.unwrap_or("Plan Mode allows analysis-only capabilities only");
+            return Some(anyhow!(
+                "{session_prefix}Plan Mode restriction blocked `{tool}`: {reason}"
+            ));
+        }
+
+        // Any other policy_blocked is also an error
+        let tool = tool.unwrap_or("unknown_tool");
+        let code = code.unwrap_or("policy_blocked");
+        let reason = reason.unwrap_or("blocked by security policy");
+        return Some(anyhow!(
+            "{session_prefix}Policy restriction blocked `{tool}`: {reason} [{code}]"
+        ));
+    }
+
+    if let Some(approval_required) = turn_result.approval_required.as_ref() {
+        let tool = approval_required
+            .get("tool")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown_tool");
+        return Some(anyhow!(
+            "{session_prefix}approval required for `{tool}`; request blocked"
+        ));
+    }
+
+    None
 }
 
 async fn handle_gateway_command(
@@ -2800,6 +2991,7 @@ mod tests {
             Some("openrouter".to_string()),
             Some("model-x".to_string()),
             0.25,
+            true,
         );
 
         assert_eq!(updated.default_provider.as_deref(), Some("openrouter"));
@@ -2807,6 +2999,50 @@ mod tests {
         assert_eq!(updated.default_temperature, 0.25);
         assert_eq!(updated.agent.profile, "code");
         assert!(updated.agent.code_session.enabled);
+        assert_eq!(updated.agent.execution_mode, ExecutionMode::Plan);
+    }
+
+    #[test]
+    fn cli_blocking_error_prefers_plan_mode_restriction_over_approval_flow() {
+        let turn_result = crate::agent::AgentTurnResult {
+            session_id: Some("session-plan".into()),
+            execution_mode: ExecutionMode::Plan,
+            final_text: None,
+            terminal_outcome: crate::agent::AgentTurnOutcome::Completed,
+            approval_required: Some(serde_json::json!({
+                "code": "approval_required",
+                "tool": "shell",
+                "reason": "shell",
+            })),
+            policy_blocked: Some(serde_json::json!({
+                "code": "plan_mode_blocked",
+                "tool": "file_write",
+                "reason": "Plan Mode allows analysis-only capabilities and blocks `file_write`",
+                "execution_mode": "plan",
+            })),
+            event_log: vec![crate::agent::AgentTurnEvent::Prepared],
+            tools_called: vec!["file_write".into()],
+        };
+
+        let error = cli_blocking_error_from_turn_result(&turn_result)
+            .expect("plan mode block should render a CLI error");
+
+        assert!(error
+            .to_string()
+            .contains("Plan Mode restriction blocked `file_write`"));
+        assert!(!error.to_string().contains("approval required"));
+    }
+
+    #[test]
+    fn out_of_scope_surfaces_do_not_claim_plan_mode_support() {
+        assert!(Cli::try_parse_from(["corvus", "gateway", "--plan"]).is_err());
+        assert!(Cli::try_parse_from(["corvus", "daemon", "--plan"]).is_err());
+
+        let dashboard_status = dashboard_resume_status_lines()
+            .join("\n")
+            .to_ascii_lowercase();
+        assert!(!dashboard_status.contains("plan mode"));
+        assert!(!dashboard_status.contains("--plan"));
     }
 
     #[tokio::test]
@@ -2875,6 +3111,23 @@ mod tests {
                 override_budget: true,
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn agent_and_code_commands_parse_plan_flag() {
+        let code_cli =
+            Cli::try_parse_from(["corvus", "code", "--message", "hello", "--plan"]).unwrap();
+        assert!(matches!(
+            code_cli.command,
+            Commands::Code { plan: true, .. }
+        ));
+
+        let agent_cli =
+            Cli::try_parse_from(["corvus", "agent", "--message", "hello", "--plan"]).unwrap();
+        assert!(matches!(
+            agent_cli.command,
+            Commands::Agent { plan: true, .. }
         ));
     }
 

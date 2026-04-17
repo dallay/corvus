@@ -21,6 +21,10 @@ function readText(path) {
   return fs.readFileSync(path, "utf8");
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function assertIncludesAll(text, patterns, label) {
   for (const pattern of patterns) {
     assert.match(text, pattern, `${label} is missing ${pattern}`);
@@ -88,6 +92,7 @@ function resolveExecutable(executableName) {
 }
 
 const cargoExecutable = resolveExecutable("cargo");
+const releaseVersion = readText("version.txt").trim();
 
 const contractDocs = [
   ".github/workflows/README.md",
@@ -145,6 +150,21 @@ test("release-please fan-out only includes shipped stable artifacts", () => {
   assert.ok(cargoTomlTargets.has("$.dependencies.cerebro.version"));
 });
 
+test("beta release-please config reuses shipped artifact fan-out with prerelease semantics", () => {
+  const stableConfig = readJson("release-please-config.json");
+  const betaConfig = readJson("release-please-beta-config.json");
+  const stablePackage = stableConfig.packages["."];
+  const betaPackage = betaConfig.packages["."];
+
+  assert.deepEqual(betaPackage["extra-files"], stablePackage["extra-files"]);
+  assert.equal(betaPackage["release-type"], stablePackage["release-type"]);
+  assert.equal(betaPackage["version-file"], stablePackage["version-file"]);
+  assert.equal(betaPackage.prerelease, true);
+  assert.equal(betaPackage["prerelease-type"], "beta");
+  assert.equal(betaPackage.versioning, "prerelease");
+  assert.match(betaConfig["pull-request-title-pattern"], /beta/i);
+});
+
 test("runtime npm metadata only advertises supported shipped platforms", () => {
   const pkg = readJson("clients/agent-runtime/npm/corvus/package.json");
 
@@ -165,8 +185,9 @@ test("sortStrings uses an explicit stable comparator", () => {
   ]);
 });
 
-test("release workflows encode release-please-owned stable governance", () => {
+test("release workflows encode release-please-owned stable and beta governance", () => {
   const releasePlease = readText(".github/workflows/release-please.yml");
+  const releasePleaseBeta = readText(".github/workflows/release-please-beta.yml");
   const publishRelease = readText(".github/workflows/publish-release.yml");
   const publishSnapshot = readText(".github/workflows/publish-snapshot.yml");
   const publishWorkflow = readText(".github/workflows/_publish.yml");
@@ -208,11 +229,42 @@ test("release workflows encode release-please-owned stable governance", () => {
   assert.doesNotMatch(releasePlease, /secrets:\s+inherit/);
 
   assertIncludesAll(
+    releasePleaseBeta,
+    [
+      /id: release-please/,
+      /config-file: release-please-beta-config\.json/,
+      /manifest-file: \.release-please-beta-manifest\.json/,
+      /target-branch: beta/,
+      /prerelease release PR\/tag\/GitHub Release path/i,
+      /canonical beta GitHub Release notes/i,
+    ],
+    "release-please-beta workflow",
+  );
+  assertContainsInOrder(
+    releasePleaseBeta,
+    [
+      "release-please-beta:",
+      "permissions:",
+      "contents: write",
+      "pull-requests: write",
+      "issues: write",
+    ],
+    "release-please-beta workflow",
+  );
+  assertContainsInOrder(
+    releasePleaseBeta,
+    ["publish-beta:", "permissions:", "contents: write", "packages: write"],
+    "release-please-beta workflow",
+  );
+  assert.doesNotMatch(releasePleaseBeta, /secrets:\s+inherit/);
+
+  assertIncludesAll(
     publishRelease,
     [
       /on:\s*release:\s*types:\s*- published/s,
       /Canonical stable release handoff/i,
       /release: true/,
+      /prerelease: false/,
       /release_tag: \$\{\{ github\.event\.release\.tag_name \}\}/,
       /release_id: \$\{\{ github\.event\.release\.id \}\}/,
       /attach artifacts to the existing canonical GitHub Release/i,
@@ -231,6 +283,7 @@ test("release workflows encode release-please-owned stable governance", () => {
     [
       /Snapshots stay outside stable GitHub Release ownership/,
       /release: false/,
+      /prerelease: false/,
       /permissions:\s+contents: read\s+packages: write/s,
       /secrets:\s+SIGNING_IN_MEMORY_KEY:/,
       /DOCKERHUB_TOKEN:/,
@@ -243,11 +296,15 @@ test("release workflows encode release-please-owned stable governance", () => {
   assertIncludesAll(
     publishWorkflow,
     [
+      /prerelease:/,
       /release_tag:/,
       /release_id:/,
       /release_version/,
+      /release_channel/,
+      /npm_dist_tag/,
       /gh release upload/,
       /release-please owns canonical stable release notes/i,
+      /release-please owns canonical beta release notes/i,
       /Existing GitHub Release asset upload/i,
       /corvus-cli is internal\/private/,
       /Windows ARM64 is intentionally unsupported/,
@@ -262,11 +319,15 @@ test("release workflows encode release-please-owned stable governance", () => {
 
 test("cargo publish contract keeps local cerebro path and release version aligned", () => {
   const cargoToml = readText("clients/agent-runtime/Cargo.toml");
+  const cerebroToml = readText("modules/cerebro/Cargo.toml");
 
   assert.match(
     cargoToml,
-    /cerebro = \{ version = "1\.0\.0", path = "\.\.\/\.\.\/modules\/cerebro" \}/,
+    new RegExp(
+      `cerebro = \\{ version = "${escapeRegex(releaseVersion)}", path = "\\.\\.\\/\\.\\.\\/modules\\/cerebro" \\}`,
+    ),
   );
+  assert.match(cerebroToml, new RegExp(`^version = "${escapeRegex(releaseVersion)}"$`, "m"));
 });
 
 test("rust lockfiles stay valid for --locked release commands", (t) => {
@@ -279,10 +340,23 @@ test("rust lockfiles stay valid for --locked release commands", (t) => {
   }
 
   for (const cwd of ["clients/agent-runtime", "modules/cerebro"]) {
-    execFileSync(cargoExecutable, ["metadata", "--locked", "--format-version", "1"], {
-      cwd,
-      stdio: "ignore",
-    });
+    try {
+      execFileSync(cargoExecutable, ["metadata", "--locked", "--format-version", "1"], {
+        cwd,
+        stdio: "pipe",
+      });
+    } catch (error) {
+      const stderr = Buffer.isBuffer(error.stderr)
+        ? error.stderr.toString("utf8")
+        : typeof error.stderr === "string"
+          ? error.stderr
+          : "";
+      if (/Could not resolve host|failed to download from `https:\/\/static\.crates\.io\//i.test(stderr)) {
+        t.skip(`cargo metadata requires network access for ${cwd} in this environment`);
+        return;
+      }
+      throw error;
+    }
   }
 });
 
@@ -310,6 +384,9 @@ test("release docs, changelog, and CI maps describe one stable contract", () => 
   assertIncludesAll(
     docsEn,
     [
+      /release-please-beta\.yml/i,
+      /beta branch/i,
+      /beta releases use the npm `beta` dist-tag/i,
       /private web packages are excluded/i,
       /manual recovery/i,
       /through a pull request/i,
@@ -320,6 +397,9 @@ test("release docs, changelog, and CI maps describe one stable contract", () => 
   assertIncludesAll(
     docsEs,
     [
+      /release-please-beta\.yml/i,
+      /rama `beta`/i,
+      /dist-tag `beta` de npm/i,
       /paquetes web privados están excluidos/i,
       /recuperación manual/i,
       /por pull request/i,
@@ -331,6 +411,7 @@ test("release docs, changelog, and CI maps describe one stable contract", () => 
     workflowsReadme,
     [
       /release-please .*canonical.*GitHub Release/i,
+      /release-please-beta\.yml.*beta/i,
       /publish-release\.yml.*release\.published/i,
       /_publish\.yml.*attach artifacts/i,
     ],

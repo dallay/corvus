@@ -1,0 +1,152 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Release Please Beta
+
+on:
+  push:
+    branches:
+      - beta
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  release-please-beta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.ref == 'refs/heads/beta' || (github.event_name == 'workflow_dispatch' && github.event.ref == 'beta')
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    outputs:
+      release_created: ${{ steps.release-please.outputs.releases_created || steps.release-please.outputs.release_created || 'false' }}
+      tag_name: ${{ steps.release-please.outputs.tag_name }}
+      release_id: ${{ steps.resolve-release-id.outputs.release_id }}
+    steps:
+      - name: 🔐 Generate release GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: 📥 Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: 🤖 Run release-please
+        id: release-please
+        uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4.4.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-beta-config.json
+          manifest-file: .release-please-beta-manifest.json
+          target-branch: beta
+          fork: false
+
+      - name: 🧾 Resolve GitHub Release id
+        if: ${{ steps.release-please.outputs.releases_created == 'true' || steps.release-please.outputs.release_created == 'true' }}
+        id: resolve-release-id
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_TAG: ${{ steps.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          release_id=""
+          max_attempts=5
+          attempt=0
+          while [ $attempt -lt $max_attempts ]; do
+            attempt=$((attempt + 1))
+            release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id' 2>/dev/null || true)"
+            if [ -n "$release_id" ]; then
+              break
+            fi
+            if [ $attempt -lt $max_attempts ]; then
+              sleep_seconds=$((attempt * 2))
+              echo "Attempt $attempt failed, retrying in ${sleep_seconds}s..."
+              sleep $sleep_seconds
+            fi
+          done
+          if [ -z "$release_id" ]; then
+            echo "::error::Failed to resolve release id for tag ${RELEASE_TAG} after ${max_attempts} attempts"
+            exit 1
+          fi
+          echo "release_id=${release_id}" >> "$GITHUB_OUTPUT"
+
+      - name: 📄 Summarize release-please outcome
+        if: ${{ always() }}
+        env:
+          RELEASE_PLEASE_OUTPUTS: ${{ toJson(steps.release-please.outputs) }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          outputs = json.loads(os.environ.get("RELEASE_PLEASE_OUTPUTS") or "{}")
+          manifest = json.loads(Path(".release-please-beta-manifest.json").read_text(encoding="utf-8"))
+          manifest_version = manifest.get(".", "unknown")
+
+          version = outputs.get("version") or "not emitted"
+          tag_name = outputs.get("tag_name") or "not emitted"
+          releases_created = outputs.get("releases_created") or outputs.get("release_created") or "false"
+          prs_created = outputs.get("prs_created") or "false"
+          pr_metadata = "present" if outputs.get("pr") or outputs.get("prs") else "absent"
+          auth_source = "GitHub App token via APP_ID/APP_PRIVATE_KEY"
+
+          lines = [
+              "## beta release-please action outputs",
+              "",
+              "- Prerelease release PR/tag/GitHub Release path: `release-please` from merges to `beta`",
+              "- Canonical beta GitHub Release notes owner: `release-please`",
+              f"- Auth source: `{auth_source}`",
+              f"- Manifest baseline: `{manifest_version}`",
+              f"- Candidate version output: `{version}`",
+              f"- Tag output: `{tag_name}`",
+              f"- PR created in this run: `{prs_created}`",
+              f"- Release PR metadata available: `{pr_metadata}`",
+              f"- Beta release created in this run: `{releases_created}`",
+              "",
+              "<details>",
+              "<summary>Raw release-please outputs</summary>",
+              "",
+              "```json",
+              json.dumps(outputs, indent=2, sort_keys=True),
+              "```",
+              "</details>",
+          ]
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines) + "\n")
+          PY
+
+  publish-beta:
+    needs: release-please-beta
+    if: >-
+      (github.ref == 'refs/heads/beta' || (github.event_name == 'workflow_dispatch' && github.event.ref == 'beta')) &&
+      needs.release-please-beta.outputs.release_created == 'true' &&
+      needs.release-please-beta.outputs.tag_name != '' &&
+      needs.release-please-beta.outputs.release_id != ''
+    uses: ./.github/workflows/_publish.yml
+    permissions:
+      contents: write
+      packages: write
+    with:
+      release: true
+      prerelease: true
+      release_tag: ${{ needs.release-please-beta.outputs.tag_name }}
+      release_id: ${{ needs.release-please-beta.outputs.release_id }}
+    secrets:
+      SIGNING_IN_MEMORY_KEY: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+      SIGNING_IN_MEMORY_KEY_PASSWORD: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
+      MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

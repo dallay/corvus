@@ -3,11 +3,12 @@ packages:
   - packages/*
 
 catalog:
-  '@fontsource-variable/space-grotesk': 5.2.8
+  '@fontsource-variable/space-grotesk': 5.2.10
   '@fontsource/doto': 5.2.8
   '@fontsource/space-mono': 5.2.8
   '@astrojs/check': 0.9.8
-  '@astrojs/starlight': 0.38.2
+  '@astrojs/starlight': 0.38.3
+  '@axe-core/playwright': 4.11.0
   '@biomejs/biome': 2.4.9
   '@playwright/test': 1.59.1
   '@tailwindcss/postcss': 4.2.2
@@ -20,6 +21,7 @@ catalog:
   '@vue/tsconfig': 0.9.1
   astro: 6.0.8
   astro-vtbot: 2.1.12
+  axe-core: 4.11.0
   happy-dom: 20.8.9
   postcss: 8.5.8
   portless: 0.6.0
@@ -27,7 +29,7 @@ catalog:
   tailwind-merge: 3.5.0
   tailwindcss: 4.2.2
   typescript: 5.9.3
-  vite: 6.4.2
+  vite: 7.3.2
   vitest: 4.0.18
   vue: 3.5.31
   vue-i18n: 11.3.0

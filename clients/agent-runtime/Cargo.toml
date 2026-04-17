@@ -1,10 +1,10 @@
 [workspace]
-members = [".", "crates/robot-kit"]
+members = [".", "crates/corvus-traits", "crates/corvus-providers", "crates/corvus-channels", "crates/corvus-tools", "crates/corvus-memory", "crates/corvus-observability", "crates/corvus-security", "crates/corvus-composer", "crates/robot-kit"]
 resolver = "2"
 
 [package]
 name = "corvus"
-version = "2.3.0"
+version = "3.2.0"
 edition = "2021"
 build = "build.rs"
 authors = ["theonlyhennygod"]
@@ -84,6 +84,14 @@ parking_lot = "0.12"
 
 # Async traits
 async-trait = "0.1"
+corvus-traits = { path = "crates/corvus-traits" }
+corvus-providers = { path = "crates/corvus-providers" }
+corvus-channels = { path = "crates/corvus-channels" }
+corvus-tools = { path = "crates/corvus-tools" }
+corvus-memory = { path = "crates/corvus-memory" }
+corvus-observability = { path = "crates/corvus-observability" }
+corvus-security = { path = "crates/corvus-security" }
+corvus-composer = { path = "crates/corvus-composer" }
 
 # WASM execution support for runtime sandboxing
 wasmi = { version = "1.0", optional = true, default-features = false, features = ["std"] }
@@ -101,7 +109,7 @@ chrono-tz = "0.10"
 cron = "0.15"
 
 # Cerebro MCP service client
-cerebro = { version = "2.3.0", path = "../../modules/cerebro" }
+cerebro = { version = "3.2.0", path = "../../modules/cerebro" }
 
 # Interactive CLI prompts
 dialoguer = { version = "0.12", features = ["fuzzy-select"] }

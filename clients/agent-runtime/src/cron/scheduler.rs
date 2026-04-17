@@ -23,6 +23,7 @@ pub async fn run(config: Config) -> Result<()> {
     let security = Arc::new(SecurityPolicy::from_config(
         &config.autonomy,
         &config.workspace_dir,
+        config.agent.execution_mode,
     ));
 
     crate::health::mark_component_ok("scheduler");
@@ -45,7 +46,11 @@ pub async fn run(config: Config) -> Result<()> {
 }
 
 pub async fn execute_job_now(config: &Config, job: &CronJob) -> (bool, String) {
-    let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+    let security = SecurityPolicy::from_config(
+        &config.autonomy,
+        &config.workspace_dir,
+        config.agent.execution_mode,
+    );
     execute_job_with_retry(config, &security, job).await
 }
 
@@ -511,7 +516,11 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let config = test_config(&tmp);
         let job = test_job("echo scheduler-ok");
-        let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+        let security = SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+            config.agent.execution_mode,
+        );
 
         let (success, output) = run_job_command(&config, &security, &job).await;
         assert!(success);
@@ -524,7 +533,11 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let config = test_config(&tmp);
         let job = test_job("ls definitely_missing_file_for_scheduler_test");
-        let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+        let security = SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+            config.agent.execution_mode,
+        );
 
         let (success, output) = run_job_command(&config, &security, &job).await;
         assert!(!success);
@@ -538,7 +551,11 @@ mod tests {
         let mut config = test_config(&tmp);
         config.autonomy.allowed_commands = vec!["sleep".into()];
         let job = test_job("sleep 1");
-        let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+        let security = SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+            config.agent.execution_mode,
+        );
 
         let (success, output) =
             run_job_command_with_timeout(&config, &security, &job, Duration::from_millis(50)).await;
@@ -552,7 +569,11 @@ mod tests {
         let mut config = test_config(&tmp);
         config.autonomy.allowed_commands = vec!["echo".into()];
         let job = test_job("curl https://evil.example");
-        let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+        let security = SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+            config.agent.execution_mode,
+        );
 
         let (success, output) = run_job_command(&config, &security, &job).await;
         assert!(!success);
@@ -566,7 +587,11 @@ mod tests {
         let mut config = test_config(&tmp);
         config.autonomy.allowed_commands = vec!["cat".into()];
         let job = test_job("cat /etc/passwd");
-        let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+        let security = SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+            config.agent.execution_mode,
+        );
 
         let (success, output) = run_job_command(&config, &security, &job).await;
         assert!(!success);
@@ -581,7 +606,11 @@ mod tests {
         let mut config = test_config(&tmp);
         config.autonomy.level = crate::security::AutonomyLevel::ReadOnly;
         let job = test_job("echo should-not-run");
-        let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+        let security = SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+            config.agent.execution_mode,
+        );
 
         let (success, output) = run_job_command(&config, &security, &job).await;
         assert!(!success);
@@ -595,7 +624,11 @@ mod tests {
         let mut config = test_config(&tmp);
         config.autonomy.max_actions_per_hour = 0;
         let job = test_job("echo should-not-run");
-        let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+        let security = SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+            config.agent.execution_mode,
+        );
 
         let (success, output) = run_job_command(&config, &security, &job).await;
         assert!(!success);
@@ -610,7 +643,11 @@ mod tests {
         config.reliability.scheduler_retries = 1;
         config.reliability.provider_backoff_ms = 1;
         config.autonomy.allowed_commands = vec!["sh".into()];
-        let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+        let security = SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+            config.agent.execution_mode,
+        );
 
         std::fs::write(
             config.workspace_dir.join("retry-once.sh"),
@@ -630,7 +667,11 @@ mod tests {
         let mut config = test_config(&tmp);
         config.reliability.scheduler_retries = 1;
         config.reliability.provider_backoff_ms = 1;
-        let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+        let security = SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+            config.agent.execution_mode,
+        );
 
         let job = test_job("ls always_missing_for_retry_test");
 

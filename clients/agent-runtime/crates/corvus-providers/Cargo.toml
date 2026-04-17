@@ -1,0 +1,15 @@
+[package]
+name = "corvus-providers"
+version = "0.1.0"
+edition = "2021"
+authors = ["theonlyhennygod"]
+license = "Apache-2.0"
+description = "Provider registry for Corvus agent runtime"
+repository = "https://github.com/dallay/corvus"
+
+[dependencies]
+corvus-traits = { path = "../corvus-traits" }
+anyhow = "1.0"
+
+[package.metadata.docs.rs]
+all-features = true

@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   report:
-    uses: dallay/common-actions/.github/workflows/contributor-report.yml@e77aee209c07cd031e1fc6a3f275df774b4685a2 # v1.1.0
+    uses: dallay/common-actions/.github/workflows/contributor-report.yml@0f8de7c46309882e873a878e1fcc636bf56ad586 # v1.2.0
     with:
       trusted-users: dependabot[bot],renovate[bot],github-copilot[bot],github-actions[bot],codecov[bot],sonarcloud[bot],dallay-bot[bot]
     secrets: inherit

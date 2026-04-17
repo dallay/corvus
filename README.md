@@ -8,19 +8,36 @@
 
 ## 📊 Repository Stats
 
-[![Stars](https://img.shields.io/github/stars/dallay/corvus?style=social)](https://github.com/dallay/corvus/stargazers)
-[![Forks](https://img.shields.io/github/forks/dallay/corvus?style=social)](https://github.com/dallay/corvus/network/members)
-[![Issues](https://img.shields.io/github/issues/dallay/corvus)](https://github.com/dallay/corvus/issues)
-[![Pull Requests](https://img.shields.io/github/issues-pr/dallay/corvus)](https://github.com/dallay/corvus/pulls)
-[![Repo Size](https://img.shields.io/github/repo-size/dallay/corvus)](https://github.com/dallay/corvus)
-[![Last Commit](https://img.shields.io/github/last-commit/dallay/corvus)](https://github.com/dallay/corvus/commits/main)
+[![npm version](https://img.shields.io/npm/v/@dallay/corvus?color=cb3837&logo=npm)](https://www.npmjs.com/package/@dallay/corvus)
+[![Docker Hub](https://img.shields.io/docker/v/dallay/corvus?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/dallay/corvus)
+[![tag](https://custom-icon-badges.demolab.com/github/v/tag/dallay/corvus?logo=tag&logoColor=white)](https://github.com/dallay/corvus/tags)
+[![license](https://custom-icon-badges.demolab.com/github/license/dallay/corvus?logo=law)](https://github.com/dallay/corvus/blob/main/LICENSE)
+[![code size](https://custom-icon-badges.demolab.com/github/languages/code-size/dallay/corvus?logo=file-code&logoColor=white)](https://github.com/dallay/corvus)
+
+[![stars](https://custom-icon-badges.demolab.com/github/stars/dallay/corvus?logo=star&style=flat)](https://github.com/dallay/corvus/stargazers)
+[![fork](https://custom-icon-badges.demolab.com/github/forks/dallay/corvus?logo=fork)](https://github.com/dallay/corvus/network/members)
+[![watch](https://custom-icon-badges.demolab.com/github/watchers/dallay/corvus?logo=eye)](https://github.com/dallay/corvus/watchers)
+[![open issues](https://custom-icon-badges.demolab.com/github/issues-raw/dallay/corvus?logo=issue)](https://github.com/dallay/corvus/issues)
+[![pr closed](https://custom-icon-badges.demolab.com/github/issues-pr-closed/dallay/corvus?color=purple&logo=git-pull-request&logoColor=white)](https://github.com/dallay/corvus/pulls?q=is%3Apr+is%3Aclosed)
+[![last commit](https://custom-icon-badges.demolab.com/github/last-commit/dallay/corvus?logo=history&logoColor=white)](https://github.com/dallay/corvus/commits/main)
+
+## 📈 Activity & Reach
+
+![NPM Downloads](https://img.shields.io/npm/dw/@dallay/corvus?label=npm%20down%20week&color=red)
+![NPM Downloads](https://img.shields.io/npm/dm/@dallay/corvus?label=npm%20down%20month&color=red)
+![NPM Downloads](https://img.shields.io/npm/d18m/@dallay/corvus?label=npm%20down%20year&color=red)
+
+![Docker Pulls](https://img.shields.io/docker/pulls/dallay/corvus)
+![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/dallay/corvus/total?style=flat&label=downloads&color=blue)
+
+[![total contributions](https://custom-icon-badges.demolab.com/badge/dynamic/json?logo=graph&logoColor=fff&color=blue&label=total%20contributions&query=%24.totalContributions&url=https%3A%2F%2Fstreak-stats.demolab.com%2F%3Fuser%3Ddallay%26type%3Djson)](https://github.com/dallay)
+[![github streak](https://custom-icon-badges.demolab.com/badge/dynamic/json?logo=fire&logoColor=fff&color=orange&label=github%20streak&query=%24.currentStreak.length&suffix=%20days&url=https%3A%2F%2Fstreak-stats.demolab.com%2F%3Fuser%3Ddallay%26type%3Djson)](https://github.com/dallay)
+[![followers](https://custom-icon-badges.demolab.com/github/followers/dallay?logo=person-add)](https://github.com/dallay?tab=followers)
 
 ## 🚀 Project Status
 
 [![Build Status](https://github.com/dallay/corvus/actions/workflows/pull-request-check.yml/badge.svg)](https://github.com/dallay/corvus/actions/workflows/pull-request-check.yml)
 [![codecov](https://codecov.io/gh/dallay/corvus/graph/badge.svg?token=N4THEP2OF1)](https://app.codecov.io/gh/dallay/corvus)
-[![License](https://img.shields.io/github/license/dallay/corvus?color=blue)](LICENSE)
-[![Version](https://img.shields.io/github/v/tag/dallay/corvus?sort=semver&label=version)](https://github.com/dallay/corvus/tags)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/dallay/corvus/compare)
 
 ## 🛡️ Code Quality (SonarCloud)

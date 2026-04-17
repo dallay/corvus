@@ -16,3 +16,8 @@
 2. ✅ Enforced exact command matching in `is_segment_valid` to block `./cmd` bypasses.
 3. ✅ Validated path-like command arguments against path traversal and forbidden path rules.
 4. ✅ Expanded `contains_blocked_operators` to include backslash; glob chars blocked in `is_segment_valid`.
+
+## 2025-05-20 - Flag-based Path Validation Hardening
+
+**Learning:** The `SecurityPolicy` was vulnerable to path validation bypass when absolute paths or traversal sequences were passed within command flags (e.g., `grep --file=/etc/passwd` or `git -C/etc status`). The argument validation loop was only checking standalone arguments and not extracting values from flag assignments.
+**Action:** Updated the argument validation loop in `is_segment_valid` to extract and validate potential paths from flags (`--key=value` and `-Cvalue`). This ensures that security checks (traversal, workspace bounds, forbidden paths) are applied consistently to all path-like inputs, even when embedded in flags.

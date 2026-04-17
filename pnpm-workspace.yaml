@@ -5,9 +5,9 @@ packages:
 
 catalog:
   '@astrojs/check': 0.9.8
-  '@astrojs/starlight': 0.38.2
+  '@astrojs/starlight': 0.38.3
   '@biomejs/biome': 2.4.9
-  '@fontsource-variable/space-grotesk': 5.2.8
+  '@fontsource-variable/space-grotesk': 5.2.10
   '@fontsource/doto': 5.2.8
   '@fontsource/space-mono': 5.2.8
   '@playwright/test': 1.59.1
@@ -28,7 +28,7 @@ catalog:
   tailwind-merge: 3.5.0
   tailwindcss: 4.2.2
   typescript: 5.9.3
-  vite: 6.4.2
+  vite: 7.3.2
   vitest: 4.0.18
   vue: 3.5.31
   vue-i18n: 11.3.0

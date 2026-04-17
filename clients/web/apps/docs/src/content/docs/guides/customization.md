@@ -1,28 +1,28 @@
 ---
 title: Template Customization
-description: Reference guide for tailoring the original Gradle template into Corvus-specific identity, publishing, and repository settings.
+description: Reference guide for tailoring the Corvus project identity, publishing metadata, and documentation site configuration.
 owner: team-platform
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-04-12
 appliesTo: main
 docType: guide
 ---
 
-This repository was created from a Gradle template and customized for **Corvus**.
+This repository is built on a Gradle multiplatform foundation and customized for **Corvus**.
 
 ## Project Identity
 
-Update root identity in `settings.gradle.kts`:
+Root project name in `settings.gradle.kts`:
 
 ```kotlin
 rootProject.name = "corvus"
 ```
 
-Update publishing metadata in `gradle.properties`:
+Publishing metadata in `gradle.properties`:
 
 ```properties
 GROUP=com.profiletailors
-VERSION=0.1.0-SNAPSHOT
+VERSION=3.0.0
 POM_DEVELOPER_NAME=corvus-team
 POM_URL=https://github.com/dallay/corvus
 POM_SCM_CONNECTION=scm:git:https://github.com/dallay/corvus.git
@@ -31,38 +31,62 @@ POM_LICENSE_URL=https://www.apache.org/licenses/LICENSE-2.0
 
 ## Package Namespace
 
-Corvus currently **keeps the existing package namespace** `com.profiletailors` for runtime code and
-build-logic plugin IDs to avoid breaking compatibility while architecture evolves.
+Corvus currently keeps the `com.profiletailors` namespace for Gradle plugin IDs and Kotlin
+modules to maintain compatibility while the architecture evolves. New modules are included via
+the `includeProjects` helper in `settings.gradle.kts`.
 
-## Platform Direction
+## Current Architecture
 
-Corvus architecture targets:
+Corvus is an agentic platform with these core components:
 
-- Kotlin + Spring Boot (WebFlux + Coroutines) for orchestration.
-- Neo4j for graph memory.
-- Rust sidecars for performance-critical and sandboxed tasks.
-- Astro + Vue for control-plane visibility.
+- **Rust Agent Runtime** (`clients/agent-runtime`) — Autonomous agent execution with 22+ AI
+  providers, 14 communication channels, 32+ tools, hardware peripherals, cron scheduling, model
+  routing, and a trait-driven extension architecture.
+- **Kotlin Multiplatform Clients** (`clients/composeApp`, `modules/agent-core-kmp`) — Shared
+  Compose UI for desktop, Android, and iOS with a common core bootstrap.
+- **Web Applications** (`clients/web`) — Astro/Vue web apps including the operator dashboard,
+  documentation site, and marketing pages.
+- **Cerebro Memory Service** (`modules/cerebro`) — Standalone MCP memory service with embedded
+  SurrealDB, 13 memory tools, and optional TUI dashboard.
 
 ## Documentation Site
 
-Customize `clients/web/apps/docs/astro.config.mjs`:
+Configuration lives in `clients/web/apps/docs/astro.config.mjs`:
 
+- `site`: Documentation site URL
 - `base`: `/corvus`
 - `starlight.title`: `Corvus`
-- Repository links: `https://github.com/dallay/corvus`
+- Repository links point to `https://github.com/dallay/corvus`
+
+To customize the docs site, edit files under
+`clients/web/apps/docs/src/content/docs/`. Every change in the English root must be mirrored in
+`es/` for bilingual parity.
 
 ## CI/CD and Repository
 
 Review and customize:
 
-1. `.github/workflows/`
-2. `.github/CODEOWNERS`
-3. `README.md`
-4. Release links in docs
+1. `.github/workflows/` — CI pipelines for Kotlin, Rust, and web.
+2. `.github/CODEOWNERS` — Code ownership rules.
+3. `README.md` — Top-level project overview.
+4. Release links in documentation pages.
 
-## Suggested Incremental Path
+## Adding New Modules
 
-1. Stabilize identity and publishing metadata.
-2. Keep package namespace unchanged while adding new Corvus modules.
-3. Introduce graph-memory and reasoning modules behind clear boundaries.
-4. Add sidecar interfaces and observability endpoints.
+New Gradle modules are registered in `settings.gradle.kts` via the `includeProjects` helper:
+
+```kotlin
+includeProjects(
+  mapOf(
+    ":androidApp" to "clients/androidApp",
+    ":web" to "clients/web",
+    ":composeApp" to "clients/composeApp",
+    ":agent-runtime" to "clients/agent-runtime",
+    ":agent-core-kmp" to "modules/agent-core-kmp",
+    // Add new modules here:
+    // ":my-module" to "modules/my-module",
+  )
+)
+```
+
+Place Kotlin modules under `modules/` and client applications under `clients/`.

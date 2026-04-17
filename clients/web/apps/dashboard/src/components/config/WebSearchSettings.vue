@@ -127,7 +127,11 @@ function handleSecretModeChange(event: Event): void {
         <span>{{ $t("webSearch.braveApiKeyValue") }}</span>
         <Input
           :model-value="modelValue.web_search_brave_api_key_value"
+          aria-describedby="web-search-brave-api-key-help"
+          autocapitalize="off"
           :disabled="disabled || saving"
+          inputmode="text"
+          spellcheck="false"
           type="password"
           data-testid="web_search_brave_api_key_value"
           @update:model-value="updateField('web_search_brave_api_key_value', $event)"
@@ -142,6 +146,9 @@ function handleSecretModeChange(event: Event): void {
             : $t("webhook.statusNotConfigured"),
         })
       }}
+    </p>
+    <p id="web-search-brave-api-key-help" class="helper">
+      API keys support paste from password managers or secure vault tools.
     </p>
     <div class="actions">
       <Button :disabled="disabled || saving" data-testid="save" @click="emit('save')">{{

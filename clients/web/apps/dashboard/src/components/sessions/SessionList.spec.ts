@@ -133,6 +133,29 @@ describe("SessionList", () => {
     expect(emitted?.[0]?.[0]).toEqual(expect.objectContaining({ id: "s1" }));
   });
 
+  it("applies minimum target classes to session actions and pagination controls", async () => {
+    mockSessionsResponse(
+      Array.from({ length: 25 }, (_, i) => ({
+        id: `s${i}`,
+        started_at: "2026-01-01",
+        last_activity: "2026-01-02",
+        message_count: 1,
+        status: "active" as const,
+      })),
+      60
+    );
+
+    const wrapper = mountSessionList();
+    await flushPromises();
+
+    expect(wrapper.find(".select-btn").classes()).toContain("touch-target");
+    expect(wrapper.find(".page-size-select").classes()).toContain("touch-target");
+
+    const paginationButtons = wrapper.findAll(".pagination button");
+    expect(paginationButtons[0]?.classes()).toContain("touch-target");
+    expect(paginationButtons[1]?.classes()).toContain("touch-target");
+  });
+
   it("shows pagination when total exceeds page size", async () => {
     mockSessionsResponse(
       Array.from({ length: 25 }, (_, i) => ({

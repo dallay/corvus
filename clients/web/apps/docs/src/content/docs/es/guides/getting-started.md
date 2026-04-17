@@ -113,6 +113,5 @@ corvus --help
 
 ## Siguientes Pasos
 
-- Revisa la [Estructura del Proyecto](./structure/).
-- Consulta la [Lista de Funcionalidades](./features/).
-- Continúa con [Desarrollo](./development/).
+> **Nota**: Las subsecciones Estructura del Proyecto, Funcionalidades y Desarrollo están disponibles solo en inglés.
+> Consulte la [versión en inglés](../guides/getting-started) para más detalles.

@@ -1,13 +1,15 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computed, ref } from "vue";
 import { createI18n } from "vue-i18n";
 
 import ChatWorkspace from "@/components/chat/ChatWorkspace.vue";
 import type { useConfig } from "@/composables/useConfig";
 import { i18nConfig } from "@/i18n";
+import { expectNoAxeViolations } from "@/test/runAxe";
 
 const testI18n = createI18n(i18nConfig);
+const mountedWrappers: Array<ReturnType<typeof mount>> = [];
 
 function translatedText(key: string): string {
   return String(testI18n.global.t(key));
@@ -65,12 +67,15 @@ function createMockConfig(
 
 function mountWorkspace(configOverrides?: Partial<ReturnType<typeof useConfig>>) {
   const config = createMockConfig(configOverrides);
-  return mount(ChatWorkspace, {
+  const wrapper = mount(ChatWorkspace, {
+    attachTo: document.body,
     props: { config },
     global: {
       plugins: [testI18n],
     },
   });
+  mountedWrappers.push(wrapper);
+  return wrapper;
 }
 
 function mountReadyWorkspace() {
@@ -91,6 +96,13 @@ beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
   window.sessionStorage.clear();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  while (mountedWrappers.length > 0) {
+    mountedWrappers.pop()?.unmount();
+  }
 });
 
 describe("ChatWorkspace", () => {
@@ -119,6 +131,29 @@ describe("ChatWorkspace", () => {
     expect(resumeButton?.exists()).toBe(true);
   });
 
+  it("associates the prompt with its disclaimer after entering chat", async () => {
+    const { wrapper: readyWrapper } = mountReadyWorkspace();
+    const startButton = readyWrapper
+      .findAll("button")
+      .find((button) => button.text() === translatedText("chat.startSession"));
+    await startButton?.trigger("click");
+    await flushPromises();
+
+    const promptInput = readyWrapper.get("#chat-prompt-input");
+    expect(promptInput.attributes("aria-describedby")).toBe("chat-input-disclaimer");
+    expect(readyWrapper.find('label[for="chat-prompt-input"]').classes()).toContain("sr-only");
+  });
+
+  it("has no obvious axe violations for the onboarding gate", async () => {
+    const wrapper = mountWorkspace();
+
+    await expectNoAxeViolations(wrapper.get(".chat-gate").element, {
+      rules: {
+        region: { enabled: false },
+      },
+    });
+  });
+
   it("starts a new session and shows chat input when start session is clicked", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValueOnce("11111111-1111-4111-8111-111111111111");
 
@@ -142,6 +177,98 @@ describe("ChatWorkspace", () => {
     expect(
       wrapper.find(`input[placeholder="${translatedText("chat.inputPlaceholder")}"]`).exists()
     ).toBe(true);
+    expect(document.activeElement).toBe(wrapper.get("#chat-prompt-input").element);
+  });
+
+  it("announces and focuses the prompt when switching sessions", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          sessions: [
+            {
+              id: "11111111-1111-4111-8111-111111111111",
+              started_at: "2026-03-28T10:00:00Z",
+              ended_at: null,
+              message_count: 5,
+              last_activity: "2026-03-28T11:00:00Z",
+            },
+            {
+              id: "session-2",
+              started_at: "2026-03-27T10:00:00Z",
+              ended_at: null,
+              message_count: 2,
+              last_activity: "2026-03-27T10:30:00Z",
+            },
+          ],
+          total: 2,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+    vi.spyOn(crypto, "randomUUID").mockReturnValueOnce("11111111-1111-4111-8111-111111111111");
+
+    const { wrapper } = mountReadyWorkspace();
+    const startButton = wrapper
+      .findAll("button")
+      .find((button) => button.text() === translatedText("chat.startSession"));
+    await startButton?.trigger("click");
+    await flushPromises();
+
+    const sidebar = wrapper.findComponent({ name: "SessionSidebar" });
+    sidebar.vm.$emit("switch-session", "session-2");
+    await flushPromises();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("session-2");
+    expect(wrapper.findAll('[role="status"]')[0]?.text()).toContain("session-2");
+    expect(document.activeElement).toBe(wrapper.get("#chat-prompt-input").element);
+  });
+
+  it("announces approval decisions and restores focus to the prompt", async () => {
+    const { wrapper } = mountReadyWorkspace();
+
+    const startButton = wrapper
+      .findAll("button")
+      .find((button) => button.text() === translatedText("chat.startSession"));
+    await startButton?.trigger("click");
+    await flushPromises();
+
+    fetchMock.mockResolvedValueOnce(new Response("", { status: 500 }));
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: "approval_required",
+          tool: "file_write",
+          reason: "Needs confirmation",
+          session_id: "11111111-1111-4111-8111-111111111111",
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+
+    const promptInput = wrapper.get("#chat-prompt-input");
+    await promptInput.setValue("approve this");
+    await wrapper.get("form").trigger("submit.prevent");
+    await flushPromises();
+
+    const approveButton = wrapper.get('[data-testid="btn-approve"]');
+    expect(document.activeElement).toBe(approveButton.element);
+
+    await approveButton.trigger("click");
+    await flushPromises();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+    await flushPromises();
+
+    const statusRegions = wrapper.findAll('[role="status"]');
+    expect(statusRegions[1]?.text()).toContain(translatedText("chat.approve"));
+    expect(document.activeElement).toBe(wrapper.get("#chat-prompt-input").element);
   });
 
   it("sends chat message and renders response", async () => {

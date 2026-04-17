@@ -179,6 +179,23 @@ describe("SessionDetail", () => {
     expect(wrapper.emitted("close")).toHaveLength(1);
   });
 
+  it("applies minimum target class to the close control", async () => {
+    mockDetailResponse({
+      id: "abc-123",
+      started_at: "2026-01-01",
+      ended_at: null,
+      status: "active",
+      message_count: 0,
+      last_activity: "2026-01-01",
+      memory_summary: {},
+    });
+
+    const wrapper = mountDetail("abc-123");
+    await flushPromises();
+
+    expect(wrapper.find(".close-btn").classes()).toContain("touch-target");
+  });
+
   it("emits view-memory event when View Memory Entries button is clicked", async () => {
     mockDetailResponse({
       id: "abc-123",

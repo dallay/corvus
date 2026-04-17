@@ -64,6 +64,10 @@ describe("WebSearchSettings", () => {
     });
 
     expect(wrapper.find('[data-testid="web_search_brave_api_key_value"]').exists()).toBe(true);
+    expect(
+      wrapper.get('[data-testid="web_search_brave_api_key_value"]').attributes("aria-describedby")
+    ).toBe("web-search-brave-api-key-help");
+    expect(wrapper.text()).toContain("password managers or secure vault tools");
   });
 
   it("hides password input when brave api key mode is clear", async () => {

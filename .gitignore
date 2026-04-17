@@ -112,6 +112,8 @@ cypress/downloads/
 # ------------------------------------------------------------------------------
 coverage/
 *.lcov
+test-results/
+.playwright-mcp/
 
 # ------------------------------------------------------------------------------
 # TEMPORARY FILES AND LOGS
@@ -208,6 +210,11 @@ build/spotless-prettier-node-modules-*/serve.js
 .opencode/skills
 .opencode/skills.bak
 .opencode/skills/
+.qwen/commands
+.qwen/commands.bak
+.qwen/settings.json
+.qwen/skills
+.qwen/skills.bak
 .vscode/mcp.json
 /.mcp.json
 /AGENTS.md

@@ -1,0 +1,46 @@
+# Chat-Bot Agent Template
+#
+# A single-channel conversational agent with short-term memory.
+# Ideal for Discord/Slack bots, customer-facing assistants, or internal
+# Q&A bots that need to remember context within a session.
+#
+# Usage:
+#   corvus agent new --template chat-bot --name my-bot
+#   corvus agent build agents/my-bot/agent.toml
+#   corvus agent run   agents/my-bot/agent.toml
+
+version = "1.0"
+name    = "chat-bot"
+description = "Single-channel conversational bot with session memory."
+
+# ---------------------------------------------------------------------------
+# Providers
+# ---------------------------------------------------------------------------
+[providers]
+providers   = ["anthropic"]
+default     = "anthropic"
+model       = "claude-haiku-4-5-20251001"
+temperature = 0.7
+
+# ---------------------------------------------------------------------------
+# Channels — pick one; comment out the others
+# ---------------------------------------------------------------------------
+[channels]
+channels = ["slack"]
+default  = "slack"
+
+# ---------------------------------------------------------------------------
+# Tools — none for a pure conversational bot
+# ---------------------------------------------------------------------------
+[tools]
+tools = []
+mode  = "allow"
+
+# ---------------------------------------------------------------------------
+# Memory — sqlite for persistent session recall
+# ---------------------------------------------------------------------------
+[memory]
+backend = "sqlite"
+
+[memory.config]
+path = "${CORVUS_DATA_DIR}/chat-bot-memory.db"

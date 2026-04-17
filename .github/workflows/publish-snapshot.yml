@@ -21,6 +21,7 @@ jobs:
     with:
       # Snapshot runs only cover the Gradle/Maven channel.
       release: false
+      prerelease: false
     secrets:
       SIGNING_IN_MEMORY_KEY: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
       SIGNING_IN_MEMORY_KEY_PASSWORD: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}

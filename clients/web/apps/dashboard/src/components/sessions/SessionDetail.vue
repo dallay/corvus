@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch } from "vue";
+import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import CerebroSessionActions from "@/components/sessions/CerebroSessionActions.vue";
@@ -20,6 +20,15 @@ const emit = defineEmits<{
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
+const closeButtonRef = ref<HTMLButtonElement | null>(null);
+
+function focusCloseButton(): void {
+  closeButtonRef.value?.focus();
+}
+
+defineExpose({
+  focusCloseButton,
+});
 
 async function load() {
   const [sessionResult, cerebroResult] = await Promise.allSettled([
@@ -43,7 +52,7 @@ watch(() => props.sessionId, load, { immediate: true });
   <div class="session-detail">
     <div class="detail-header">
       <h3>{{ t("sessions.detail", "Session Detail") }}</h3>
-      <button class="close-btn" :aria-label="t('actions.close', 'Close')" @click="emit('close')">
+      <button ref="closeButtonRef" class="close-btn touch-target" :aria-label="t('actions.close', 'Close')" @click="emit('close')">
         &times;
       </button>
     </div>
@@ -142,13 +151,18 @@ watch(() => props.sessionId, load, { immediate: true });
   font-size: 14px;
 }
 
+.touch-target {
+  min-height: 24px;
+  min-width: 24px;
+}
+
 .close-btn {
   background: none;
   border: none;
   font-size: 20px;
   cursor: pointer;
   color: var(--color-text-secondary);
-  padding: 0 4px;
+  padding: 6px;
   line-height: 1;
 }
 

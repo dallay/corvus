@@ -64,7 +64,7 @@ function truncateId(id: string): string {
         <span class="session-sidebar-title">{{ t("session.history") }}</span>
       </template>
       <button
-        class="session-sidebar-toggle"
+        class="session-sidebar-toggle touch-target"
         :aria-label="collapsed ? t('session.expand') : t('session.collapse')"
         @click="emit('toggle-collapse')"
       >
@@ -87,7 +87,7 @@ function truncateId(id: string): string {
 
     <template v-if="!collapsed">
       <button
-        class="session-sidebar-new-chat"
+        class="session-sidebar-new-chat touch-target"
         @click="emit('new-chat')"
       >
         <svg
@@ -114,7 +114,7 @@ function truncateId(id: string): string {
         >
           <button
             :data-testid="`session-item-${session.id}`"
-            class="session-sidebar-item"
+            class="session-sidebar-item touch-target"
             :class="{ 'session-sidebar-item--active': session.id === currentSessionId }"
             :aria-current="session.id === currentSessionId ? 'true' : undefined"
             @click="emit('switch-session', session.id)"
@@ -174,12 +174,17 @@ function truncateId(id: string): string {
   color: var(--corvus-color-text-disabled);
 }
 
+.touch-target {
+  min-height: 24px;
+  min-width: 24px;
+}
+
 .session-sidebar-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 6px;
   background: transparent;
   border: none;
@@ -199,6 +204,7 @@ function truncateId(id: string): string {
   align-items: center;
   gap: 8px;
   margin: 8px 12px;
+  min-height: 36px;
   padding: 8px 10px;
   border-radius: var(--corvus-radius-input);
   border: 1px dashed var(--corvus-color-border-default);
@@ -229,6 +235,7 @@ function truncateId(id: string): string {
   flex-direction: column;
   width: 100%;
   gap: 2px;
+  min-height: 36px;
   padding: 8px 10px;
   border-radius: var(--corvus-radius-input);
   border: 1px solid transparent;
@@ -244,8 +251,8 @@ function truncateId(id: string): string {
 }
 
 .session-sidebar-item--active {
-  background: var(--corvus-color-bg-surface);
-  border-color: var(--corvus-color-border-visible);
+  background: var(--corvus-color-bg-raised);
+  border-left: 3px solid var(--corvus-color-accent-red);
 }
 
 .session-item-id {

@@ -32,6 +32,8 @@ pub use telegram::TelegramChannel;
 pub use traits::{Channel, SendMessage};
 pub use whatsapp::WhatsAppChannel;
 
+use corvus_channels::select_channel;
+
 use crate::agent::dispatcher::{
     DispatchAction, NativeToolDispatcher, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
 };
@@ -132,7 +134,7 @@ struct StagedImageGuard(Vec<media::StagedImage>);
 impl Drop for StagedImageGuard {
     fn drop(&mut self) {
         for img in &self.0 {
-            img.cleanup();
+            media::cleanup_staged_image(img);
         }
     }
 }
@@ -525,6 +527,10 @@ async fn execute_channel_dispatch_action(
         DispatchAction::ApprovalRequired(tool) => Ok((
             false,
             crate::approval::structured_denial_text(call_name, tool),
+        )),
+        DispatchAction::Blocked { code, reason } => Ok((
+            false,
+            crate::approval::structured_policy_denial_text(call_name, code, reason),
         )),
     }
 }
@@ -1568,7 +1574,7 @@ fn inject_transcription(
                     let audio = &staged[tx_idx];
                     let trimmed = transcription.text.trim().to_string();
 
-                    let meta = audio_media::AudioHistoryMeta::from_staged(
+                    let meta = audio_media::build_audio_history_meta_from_staged(
                         audio,
                         &trimmed,
                         caption_text.as_deref(),
@@ -1722,7 +1728,7 @@ async fn stage_channel_images(
             Ok(image) => staged.push(image),
             Err(reason) => {
                 for image in &staged {
-                    image.cleanup();
+                    media::cleanup_staged_image(image);
                 }
                 return Err(reason);
             }
@@ -2753,18 +2759,18 @@ fn build_doctor_channels(config: &Config) -> Vec<DoctorChannelEntry> {
 }
 
 pub(crate) fn build_channel(config: &Config, channel_name: &str) -> Option<Arc<dyn Channel>> {
-    let channel_name = channel_name.to_ascii_lowercase();
-    CHANNEL_REGISTRY
-        .iter()
-        .find(|entry| entry.key == channel_name.as_str())
-        .and_then(|entry| (entry.build)(config))
+    // Use select_channel to align discovery and construction via the same registry
+    select_channel(channel_name).ok().and_then(|selected| {
+        CHANNEL_REGISTRY
+            .iter()
+            .find(|entry| entry.key == selected.key)
+            .and_then(|entry| (entry.build)(config))
+    })
 }
 
 pub(crate) fn is_supported_channel(channel_name: &str) -> bool {
-    let channel_name = channel_name.to_ascii_lowercase();
-    CHANNEL_REGISTRY
-        .iter()
-        .any(|entry| entry.key == channel_name.as_str())
+    // Use select_channel for consistency - returns Ok if channel is constructible
+    select_channel(channel_name).is_ok()
 }
 
 /// Run health checks for configured channels.
@@ -3464,34 +3470,6 @@ mod tests {
                 text: Some("image-ok".to_string()),
                 tool_calls: Vec::new(),
             })
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl Provider for Arc<ImageAwareProvider> {
-        fn capabilities(&self) -> ProviderCapabilities {
-            self.as_ref().capabilities()
-        }
-
-        async fn chat_with_system(
-            &self,
-            system_prompt: Option<&str>,
-            message: &str,
-            model: &str,
-            temperature: f64,
-        ) -> anyhow::Result<String> {
-            self.as_ref()
-                .chat_with_system(system_prompt, message, model, temperature)
-                .await
-        }
-
-        async fn chat(
-            &self,
-            request: ChatRequest<'_>,
-            model: &str,
-            temperature: f64,
-        ) -> anyhow::Result<ChatResponse> {
-            self.as_ref().chat(request, model, temperature).await
         }
     }
 
@@ -5062,7 +5040,7 @@ mod tests {
                 .await
                 .unwrap();
         let first_path = first_staged.temp_path.clone();
-        first_staged.cleanup();
+        media::cleanup_staged_image(&first_staged);
 
         let message = traits::ChannelMessage {
             id: "img-partial-cleanup".into(),

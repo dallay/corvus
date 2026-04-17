@@ -71,16 +71,21 @@ pub fn create_memory(
     workspace_dir: &Path,
     api_key: Option<&str>,
 ) -> anyhow::Result<Box<dyn Memory>> {
+    let canonical_backend = corvus_memory::resolve_memory_backend_key(&config.backend)
+        .unwrap_or(config.backend.as_str())
+        .to_string();
+    let mut effective_config = config.clone();
+    effective_config.backend = canonical_backend;
     if cerebro_configured(config) {
         tracing::info!("Cerebro MCP configured; local memory remains short-term only");
     }
     // Best-effort memory hygiene/retention pass (throttled by state file).
-    if let Err(e) = hygiene::run_if_due(config, workspace_dir) {
+    if let Err(e) = hygiene::run_if_due(&effective_config, workspace_dir) {
         tracing::warn!("memory hygiene skipped: {e}");
     }
 
     // If snapshot_on_hygiene is enabled, export core memories during hygiene.
-    if config.snapshot_enabled && config.snapshot_on_hygiene {
+    if effective_config.snapshot_enabled && effective_config.snapshot_on_hygiene {
         if let Err(e) = snapshot::export_snapshot(workspace_dir) {
             tracing::warn!("memory snapshot skipped: {e}");
         }
@@ -88,9 +93,9 @@ pub fn create_memory(
 
     // Auto-hydration: if brain.db is missing but MEMORY_SNAPSHOT.md exists,
     // restore the "soul" from the snapshot before creating the backend.
-    if config.auto_hydrate
+    if effective_config.auto_hydrate
         && matches!(
-            classify_memory_backend(&config.backend),
+            classify_memory_backend(&effective_config.backend),
             MemoryBackendKind::Sqlite | MemoryBackendKind::Lucid
         )
         && snapshot::should_hydrate(workspace_dir)
@@ -108,14 +113,14 @@ pub fn create_memory(
         }
     }
 
-    match classify_memory_backend(&config.backend) {
+    match classify_memory_backend(&effective_config.backend) {
         MemoryBackendKind::Sqlite => Ok(Box::new(build_sqlite_memory(
-            config,
+            &effective_config,
             workspace_dir,
             api_key,
         )?)),
         MemoryBackendKind::Lucid => {
-            let local = build_sqlite_memory(config, workspace_dir, api_key)?;
+            let local = build_sqlite_memory(&effective_config, workspace_dir, api_key)?;
             Ok(Box::new(LucidMemory::new(workspace_dir, local)))
         }
         MemoryBackendKind::Markdown => Ok(Box::new(MarkdownMemory::new(workspace_dir))),
@@ -128,7 +133,7 @@ pub fn create_memory(
         MemoryBackendKind::Unknown => {
             tracing::warn!(
                 "Unknown memory backend '{}', falling back to markdown",
-                config.backend
+                effective_config.backend
             );
             Ok(Box::new(MarkdownMemory::new(workspace_dir)))
         }

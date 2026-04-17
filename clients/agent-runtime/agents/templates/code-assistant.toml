@@ -1,0 +1,65 @@
+# Code Assistant Template
+#
+# Filesystem, shell, git, and code-search tools for an in-repo coding
+# assistant.  Designed to run locally via stdio; DO NOT expose this agent
+# over a public webhook without sandboxing enabled.
+#
+# Usage:
+#   corvus agent new --template code-assistant --name coder
+#   corvus agent build agents/coder/agent.toml
+#   corvus agent run   agents/coder/agent.toml
+
+version = "1.0"
+name    = "code-assistant"
+description = "Local coding assistant with filesystem, shell, and git tools."
+
+# ---------------------------------------------------------------------------
+# Providers — use a model with strong coding capabilities
+# ---------------------------------------------------------------------------
+[providers]
+providers   = ["anthropic"]
+default     = "anthropic"
+model       = "claude-sonnet-4-5-20251001"
+temperature = 0.2
+
+# ---------------------------------------------------------------------------
+# Channels — stdio for local interactive use
+# ---------------------------------------------------------------------------
+[channels]
+channels = ["stdio"]
+default  = "stdio"
+
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+[tools]
+tools = [
+  "file_read",     # Read source files
+  "file_write",    # Write / patch source files
+  "shell",         # Run build / test commands
+  "code_search",   # Semantic and keyword search across the repo
+  "git_operations",# Commit, diff, branch management
+]
+mode = "allow"
+
+# ---------------------------------------------------------------------------
+# Memory — lightweight session memory for context continuity
+# ---------------------------------------------------------------------------
+[memory]
+backend = "sqlite"
+
+[memory.config]
+path = "${CORVUS_DATA_DIR}/code-assistant-memory.db"
+
+# ---------------------------------------------------------------------------
+# Security — landlock on Linux; none on macOS/Windows (set per environment)
+# ---------------------------------------------------------------------------
+[security]
+sandbox = "none"
+tool_restrictions = [
+  "file_read",
+  "file_write",
+  "shell",
+  "code_search",
+  "git_operations",
+]

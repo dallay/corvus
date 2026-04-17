@@ -1,0 +1,22 @@
+[package]
+name = "corvus-composer"
+version = "0.1.0"
+edition = "2021"
+authors = ["theonlyhennygod"]
+license = "Apache-2.0"
+description = "Agent Manifest schema and composer for Corvus agent runtime"
+repository = "https://github.com/dallay/corvus"
+
+[dependencies]
+corvus-providers = { path = "../corvus-providers" }
+corvus-channels = { path = "../corvus-channels" }
+corvus-tools = { path = "../corvus-tools" }
+corvus-memory = { path = "../corvus-memory" }
+corvus-observability = { path = "../corvus-observability" }
+corvus-security = { path = "../corvus-security" }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+toml = "1.1"
+
+[package.metadata.docs.rs]
+all-features = true

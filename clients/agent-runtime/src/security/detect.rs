@@ -11,7 +11,9 @@ use std::sync::Arc;
 /// OS-level backend is available. Returns `Ok(NoopSandbox)` when
 /// `require == false` and no backend is found.
 pub fn create_sandbox(config: &SecurityConfig) -> Result<Arc<dyn Sandbox>> {
-    let backend = &config.sandbox.backend;
+    // Use the typed config value directly - no need to re-resolve through registry
+    // as the config already has the validated SandboxBackend enum value.
+    let backend = config.sandbox.backend.clone();
     let require = config.sandbox.require;
 
     // If explicitly disabled or backend=None, return noop or error

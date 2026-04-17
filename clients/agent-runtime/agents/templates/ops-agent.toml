@@ -1,0 +1,110 @@
+# Ops Agent Template
+#
+# Full-capability operations agent: all tools enabled, strict sandbox,
+# observer for audit trails, cron scheduling support.
+# Use this for infrastructure automation, incident response, or
+# scheduled maintenance workflows.
+#
+# !! HIGH PRIVILEGE — run inside a sandbox; review tool_restrictions !!
+#
+# Usage:
+#   corvus agent new --template ops-agent --name ops
+#   corvus agent build agents/ops/agent.toml
+#   corvus agent run   agents/ops/agent.toml
+
+version = "1.0"
+name    = "ops-agent"
+description = "Full-capability operations agent with strict sandboxing and audit observers."
+
+# ---------------------------------------------------------------------------
+# Providers
+# ---------------------------------------------------------------------------
+[providers]
+providers   = ["anthropic"]
+default     = "anthropic"
+model       = "claude-sonnet-4-5-20251001"
+temperature = 0.1
+
+# ---------------------------------------------------------------------------
+# Channels
+# ---------------------------------------------------------------------------
+[channels]
+channels = ["slack", "webhook", "stdio"]
+default  = "slack"
+
+# ---------------------------------------------------------------------------
+# Tools — full operational toolset
+# ---------------------------------------------------------------------------
+[tools]
+tools = [
+  "shell",
+  "file_read",
+  "file_write",
+  "http_request",
+  "git_operations",
+  "memory_recall",
+  "memory_store",
+  "memory_forget",
+  "web_search_tool",
+  "cron_add",
+  "cron_list",
+  "cron_remove",
+  "cron_run",
+  "cron_runs",
+  "cron_update",
+  "schedule",
+  "pushover",
+  "hardware_board_info",
+  "hardware_memory_map",
+  "hardware_memory_read",
+  "delegate",
+]
+mode = "allow"
+
+# ---------------------------------------------------------------------------
+# Memory
+# ---------------------------------------------------------------------------
+[memory]
+backend = "sqlite"
+
+[memory.config]
+path = "${CORVUS_DATA_DIR}/ops-memory.db"
+
+# ---------------------------------------------------------------------------
+# Observer — emit audit events for every tool call
+# ---------------------------------------------------------------------------
+[observer]
+name = "audit"
+
+[observer.config]
+output = "stdout"
+format = "json"
+
+# ---------------------------------------------------------------------------
+# Security — prefer bubblewrap on Linux; wasmi for wasm-sandboxed tools
+# ---------------------------------------------------------------------------
+[security]
+sandbox = "bubblewrap"
+tool_restrictions = [
+  "shell",
+  "file_read",
+  "file_write",
+  "http_request",
+  "git_operations",
+  "memory_recall",
+  "memory_store",
+  "memory_forget",
+  "web_search_tool",
+  "cron_add",
+  "cron_list",
+  "cron_remove",
+  "cron_run",
+  "cron_runs",
+  "cron_update",
+  "schedule",
+  "pushover",
+  "hardware_board_info",
+  "hardware_memory_map",
+  "hardware_memory_read",
+  "delegate",
+]
