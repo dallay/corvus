@@ -1416,7 +1416,7 @@ async fn handle_agent_command(
     let mut config = effective_config;
 
     if let Some(raw_message) = message.as_deref() {
-        if let Some(result_message) = maybe_handle_cli_session_command(&config, raw_message).await?
+        if let Some(result_message) = maybe_handle_cli_handled_ingress(&config, raw_message).await?
         {
             println!("{result_message}");
             return Ok(());
@@ -1527,7 +1527,7 @@ async fn handle_agent_command(
     run_result
 }
 
-async fn maybe_handle_cli_session_command(
+async fn maybe_handle_cli_handled_ingress(
     config: &Config,
     message: &str,
 ) -> Result<Option<String>> {
@@ -1580,9 +1580,9 @@ async fn handle_code_command(
 ) -> Result<()> {
     let config = apply_code_session_config(config, provider, model, temperature, plan);
 
-    // Intercept slash session commands before agent initialization
+    // Intercept shared handled-ingress commands before agent initialization.
     if let Some(raw_message) = message.as_deref() {
-        if let Some(result_message) = maybe_handle_cli_session_command(&config, raw_message).await?
+        if let Some(result_message) = maybe_handle_cli_handled_ingress(&config, raw_message).await?
         {
             println!("{result_message}");
             return Ok(());
@@ -3427,12 +3427,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cli_session_commands_are_handled_before_agent_execution() {
+    async fn cli_shared_ingress_handles_compact_before_agent_execution() {
         let tmp = TempDir::new().unwrap();
         let mut config = crate::test_support::test_config(&tmp);
         config.memory.backend = "none".into();
 
-        let error = maybe_handle_cli_session_command(&config, "/tldr")
+        let error = maybe_handle_cli_handled_ingress(&config, "/compact")
             .await
             .unwrap_err();
 
@@ -3449,7 +3449,7 @@ mod tests {
             .await
             .unwrap();
 
-        let handled = maybe_handle_cli_session_command(&config, "/tldr")
+        let handled = maybe_handle_cli_handled_ingress(&config, "/tldr")
             .await
             .unwrap();
 
@@ -3464,7 +3464,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let config = crate::test_support::test_config(&tmp);
 
-        let handled = maybe_handle_cli_session_command(&config, "/resume-later")
+        let handled = maybe_handle_cli_handled_ingress(&config, "/resume-later")
             .await
             .unwrap();
 

@@ -1112,7 +1112,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn execute_intercepts_slash_session_commands_before_provider_execution() {
+    async fn execute_intercepts_suspend_through_shared_ingress_before_provider_execution() {
         let (_temp, config) = test_config();
         let provider_impl = Arc::new(ScriptedProvider::new(vec![ChatResponse {
             text: Some("should not be called".into()),
@@ -1131,7 +1131,7 @@ mod tests {
                 session_id: "session-slash".into(),
                 session_source: WebhookSessionSource::Explicit,
                 caller_token_hash: None,
-                message: "/tldr".into(),
+                message: "/suspend".into(),
                 execution_mode: ExecutionMode::Standard,
                 include_sse_frames: false,
             },

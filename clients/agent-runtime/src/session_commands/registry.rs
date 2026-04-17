@@ -116,12 +116,6 @@ impl SlashCommandRegistry {
             .map(|registration| &registration.descriptor)
     }
 
-    pub fn recognizes(&self, prompt: &str) -> bool {
-        SessionCommandParser::parse(prompt)
-            .and_then(|raw| self.get(&raw.invoked_name))
-            .is_some()
-    }
-
     fn iter(&self) -> impl Iterator<Item = &SlashCommandDescriptor> {
         self.registrations
             .iter()

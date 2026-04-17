@@ -242,35 +242,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ingress_classifies_supported_slash_commands_before_pre_execution() {
-        let decision = evaluate_ingress(
-            &IngressMemory,
-            CommandContext::for_cli(
-                "session-1",
-                CommandSessionSource::Existing,
-                ExecutionMode::Standard,
-                None,
-            ),
-            "/tldr",
-            true,
-        )
-        .await;
+    async fn ingress_classifies_in_scope_session_commands_through_shared_seam() {
+        for prompt in ["/resume", "/suspend", "/tldr", "/compact"] {
+            let decision = evaluate_ingress(
+                &IngressMemory,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                prompt,
+                true,
+            )
+            .await;
 
-        match decision {
-            IngressDecision::SessionCommand { outcome } => {
-                assert_eq!(
-                    outcome,
-                    SessionCommandOutcome::Failure(crate::session_commands::SessionCommandFailure {
-                        command: "/tldr",
-                        kind: SessionCommandFailureKind::UnsupportedBackend,
-                        session_id: Some("session-1".to_string()),
-                        message:
-                            "slash-session commands require sqlite memory backend (backend=none)"
-                                .to_string(),
-                    })
-                );
+            match decision {
+                IngressDecision::SessionCommand { outcome } => {
+                    assert_eq!(
+                        outcome,
+                        SessionCommandOutcome::Failure(
+                            crate::session_commands::SessionCommandFailure {
+                                command: prompt,
+                                kind: SessionCommandFailureKind::UnsupportedBackend,
+                                session_id: Some("session-1".to_string()),
+                                message: "slash-session commands require sqlite memory backend (backend=none)"
+                                    .to_string(),
+                            }
+                        )
+                    );
+                }
+                other => {
+                    panic!("expected session command interception for {prompt}, got {other:?}")
+                }
             }
-            other => panic!("expected session command interception, got {other:?}"),
         }
     }
 

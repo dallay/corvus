@@ -1761,7 +1761,7 @@ fn parse_webhook_body(body: WebhookJsonBody) -> Result<WebhookBody, WebhookRespo
     }
 }
 
-async fn canonical_outcome_early_response(
+async fn maybe_handle_http_ingress(
     state: &AppState,
     session_id: &str,
     session_source: crate::session_commands::CommandSessionSource,
@@ -2021,7 +2021,7 @@ async fn handle_webhook(
                 crate::session_commands::CommandSessionSource::Generated
             }
         };
-        if let Some((response, persist_idempotency)) = canonical_outcome_early_response(
+        if let Some((response, persist_idempotency)) = maybe_handle_http_ingress(
             &state,
             &session_id,
             http_source,
@@ -2095,8 +2095,8 @@ async fn handle_webhook(
         return response;
     }
 
-    // Intercept deterministic session commands (e.g. /tldr, /resume) before plan/cost guards
-    // so they can short-circuit without being blocked by execution-mode or cost checks.
+    // Intercept shared handled-ingress commands before plan/cost guards so they can
+    // short-circuit without being blocked by execution-mode or cost checks.
     let http_source = match session_source {
         webhook_dispatch::WebhookSessionSource::Explicit => {
             crate::session_commands::CommandSessionSource::Explicit
@@ -2105,7 +2105,7 @@ async fn handle_webhook(
             crate::session_commands::CommandSessionSource::Generated
         }
     };
-    if let Some((response, persist_idempotency)) = canonical_outcome_early_response(
+    if let Some((response, persist_idempotency)) = maybe_handle_http_ingress(
         &state,
         &session_id,
         http_source,
@@ -4111,7 +4111,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn canonical_outcome_early_response_intercepts_slash_session_commands() {
+    async fn maybe_handle_http_ingress_intercepts_compact_through_shared_ingress() {
         // Use SqliteMemory to test real slash-session behavior with actual storage
         let tmp = tempfile::TempDir::new().unwrap();
         let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
@@ -4136,15 +4136,15 @@ mod tests {
             audio_config: crate::config::AudioConfig::default(),
         };
 
-        let response = canonical_outcome_early_response(
+        let response = maybe_handle_http_ingress(
             &state,
             "session-1",
             crate::session_commands::CommandSessionSource::Explicit,
-            "/tldr",
+            "/compact",
             None,
         )
         .await
-        .expect("slash session command should short-circuit");
+        .expect("compact should short-circuit through shared ingress");
         let ((status, Json(body)), _persist) = response;
 
         // Slash-session lookup failures still return 422 with a stable error code.
@@ -4154,7 +4154,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn canonical_outcome_early_response_ignores_unknown_slash_like_input() {
+    async fn maybe_handle_http_ingress_ignores_unknown_slash_like_input() {
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
             cost_tracker: None,
@@ -4176,7 +4176,7 @@ mod tests {
             audio_config: crate::config::AudioConfig::default(),
         };
 
-        let response = canonical_outcome_early_response(
+        let response = maybe_handle_http_ingress(
             &state,
             "session-1",
             crate::session_commands::CommandSessionSource::Explicit,
@@ -4189,7 +4189,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn canonical_outcome_early_response_preserves_resume_success_for_authorized_scope() {
+    async fn maybe_handle_http_ingress_preserves_resume_success_for_authorized_scope() {
         let tmp = tempfile::TempDir::new().unwrap();
         let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
         seed_resumable_session(mem.as_ref(), "session-target", "caller-hash").await;
@@ -4215,7 +4215,7 @@ mod tests {
             audio_config: crate::config::AudioConfig::default(),
         };
 
-        let response = canonical_outcome_early_response(
+        let response = maybe_handle_http_ingress(
             &state,
             "session-control",
             crate::session_commands::CommandSessionSource::Explicit,
@@ -4236,7 +4236,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn canonical_outcome_early_response_preserves_permission_denied_for_resume_target() {
+    async fn maybe_handle_http_ingress_preserves_permission_denied_for_resume_target() {
         let tmp = tempfile::TempDir::new().unwrap();
         let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
         seed_resumable_session(mem.as_ref(), "session-target", "owner-hash").await;
@@ -4262,7 +4262,7 @@ mod tests {
             audio_config: crate::config::AudioConfig::default(),
         };
 
-        let response = canonical_outcome_early_response(
+        let response = maybe_handle_http_ingress(
             &state,
             "session-control",
             crate::session_commands::CommandSessionSource::Explicit,

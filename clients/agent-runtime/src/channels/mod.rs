@@ -701,7 +701,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
 
     let user_text = extract_user_text(&msg);
 
-    if handle_ingress_outcome(
+    if maybe_handle_channel_ingress(
         target_channel.as_ref(),
         ctx.memory.as_ref(),
         &session_id,
@@ -1851,7 +1851,7 @@ fn build_history(
     history
 }
 
-async fn handle_ingress_outcome(
+async fn maybe_handle_channel_ingress(
     channel: Option<&Arc<dyn Channel>>,
     memory: &dyn Memory,
     session_id: &str,
@@ -3290,12 +3290,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ingress_outcome_handles_slash_session_commands_before_memory_enrichment() {
+    async fn ingress_outcome_handles_tldr_through_shared_ingress_before_memory_enrichment() {
         let channel = Arc::new(RecordingChannel::default());
         let channel_dyn: Arc<dyn Channel> = channel.clone();
         let memory = CountingMemory::default();
 
-        let handled = handle_ingress_outcome(
+        let handled = maybe_handle_channel_ingress(
             Some(&channel_dyn),
             &memory,
             "session-1",
@@ -3310,17 +3310,17 @@ mod tests {
         let sent = channel.sent_messages.lock().await.clone();
         assert_eq!(sent.len(), 1);
         assert!(sent[0].contains("require sqlite"));
-        // Verify that memory enrichment (recall/store) was NOT called — slash commands
-        // are handled before memory enrichment, so counters must remain zero.
+        // Verify that memory enrichment (recall/store) was NOT called — handled ingress
+        // short-circuits before memory enrichment, so counters must remain zero.
         assert_eq!(
             memory.recall_calls.load(Ordering::SeqCst),
             0,
-            "memory.recall should not be called for slash session commands"
+            "memory.recall should not be called for handled ingress commands"
         );
         assert_eq!(
             memory.store_calls.load(Ordering::SeqCst),
             0,
-            "memory.store should not be called for slash session commands"
+            "memory.store should not be called for handled ingress commands"
         );
     }
 
@@ -3330,7 +3330,7 @@ mod tests {
         let channel_dyn: Arc<dyn Channel> = channel.clone();
         let memory = CountingMemory::default();
 
-        let handled = handle_ingress_outcome(
+        let handled = maybe_handle_channel_ingress(
             Some(&channel_dyn),
             &memory,
             "session-1",
@@ -3352,7 +3352,7 @@ mod tests {
         let memory = CountingMemory::default();
 
         // Verify slash commands work in Plan mode too
-        let handled = handle_ingress_outcome(
+        let handled = maybe_handle_channel_ingress(
             Some(&channel_dyn),
             &memory,
             "session-plan",
@@ -3379,7 +3379,7 @@ mod tests {
         let scope = channel_caller_scope(channel_dyn.name(), "tester");
         seed_resumable_session(&memory, "session-target", &scope).await;
 
-        let handled = handle_ingress_outcome(
+        let handled = maybe_handle_channel_ingress(
             Some(&channel_dyn),
             &memory,
             "session-control",
@@ -3407,7 +3407,7 @@ mod tests {
         let memory = SqliteMemory::new(tmp.path()).unwrap();
         seed_resumable_session(&memory, "session-target", "other-scope").await;
 
-        let handled = handle_ingress_outcome(
+        let handled = maybe_handle_channel_ingress(
             Some(&channel_dyn),
             &memory,
             "session-control",
