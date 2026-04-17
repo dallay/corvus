@@ -140,26 +140,93 @@ Unknown slash-like input MUST fall through without partial or best-effort matchi
 The system MUST route recognized slash commands through the existing pre-execution ingress seam.
 
 `pre_execution::evaluate_ingress(...)` SHALL remain the canonical short-circuit seam for recognized
-slash commands. Once ingress classification identifies a supported slash command, the system MUST
-delegate lookup and dispatch to the central registry instead of using command-specific branching in
-entry-point code.
+slash commands. CLI/runtime message fast path, gateway HTTP request paths, gateway streaming paths,
+webhook dispatch, and channel-backed ingress MUST call that seam directly for slash interception
+instead of using transport-local recognition or command-specific branching before shared ingress
+evaluation.
 
 Unknown commands or non-command input MUST preserve existing fallthrough behavior into normal prompt
-handling.
+handling or transport-specific non-command handling.
 
-#### Scenario: Recognized slash command dispatches through the shared seam
+#### Scenario: CLI/runtime fast path uses the shared seam without a transport-local recognition gate
 
-- GIVEN a canonical runtime entry point receives a recognized slash command input
-- WHEN `pre_execution::evaluate_ingress(...)` evaluates ingress
-- THEN the system MUST perform command lookup and dispatch through the central slash command registry
-- AND the system MUST short-circuit normal prompt execution for that request.
+- GIVEN CLI/runtime message fast path receives a recognized slash command input
+- WHEN it evaluates ingress
+- THEN it MUST call `pre_execution::evaluate_ingress(...)` without requiring a separate
+  transport-local registry recognition pre-check
+- AND any handled slash result observed by the CLI/runtime fast path MUST come from the shared
+  post-seam handled-result adaptation contract.
 
-#### Scenario: Unknown slash-like input preserves normal handling
+#### Scenario: Supported transports preserve one ingress dispatch path for recognized commands
 
-- GIVEN a canonical runtime entry point receives an input that starts with `/` but does not resolve in the registry
-- WHEN `pre_execution::evaluate_ingress(...)` evaluates ingress
-- THEN the system MUST preserve existing non-command prompt handling semantics
-- AND the registry MUST NOT synthesize or guess a closest command match.
+- GIVEN CLI/runtime message fast path, gateway HTTP `/webhook`, gateway streaming
+  `/web/chat/stream`, webhook dispatcher execution, and channel-backed ingress each receive the same
+  recognized slash command
+- WHEN they classify that input
+- THEN each transport MUST dispatch the command through `pre_execution::evaluate_ingress(...)`
+- AND no transport MUST bypass that seam with a transport-specific command execution path for the
+  handled slash case.
+
+### Requirement: Shared Handled Slash Outcome Adaptation Contract
+
+The system MUST adapt handled slash command outcomes through one shared internal contract
+immediately after `pre_execution::evaluate_ingress(...)`.
+
+For CLI/runtime message fast path, gateway HTTP `/webhook`, gateway streaming
+`/web/chat/stream`, webhook dispatcher execution, and channel-backed ingress, that shared contract
+MUST preserve whether ingress was:
+- not handled and allowed to fall through;
+- handled with a success outcome;
+- handled with a blocking outcome; or
+- handled with a failure outcome whose machine-readable failure kind remains observable.
+
+Transport-specific code MUST be limited to constructing the transport-appropriate typed command
+context before ingress evaluation and wrapping the adapted handled result into that transport's
+existing external envelope after adaptation. The shared contract MUST NOT require those transports
+to adopt one shared external payload, event, or text schema.
+
+#### Scenario: Supported transports share one handled-success adaptation boundary
+
+- GIVEN the same recognized slash command is submitted through CLI/runtime message fast path,
+  gateway HTTP `/webhook`, gateway streaming `/web/chat/stream`, webhook dispatcher execution, and
+  channel-backed ingress
+- WHEN `pre_execution::evaluate_ingress(...)` handles that command successfully
+- THEN each transport MUST consume the same shared handled-result adaptation contract after the
+  pre-execution seam
+- AND each transport MUST preserve its current outward envelope shape while wrapping that adapted
+  success.
+
+#### Scenario: Permission-denied failures stay machine-readable across all supported transports
+
+- GIVEN a recognized slash command is denied for authorization reasons through CLI/runtime message
+  fast path, gateway HTTP `/webhook`, gateway streaming `/web/chat/stream`, webhook dispatcher
+  execution, and channel-backed ingress
+- WHEN the handled result is adapted after `pre_execution::evaluate_ingress(...)`
+- THEN the shared contract MUST preserve a machine-readable authorization-denied failure kind for
+  every transport
+- AND transport-specific code MUST derive its outward error wrapper from that shared classified
+  failure instead of reclassifying the denial independently.
+
+#### Scenario: Unknown slash-like input falls through consistently without transport-local recognition branches
+
+- GIVEN slash-like input does not resolve to a registered command in CLI/runtime message fast path,
+  gateway HTTP `/webhook`, gateway streaming `/web/chat/stream`, webhook dispatcher execution, and
+  channel-backed ingress
+- WHEN the transport evaluates ingress through `pre_execution::evaluate_ingress(...)`
+- THEN the shared handled-result adaptation contract MUST report that the input was not handled
+- AND each transport MUST preserve its existing non-command fallthrough behavior
+- AND transports MUST NOT require a separate pre-dispatch recognition branch to determine
+  fallthrough.
+
+#### Scenario: Blocking outcomes remain shared internally while outward wrappers stay transport-specific
+
+- GIVEN a recognized slash command produces a blocking outcome through gateway HTTP `/webhook`,
+  gateway streaming `/web/chat/stream`, webhook dispatcher execution, or channel-backed ingress
+- WHEN the handled result is adapted after `pre_execution::evaluate_ingress(...)`
+- THEN the shared contract MUST preserve that blocking classification distinctly from success and
+  failure
+- AND each transport MAY continue rendering that blocking outcome through its current outward JSON,
+  SSE, webhook, or channel text wrapper.
 
 ### Requirement: Existing Slash Session Behavior Preservation
 
@@ -189,24 +256,37 @@ session-command behavior.
 
 ### Requirement: Transport Parity for Recognized Slash Commands
 
-The system MUST preserve transport parity for slash command recognition and dispatch across the canonical runtime entry points that rely on the shared ingress seam.
+The system MUST preserve transport parity for slash command recognition, dispatch, and handled-result
+adaptation across the canonical runtime entry points that rely on the shared ingress seam.
 
-CLI/direct runtime entry, gateway HTTP request paths, gateway streaming paths, webhook dispatch, and channel-backed ingress MUST all classify recognized slash commands through the same pre-execution seam and central registry contract. Surface-specific caller identity semantics MAY differ, and those differences MUST remain explicit in the typed execution context rather than being normalized away. Transport-specific response-envelope formatting MUST remain outside this change.
+CLI/runtime message fast path, gateway HTTP request paths, gateway streaming paths, webhook
+dispatch, and channel-backed ingress MUST classify recognized slash commands through the same
+pre-execution seam and MUST adapt handled slash outcomes through the same shared internal
+handled-result contract. Surface-specific caller identity semantics MAY differ, and those
+differences MUST remain explicit in the typed execution context rather than being normalized away.
+Transport-specific response-envelope formatting MUST remain outside this change.
 
-#### Scenario: Multiple transports share dispatch while preserving distinct identity semantics
+#### Scenario: Supported transports share dispatch and handled adaptation while keeping caller semantics explicit
 
-- GIVEN the same recognized slash command is submitted through two supported ingress transports with different caller identity semantics
-- WHEN each transport reaches pre-execution ingress evaluation
-- THEN each transport MUST resolve and dispatch the command through the same central registry contract
-- AND each resulting internal execution context MUST preserve that transport's own caller-scope semantics
-- AND the system MUST NOT collapse those semantics into a single fake identity model for parity.
+- GIVEN the same recognized slash command is submitted through CLI/runtime message fast path,
+  gateway HTTP `/webhook`, gateway streaming `/web/chat/stream`, webhook dispatcher execution, and
+  channel-backed ingress
+- WHEN each transport reaches pre-execution ingress evaluation and post-seam handled-result
+  adaptation
+- THEN each transport MUST use the same shared dispatch path and the same shared handled-result
+  adaptation contract
+- AND each resulting internal execution context MUST preserve that transport's own caller-scope
+  semantics
+- AND the system MUST NOT collapse those semantics into a fake unified caller identity model.
 
-#### Scenario: Transport parity does not force envelope parity in this slice
+#### Scenario: Transport parity remains internal and does not unify outward envelopes
 
-- GIVEN two supported transports already return different external response-envelope shapes for recognized slash commands
-- WHEN the internal slash command contract is upgraded for typed context and non-lossy outcomes
-- THEN the transports MAY continue using their existing external envelope shapes for this slice
-- AND the internal contract MUST remain compatible with later transport-envelope work without requiring it now.
+- GIVEN supported transports already expose different external response-envelope shapes for handled
+  slash commands
+- WHEN slash transport parity is enforced for the shared seam and handled-result adaptation contract
+- THEN those transports MAY continue using their existing JSON, SSE, webhook, CLI text, or channel
+  text wrappers
+- AND this change MUST NOT require envelope unification or the introduction of new slash commands.
 
 ### Requirement: Registry-Core Separation from Backend and Authorization Policy
 

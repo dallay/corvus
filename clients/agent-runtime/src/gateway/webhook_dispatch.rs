@@ -7,7 +7,7 @@ use crate::cost::UsagePeriod;
 use crate::gateway::resolve_webhook_execution_mode;
 use crate::memory::Memory;
 use crate::observability::Observer;
-use crate::pre_execution::{BlockingOutcome, IngressDecision};
+use crate::pre_execution::{BlockingOutcome, HandledIngress, HandledIngressOutcome};
 use crate::providers::traits::{
     ProviderCapabilities, StreamChunk, StreamOptions, StreamResult, ToolsPayload,
 };
@@ -411,30 +411,39 @@ pub(crate) async fn execute(
         request.caller_token_hash.clone(),
     );
 
-    match crate::pre_execution::evaluate_ingress(memory.as_ref(), ingress_context, &request.message)
-        .await
-    {
-        IngressDecision::SessionCommand { outcome } => {
-            // SessionCommand is a metadata-only operation — frames intentionally omitted.
-            // No agent execution occurs, so there are no tool calls or events to report.
-            let (terminal_outcome, response_text) = match outcome {
-                crate::session_commands::SessionCommandOutcome::Success(success) => {
-                    (WebhookTerminalOutcome::Completed, success.message)
-                }
-                crate::session_commands::SessionCommandOutcome::Failure(failure) => {
-                    (WebhookTerminalOutcome::Failed, failure.message)
-                }
-            };
+    match crate::pre_execution::adapt_handled_ingress(
+        crate::pre_execution::evaluate_ingress(
+            memory.as_ref(),
+            ingress_context,
+            &request.message,
+            true,
+        )
+        .await,
+    ) {
+        HandledIngress::Handled(HandledIngressOutcome::SessionCommandSuccess(success)) => {
             return WebhookTurnResult {
                 session_id: request.session_id.clone(),
                 model: model.to_string(),
-                outcome: terminal_outcome,
-                response_text: Some(response_text),
+                outcome: WebhookTerminalOutcome::Completed,
+                response_text: Some(success.message),
                 event_frames: Vec::new(),
                 tools_called: Vec::new(),
             };
         }
-        IngressDecision::Blocking(blocking) => match blocking {
+        HandledIngress::Handled(HandledIngressOutcome::SessionCommandFailure {
+            class: _,
+            failure,
+        }) => {
+            return WebhookTurnResult {
+                session_id: request.session_id.clone(),
+                model: model.to_string(),
+                outcome: WebhookTerminalOutcome::Failed,
+                response_text: Some(failure.message),
+                event_frames: Vec::new(),
+                tools_called: Vec::new(),
+            };
+        }
+        HandledIngress::Handled(HandledIngressOutcome::Blocking(blocking)) => match blocking {
             BlockingOutcome::ApprovalRequired { tool, reason } => {
                 return map_canonical_result(
                     &request,
@@ -453,7 +462,7 @@ pub(crate) async fn execute(
                 );
             }
         },
-        IngressDecision::Continue => {}
+        HandledIngress::NotHandled => {}
     }
 
     let mut effective_config = config.clone();
@@ -973,6 +982,43 @@ mod tests {
         (temp, config)
     }
 
+    async fn seed_resumable_session(
+        memory: &crate::memory::SqliteMemory,
+        session_id: &str,
+        token_hash: &str,
+    ) {
+        memory
+            .upsert_session(session_id, Some(token_hash))
+            .await
+            .unwrap();
+        let snapshot = memory
+            .create_session_snapshot(
+                session_id,
+                crate::memory::SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "resume me",
+                    "summary": "resume me",
+                    "resume_context": "resume me",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+        memory
+            .apply_session_state_patch(crate::memory::SessionStatePatch {
+                session_id: session_id.to_string(),
+                lifecycle: Some(crate::memory::SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: crate::memory::SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: crate::memory::SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: crate::memory::SessionFieldPatch::Clear,
+                suspended_at: crate::memory::SessionFieldPatch::Set(
+                    "2026-04-17T00:00:00Z".to_string(),
+                ),
+            })
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn execute_maps_blocked_shell_tool_to_approval_required() {
         let (_temp, config) = test_config();
@@ -1129,5 +1175,83 @@ mod tests {
 
         assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 1);
         assert_eq!(result.outcome, WebhookTerminalOutcome::Completed);
+    }
+
+    #[tokio::test]
+    async fn execute_intercepts_authorized_resume_success_before_provider_execution() {
+        let (_temp, config) = test_config();
+        let temp = tempfile::tempdir().unwrap();
+        let memory = Arc::new(crate::memory::SqliteMemory::new(temp.path()).unwrap());
+        seed_resumable_session(memory.as_ref(), "session-target", "caller-hash").await;
+
+        let provider_impl = Arc::new(ScriptedProvider::new(vec![ChatResponse {
+            text: Some("should not be called".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let result = execute(
+            &config,
+            provider,
+            memory,
+            Arc::new(NoopObserver) as Arc<dyn Observer>,
+            None,
+            "test-model",
+            WebhookTurnRequest {
+                session_id: "session-control".into(),
+                session_source: WebhookSessionSource::Explicit,
+                caller_token_hash: Some("caller-hash".into()),
+                message: "/resume session-target".into(),
+                execution_mode: ExecutionMode::Standard,
+                include_sse_frames: false,
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(result.outcome, WebhookTerminalOutcome::Completed);
+        assert_eq!(
+            result.response_text.as_deref(),
+            Some("[session:session-target] resumed from persisted compact snapshot")
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_preserves_permission_denied_for_resume_target() {
+        let (_temp, config) = test_config();
+        let temp = tempfile::tempdir().unwrap();
+        let memory = Arc::new(crate::memory::SqliteMemory::new(temp.path()).unwrap());
+        seed_resumable_session(memory.as_ref(), "session-target", "owner-hash").await;
+
+        let provider_impl = Arc::new(ScriptedProvider::new(vec![ChatResponse {
+            text: Some("should not be called".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let result = execute(
+            &config,
+            provider,
+            memory,
+            Arc::new(NoopObserver) as Arc<dyn Observer>,
+            None,
+            "test-model",
+            WebhookTurnRequest {
+                session_id: "session-control".into(),
+                session_source: WebhookSessionSource::Explicit,
+                caller_token_hash: Some("caller-hash".into()),
+                message: "/resume session-target".into(),
+                execution_mode: ExecutionMode::Standard,
+                include_sse_frames: false,
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(result.outcome, WebhookTerminalOutcome::Failed);
+        assert_eq!(
+            result.response_text.as_deref(),
+            Some("[session:session-target] permission denied")
+        );
     }
 }

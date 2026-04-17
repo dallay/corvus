@@ -1877,18 +1877,35 @@ async fn handle_ingress_outcome(
         caller_scope,
     );
 
-    match crate::pre_execution::evaluate_ingress(memory, ingress_context, content).await {
-        crate::pre_execution::IngressDecision::SessionCommand { outcome } => {
-            let message = match outcome {
-                crate::session_commands::SessionCommandOutcome::Success(success) => success.message,
-                crate::session_commands::SessionCommandOutcome::Failure(failure) => failure.message,
-            };
+    match crate::pre_execution::adapt_handled_ingress(
+        crate::pre_execution::evaluate_ingress(memory, ingress_context, content, true).await,
+    ) {
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
+        ) => {
             if let Some(ch) = channel {
-                let _ = ch.send(&SendMessage::new(message, reply_target)).await;
+                let _ = ch
+                    .send(&SendMessage::new(success.message, reply_target))
+                    .await;
             }
             Some(())
         }
-        crate::pre_execution::IngressDecision::Blocking(blocking) => {
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandFailure {
+                class: _,
+                failure,
+            },
+        ) => {
+            if let Some(ch) = channel {
+                let _ = ch
+                    .send(&SendMessage::new(failure.message, reply_target))
+                    .await;
+            }
+            Some(())
+        }
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::Blocking(blocking),
+        ) => {
             if let Some(ch) = channel {
                 let text = match blocking {
                     crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, .. } => {
@@ -1907,7 +1924,7 @@ async fn handle_ingress_outcome(
             }
             Some(())
         }
-        crate::pre_execution::IngressDecision::Continue => None,
+        crate::pre_execution::HandledIngress::NotHandled => None,
     }
 }
 
@@ -3231,6 +3248,47 @@ mod tests {
         }
     }
 
+    fn channel_caller_scope(channel_name: &str, sender: &str) -> String {
+        use sha2::{Digest, Sha256};
+
+        let mut hasher = Sha256::new();
+        hasher.update(channel_name.as_bytes());
+        hasher.update(b":");
+        hasher.update(sender.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+
+    async fn seed_resumable_session(memory: &SqliteMemory, session_id: &str, token_hash: &str) {
+        memory
+            .upsert_session(session_id, Some(token_hash))
+            .await
+            .unwrap();
+        let snapshot = memory
+            .create_session_snapshot(
+                session_id,
+                crate::memory::SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "resume me",
+                    "summary": "resume me",
+                    "resume_context": "resume me",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+        memory
+            .apply_session_state_patch(crate::memory::SessionStatePatch {
+                session_id: session_id.to_string(),
+                lifecycle: Some(crate::memory::SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: crate::memory::SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: crate::memory::SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: crate::memory::SessionFieldPatch::Clear,
+                suspended_at: crate::memory::SessionFieldPatch::Set("now".to_string()),
+            })
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn ingress_outcome_handles_slash_session_commands_before_memory_enrichment() {
         let channel = Arc::new(RecordingChannel::default());
@@ -3310,6 +3368,63 @@ mod tests {
         assert_eq!(sent.len(), 1);
         // Should still handle in Plan mode
         assert!(sent[0].contains("require sqlite"));
+    }
+
+    #[tokio::test]
+    async fn ingress_outcome_preserves_resume_success_for_authorized_scope() {
+        let channel = Arc::new(RecordingChannel::default());
+        let channel_dyn: Arc<dyn Channel> = channel.clone();
+        let tmp = tempfile::TempDir::new().unwrap();
+        let memory = SqliteMemory::new(tmp.path()).unwrap();
+        let scope = channel_caller_scope(channel_dyn.name(), "tester");
+        seed_resumable_session(&memory, "session-target", &scope).await;
+
+        let handled = handle_ingress_outcome(
+            Some(&channel_dyn),
+            &memory,
+            "session-control",
+            "tester",
+            "reply-target",
+            "/resume session-target",
+            ExecutionMode::Standard,
+        )
+        .await;
+
+        assert_eq!(handled, Some(()));
+        let sent = channel.sent_messages.lock().await.clone();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(
+            sent[0],
+            "reply-target:[session:session-target] resumed from persisted compact snapshot"
+        );
+    }
+
+    #[tokio::test]
+    async fn ingress_outcome_preserves_permission_denied_for_resume_target() {
+        let channel = Arc::new(RecordingChannel::default());
+        let channel_dyn: Arc<dyn Channel> = channel.clone();
+        let tmp = tempfile::TempDir::new().unwrap();
+        let memory = SqliteMemory::new(tmp.path()).unwrap();
+        seed_resumable_session(&memory, "session-target", "other-scope").await;
+
+        let handled = handle_ingress_outcome(
+            Some(&channel_dyn),
+            &memory,
+            "session-control",
+            "tester",
+            "reply-target",
+            "/resume session-target",
+            ExecutionMode::Standard,
+        )
+        .await;
+
+        assert_eq!(handled, Some(()));
+        let sent = channel.sent_messages.lock().await.clone();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(
+            sent[0],
+            "reply-target:[session:session-target] permission denied"
+        );
     }
 
     /// Instrumented memory wrapper that counts recall/store invocations for testing.

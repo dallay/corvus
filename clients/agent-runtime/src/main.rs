@@ -1531,10 +1531,6 @@ async fn maybe_handle_cli_session_command(
     config: &Config,
     message: &str,
 ) -> Result<Option<String>> {
-    if !crate::session_commands::default_registry().recognizes(message) {
-        return Ok(None);
-    }
-
     let (memory, _observer) = crate::bootstrap::create_memory_and_observer(config)?;
     let session_id_env = std::env::var("CORVUS_SESSION_ID").ok();
     let session_source = if session_id_env.is_some() {
@@ -1550,17 +1546,26 @@ async fn maybe_handle_cli_session_command(
         None,
     );
 
-    match crate::pre_execution::evaluate_ingress(memory.as_ref(), context, message).await {
-        crate::pre_execution::IngressDecision::SessionCommand { outcome } => match outcome {
-            crate::session_commands::SessionCommandOutcome::Success(success) => {
-                Ok(Some(success.message))
+    match crate::pre_execution::adapt_handled_ingress(
+        crate::pre_execution::evaluate_ingress(memory.as_ref(), context, message, false).await,
+    ) {
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
+        ) => Ok(Some(success.message)),
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandFailure { class, failure },
+        ) => match class {
+            crate::pre_execution::SessionCommandFailureClass::PermissionDenied => {
+                Err(anyhow::anyhow!("permission denied: {}", failure.message))
             }
-            crate::session_commands::SessionCommandOutcome::Failure(failure) => {
+            crate::pre_execution::SessionCommandFailureClass::Failed => {
                 Err(anyhow::anyhow!("{}", failure.message))
             }
         },
-        crate::pre_execution::IngressDecision::Blocking(_)
-        | crate::pre_execution::IngressDecision::Continue => Ok(None),
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::Blocking(_),
+        )
+        | crate::pre_execution::HandledIngress::NotHandled => Ok(None),
     }
 }
 
@@ -2440,6 +2445,7 @@ fn handle_status(auth_service: &auth::AuthService) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::Memory;
     use crate::test_support::tracing_capture::capture_tracing_events;
     use async_trait::async_trait;
     use clap::CommandFactory;
@@ -3431,6 +3437,26 @@ mod tests {
             .unwrap_err();
 
         assert!(error.to_string().contains("require sqlite"));
+    }
+
+    #[tokio::test]
+    async fn cli_session_command_success_returns_message() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let memory = crate::memory::SqliteMemory::new(&config.workspace_dir).unwrap();
+        memory
+            .upsert_session("interactive-session", None::<&str>)
+            .await
+            .unwrap();
+
+        let handled = maybe_handle_cli_session_command(&config, "/tldr")
+            .await
+            .unwrap();
+
+        assert!(handled.is_some());
+        assert!(handled
+            .unwrap()
+            .contains("No persisted session transcript is available yet."));
     }
 
     #[tokio::test]

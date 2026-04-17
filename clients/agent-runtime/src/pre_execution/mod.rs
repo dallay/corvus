@@ -4,6 +4,12 @@ use crate::session_commands::{
     default_registry, CommandContext, SessionCommandOutcome, SessionCommandService,
 };
 
+mod session_command_adapter;
+
+pub use session_command_adapter::{
+    adapt_handled_ingress, HandledIngress, HandledIngressOutcome, SessionCommandFailureClass,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockingOutcome {
     ApprovalRequired { tool: String, reason: String },
@@ -42,11 +48,16 @@ pub async fn evaluate_ingress(
     memory: &dyn Memory,
     context: CommandContext,
     prompt: &str,
+    include_blocking_fallback: bool,
 ) -> IngressDecision {
     let service = SessionCommandService::new(memory);
     let session_id = context.session.session_id.clone();
     if let Some(outcome) = default_registry().dispatch(&service, context, prompt).await {
         return IngressDecision::SessionCommand { outcome };
+    }
+
+    if !include_blocking_fallback {
+        return IngressDecision::Continue;
     }
 
     let canonical = evaluate(session_id.to_string(), prompt).await;
@@ -85,8 +96,9 @@ mod tests {
     use crate::config::ExecutionMode;
     use crate::memory::{Memory, MemoryCategory, MemoryEntry};
     use crate::session_commands::{
-        CommandCaller, CommandIngressSource, CommandSessionSource, SessionCommandFailureKind,
-        SessionCommandOutcome,
+        CommandCaller, CommandIngressSource, CommandSessionSource, SessionCommandFailure,
+        SessionCommandFailureKind, SessionCommandOutcome, SessionCommandSuccess,
+        SessionCommandSuccessData,
     };
     use async_trait::async_trait;
 
@@ -240,6 +252,7 @@ mod tests {
                 None,
             ),
             "/tldr",
+            true,
         )
         .await;
 
@@ -272,6 +285,7 @@ mod tests {
                 None,
             ),
             "/resume-later",
+            true,
         )
         .await;
 
@@ -289,6 +303,7 @@ mod tests {
                 None,
             ),
             "/tldr extra args",
+            true,
         )
         .await;
 
@@ -306,6 +321,89 @@ mod tests {
             }
             other => panic!("expected session command error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn adapt_handled_ingress_returns_not_handled_for_continue() {
+        assert!(matches!(
+            adapt_handled_ingress(IngressDecision::Continue),
+            HandledIngress::NotHandled
+        ));
+    }
+
+    #[test]
+    fn adapt_handled_ingress_preserves_success_outcome() {
+        let success = SessionCommandSuccess {
+            command: "/tldr",
+            session_id: "session-1".to_string(),
+            message: "summary".to_string(),
+            data: SessionCommandSuccessData::None,
+        };
+
+        assert!(matches!(
+            adapt_handled_ingress(IngressDecision::SessionCommand {
+                outcome: SessionCommandOutcome::Success(success.clone()),
+            }),
+            HandledIngress::Handled(HandledIngressOutcome::SessionCommandSuccess(actual))
+                if actual == success
+        ));
+    }
+
+    #[test]
+    fn adapt_handled_ingress_classifies_permission_failures() {
+        for kind in [
+            SessionCommandFailureKind::MissingCallerScope,
+            SessionCommandFailureKind::PermissionDenied,
+        ] {
+            let failure = SessionCommandFailure {
+                command: "/resume",
+                kind: kind.clone(),
+                session_id: Some("session-1".to_string()),
+                message: "denied".to_string(),
+            };
+
+            assert!(matches!(
+                adapt_handled_ingress(IngressDecision::SessionCommand {
+                    outcome: SessionCommandOutcome::Failure(failure.clone()),
+                }),
+                HandledIngress::Handled(HandledIngressOutcome::SessionCommandFailure {
+                    class: SessionCommandFailureClass::PermissionDenied,
+                    failure: actual,
+                }) if actual == failure
+            ));
+        }
+    }
+
+    #[test]
+    fn adapt_handled_ingress_classifies_generic_failures() {
+        let failure = SessionCommandFailure {
+            command: "/tldr",
+            kind: SessionCommandFailureKind::InvalidArguments,
+            session_id: Some("session-1".to_string()),
+            message: "bad args".to_string(),
+        };
+
+        assert!(matches!(
+            adapt_handled_ingress(IngressDecision::SessionCommand {
+                outcome: SessionCommandOutcome::Failure(failure.clone()),
+            }),
+            HandledIngress::Handled(HandledIngressOutcome::SessionCommandFailure {
+                class: SessionCommandFailureClass::Failed,
+                failure: actual,
+            }) if actual == failure
+        ));
+    }
+
+    #[test]
+    fn adapt_handled_ingress_preserves_blocking_outcomes() {
+        let blocking = BlockingOutcome::Fallback {
+            response: "fallback response".to_string(),
+        };
+
+        assert!(matches!(
+            adapt_handled_ingress(IngressDecision::Blocking(blocking.clone())),
+            HandledIngress::Handled(HandledIngressOutcome::Blocking(actual)) if actual == blocking
+        ));
     }
 
     #[test]
