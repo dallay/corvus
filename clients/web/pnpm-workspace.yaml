@@ -29,7 +29,7 @@ catalog:
   tailwind-merge: 3.5.0
   tailwindcss: 4.2.2
   typescript: 5.9.3
-  vite: 6.4.2
+  vite: 7.3.2
   vitest: 4.0.18
   vue: 3.5.31
   vue-i18n: 11.3.0
