@@ -2302,7 +2302,7 @@ async fn handle_chat_stream(
                                 "message": format!("Approval required for tool `{tool}`: {reason}"),
                             }))
                             .expect("serializable error event"))],
-                        StatusCode::FORBIDDEN,
+                        StatusCode::OK,
                     ),
                     crate::pre_execution::BlockingOutcome::TimeoutAborted => (
                         vec![Ok::<Event, std::convert::Infallible>(
@@ -2314,7 +2314,7 @@ async fn handle_chat_stream(
                                 }))
                                 .expect("serializable error event"),
                         )],
-                        StatusCode::REQUEST_TIMEOUT,
+                        StatusCode::OK,
                     ),
                     crate::pre_execution::BlockingOutcome::Fallback { response } => {
                         let message_id = Uuid::new_v4().to_string();
@@ -6348,6 +6348,118 @@ always_ask = []
         assert!(body_str.contains(r#""execution_mode":"plan""#));
         assert!(body_str.contains("Plan Mode allows analysis-only capabilities"));
         assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn web_chat_stream_preserves_sse_contract_for_approval_required_blocking() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("should not run".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(r#"{"message":"needs-approval"}"#))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: error"));
+        assert!(body_str.contains(r#""code":"approval_required""#));
+        assert!(body_str.contains(r#""tool":"tool-1""#));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn web_chat_stream_preserves_sse_contract_for_timeout_blocking() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("should not run".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(r#"{"message":"timeout"}"#))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: error"));
+        assert!(body_str.contains(r#""code":"timeout""#));
+        assert!(body_str.contains("Request timed out"));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
         assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
     }
 
