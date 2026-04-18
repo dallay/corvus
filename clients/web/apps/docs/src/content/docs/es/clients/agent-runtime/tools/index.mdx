@@ -18,8 +18,8 @@ El sistema de herramientas se basa en un modelo de seguridad de "denegación por
 
 Las herramientas integradas se organizan en seis categorías principales:
 
-- [**Herramientas Core**](core.md) — Ejecución de comandos del sistema (`shell`), búsqueda nativa en el workspace (`code_search`) y acceso al sistema de archivos del workspace (`file_read`, `file_write`).
-- [**Herramientas Web**](web.md) — Navegación web (`browser`), búsqueda (`web_search_tool`) y llamadas estructuradas a APIs (`http_request`).
+- [**Herramientas Core**](core.md) — Ejecución de comandos del sistema (`shell`), búsqueda nativa en el workspace (`code_search`, `Grep`), descubrimiento de archivos con paridad (`Glob`) y acceso al sistema de archivos del workspace (`file_read`, `file_write`).
+- [**Herramientas Web**](web.md) — Navegación web (`browser`), búsqueda (`web_search_tool`), llamadas estructuradas a APIs (`http_request`) y fetch de solo lectura con paridad (`WebFetch`).
 - [**Herramientas de Memoria**](memory.md) — Persistencia a largo plazo y recuperación de hechos y preferencias (`memory_store`, `memory_recall`).
 - [**Herramientas de Automatización**](automation.md) — Delegación multi-agente (`delegate`), integraciones de aplicaciones gestionadas (`composio`), gestión de repositorios Git, tareas programadas (Cron/Schedule) y notificaciones (`pushover`).
 - [**Herramientas Multimedia**](media.md) — Capacidades relacionadas con la visión, incluyendo captura de pantalla y extracción de metadatos de imágenes.
@@ -31,7 +31,20 @@ Cada ejecución de herramienta pasa por la capa de `SecurityPolicy`. Las herrami
 
 ### Solo Lectura (Seguras)
 Estas herramientas no modifican el sistema ni el estado externo. Generalmente están permitidas incluso en modos de baja autonomía.
-- *Ejemplos:* `file_read`, `memory_recall`, `web_search_tool`, `image_info`, `hardware_board_info`.
+- *Ejemplos:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `hardware_board_info`.
+
+## Mapeo de paridad estilo Claude (slice 1)
+
+Este slice añade herramientas de paridad de primera clase sin eliminar los nombres nativos existentes de Corvus.
+
+| Nombre de paridad | Pieza del runtime que lo respalda | Estado del slice | Notas |
+| :--- | :--- | :--- | :--- |
+| `Glob` | Helpers de metadata para discovery del workspace | Aditivo + canónico para docs de paridad | Nueva herramienta nativa para descubrir archivos por patrón. |
+| `Grep` | Backend compartido de búsqueda alineado con `code_search` | Aditivo + canónico para docs de paridad | `code_search` se mantiene disponible para el contrato nativo. |
+| `WebFetch` | Política HTTP saliente compartida derivada de `http_request` | Aditivo + canónico para docs de paridad | Superficie de fetch-and-extract de solo lectura. |
+| `TaskCreate` / `TaskGet` / `TaskList` / `TaskUpdate` / `TaskStop` | Ninguna en este slice | Diferido | Quedan explícitamente fuera de alcance; `schedule` y `cron_*` no sustituyen el ciclo de vida de tareas. |
+
+Este slice **no** requiere renombres amplios ni eliminación de nombres internos existentes.
 
 ### De Acción (Con riesgo)
 Estas herramientas pueden modificar archivos, ejecutar código o interactuar con servicios externos. Pueden requerir aprobación explícita del usuario en modos supervisados.
