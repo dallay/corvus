@@ -1,84 +1,84 @@
-# Configuración de Rulesets para GitHub
+# GitHub Rulesets Configuration
 
-Este directorio contiene las configuraciones de rulesets para proteger las ramas del repositorio.
+This directory contains rulesets to protect branches in the repository.
 
-## Archivos
+## Files
 
-- `main-protection.json` - Protección estricta para la rama principal
-- `minor-protection.json` - Protección moderada para la rama minor
+- `main-protection.json` - Strict protection for the main branch
+- `minor-protection.json` - Moderate protection for minor branches
 
-## Cómo importar los rulesets
+## Importing Rulesets
 
-### Opción 1: Importar desde la interfaz web de GitHub
+### Option 1: Import via GitHub Web Interface
 
-1. Ve a la página principal del repositorio: https://github.com/dallay/corvus
-2. Haz clic en **Settings** (pestaña de configuración)
-3. En el menú lateral izquierdo, bajo **Code and automation**, haz clic en **Rules** → **Rulesets**
-4. Haz clic en **New ruleset** → **Import a ruleset**
-5. Selecciona el archivo JSON correspondiente (ej: `main-protection.json`)
-6. Haz clic en **Create**
-7. Repite el proceso para el otro archivo
+1. Go to the repository: https://github.com/dallay/corvus
+2. Click **Settings**
+3. In the left sidebar, under **Code and automation**, click **Rules** → **Rulesets**
+4. Click **New ruleset** → **Import a ruleset**
+5. Select the JSON file (e.g., `main-protection.json`)
+6. Click **Create**
+7. Repeat for the other file
 
-### Opción 2: Usando GitHub CLI (con token de admin)
+### Option 2: Using GitHub CLI (requires admin token)
 
 ```bash
-# Para main
+# For main branch
 gh api \
   --method POST \
   -H "Accept: application/vnd.github+json" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
-  /repos/dallay/corvus/rulesets \
+  /repos/dALLAY/corvus/rulesets \
   --input .github/rulesets/main-protection.json
 
-# Para minor
+# For minor branch
 gh api \
   --method POST \
   -H "Accept: application/vnd.github+json" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
-  /repos/dallay/corvus/rulesets \
+  /repos/dALLAY/corvus/rulesets \
   --input .github/rulesets/minor-protection.json
 ```
 
-## Qué hace cada ruleset
+## Ruleset Details
 
 ### main-protection
 
-**Objetivo**: Rama `main` (default)
+**Target**: `main` branch (default)
 
-**Reglas**:
+**Rules**:
 
-- ✅ Requiere Pull Request con al menos 1 aprobación
-- ✅ Requiere que los checks de CI pasen (`core-check`)
-- ✅ Requiere historial lineal (no merge commits)
-- ✅ Bloquea borrado de la rama
-- ✅ Bloquea force push
-- ✅ Requiere commits firmados
+- ✅ Requires Pull Request with at least 1 approval
+- ✅ Requires CI checks to pass (`core-check`)
+- ✅ Requires linear history (no merge commits)
+- ✅ Prevents branch deletion
+- ✅ Blocks force push
+- ✅ Requires signed commits
 
-**Bypass**: Solo administradores pueden hacer bypass via PR
+**Bypass**: Only admins can bypass (via PR)
 
 ### minor-protection
 
-**Objetivo**: Rama `minor`
+**Target**: `minor` branch
 
-**Reglas**:
+**Rules**:
 
-- ✅ Pull Request recomendado (0 aprobaciones requeridas)
-- ✅ Checks de CI opcionales
-- ✅ Bloquea borrado de la rama
-- ✅ Bloquea force push
+- ✅ Pull Request recommended (0 approvals required)
+- ✅ CI checks optional
+- ✅ Prevents branch deletion
+- ✅ Blocks force push
 
-**Bypass**: Administradores pueden hacer bypass directo
+**Bypass**: Admins can bypass directly
 
-## Notas de seguridad
+## Security Notes
 
-Los rulesets son más flexibles que las branch protection rules tradicionales porque:
+Rulesets are more flexible than traditional branch protection rules because:
 
-- Permiten bypass granular por roles
-- Soportan múltiples condiciones (ref name patterns)
-- Permiten evaluación sin bloqueo (modo "evaluate")
-- Funcionan con fnmatch patterns para ramas
+- Support granular bypass by roles
+- Support multiple conditions (ref name patterns)
+- Allow evaluation without blocking ("evaluate" mode)
+- Work with fnmatch patterns for branch names
 
-## Referencias
+## References
 
-- [Documentación de GitHub sobre Rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
-- [Available rules for rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
+- [GitHub Rulesets Documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
+- [Available Rules for Rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
