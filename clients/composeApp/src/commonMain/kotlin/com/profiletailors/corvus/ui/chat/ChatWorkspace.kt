@@ -165,7 +165,14 @@ fun ChatWorkspace(
     }
 
   val actions =
-    remember(bridgeState, bridgeActions, onSendMessage, onQueryChange, content.showConfig, onShowConfigChange) {
+    remember(
+      bridgeState,
+      bridgeActions,
+      onSendMessage,
+      onQueryChange,
+      content.showConfig,
+      onShowConfigChange,
+    ) {
       ChatWorkspaceActions(
         onQueryChange = onQueryChange,
         onSend = ::sendMessage,
@@ -200,16 +207,10 @@ private fun ChatWorkspaceScreen(
   val corvusColors = CorvusTheme.colors
   val shouldShowConfig = uiState.showConfig || !uiState.bridgeState.isChatReady
 
-  val staticModifier =
-    remember {
-      Modifier.fillMaxSize()
-        .safeContentPadding()
-        .padding(horizontal = 20.dp, vertical = 16.dp)
-    }
-  val backgroundModifier =
-    remember(colors.background) {
-      Modifier.background(colors.background)
-    }
+  val staticModifier = remember {
+    Modifier.fillMaxSize().safeContentPadding().padding(horizontal = 20.dp, vertical = 16.dp)
+  }
+  val backgroundModifier = remember(colors.background) { Modifier.background(colors.background) }
 
   Column(modifier = modifier.then(backgroundModifier).then(staticModifier)) {
     ChatHeader(
