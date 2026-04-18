@@ -49,7 +49,7 @@ default_temperature = 0.7
 
 [gateway]
 port = 3000
-host = "127.0.0.1"
+host = "0.0.0.0"
 EOF
 
 RUN chown -R 65534:65534 /corvus-data
@@ -89,7 +89,7 @@ WORKDIR /corvus-data
 USER 65534:65534
 EXPOSE 3000
 ENTRYPOINT ["corvus"]
-CMD ["gateway", "--port", "3000", "--host", "127.0.0.1"]
+CMD ["gateway", "--port", "3000", "--host", "0.0.0.0"]
 
 # ── Stage 4: Production Runtime (Distroless) ─────────────────
 FROM gcr.io/distroless/cc-debian13:nonroot AS release
@@ -111,4 +111,4 @@ WORKDIR /corvus-data
 USER 65534:65534
 EXPOSE 3000
 ENTRYPOINT ["corvus"]
-CMD ["gateway", "--port", "3000", "--host", "127.0.0.1"]
+CMD ["gateway", "--port", "3000", "--host", "0.0.0.0"]
