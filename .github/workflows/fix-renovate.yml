@@ -31,7 +31,7 @@ jobs:
     steps:
       - name: 📡 Get PR Data
         if: github.event_name == 'issue_comment' && github.event.issue.pull_request != null
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         id: get-pr-data
         with:
           # language=javascript
@@ -128,7 +128,7 @@ jobs:
         run: ./gradlew --version
 
       - name: 🔐 Re-validate PR head SHA before write actions
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           EXPECTED_SHA: ${{ steps.get-pr-data.outputs.head_sha }}
           EXPECTED_REPO: ${{ steps.get-pr-data.outputs.head_repo }}
@@ -184,7 +184,7 @@ jobs:
           git diff --cached --quiet || git commit -m "${COMMIT_MSG}"
 
       - name: 🔐 Re-validate PR head SHA before push
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           EXPECTED_SHA: ${{ steps.get-pr-data.outputs.head_sha }}
           EXPECTED_REPO: ${{ steps.get-pr-data.outputs.head_repo }}
