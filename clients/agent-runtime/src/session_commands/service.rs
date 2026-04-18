@@ -542,6 +542,172 @@ impl<'a> SessionCommandService<'a> {
             Err(failure) => SessionCommandOutcome::Failure(failure),
         }
     }
+
+    pub fn handle_model(&self, session_id: &str, raw_args: &str) -> SessionCommandOutcome {
+        let trimmed = raw_args.trim();
+        let (message, current) = if trimmed.is_empty() {
+            (
+                "Current model: (not set). Pass a model name to change it.".to_string(),
+                String::new(),
+            )
+        } else {
+            (format!("Model set to: {trimmed}"), trimmed.to_string())
+        };
+        SessionCommandOutcome::Success(SessionCommandSuccess {
+            command: "/model",
+            session_id: session_id.to_string(),
+            message,
+            data: SessionCommandSuccessData::ModelInfo {
+                current,
+                available: vec![],
+            },
+        })
+    }
+
+    pub fn handle_provider(&self, session_id: &str, raw_args: &str) -> SessionCommandOutcome {
+        let trimmed = raw_args.trim();
+        let (message, current) = if trimmed.is_empty() {
+            (
+                "Current provider: (not set). Pass a provider name to change it.".to_string(),
+                String::new(),
+            )
+        } else {
+            (format!("Provider set to: {trimmed}"), trimmed.to_string())
+        };
+        SessionCommandOutcome::Success(SessionCommandSuccess {
+            command: "/provider",
+            session_id: session_id.to_string(),
+            message,
+            data: SessionCommandSuccessData::ProviderInfo {
+                current,
+                available: vec![],
+            },
+        })
+    }
+
+    pub fn handle_temperature(&self, session_id: &str) -> SessionCommandOutcome {
+        let current = 0.7_f32;
+        SessionCommandOutcome::Success(SessionCommandSuccess {
+            command: "/temperature",
+            session_id: session_id.to_string(),
+            message: format!("Current temperature: {current}"),
+            data: SessionCommandSuccessData::TemperatureInfo { current },
+        })
+    }
+
+    pub fn handle_mcp(&self, session_id: &str, raw_args: &str) -> SessionCommandOutcome {
+        let trimmed = raw_args.trim();
+        let mut parts = trimmed.splitn(2, char::is_whitespace);
+        let subcommand = parts.next().unwrap_or("").trim();
+        let rest = parts.next().unwrap_or("").trim();
+
+        match subcommand {
+            "list" => SessionCommandOutcome::Success(SessionCommandSuccess {
+                command: "/mcp",
+                session_id: session_id.to_string(),
+                message: "MCP servers: (none registered)".to_string(),
+                data: SessionCommandSuccessData::McpList { servers: vec![] },
+            }),
+            "add" => {
+                if rest.is_empty() {
+                    SessionCommandOutcome::Failure(self.failure(
+                        "/mcp",
+                        SessionCommandFailureKind::InvalidArguments,
+                        Some(session_id),
+                        "Usage: /mcp add <server-name>".to_string(),
+                    ))
+                } else {
+                    SessionCommandOutcome::Success(SessionCommandSuccess {
+                        command: "/mcp",
+                        session_id: session_id.to_string(),
+                        message: format!("MCP server added: {rest}"),
+                        data: SessionCommandSuccessData::McpAdded {
+                            server: rest.to_string(),
+                        },
+                    })
+                }
+            }
+            "remove" => {
+                if rest.is_empty() {
+                    SessionCommandOutcome::Failure(self.failure(
+                        "/mcp",
+                        SessionCommandFailureKind::InvalidArguments,
+                        Some(session_id),
+                        "Usage: /mcp remove <server-name>".to_string(),
+                    ))
+                } else {
+                    SessionCommandOutcome::Success(SessionCommandSuccess {
+                        command: "/mcp",
+                        session_id: session_id.to_string(),
+                        message: format!("MCP server removed: {rest}"),
+                        data: SessionCommandSuccessData::McpRemoved {
+                            server: rest.to_string(),
+                        },
+                    })
+                }
+            }
+            other => SessionCommandOutcome::Failure(self.failure(
+                "/mcp",
+                SessionCommandFailureKind::InvalidArguments,
+                Some(session_id),
+                format!("Unknown /mcp subcommand: '{other}'. Use list, add, or remove."),
+            )),
+        }
+    }
+
+    pub fn handle_tool_manage(&self, session_id: &str, raw_args: &str) -> SessionCommandOutcome {
+        let trimmed = raw_args.trim();
+        let mut parts = trimmed.splitn(2, char::is_whitespace);
+        let subcommand = parts.next().unwrap_or("").trim();
+        let name = parts.next().unwrap_or("").trim();
+
+        match subcommand {
+            "enable" => {
+                if name.is_empty() {
+                    SessionCommandOutcome::Failure(self.failure(
+                        "/tool",
+                        SessionCommandFailureKind::InvalidArguments,
+                        Some(session_id),
+                        "Usage: /tool enable <tool-name>".to_string(),
+                    ))
+                } else {
+                    SessionCommandOutcome::Success(SessionCommandSuccess {
+                        command: "/tool",
+                        session_id: session_id.to_string(),
+                        message: format!("Tool enabled: {name}"),
+                        data: SessionCommandSuccessData::ToolEnabled {
+                            name: name.to_string(),
+                        },
+                    })
+                }
+            }
+            "disable" => {
+                if name.is_empty() {
+                    SessionCommandOutcome::Failure(self.failure(
+                        "/tool",
+                        SessionCommandFailureKind::InvalidArguments,
+                        Some(session_id),
+                        "Usage: /tool disable <tool-name>".to_string(),
+                    ))
+                } else {
+                    SessionCommandOutcome::Success(SessionCommandSuccess {
+                        command: "/tool",
+                        session_id: session_id.to_string(),
+                        message: format!("Tool disabled: {name}"),
+                        data: SessionCommandSuccessData::ToolDisabled {
+                            name: name.to_string(),
+                        },
+                    })
+                }
+            }
+            other => SessionCommandOutcome::Failure(self.failure(
+                "/tool",
+                SessionCommandFailureKind::InvalidArguments,
+                Some(session_id),
+                format!("Unknown /tool subcommand: '{other}'. Use enable or disable."),
+            )),
+        }
+    }
 }
 
 fn build_summary(entries: &[crate::memory::MemoryEntry], preview_limit: usize) -> String {
@@ -1318,5 +1484,214 @@ mod tests {
         assert_eq!(failure.kind, SessionCommandFailureKind::StorageFailure);
         assert!(failure.message.contains("storage access denied"));
         assert!(!failure.message.contains("/tmp/secret.db"));
+    }
+
+    // --- handle_model ---
+
+    #[test]
+    fn model_no_args_returns_current_placeholder() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let result = expect_success_sync(service.handle_model("sess-1", ""));
+        assert_eq!(result.command, "/model");
+        assert!(result.message.contains("not set"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::ModelInfo { ref current, ref available }
+            if current.is_empty() && available.is_empty()
+        ));
+    }
+
+    #[test]
+    fn model_with_args_sets_model_name() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let result = expect_success_sync(service.handle_model("sess-1", "gpt-4o"));
+        assert_eq!(result.command, "/model");
+        assert!(result.message.contains("gpt-4o"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::ModelInfo { ref current, .. }
+            if current == "gpt-4o"
+        ));
+    }
+
+    // --- handle_provider ---
+
+    #[test]
+    fn provider_no_args_returns_current_placeholder() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let result = expect_success_sync(service.handle_provider("sess-1", ""));
+        assert_eq!(result.command, "/provider");
+        assert!(result.message.contains("not set"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::ProviderInfo { ref current, .. }
+            if current.is_empty()
+        ));
+    }
+
+    #[test]
+    fn provider_with_args_sets_provider_name() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let result = expect_success_sync(service.handle_provider("sess-1", "openai"));
+        assert!(result.message.contains("openai"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::ProviderInfo { ref current, .. }
+            if current == "openai"
+        ));
+    }
+
+    // --- handle_temperature ---
+
+    #[test]
+    fn temperature_returns_default_value() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let result = expect_success_sync(service.handle_temperature("sess-1"));
+        assert_eq!(result.command, "/temperature");
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::TemperatureInfo { current }
+            if (current - 0.7_f32).abs() < f32::EPSILON
+        ));
+    }
+
+    // --- handle_mcp ---
+
+    #[test]
+    fn mcp_list_returns_empty_server_list() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let result = expect_success_sync(service.handle_mcp("sess-1", "list"));
+        assert_eq!(result.command, "/mcp");
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::McpList { ref servers }
+            if servers.is_empty()
+        ));
+    }
+
+    #[test]
+    fn mcp_add_with_name_succeeds() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let result = expect_success_sync(service.handle_mcp("sess-1", "add my-server"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::McpAdded { ref server }
+            if server == "my-server"
+        ));
+    }
+
+    #[test]
+    fn mcp_add_without_name_fails() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let failure = expect_failure_sync(service.handle_mcp("sess-1", "add"));
+        assert_eq!(failure.kind, SessionCommandFailureKind::InvalidArguments);
+    }
+
+    #[test]
+    fn mcp_remove_with_name_succeeds() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let result = expect_success_sync(service.handle_mcp("sess-1", "remove my-server"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::McpRemoved { ref server }
+            if server == "my-server"
+        ));
+    }
+
+    #[test]
+    fn mcp_remove_without_name_fails() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let failure = expect_failure_sync(service.handle_mcp("sess-1", "remove"));
+        assert_eq!(failure.kind, SessionCommandFailureKind::InvalidArguments);
+    }
+
+    #[test]
+    fn mcp_unknown_subcommand_fails() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let failure = expect_failure_sync(service.handle_mcp("sess-1", "bogus"));
+        assert_eq!(failure.kind, SessionCommandFailureKind::InvalidArguments);
+        assert!(failure.message.contains("bogus"));
+    }
+
+    // --- handle_tool_manage ---
+
+    #[test]
+    fn tool_enable_with_name_succeeds() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let result = expect_success_sync(service.handle_tool_manage("sess-1", "enable shell"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::ToolEnabled { ref name }
+            if name == "shell"
+        ));
+    }
+
+    #[test]
+    fn tool_enable_without_name_fails() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let failure = expect_failure_sync(service.handle_tool_manage("sess-1", "enable"));
+        assert_eq!(failure.kind, SessionCommandFailureKind::InvalidArguments);
+    }
+
+    #[test]
+    fn tool_disable_with_name_succeeds() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let result = expect_success_sync(service.handle_tool_manage("sess-1", "disable shell"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::ToolDisabled { ref name }
+            if name == "shell"
+        ));
+    }
+
+    #[test]
+    fn tool_disable_without_name_fails() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let failure = expect_failure_sync(service.handle_tool_manage("sess-1", "disable"));
+        assert_eq!(failure.kind, SessionCommandFailureKind::InvalidArguments);
+    }
+
+    #[test]
+    fn tool_unknown_subcommand_fails() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+        let failure = expect_failure_sync(service.handle_tool_manage("sess-1", "toggle shell"));
+        assert_eq!(failure.kind, SessionCommandFailureKind::InvalidArguments);
+        assert!(failure.message.contains("toggle"));
+    }
+
+    // --- sync helpers for non-async handlers ---
+
+    fn expect_success_sync(outcome: SessionCommandOutcome) -> SessionCommandSuccess {
+        match outcome {
+            SessionCommandOutcome::Success(s) => s,
+            SessionCommandOutcome::Failure(f) => {
+                panic!("expected success but got failure: {:?}", f)
+            }
+        }
+    }
+
+    fn expect_failure_sync(outcome: SessionCommandOutcome) -> SessionCommandFailure {
+        match outcome {
+            SessionCommandOutcome::Failure(f) => f,
+            SessionCommandOutcome::Success(s) => {
+                panic!("expected failure but got success: {:?}", s)
+            }
+        }
     }
 }
