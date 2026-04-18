@@ -12,5 +12,5 @@ permissions:
 
 jobs:
   label:
-    uses: dallay/common-actions/.github/workflows/pr-size-labeler.yml@0f8de7c46309882e873a878e1fcc636bf56ad586 # v1.2.0
+    uses: dallay/common-actions/.github/workflows/pr-size-labeler.yml@v1.2.0
     secrets: inherit
