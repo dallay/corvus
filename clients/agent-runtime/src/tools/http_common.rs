@@ -101,7 +101,9 @@ pub(crate) fn is_private_or_local_host(host: &str) -> bool {
         .rsplit('.')
         .next()
         .is_some_and(|label| label == "local");
-    if bare.eq_ignore_ascii_case("localhost") || has_local_tld {
+    let bare_lower = bare.to_ascii_lowercase();
+    let is_localhost_or_subdomain = bare_lower == "localhost" || bare_lower.ends_with(".localhost");
+    if is_localhost_or_subdomain || has_local_tld {
         return true;
     }
 
