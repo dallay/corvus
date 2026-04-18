@@ -2,6 +2,7 @@ use crate::agent::unified_entrypoint::{self, CanonicalOutcome};
 use crate::memory::Memory;
 use crate::session_commands::{
     default_registry, CommandContext, SessionCommandOutcome, SessionCommandService,
+    SessionCommandToolEntry,
 };
 
 mod session_command_adapter;
@@ -46,11 +47,12 @@ pub async fn evaluate(session_id: String, prompt: &str) -> CanonicalOutcome {
 
 pub async fn evaluate_ingress(
     memory: &dyn Memory,
+    tool_snapshot: &[SessionCommandToolEntry],
     context: CommandContext,
     prompt: &str,
     include_blocking_fallback: bool,
 ) -> IngressDecision {
-    let service = SessionCommandService::new(memory);
+    let service = SessionCommandService::with_tool_snapshot(memory, tool_snapshot);
     let session_id = context.session.session_id.clone();
     if let Some(outcome) = default_registry().dispatch(&service, context, prompt).await {
         return IngressDecision::SessionCommand { outcome };
@@ -98,7 +100,7 @@ mod tests {
     use crate::session_commands::{
         CommandCaller, CommandIngressSource, CommandSessionSource, SessionCommandFailure,
         SessionCommandFailureKind, SessionCommandOutcome, SessionCommandSuccess,
-        SessionCommandSuccessData,
+        SessionCommandSuccessData, SessionCommandToolEntry, SessionCommandToolSourceKind,
     };
     use async_trait::async_trait;
 
@@ -246,6 +248,7 @@ mod tests {
         for prompt in ["/resume", "/suspend", "/tldr", "/compact"] {
             let decision = evaluate_ingress(
                 &IngressMemory,
+                &[],
                 CommandContext::for_cli(
                     "session-1",
                     CommandSessionSource::Existing,
@@ -283,6 +286,7 @@ mod tests {
     async fn ingress_preserves_unknown_slash_like_input() {
         let decision = evaluate_ingress(
             &IngressMemory,
+            &[],
             CommandContext::for_cli(
                 "session-1",
                 CommandSessionSource::Existing,
@@ -301,6 +305,7 @@ mod tests {
     async fn ingress_reports_invalid_argument_shape_for_recognized_command() {
         let decision = evaluate_ingress(
             &IngressMemory,
+            &[],
             CommandContext::for_cli(
                 "session-1",
                 CommandSessionSource::Existing,
@@ -325,6 +330,45 @@ mod tests {
                 ));
             }
             other => panic!("expected session command error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn ingress_routes_tools_through_shared_seam_with_tool_snapshot() {
+        let tools = vec![SessionCommandToolEntry {
+            name: "shell".to_string(),
+            description: "Execute shell commands".to_string(),
+            source_kind: SessionCommandToolSourceKind::Native,
+            source_label: None,
+        }];
+
+        let decision = evaluate_ingress(
+            &IngressMemory,
+            &tools,
+            CommandContext::for_cli(
+                "session-1",
+                CommandSessionSource::Existing,
+                ExecutionMode::Standard,
+                None,
+            ),
+            "/tools",
+            true,
+        )
+        .await;
+
+        match decision {
+            IngressDecision::SessionCommand { outcome } => {
+                assert!(matches!(
+                    outcome,
+                    SessionCommandOutcome::Success(SessionCommandSuccess {
+                        command: "/tools",
+                        ref message,
+                        data: SessionCommandSuccessData::ToolListing { .. },
+                        ..
+                    }) if message.contains("Available tools (1):")
+                ));
+            }
+            other => panic!("expected /tools session command interception, got {other:?}"),
         }
     }
 

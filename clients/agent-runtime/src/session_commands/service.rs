@@ -1,6 +1,7 @@
 use super::types::{
     sanitize_storage_error, CommandContext, SessionCommandFailure, SessionCommandFailureKind,
     SessionCommandOutcome, SessionCommandSuccess, SessionCommandSuccessData,
+    SessionCommandToolEntry, SessionCommandToolSourceKind,
 };
 use crate::memory::{
     is_slash_session_unsupported_error, Memory, SessionFieldPatch, SessionSnapshotKind,
@@ -13,11 +14,36 @@ const PREVIEW_LIMIT: usize = 120;
 
 pub struct SessionCommandService<'a> {
     memory: &'a dyn Memory,
+    tool_snapshot: &'a [SessionCommandToolEntry],
 }
 
 impl<'a> SessionCommandService<'a> {
     pub fn new(memory: &'a dyn Memory) -> Self {
-        Self { memory }
+        Self {
+            memory,
+            tool_snapshot: &[],
+        }
+    }
+
+    pub fn with_tool_snapshot(
+        memory: &'a dyn Memory,
+        tool_snapshot: &'a [SessionCommandToolEntry],
+    ) -> Self {
+        Self {
+            memory,
+            tool_snapshot,
+        }
+    }
+
+    pub fn handle_tools(&self, session_id: &str) -> SessionCommandOutcome {
+        let mut tools = self.tool_snapshot.to_vec();
+        tools.sort_by(|left, right| left.name.cmp(&right.name));
+        SessionCommandOutcome::Success(SessionCommandSuccess {
+            command: "/tools",
+            session_id: session_id.to_string(),
+            message: format_tool_listing_message(&tools),
+            data: SessionCommandSuccessData::ToolListing { tools },
+        })
     }
 
     pub async fn handle_tldr(&self, session_id: &str) -> SessionCommandOutcome {
@@ -600,6 +626,39 @@ fn truncate_preview(value: &str, max_len: usize) -> String {
         + "…"
 }
 
+fn format_tool_listing_message(tools: &[SessionCommandToolEntry]) -> String {
+    if tools.is_empty() {
+        return "No tools are currently available.".to_string();
+    }
+
+    let lines = tools
+        .iter()
+        .map(format_tool_listing_line)
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("Available tools ({}):\n{lines}", tools.len())
+}
+
+fn format_tool_listing_line(tool: &SessionCommandToolEntry) -> String {
+    match tool.source_kind {
+        SessionCommandToolSourceKind::Native => {
+            format!("- {} — {}", tool.name, tool.description)
+        }
+        SessionCommandToolSourceKind::McpTool => format_mcp_tool_line(tool, "mcp tool"),
+        SessionCommandToolSourceKind::McpResource => format_mcp_tool_line(tool, "mcp resource"),
+        SessionCommandToolSourceKind::McpPrompt => format_mcp_tool_line(tool, "mcp prompt"),
+    }
+}
+
+fn format_mcp_tool_line(tool: &SessionCommandToolEntry, source: &str) -> String {
+    match tool.source_label.as_deref() {
+        Some(label) if !label.trim().is_empty() => {
+            format!("- {} — {} [{source}: {label}]", tool.name, tool.description)
+        }
+        _ => format!("- {} — {} [{source}]", tool.name, tool.description),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -608,7 +667,9 @@ mod tests {
         MemoryCategory, MemoryEntry, ResumableSessionEntry, SessionEntry, SessionFieldPatch,
         SessionSnapshotKind, SessionSnapshotRecord, SessionStatePatch, SessionStateRecord,
     };
-    use crate::session_commands::{CommandContext, CommandSessionSource};
+    use crate::session_commands::{
+        CommandContext, CommandSessionSource, SessionCommandToolEntry, SessionCommandToolSourceKind,
+    };
     use async_trait::async_trait;
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -928,6 +989,117 @@ mod tests {
 
         let failure = expect_failure(service.handle_tldr("session-1").await);
         assert_eq!(failure.kind, SessionCommandFailureKind::UnsupportedBackend);
+    }
+
+    #[tokio::test]
+    async fn tools_are_sorted_and_exposed_as_machine_readable_listing() {
+        let memory = FakeMemory::default();
+        let tools = vec![
+            SessionCommandToolEntry {
+                name: "shell".to_string(),
+                description: "Execute shell commands".to_string(),
+                source_kind: SessionCommandToolSourceKind::Native,
+                source_label: None,
+            },
+            SessionCommandToolEntry {
+                name: "file_read".to_string(),
+                description: "Read files".to_string(),
+                source_kind: SessionCommandToolSourceKind::Native,
+                source_label: None,
+            },
+            SessionCommandToolEntry {
+                name: "mcp.docs.search".to_string(),
+                description: "Search docs".to_string(),
+                source_kind: SessionCommandToolSourceKind::McpTool,
+                source_label: Some("docs".to_string()),
+            },
+        ];
+        let service = SessionCommandService::with_tool_snapshot(&memory, &tools);
+
+        let success = expect_success(service.handle_tools("session-tools"));
+
+        assert_eq!(success.command, "/tools");
+        assert_eq!(success.session_id, "session-tools");
+        assert_eq!(
+            success.message,
+            "Available tools (3):\n- file_read — Read files\n- mcp.docs.search — Search docs [mcp tool: docs]\n- shell — Execute shell commands"
+        );
+        assert_eq!(
+            success.data,
+            SessionCommandSuccessData::ToolListing {
+                tools: vec![
+                    SessionCommandToolEntry {
+                        name: "file_read".to_string(),
+                        description: "Read files".to_string(),
+                        source_kind: SessionCommandToolSourceKind::Native,
+                        source_label: None,
+                    },
+                    SessionCommandToolEntry {
+                        name: "mcp.docs.search".to_string(),
+                        description: "Search docs".to_string(),
+                        source_kind: SessionCommandToolSourceKind::McpTool,
+                        source_label: Some("docs".to_string()),
+                    },
+                    SessionCommandToolEntry {
+                        name: "shell".to_string(),
+                        description: "Execute shell commands".to_string(),
+                        source_kind: SessionCommandToolSourceKind::Native,
+                        source_label: None,
+                    },
+                ],
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn tools_returns_explicit_empty_state_success() {
+        let memory = FakeMemory::default();
+        let tools = Vec::new();
+        let service = SessionCommandService::with_tool_snapshot(&memory, &tools);
+
+        let success = expect_success(service.handle_tools("session-tools"));
+
+        assert_eq!(success.message, "No tools are currently available.");
+        assert_eq!(
+            success.data,
+            SessionCommandSuccessData::ToolListing { tools: vec![] }
+        );
+    }
+
+    #[tokio::test]
+    async fn tools_formats_mixed_native_and_mcp_sources() {
+        let memory = FakeMemory::default();
+        let tools = vec![
+            SessionCommandToolEntry {
+                name: "mcp.docs.prompt.ask".to_string(),
+                description: "Prompt docs".to_string(),
+                source_kind: SessionCommandToolSourceKind::McpPrompt,
+                source_label: Some("docs".to_string()),
+            },
+            SessionCommandToolEntry {
+                name: "mcp.docs.resource.index".to_string(),
+                description: "Docs index".to_string(),
+                source_kind: SessionCommandToolSourceKind::McpResource,
+                source_label: Some("docs".to_string()),
+            },
+            SessionCommandToolEntry {
+                name: "file_write".to_string(),
+                description: "Write files".to_string(),
+                source_kind: SessionCommandToolSourceKind::Native,
+                source_label: None,
+            },
+        ];
+        let service = SessionCommandService::with_tool_snapshot(&memory, &tools);
+
+        let success = expect_success(service.handle_tools("session-tools"));
+
+        assert!(success.message.contains("- file_write — Write files"));
+        assert!(success
+            .message
+            .contains("- mcp.docs.prompt.ask — Prompt docs [mcp prompt: docs]"));
+        assert!(success
+            .message
+            .contains("- mcp.docs.resource.index — Docs index [mcp resource: docs]"));
     }
 
     #[tokio::test]

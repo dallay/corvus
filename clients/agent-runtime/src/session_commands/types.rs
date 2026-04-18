@@ -352,6 +352,22 @@ pub struct SessionCommandSuccess {
     pub data: SessionCommandSuccessData,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionCommandToolEntry {
+    pub name: String,
+    pub description: String,
+    pub source_kind: SessionCommandToolSourceKind,
+    pub source_label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionCommandToolSourceKind {
+    Native,
+    McpTool,
+    McpResource,
+    McpPrompt,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionCommandSuccessData {
     None,
@@ -360,6 +376,9 @@ pub enum SessionCommandSuccessData {
     },
     ResumableSessions {
         sessions: Vec<ResumableSessionEntry>,
+    },
+    ToolListing {
+        tools: Vec<SessionCommandToolEntry>,
     },
 }
 

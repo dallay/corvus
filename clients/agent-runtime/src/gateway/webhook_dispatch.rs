@@ -396,6 +396,16 @@ pub(crate) async fn execute(
     // Compute clamped mode BEFORE creating ingress context so evaluation sees the enforced value
     let clamped_mode =
         resolve_webhook_execution_mode(config.agent.execution_mode, Some(request.execution_mode));
+    let tool_snapshot = match crate::bootstrap::slash_tool_snapshot_from_config(config) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            tracing::error!(
+                ?error,
+                "failed to build slash tool snapshot for webhook ingress"
+            );
+            return map_canonical_result(&request, model, CanonicalWebhookResult::Error);
+        }
+    };
 
     let ingress_context = crate::session_commands::CommandContext::for_webhook(
         &request.session_id,
@@ -414,6 +424,7 @@ pub(crate) async fn execute(
     match crate::pre_execution::adapt_handled_ingress(
         crate::pre_execution::evaluate_ingress(
             memory.as_ref(),
+            &tool_snapshot,
             ingress_context,
             &request.message,
             true,
@@ -1253,5 +1264,41 @@ mod tests {
             result.response_text.as_deref(),
             Some("[session:session-target] permission denied")
         );
+    }
+
+    #[tokio::test]
+    async fn execute_intercepts_tools_listing_before_provider_execution() {
+        let (_temp, config) = test_config();
+        let provider_impl = Arc::new(ScriptedProvider::new(vec![ChatResponse {
+            text: Some("should not be called".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let result = execute(
+            &config,
+            provider,
+            Arc::new(TestMemory),
+            Arc::new(NoopObserver) as Arc<dyn Observer>,
+            None,
+            "test-model",
+            WebhookTurnRequest {
+                session_id: "session-tools".into(),
+                session_source: WebhookSessionSource::Explicit,
+                caller_token_hash: None,
+                message: "/tools".into(),
+                execution_mode: ExecutionMode::Standard,
+                include_sse_frames: false,
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(result.outcome, WebhookTerminalOutcome::Completed);
+        assert!(result
+            .response_text
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("Available tools ("));
     }
 }

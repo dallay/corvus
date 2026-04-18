@@ -1768,16 +1768,24 @@ async fn maybe_handle_http_ingress(
     scrubbed_message: &str,
     caller_token_hash: Option<&str>,
 ) -> Option<(WebhookResponse, bool)> {
+    let config = state.config.lock().clone();
+    let tool_snapshot = crate::bootstrap::slash_tool_snapshot_from_config(&config).ok()?;
     let context = crate::session_commands::CommandContext::for_gateway_http(
         session_id,
         session_source,
-        state.config.lock().agent.execution_mode,
+        config.agent.execution_mode,
         caller_token_hash.map(str::to_string),
     );
 
     match crate::pre_execution::adapt_handled_ingress(
-        crate::pre_execution::evaluate_ingress(state.mem.as_ref(), context, scrubbed_message, true)
-            .await,
+        crate::pre_execution::evaluate_ingress(
+            state.mem.as_ref(),
+            &tool_snapshot,
+            context,
+            scrubbed_message,
+            true,
+        )
+        .await,
     ) {
         crate::pre_execution::HandledIngress::Handled(
             crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
@@ -2234,6 +2242,13 @@ async fn handle_chat_stream(
     let config = state.config.lock().clone();
     let server_execution_mode = config.agent.execution_mode;
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
+    let tool_snapshot =
+        crate::bootstrap::slash_tool_snapshot_from_config(&config).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to derive effective tool snapshot"})),
+            )
+        })?;
 
     // ── Process message via existing dispatch ────────────
     enum StreamProcessingOutcome {
@@ -2257,6 +2272,7 @@ async fn handle_chat_stream(
     let handled_ingress = crate::pre_execution::adapt_handled_ingress(
         crate::pre_execution::evaluate_ingress(
             state.mem.as_ref(),
+            &tool_snapshot,
             ingress_context,
             &scrubbed_message,
             true,
@@ -4281,6 +4297,51 @@ mod tests {
             body["error"]["message"],
             "[session:session-target] permission denied"
         );
+    }
+
+    #[tokio::test]
+    async fn maybe_handle_http_ingress_handles_tools_listing_through_shared_ingress() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: true,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = maybe_handle_http_ingress(
+            &state,
+            "session-1",
+            crate::session_commands::CommandSessionSource::Explicit,
+            "/tools",
+            None,
+        )
+        .await
+        .expect("/tools should short-circuit through shared ingress");
+        let ((status, Json(body)), persist) = response;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(persist);
+        assert_eq!(body["session_id"], "session-1");
+        assert!(body["response"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("Available tools ("));
     }
 
     #[derive(Default)]
