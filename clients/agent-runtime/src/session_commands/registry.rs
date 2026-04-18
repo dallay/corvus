@@ -166,10 +166,13 @@ fn build_default_registry() -> SlashCommandRegistry {
     registry
 }
 
-fn built_in_registrations() -> [SlashCommandRegistration; 5] {
+fn built_in_registrations() -> [SlashCommandRegistration; 10] {
     const NO_CAPABILITIES: &[CommandCapability] = &[];
     const SESSION_LIFECYCLE: &[CommandCapability] = &[CommandCapability::SessionLifecycle];
     const SESSION_SUMMARY: &[CommandCapability] = &[CommandCapability::SessionSummary];
+    const SETTINGS_READ: &[CommandCapability] = &[CommandCapability::SettingsRead];
+    const MCP_MANAGEMENT: &[CommandCapability] = &[CommandCapability::McpManagement];
+    const TOOL_MANAGEMENT: &[CommandCapability] = &[CommandCapability::ToolManagement];
     const RESUME_PERMISSIONS: &[CommandPermission] = &[
         CommandPermission::RequiresCallerScope,
         CommandPermission::RequiresResumableSessionVisibility,
@@ -248,6 +251,76 @@ fn built_in_registrations() -> [SlashCommandRegistration; 5] {
             },
             handler: Arc::new(CompactHandler),
         },
+        SlashCommandRegistration {
+            descriptor: SlashCommandDescriptor {
+                canonical_name: "/model",
+                aliases: &[],
+                description: "Show or set the active model for this session.",
+                argument_shape: SlashCommandArgumentShape::OptionalText,
+                requirements: SlashCommandRequirements {
+                    capabilities: SETTINGS_READ,
+                    permissions: NO_PERMISSIONS,
+                    backends: &[],
+                },
+            },
+            handler: Arc::new(ModelHandler),
+        },
+        SlashCommandRegistration {
+            descriptor: SlashCommandDescriptor {
+                canonical_name: "/provider",
+                aliases: &[],
+                description: "Show or set the active provider for this session.",
+                argument_shape: SlashCommandArgumentShape::OptionalText,
+                requirements: SlashCommandRequirements {
+                    capabilities: SETTINGS_READ,
+                    permissions: NO_PERMISSIONS,
+                    backends: &[],
+                },
+            },
+            handler: Arc::new(ProviderHandler),
+        },
+        SlashCommandRegistration {
+            descriptor: SlashCommandDescriptor {
+                canonical_name: "/temperature",
+                aliases: &[],
+                description: "Show the current sampling temperature for this session.",
+                argument_shape: SlashCommandArgumentShape::None,
+                requirements: SlashCommandRequirements {
+                    capabilities: SETTINGS_READ,
+                    permissions: NO_PERMISSIONS,
+                    backends: &[],
+                },
+            },
+            handler: Arc::new(TemperatureHandler),
+        },
+        SlashCommandRegistration {
+            descriptor: SlashCommandDescriptor {
+                canonical_name: "/mcp",
+                aliases: &[],
+                description: "Manage MCP servers: list, add <name>, remove <name>.",
+                argument_shape: SlashCommandArgumentShape::RequiredText,
+                requirements: SlashCommandRequirements {
+                    capabilities: MCP_MANAGEMENT,
+                    permissions: NO_PERMISSIONS,
+                    backends: &[],
+                },
+            },
+            handler: Arc::new(McpHandler),
+        },
+        SlashCommandRegistration {
+            descriptor: SlashCommandDescriptor {
+                canonical_name: "/tool",
+                aliases: &[],
+                description: "Enable or disable a tool: enable <name>, disable <name>.",
+                argument_shape: SlashCommandArgumentShape::RequiredText,
+                requirements: SlashCommandRequirements {
+                    capabilities: TOOL_MANAGEMENT,
+                    permissions: NO_PERMISSIONS,
+                    backends: &[],
+                },
+            },
+            handler: Arc::new(ToolManageHandler),
+        },
     ]
 }
 
@@ -256,6 +329,11 @@ struct ResumeHandler;
 struct SuspendHandler;
 struct TldrHandler;
 struct CompactHandler;
+struct ModelHandler;
+struct ProviderHandler;
+struct TemperatureHandler;
+struct McpHandler;
+struct ToolManageHandler;
 
 #[async_trait::async_trait]
 impl SlashCommandHandler for ToolsHandler {
@@ -321,6 +399,66 @@ impl SlashCommandHandler for CompactHandler {
     }
 }
 
+#[async_trait::async_trait]
+impl SlashCommandHandler for ModelHandler {
+    async fn handle(
+        &self,
+        service: &SessionCommandService<'_>,
+        context: CommandContext,
+        invocation: SlashInvocation,
+    ) -> SessionCommandOutcome {
+        service.handle_model(&context.session.session_id, &invocation.raw_args)
+    }
+}
+
+#[async_trait::async_trait]
+impl SlashCommandHandler for ProviderHandler {
+    async fn handle(
+        &self,
+        service: &SessionCommandService<'_>,
+        context: CommandContext,
+        invocation: SlashInvocation,
+    ) -> SessionCommandOutcome {
+        service.handle_provider(&context.session.session_id, &invocation.raw_args)
+    }
+}
+
+#[async_trait::async_trait]
+impl SlashCommandHandler for TemperatureHandler {
+    async fn handle(
+        &self,
+        service: &SessionCommandService<'_>,
+        context: CommandContext,
+        _invocation: SlashInvocation,
+    ) -> SessionCommandOutcome {
+        service.handle_temperature(&context.session.session_id)
+    }
+}
+
+#[async_trait::async_trait]
+impl SlashCommandHandler for McpHandler {
+    async fn handle(
+        &self,
+        service: &SessionCommandService<'_>,
+        context: CommandContext,
+        invocation: SlashInvocation,
+    ) -> SessionCommandOutcome {
+        service.handle_mcp(&context.session.session_id, &invocation.raw_args)
+    }
+}
+
+#[async_trait::async_trait]
+impl SlashCommandHandler for ToolManageHandler {
+    async fn handle(
+        &self,
+        service: &SessionCommandService<'_>,
+        context: CommandContext,
+        invocation: SlashInvocation,
+    ) -> SessionCommandOutcome {
+        service.handle_tool_manage(&context.session.session_id, &invocation.raw_args)
+    }
+}
+
 fn validate_name(name: &str) -> Result<(), SlashRegistryError> {
     let chars = name.chars().collect::<Vec<_>>();
     let valid = chars.len() >= 2
@@ -379,6 +517,26 @@ fn validate_invocation(
                 raw_args,
                 primary_target,
             })
+        }
+        SlashCommandArgumentShape::RequiredText => {
+            if raw.raw_args.trim().is_empty() {
+                Err(SessionCommandFailure {
+                    command: descriptor.canonical_name,
+                    kind: SessionCommandFailureKind::InvalidArguments,
+                    session_id: None,
+                    message: format!(
+                        "invalid slash command usage for {}: a subcommand argument is required",
+                        descriptor.canonical_name
+                    ),
+                })
+            } else {
+                Ok(SlashInvocation {
+                    invoked_name: raw.invoked_name,
+                    canonical_name: descriptor.canonical_name,
+                    raw_args: raw.raw_args,
+                    primary_target: None,
+                })
+            }
         }
     }
 }
@@ -597,7 +755,18 @@ mod tests {
 
         assert_eq!(
             names,
-            vec!["/tools", "/resume", "/suspend", "/tldr", "/compact"]
+            vec![
+                "/tools",
+                "/resume",
+                "/suspend",
+                "/tldr",
+                "/compact",
+                "/model",
+                "/provider",
+                "/temperature",
+                "/mcp",
+                "/tool"
+            ]
         );
         assert_eq!(tools.argument_shape, SlashCommandArgumentShape::None);
         assert_eq!(

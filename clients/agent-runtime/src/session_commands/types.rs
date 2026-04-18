@@ -50,6 +50,7 @@ pub enum SlashCommandArgumentShape {
     None,
     OptionalText,
     OptionalTargetThenText,
+    RequiredText,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -63,6 +64,10 @@ pub struct SlashCommandRequirements {
 pub enum CommandCapability {
     SessionLifecycle,
     SessionSummary,
+    SettingsRead,
+    SettingsWrite,
+    McpManagement,
+    ToolManagement,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,6 +384,32 @@ pub enum SessionCommandSuccessData {
     },
     ToolListing {
         tools: Vec<SessionCommandToolEntry>,
+    },
+    ModelInfo {
+        current: String,
+        available: Vec<String>,
+    },
+    ProviderInfo {
+        current: String,
+        available: Vec<String>,
+    },
+    TemperatureInfo {
+        current: f32,
+    },
+    McpList {
+        servers: Vec<String>,
+    },
+    McpAdded {
+        server: String,
+    },
+    McpRemoved {
+        server: String,
+    },
+    ToolEnabled {
+        name: String,
+    },
+    ToolDisabled {
+        name: String,
     },
 }
 
