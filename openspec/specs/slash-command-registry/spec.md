@@ -171,61 +171,61 @@ direct-handler branches for those commands.
 The system MUST adapt handled slash command outcomes through one shared internal contract
 immediately after `pre_execution::evaluate_ingress(...)`.
 
-For CLI/runtime message fast path, gateway HTTP `/webhook`, gateway streaming
-`/web/chat/stream`, webhook dispatcher execution, and channel-backed ingress, that shared contract
-MUST preserve whether ingress was:
-- not handled and allowed to fall through;
-- handled with a success outcome;
-- handled with a blocking outcome; or
-- handled with a failure outcome whose machine-readable failure kind remains observable.
+For this change slice, CLI/runtime message fast path and gateway streaming `/web/chat/stream`
+SHALL preserve the existing handled-command classifications needed by issue #543 without
+broadening slash semantics. Recognized slash commands that fail because of authorization denial or
+invalid arguments MUST remain handled failures derived from the shared slash-command seam, and
+gateway-facing plan mode MUST continue to evaluate recognized slash commands through that seam
+before any generic plan-mode turn blocking is applied.
 
-Transport-specific code MUST be limited to constructing the transport-appropriate typed command
-context before ingress evaluation and wrapping the adapted handled result into that transport's
-existing external envelope after adaptation. The shared contract MUST NOT require those transports
-to adopt one shared external payload, event, or text schema.
+This change MUST freeze existing behavior for current registered slash commands only. It MUST NOT
+be interpreted as requiring new slash-command families or a full transport-by-command parity
+matrix.
 
-#### Scenario: Supported transports share one handled-success adaptation boundary
+#### Scenario: CLI denied `/resume` stays on the handled-command failure path
 
-- GIVEN the same recognized slash command is submitted through CLI/runtime message fast path,
-  gateway HTTP `/webhook`, gateway streaming `/web/chat/stream`, webhook dispatcher execution, and
-  channel-backed ingress
-- WHEN `pre_execution::evaluate_ingress(...)` handles that command successfully
-- THEN each transport MUST consume the same shared handled-result adaptation contract after the
-  pre-execution seam
-- AND each transport MUST preserve its current outward envelope shape while wrapping that adapted
-  success.
+- GIVEN CLI/runtime message fast path receives a recognized `/resume {session_id}` command
+- AND the typed execution context does not provide caller scope authorized to view or resume that
+  target session
+- WHEN `pre_execution::evaluate_ingress(...)` handles the command
+- THEN the system MUST preserve a handled failure outcome derived from the shared slash-command seam
+- AND CLI adaptation MUST surface the existing denied-command error path
+- AND the command MUST NOT fall through as normal user input
+- AND the target session MUST NOT be resumed.
 
-#### Scenario: Permission-denied failures stay machine-readable across all supported transports
+#### Scenario: Gateway SSE preserves machine-readable denial for recognized `/resume`
 
-- GIVEN a recognized slash command is denied for authorization reasons through CLI/runtime message
-  fast path, gateway HTTP `/webhook`, gateway streaming `/web/chat/stream`, webhook dispatcher
-  execution, and channel-backed ingress
-- WHEN the handled result is adapted after `pre_execution::evaluate_ingress(...)`
-- THEN the shared contract MUST preserve a machine-readable authorization-denied failure kind for
-  every transport
-- AND transport-specific code MUST derive its outward error wrapper from that shared classified
-  failure instead of reclassifying the denial independently.
+- GIVEN gateway streaming `/web/chat/stream` receives a recognized `/resume {session_id}` command
+- AND the typed execution context represents a caller scope that is not authorized to view or
+  resume that target session
+- WHEN `pre_execution::evaluate_ingress(...)` handles the command
+- THEN the gateway MUST emit its existing handled-command SSE error wrapper with a machine-readable
+  authorization-denied classification
+- AND the denial classification MUST come from the shared handled-result contract rather than
+  transport-local reclassification
+- AND downstream provider execution MUST NOT start.
 
-#### Scenario: Unknown slash-like input falls through consistently without transport-local recognition branches
+#### Scenario: Gateway SSE preserves machine-readable invalid-argument failure for a recognized slash command
 
-- GIVEN slash-like input does not resolve to a registered command in CLI/runtime message fast path,
-  gateway HTTP `/webhook`, gateway streaming `/web/chat/stream`, webhook dispatcher execution, and
-  channel-backed ingress
-- WHEN the transport evaluates ingress through `pre_execution::evaluate_ingress(...)`
-- THEN the shared handled-result adaptation contract MUST report that the input was not handled
-- AND each transport MUST preserve its existing non-command fallthrough behavior
-- AND transports MUST NOT require a separate pre-dispatch recognition branch to determine
-  fallthrough.
+- GIVEN gateway streaming `/web/chat/stream` receives a recognized slash command whose arguments do
+  not satisfy that command's declared argument shape
+- WHEN `pre_execution::evaluate_ingress(...)` handles the command
+- THEN the gateway MUST emit its existing handled-command SSE error wrapper with a machine-readable
+  invalid-argument classification
+- AND the failure MUST remain a handled slash-command result rather than unknown-command fallthrough
+- AND downstream provider execution MUST NOT start.
 
-#### Scenario: Blocking outcomes remain shared internally while outward wrappers stay transport-specific
+#### Scenario: Recognized slash commands still short-circuit on a gateway-facing plan-mode path
 
-- GIVEN a recognized slash command produces a blocking outcome through gateway HTTP `/webhook`,
-  gateway streaming `/web/chat/stream`, webhook dispatcher execution, or channel-backed ingress
-- WHEN the handled result is adapted after `pre_execution::evaluate_ingress(...)`
-- THEN the shared contract MUST preserve that blocking classification distinctly from success and
-  failure
-- AND each transport MAY continue rendering that blocking outcome through its current outward JSON,
-  SSE, webhook, or channel text wrapper.
+- GIVEN a gateway-facing path is operating in `ExecutionMode::Plan`
+- AND that path receives a recognized slash command in the current registry-backed session-command
+  set
+- WHEN ingress is evaluated
+- THEN the recognized slash command MUST still be submitted to
+  `pre_execution::evaluate_ingress(...)`
+- AND any handled outcome MUST be derived from slash-command handling rather than generic plan-mode
+  turn blocking
+- AND the command MUST NOT be reclassified as ordinary plan-mode-blocked chat input.
 
 ### Requirement: Existing Slash Session Behavior Preservation
 
@@ -295,34 +295,22 @@ production routing for the four in-scope commands.
 The system MUST preserve transport parity for slash command recognition, dispatch, and handled-result
 adaptation across the canonical runtime entry points that rely on the shared ingress seam.
 
-CLI/runtime message fast path, gateway HTTP request paths, gateway streaming paths, webhook
-dispatch, and channel-backed ingress MUST classify recognized slash commands through the same
-pre-execution seam and MUST adapt handled slash outcomes through the same shared internal
-handled-result contract. Surface-specific caller identity semantics MAY differ, and those
-differences MUST remain explicit in the typed execution context rather than being normalized away.
-Transport-specific response-envelope formatting MUST remain outside this change.
+For issue #543, transport parity SHALL be hardened only at the specific regression edges that
+remain exposed after existing service-layer and seam coverage: CLI denied `/resume`, gateway SSE
+denied `/resume`, gateway SSE invalid-argument handling for a recognized slash command, and one
+gateway-facing plan-mode proof for a recognized slash command. This slice MUST rely on the
+existing sessions and pre-execution contracts as the behavioral baseline, and it MUST NOT expand
+into exhaustive transport-by-command coverage.
 
-#### Scenario: Supported transports share dispatch and handled adaptation while keeping caller semantics explicit
+#### Scenario: Focused transport-edge hardening relies on existing slash-command baseline
 
-- GIVEN the same recognized slash command is submitted through CLI/runtime message fast path,
-  gateway HTTP `/webhook`, gateway streaming `/web/chat/stream`, webhook dispatcher execution, and
-  channel-backed ingress
-- WHEN each transport reaches pre-execution ingress evaluation and post-seam handled-result
-  adaptation
-- THEN each transport MUST use the same shared dispatch path and the same shared handled-result
-  adaptation contract
-- AND each resulting internal execution context MUST preserve that transport's own caller-scope
-  semantics
-- AND the system MUST NOT collapse those semantics into a fake unified caller identity model.
-
-#### Scenario: Transport parity remains internal and does not unify outward envelopes
-
-- GIVEN supported transports already expose different external response-envelope shapes for handled
-  slash commands
-- WHEN slash transport parity is enforced for the shared seam and handled-result adaptation contract
-- THEN those transports MAY continue using their existing JSON, SSE, webhook, CLI text, or channel
-  text wrappers
-- AND this change MUST NOT require envelope unification or the introduction of new slash commands.
+- GIVEN the runtime already has service-layer authorization coverage for `/resume` and seam-level
+  coverage for recognized slash-command handling
+- WHEN issue #543 transport parity is evaluated
+- THEN the change MUST harden only the targeted CLI and gateway-facing regression edges still
+  missing from transport coverage
+- AND the system MUST NOT require duplicated acceptance scenarios for every registered command on
+  every transport.
 
 ### Requirement: Registry-Core Separation from Backend and Authorization Policy
 

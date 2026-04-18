@@ -3460,6 +3460,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cli_resume_target_without_caller_scope_preserves_denied_error_path() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let memory = crate::memory::SqliteMemory::new(&config.workspace_dir).unwrap();
+
+        memory
+            .upsert_session("interactive-session", None::<&str>)
+            .await
+            .unwrap();
+        memory
+            .upsert_session("session-target", Some("owner-hash"))
+            .await
+            .unwrap();
+        let snapshot = memory
+            .create_session_snapshot(
+                "session-target",
+                crate::memory::SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "resume me",
+                    "summary": "resume me",
+                    "resume_context": "resume me",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+        memory
+            .apply_session_state_patch(crate::memory::SessionStatePatch {
+                session_id: "session-target".to_string(),
+                lifecycle: Some(crate::memory::SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: crate::memory::SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: crate::memory::SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: crate::memory::SessionFieldPatch::Clear,
+                suspended_at: crate::memory::SessionFieldPatch::Set("now".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let error = maybe_handle_cli_handled_ingress(&config, "/resume session-target")
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("caller scope unavailable"));
+
+        let state = memory
+            .get_session_state_record("session-target")
+            .await
+            .unwrap()
+            .expect("seeded state should remain available");
+        assert_eq!(
+            state.lifecycle,
+            crate::memory::SlashSessionLifecycle::Suspended
+        );
+        assert_eq!(state.pending_hydration_snapshot_id.as_deref(), None);
+    }
+
+    #[tokio::test]
     async fn cli_unknown_slash_like_input_falls_through() {
         let tmp = TempDir::new().unwrap();
         let config = crate::test_support::test_config(&tmp);
