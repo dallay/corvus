@@ -12,9 +12,12 @@ pub mod delegate;
 pub mod file_read;
 pub mod file_write;
 pub mod git_operations;
+pub mod glob;
+pub mod grep;
 pub mod hardware_board_info;
 pub mod hardware_memory_map;
 pub mod hardware_memory_read;
+pub mod http_common;
 pub mod http_request;
 pub mod image_info;
 #[cfg(feature = "mcp-runtime")]
@@ -30,6 +33,7 @@ pub mod screenshot;
 pub mod shell;
 pub mod traits;
 pub(crate) mod url_safety;
+pub mod web_fetch;
 pub mod web_search_tool;
 
 pub use browser::{BrowserTool, ComputerUseConfig};
@@ -46,6 +50,8 @@ pub use delegate::DelegateTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
 pub use git_operations::GitOperationsTool;
+pub use glob::GlobTool;
+pub use grep::GrepTool;
 pub use hardware_board_info::HardwareBoardInfoTool;
 pub use hardware_memory_map::HardwareMemoryMapTool;
 pub use hardware_memory_read::HardwareMemoryReadTool;
@@ -63,6 +69,7 @@ pub use shell::ShellTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
+pub use web_fetch::WebFetchTool;
 pub use web_search_tool::WebSearchTool;
 
 use crate::config::{Config, DelegateAgentConfig};
@@ -159,6 +166,12 @@ fn add_http_request_tool(
     }
 
     tools.push(Box::new(HttpRequestTool::new(
+        security.clone(),
+        http_config.allowed_domains.clone(),
+        http_config.max_response_size,
+        http_config.timeout_secs,
+    )));
+    tools.push(Box::new(WebFetchTool::new(
         security.clone(),
         http_config.allowed_domains.clone(),
         http_config.max_response_size,
@@ -322,6 +335,8 @@ pub fn all_tools_with_runtime(
     let mut tools: Vec<Box<dyn Tool>> = vec![
         Box::new(ShellTool::new(security.clone(), runtime, sandbox)),
         Box::new(CodeSearchTool::new(security.clone())),
+        Box::new(GlobTool::new(security.clone())),
+        Box::new(GrepTool::new(security.clone())),
         Box::new(FileReadTool::new(security.clone())),
         Box::new(FileWriteTool::new(security.clone())),
         Box::new(CronAddTool::new(config.clone(), security.clone())),

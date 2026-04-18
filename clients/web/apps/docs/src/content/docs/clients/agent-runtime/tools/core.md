@@ -25,6 +25,28 @@ See the dedicated [`code_search` page](code-search.md) for the full parameter co
 
 ---
 
+## `Glob`
+
+Claude-style parity tool for workspace-safe file pattern discovery.
+
+- **Security Tier:** Read-Only (Safe).
+- **Execution:** Native runtime tool backed by workspace discovery metadata helpers.
+- **Contract:** Requires `pattern`; optionally scopes traversal with a workspace-relative `path`.
+- **Parity note:** `Glob` is the canonical parity-facing name for this slice and is additive alongside existing native tool names.
+
+---
+
+## `Grep`
+
+Claude-style parity content search backed by the same Corvus search internals used by `code_search`.
+
+- **Security Tier:** Read-Only (Safe).
+- **Execution:** Native runtime tool with deterministic workspace-relative outputs.
+- **Contract:** Supports `pattern`, optional `path`, optional `glob`, and `output_mode` values `content`, `files_with_matches`, or `count`.
+- **Parity note:** `Grep` is canonical for parity-facing documentation, while `code_search` remains available as the retained native contract.
+
+---
+
 ## `shell`
 
 Executes an arbitrary shell command within the workspace directory.

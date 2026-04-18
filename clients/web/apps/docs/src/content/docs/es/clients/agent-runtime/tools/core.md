@@ -27,6 +27,28 @@ Consulta la página dedicada de [`code_search`](code-search.md) para el contrato
 
 ---
 
+## `Glob`
+
+Herramienta de paridad estilo Claude para descubrimiento seguro de archivos por patrón dentro del workspace.
+
+- **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Ejecución:** Herramienta nativa del runtime respaldada por helpers de metadata del discovery del workspace.
+- **Contrato:** Requiere `pattern`; opcionalmente limita el recorrido con `path` relativo al workspace.
+- **Nota de paridad:** `Glob` es el nombre canónico para superficies de paridad en este slice y se añade sin quitar los nombres nativos existentes.
+
+---
+
+## `Grep`
+
+Herramienta de paridad estilo Claude para búsqueda de contenido, respaldada por los mismos internals de búsqueda que usa `code_search`.
+
+- **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Ejecución:** Herramienta nativa con salidas determinísticas y rutas relativas al workspace.
+- **Contrato:** Soporta `pattern`, `path` opcional, `glob` opcional y `output_mode` con valores `content`, `files_with_matches` o `count`.
+- **Nota de paridad:** `Grep` es canónica para documentación de paridad, mientras `code_search` sigue disponible como contrato nativo retenido.
+
+---
+
 ## `shell`
 
 Ejecuta un comando de shell arbitrario dentro del directorio del workspace.

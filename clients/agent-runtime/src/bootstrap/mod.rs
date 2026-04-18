@@ -34,6 +34,9 @@ enum ToolCapability {
 const LITE_TOOL_ALLOWLIST: &[&str] = &["shell", "file_read", "file_write"];
 
 const CODE_TOOL_ALLOWLIST: &[&str] = &[
+    "Glob",
+    "Grep",
+    "WebFetch",
     "browser",
     "browser_open",
     "code_search",
@@ -438,12 +441,16 @@ mod tests {
         let mut config = test_config(&tmp);
         config.agent.profile = "code".into();
         config.agent.execution_mode = ExecutionMode::Plan;
+        config.http_request.enabled = true;
 
         let ctx = BootstrapContext::from_config(&config).unwrap();
         let names: HashSet<&str> = ctx.tools.iter().map(|tool| tool.name()).collect();
 
         assert!(names.contains("file_read"));
         assert!(names.contains("code_search"));
+        assert!(names.contains("Glob"));
+        assert!(names.contains("Grep"));
+        assert!(names.contains("WebFetch"));
         assert!(names.contains("memory_recall"));
         assert!(!names.contains("file_write"));
         assert!(!names.contains("shell"));
@@ -675,6 +682,23 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_code_profile_includes_parity_tools_for_first_slice() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.agent.profile = "code".into();
+        config.http_request.enabled = true;
+
+        let ctx = BootstrapContext::from_config(&config).unwrap();
+        let names: HashSet<&str> = ctx.tools.iter().map(|tool| tool.name()).collect();
+
+        assert!(names.contains("Glob"));
+        assert!(names.contains("Grep"));
+        assert!(names.contains("WebFetch"));
+        assert!(names.contains("code_search"));
+        assert!(names.contains("http_request"));
+    }
+
+    #[test]
     fn gateway_bootstrap_reuses_canonical_mcp_tool_registry() {
         let tmp = tempfile::TempDir::new().unwrap();
         let mut config = test_config(&tmp);
@@ -792,15 +816,23 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let mut config = test_config(&tmp);
         config.agent.profile = "code".into();
+        config.http_request.enabled = true;
         config.mcp.enabled = true;
         config.mcp.servers = vec![mock_mcp_server("docs", "search")];
 
         let snapshot = slash_tool_snapshot_from_config(&config).unwrap();
+        let snapshot_names = snapshot
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
         let mcp_entry = snapshot
             .iter()
             .find(|entry| entry.name == "mcp.docs.search")
             .expect("active MCP tool should be visible in slash snapshot");
 
+        assert!(snapshot_names.contains(&"Glob"));
+        assert!(snapshot_names.contains(&"Grep"));
+        assert!(snapshot_names.contains(&"WebFetch"));
         assert_eq!(mcp_entry.source_kind, SessionCommandToolSourceKind::McpTool);
         assert_eq!(mcp_entry.source_label.as_deref(), Some("docs"));
     }

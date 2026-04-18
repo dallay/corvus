@@ -81,3 +81,14 @@ Realiza peticiones HTTP estructuradas (REST/JSON) a APIs externas.
 | `method` | `string` | Método HTTP (GET, POST, PUT, DELETE, etc.). Por defecto: `GET`. |
 | `headers` | `object` | Pares clave-valor opcionales para los encabezados. |
 | `body` | `string` | Payload opcional para peticiones POST/PUT. |
+
+---
+
+## `WebFetch`
+
+Herramienta de paridad de solo lectura para fetch-and-extract de contenido web permitido.
+
+- **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Ejecución:** Usa el mismo límite de política URL saliente que `http_request` para allowlists de hosts, bloqueo de hosts privados y denegación de redirecciones.
+- **Contrato:** Requiere `url` y `prompt`; devuelve contenido textual extraído, metadatos del estado HTTP y la URL final obtenida.
+- **Límite de alcance:** Este slice solo añade paridad de búsqueda/fetch. `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` y `TaskStop` siguen diferidos explícitamente.

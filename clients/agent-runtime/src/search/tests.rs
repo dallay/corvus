@@ -1,4 +1,7 @@
-use super::discovery::{discover_indexable_files, discover_searchable_files, DiscoveryRules};
+use super::discovery::{
+    discover_indexable_files, discover_metadata_files_with_stats, discover_searchable_files,
+    DiscoveryRules,
+};
 use super::index::{CandidateCoverage, CandidateRequest, WorkspaceTrigramIndex};
 use super::sqlite::{
     read_candidate_paths, read_index_file_count, BUILD_STATE_BUILDING, BUILD_STATE_READY,
@@ -90,6 +93,31 @@ fn discovery_excludes_invalid_utf8_and_binary_content() {
         .map(|entry| entry.file.relative_path.as_str())
         .collect();
     assert_eq!(paths, vec!["good.txt"]);
+}
+
+#[test]
+fn metadata_discovery_returns_workspace_relative_matches_in_stable_order() {
+    let workspace = TempDir::new().unwrap();
+    std::fs::create_dir_all(workspace.path().join("src/lib")).unwrap();
+    std::fs::write(workspace.path().join("src/main.ts"), "main\n").unwrap();
+    std::thread::sleep(Duration::from_millis(10));
+    std::fs::write(workspace.path().join("src/lib/util.ts"), "util\n").unwrap();
+
+    let result = discover_metadata_files_with_stats(
+        &test_security(&workspace),
+        ".",
+        "src/**/*.ts",
+        DiscoveryRules::default(),
+    )
+    .unwrap();
+
+    let paths: Vec<_> = result
+        .files
+        .into_iter()
+        .map(|entry| entry.relative_path)
+        .collect();
+    assert_eq!(paths, vec!["src/lib/util.ts", "src/main.ts"]);
+    assert!(!result.hit_max_files);
 }
 
 #[test]

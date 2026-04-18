@@ -6,6 +6,9 @@ use std::time::Instant;
 pub const PLAN_MODE_BLOCKED_CODE: &str = "plan_mode_blocked";
 
 const PLAN_MODE_SAFE_TOOLS: &[&str] = &[
+    "Glob",
+    "Grep",
+    "WebFetch",
     "code_search",
     "file_read",
     "image_info",
@@ -1607,6 +1610,18 @@ mod tests {
         );
         assert_eq!(
             policy.evaluate_tool_policy("code_search"),
+            ToolPolicyDecision::Allow
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy("Glob"),
+            ToolPolicyDecision::Allow
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy("Grep"),
+            ToolPolicyDecision::Allow
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy("WebFetch"),
             ToolPolicyDecision::Allow
         );
         assert_eq!(

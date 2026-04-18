@@ -25,7 +25,7 @@ resolve_corvus_binary() {
 }
 
 CORVUS_BINARY=""
-ANDROID_APK="clients/androidApp/build/outputs/apk/debug/androidApp-debug.apk"
+ANDROID_APK="${ANDROID_APK:-clients/androidApp/build/outputs/apk/debug/androidApp-debug.apk}"
 PACKAGE_NAME="com.profiletailors.corvus"
 
 RED='\033[0;31m'
@@ -128,11 +128,27 @@ test_ios() {
   fi
 
   # Check TEAM_ID configuration
-  TEAM_ID=$(grep "TEAM_ID=" clients/iosApp/Configuration/Config.xcconfig | cut -d'=' -f2)
+  local config_file="clients/iosApp/Configuration/Config.xcconfig"
+  if [ ! -f "$config_file" ]; then
+    log_error "Config file not found: $config_file"
+    log_info "Ensure iOS configuration exists before running smoke validation"
+    exit 1
+  fi
+
+  TEAM_ID=$(awk -F= '
+    /^[[:space:]]*TEAM_ID[[:space:]]*=/ {
+      value = substr($0, index($0, "=") + 1)
+      sub(/[[:space:]]*\/\/.*/, "", value)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      print value
+      exit
+    }
+  ' "$config_file")
+
   if [ -z "$TEAM_ID" ]; then
     log_error "TEAM_ID not configured in clients/iosApp/Configuration/Config.xcconfig"
     log_info "Add your Apple Developer Team ID to proceed with device builds"
-    log_info " simulator builds work without TEAM_ID"
+    log_info "simulator builds work without TEAM_ID"
     exit 1
   fi
   log_success "TEAM_ID configured: $TEAM_ID"

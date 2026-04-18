@@ -1,10 +1,9 @@
+use super::http_common;
 use super::traits::{Tool, ToolResult};
 #[cfg(test)]
 use super::url_safety::normalize_domain;
-use super::url_safety::{extract_host, host_matches_allowlist, normalize_allowed_domains};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
-use futures_util::StreamExt;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -71,49 +70,14 @@ impl HttpRequestTool {
     ) -> Self {
         Self {
             security,
-            allowed_domains: normalize_allowed_domains(allowed_domains),
+            allowed_domains: http_common::normalized_allowed_domains(allowed_domains),
             max_response_size,
             timeout_secs,
         }
     }
 
     fn validate_url(&self, raw_url: &str) -> anyhow::Result<String> {
-        let url = raw_url.trim();
-
-        if url.is_empty() {
-            anyhow::bail!("URL cannot be empty");
-        }
-
-        if url.chars().any(char::is_whitespace) {
-            anyhow::bail!("URL cannot contain whitespace");
-        }
-
-        if !url.starts_with("http://") && !url.starts_with("https://") {
-            anyhow::bail!("Only http:// and https:// URLs are allowed");
-        }
-
-        if self.allowed_domains.is_empty() {
-            anyhow::bail!(
-                "HTTP request tool is enabled but no allowed_domains are configured. Add [http_request].allowed_domains in config.toml"
-            );
-        }
-
-        let host = extract_host(
-            url,
-            &["http://", "https://"],
-            "Only http:// and https:// URLs are allowed",
-            "http_request",
-        )?;
-
-        if is_private_or_local_host(&host) {
-            anyhow::bail!("Blocked local/private host: {host}");
-        }
-
-        if !host_matches_allowlist(&host, &self.allowed_domains) {
-            anyhow::bail!("Host '{host}' is not in http_request.allowed_domains");
-        }
-
-        Ok(url.to_string())
+        http_common::validate_outbound_url(raw_url, &self.allowed_domains, "http_request")
     }
 
     fn validate_method(&self, method: &str) -> anyhow::Result<reqwest::Method> {
@@ -203,27 +167,8 @@ impl HttpRequestTool {
     }
 
     async fn read_response_body(&self, response: reqwest::Response) -> anyhow::Result<String> {
-        let mut body = Vec::new();
-        let mut truncated = false;
-        let mut stream = response.bytes_stream();
-
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-
-            let remaining = self.max_response_size.saturating_sub(body.len());
-            if remaining == 0 {
-                truncated = true;
-                break;
-            }
-
-            if chunk.len() > remaining {
-                body.extend_from_slice(&chunk[..remaining]);
-                truncated = true;
-                break;
-            }
-
-            body.extend_from_slice(&chunk);
-        }
+        let (body, truncated) =
+            http_common::read_response_body_limited(response, self.max_response_size).await?;
 
         let text = String::from_utf8_lossy(&body).to_string();
         if truncated {
@@ -406,65 +351,11 @@ impl Tool for HttpRequestTool {
     }
 }
 
-fn is_private_or_local_host(host: &str) -> bool {
-    // Strip brackets from IPv6 addresses like [::1]
-    let bare = host
-        .strip_prefix('[')
-        .and_then(|h| h.strip_suffix(']'))
-        .unwrap_or(host);
-
-    let has_local_tld = bare
-        .rsplit('.')
-        .next()
-        .is_some_and(|label| label == "local");
-
-    if bare == "localhost" || bare.ends_with(".localhost") || has_local_tld {
-        return true;
-    }
-
-    if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
-        return match ip {
-            std::net::IpAddr::V4(v4) => is_non_global_v4(v4),
-            std::net::IpAddr::V6(v6) => is_non_global_v6(v6),
-        };
-    }
-
-    false
-}
-
-/// Returns true if the IPv4 address is not globally routable.
-fn is_non_global_v4(v4: std::net::Ipv4Addr) -> bool {
-    let [a, b, c, _] = v4.octets();
-    v4.is_loopback()                       // 127.0.0.0/8
-        || v4.is_private()                 // 10/8, 172.16/12, 192.168/16
-        || v4.is_link_local()              // 169.254.0.0/16
-        || v4.is_unspecified()             // 0.0.0.0
-        || v4.is_broadcast()              // 255.255.255.255
-        || v4.is_multicast()              // 224.0.0.0/4
-        || (a == 100 && (64..=127).contains(&b)) // Shared address space (RFC 6598)
-        || a >= 240                        // Reserved (240.0.0.0/4, except broadcast)
-        || (a == 192 && b == 0 && (c == 0 || c == 2)) // IETF assignments + TEST-NET-1
-        || (a == 198 && b == 51)           // Documentation (198.51.100.0/24)
-        || (a == 203 && b == 0)            // Documentation (203.0.113.0/24)
-        || (a == 198 && (18..=19).contains(&b)) // Benchmarking (198.18.0.0/15)
-}
-
-/// Returns true if the IPv6 address is not globally routable.
-fn is_non_global_v6(v6: std::net::Ipv6Addr) -> bool {
-    let segs = v6.segments();
-    v6.is_loopback()                       // ::1
-        || v6.is_unspecified()             // ::
-        || v6.is_multicast()              // ff00::/8
-        || (segs[0] & 0xfe00) == 0xfc00   // Unique-local (fc00::/7)
-        || (segs[0] & 0xffc0) == 0xfe80   // Link-local (fe80::/10)
-        || (segs[0] == 0x2001 && segs[1] == 0x0db8) // Documentation (2001:db8::/32)
-        || v6.to_ipv4_mapped().is_some_and(is_non_global_v4)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::security::{AutonomyLevel, SecurityPolicy};
+    use crate::tools::http_common::is_private_or_local_host;
 
     fn test_tool(allowed_domains: Vec<&str>) -> HttpRequestTool {
         let security = Arc::new(SecurityPolicy {
@@ -487,7 +378,7 @@ mod tests {
 
     #[test]
     fn normalize_allowed_domains_deduplicates() {
-        let got = normalize_allowed_domains(vec![
+        let got = http_common::normalized_allowed_domains(vec![
             "example.com".into(),
             "EXAMPLE.COM".into(),
             "https://example.com/".into(),
@@ -596,85 +487,87 @@ mod tests {
 
     #[test]
     fn blocks_multicast_ipv4() {
-        assert!(is_private_or_local_host("224.0.0.1"));
-        assert!(is_private_or_local_host("239.255.255.255"));
+        assert!(http_common::is_private_or_local_host("224.0.0.1"));
+        assert!(http_common::is_private_or_local_host("239.255.255.255"));
     }
 
     #[test]
     fn blocks_broadcast() {
-        assert!(is_private_or_local_host("255.255.255.255"));
+        assert!(http_common::is_private_or_local_host("255.255.255.255"));
     }
 
     #[test]
     fn blocks_reserved_ipv4() {
-        assert!(is_private_or_local_host("240.0.0.1"));
-        assert!(is_private_or_local_host("250.1.2.3"));
+        assert!(http_common::is_private_or_local_host("240.0.0.1"));
+        assert!(http_common::is_private_or_local_host("250.1.2.3"));
     }
 
     #[test]
     fn blocks_documentation_ranges() {
-        assert!(is_private_or_local_host("192.0.2.1")); // TEST-NET-1
-        assert!(is_private_or_local_host("198.51.100.1")); // TEST-NET-2
-        assert!(is_private_or_local_host("203.0.113.1")); // TEST-NET-3
+        assert!(http_common::is_private_or_local_host("192.0.2.1")); // TEST-NET-1
+        assert!(http_common::is_private_or_local_host("198.51.100.1")); // TEST-NET-2
+        assert!(http_common::is_private_or_local_host("203.0.113.1")); // TEST-NET-3
     }
 
     #[test]
     fn blocks_benchmarking_range() {
-        assert!(is_private_or_local_host("198.18.0.1"));
-        assert!(is_private_or_local_host("198.19.255.255"));
+        assert!(http_common::is_private_or_local_host("198.18.0.1"));
+        assert!(http_common::is_private_or_local_host("198.19.255.255"));
     }
 
     #[test]
     fn blocks_ipv6_localhost() {
-        assert!(is_private_or_local_host("::1"));
-        assert!(is_private_or_local_host("[::1]"));
+        assert!(http_common::is_private_or_local_host("::1"));
+        assert!(http_common::is_private_or_local_host("[::1]"));
     }
 
     #[test]
     fn blocks_ipv6_multicast() {
-        assert!(is_private_or_local_host("ff02::1"));
+        assert!(http_common::is_private_or_local_host("ff02::1"));
     }
 
     #[test]
     fn blocks_ipv6_link_local() {
-        assert!(is_private_or_local_host("fe80::1"));
+        assert!(http_common::is_private_or_local_host("fe80::1"));
     }
 
     #[test]
     fn blocks_ipv6_unique_local() {
-        assert!(is_private_or_local_host("fd00::1"));
+        assert!(http_common::is_private_or_local_host("fd00::1"));
     }
 
     #[test]
     fn blocks_ipv4_mapped_ipv6() {
-        assert!(is_private_or_local_host("::ffff:127.0.0.1"));
-        assert!(is_private_or_local_host("::ffff:192.168.1.1"));
-        assert!(is_private_or_local_host("::ffff:10.0.0.1"));
+        assert!(http_common::is_private_or_local_host("::ffff:127.0.0.1"));
+        assert!(http_common::is_private_or_local_host("::ffff:192.168.1.1"));
+        assert!(http_common::is_private_or_local_host("::ffff:10.0.0.1"));
     }
 
     #[test]
     fn allows_public_ipv4() {
-        assert!(!is_private_or_local_host("8.8.8.8"));
-        assert!(!is_private_or_local_host("1.1.1.1"));
-        assert!(!is_private_or_local_host("93.184.216.34"));
+        assert!(!http_common::is_private_or_local_host("8.8.8.8"));
+        assert!(!http_common::is_private_or_local_host("1.1.1.1"));
+        assert!(!http_common::is_private_or_local_host("93.184.216.34"));
     }
 
     #[test]
     fn blocks_ipv6_documentation_range() {
-        assert!(is_private_or_local_host("2001:db8::1"));
+        assert!(http_common::is_private_or_local_host("2001:db8::1"));
     }
 
     #[test]
     fn allows_public_ipv6() {
-        assert!(!is_private_or_local_host("2607:f8b0:4004:800::200e"));
+        assert!(!http_common::is_private_or_local_host(
+            "2607:f8b0:4004:800::200e"
+        ));
     }
 
     #[test]
     fn blocks_shared_address_space() {
-        assert!(is_private_or_local_host("100.64.0.1"));
-        assert!(is_private_or_local_host("100.127.255.255"));
-        assert!(!is_private_or_local_host("100.63.0.1")); // Just below range
-        assert!(!is_private_or_local_host("100.128.0.1")); // Just above range
+        assert!(http_common::is_private_or_local_host("100.64.0.1"));
+        assert!(http_common::is_private_or_local_host("100.127.255.255"));
+        assert!(!http_common::is_private_or_local_host("100.63.0.1")); // Just below range
+        assert!(!http_common::is_private_or_local_host("100.128.0.1")); // Just above range
     }
 
     #[tokio::test]
