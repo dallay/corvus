@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -103,9 +104,7 @@ private fun SendButton(isEnabled: Boolean, gradient: Brush, glowColor: Color, on
           spotColor = if (isEnabled) glowColor else Color.Gray,
         )
         .clip(CircleShape)
-        .background(
-          if (isEnabled) gradient else Brush.linearGradient(listOf(Color.Gray, Color.Gray))
-        )
+        .background(if (isEnabled) gradient else SolidColor(Color.Gray))
     }
 
   Box(modifier = sendButtonModifier, contentAlignment = Alignment.Center) {
