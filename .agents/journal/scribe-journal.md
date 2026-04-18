@@ -90,3 +90,15 @@ All three identified issues have been fixed:
 ### Notes
 - Glossary: "Firejail" = Linux user-space sandbox (confirmed implemented). "Landlock" = Linux kernel-level sandbox (confirmed). "Cerebro" = standalone MCP memory service in `modules/cerebro/` (confirmed).
 - Remaining gap: `cost` command subcommands (`summary`, `history`, `reset`) exist in code but are not yet in the CLI reference doc. Low priority.
+
+## 2026-04-15 - CLI Reference Update - Complete
+
+**Verification:** Verified `clients/agent-runtime/src/main.rs` for `code` and `cost` command implementations.
+**Changes:**
+- Updated `guides/cli-reference.md` and `es/guides/cli-reference.md`.
+- Added `code` command documentation.
+- Added `cost` command documentation with `summary`, `history`, and `reset` subcommands.
+- Updated `agent` command with new flags (`--override-budget`, `--plan`) and subcommands (`build`, `run`, `new`).
+- Removed deprecated `surreal-graphs` and `surreal` memory backends from `onboard` command.
+**Validation:** Results of `make docs-check` and `make docs-build` passed (80 pages built).
+**Notes:** Bilingual parity maintained for all changes.

@@ -235,22 +235,19 @@ private fun ChatWorkspaceScreen(
 
 @Composable
 private fun WorkspaceDivider(corvusColors: CorvusColorPalette) {
-  Box(
-    modifier =
-      Modifier.fillMaxWidth()
-        .height(1.dp)
-        .background(
-          brush =
-            Brush.horizontalGradient(
-              listOf(
-                Color.Transparent,
-                corvusColors.glowPurple.copy(alpha = 0.5f),
-                corvusColors.glowCyan.copy(alpha = 0.5f),
-                Color.Transparent,
-              )
-            )
+  val dividerBrush =
+    remember(corvusColors.glowPurple, corvusColors.glowCyan) {
+      Brush.horizontalGradient(
+        listOf(
+          Color.Transparent,
+          corvusColors.glowPurple.copy(alpha = 0.5f),
+          corvusColors.glowCyan.copy(alpha = 0.5f),
+          Color.Transparent,
         )
-  )
+      )
+    }
+
+  Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(brush = dividerBrush))
 }
 
 @Composable
