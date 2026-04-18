@@ -71,6 +71,9 @@ private data class ChatBubblePalette(
 @Composable
 fun GlassSurface(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
   val corvusColors = CorvusTheme.colors
+  val backgroundBrush = remember {
+    Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.1f), Color.Transparent))
+  }
 
   Surface(
     modifier = modifier,
@@ -78,14 +81,7 @@ fun GlassSurface(modifier: Modifier = Modifier, content: @Composable () -> Unit)
     color = corvusColors.glassSurface,
     tonalElevation = 0.dp,
   ) {
-    Box(
-      modifier =
-        Modifier.background(
-          brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.1f), Color.Transparent))
-        )
-    ) {
-      content()
-    }
+    Box(modifier = Modifier.background(brush = backgroundBrush)) { content() }
   }
 }
 
@@ -209,6 +205,11 @@ private fun ChatBubbleBody(
   message: ChatMessage,
   bubblePalette: ChatBubblePalette,
 ) {
+  val borderBrush =
+    remember(bubblePalette) {
+      Brush.horizontalGradient(listOf(bubblePalette.accent.copy(alpha = 0.3f), Color.Transparent))
+    }
+
   Box(
     modifier =
       Modifier.widthIn(max = 280.dp)
@@ -221,14 +222,7 @@ private fun ChatBubbleBody(
     Surface(
       shape = ChatBubbleShape,
       color = bubblePalette.background,
-      border =
-        BorderStroke(
-          width = 1.dp,
-          brush =
-            Brush.horizontalGradient(
-              listOf(bubblePalette.accent.copy(alpha = 0.3f), Color.Transparent)
-            ),
-        ),
+      border = BorderStroke(width = 1.dp, brush = borderBrush),
     ) {
       Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
         ChatBubbleHeader(isUser = isUser, modelName = modelName, titleColor = bubblePalette.title)
@@ -284,6 +278,8 @@ fun ChatHeader(
   onToggleConfig: () -> Unit,
 ) {
   val corvusColors = CorvusTheme.colors
+  val iconBackgroundBrush =
+    remember(corvusColors.gradientPrimary) { Brush.linearGradient(corvusColors.gradientPrimary) }
 
   Row(
     modifier = Modifier.fillMaxWidth(),
@@ -310,10 +306,7 @@ fun ChatHeader(
       modifier =
         Modifier.size(44.dp)
           .shadow(4.dp, CircleShape)
-          .background(
-            brush = Brush.linearGradient(corvusColors.gradientPrimary),
-            shape = CircleShape,
-          ),
+          .background(brush = iconBackgroundBrush, shape = CircleShape),
     ) {
       Icon(
         imageVector = Icons.Default.Settings,
@@ -429,6 +422,10 @@ fun diagnosticsCard(
 ) {
   val colors = MaterialTheme.colorScheme
   val corvusColors = CorvusTheme.colors
+  val indicatorBrush =
+    remember(corvusColors.gradientPrimary) {
+      Brush.horizontalGradient(corvusColors.gradientPrimary)
+    }
 
   Box(
     modifier =
@@ -453,10 +450,7 @@ fun diagnosticsCard(
           modifier =
             Modifier.width(40.dp)
               .height(3.dp)
-              .background(
-                brush = Brush.horizontalGradient(corvusColors.gradientPrimary),
-                shape = RoundedCornerShape(2.dp),
-              )
+              .background(brush = indicatorBrush, shape = RoundedCornerShape(2.dp))
         )
 
         Text(

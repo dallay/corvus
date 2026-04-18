@@ -20,7 +20,7 @@ Initialize your workspace and configuration.
 - `--channels-only`: Reconfigure channels only.
 - `--api-key <KEY>`: API key for quick setup.
 - `--provider <NAME>`: Provider name (default: openrouter).
-- `--memory <TYPE>`: Memory backend (sqlite, lucid, surreal-graphs, surreal, markdown, none).
+- `--memory <TYPE>`: Memory backend (sqlite, lucid, markdown, none).
 
 When using `--interactive`, the wizard now ends with an optional dashboard step:
 
@@ -37,18 +37,45 @@ corvus onboard --interactive
 
 ### `agent`
 
-Start the AI agent loop.
+Start the AI agent loop (or compose from manifest).
 
-- `-m, --message <TEXT>`: Single message mode.
-- `-p, --provider <NAME>`: Provider to use.
+- `-m, --message <TEXT>`: Single message mode (don't enter interactive mode).
+- `-p, --provider <NAME>`: Provider to use (openrouter, anthropic, openai, openai-codex).
 - `--model <MODEL>`: Specific model to use.
-- `-t, --temperature <VALUE>`: Temperature (0.0 - 2.0).
+- `-t, --temperature <VALUE>`: Temperature (0.0 - 2.0, default: 0.7).
 - `--peripheral <BOARD:PATH>`: Attach a peripheral (e.g., `nucleo-f401re:/dev/ttyACM0`).
+- `--override-budget`: Allow exactly one over-budget request for this CLI session.
+- `--plan`: Run the turn in plan mode (analysis-only tool execution).
+
+**Subcommands:**
+
+- `build --manifest <PATH>`: Build an agent from a manifest TOML file.
+  - `--output <DIR>`: Output directory for compiled agent.
+- `run --manifest <PATH>`: Run an agent directly from a manifest (boot-time composition).
+- `new --template <NAME> --name <NAME>`: Create a new agent from a template.
+  - `--output <DIR>`: Output directory (optional).
 
 **Example:**
 
 ```bash
 corvus agent -m "Hello, how can you help me today?"
+```
+
+### `code`
+
+Run a code-specialist session (inspect, plan, edit, verify, report).
+
+- `-m, --message <TEXT>`: Task description or instruction for the code session.
+- `-p, --provider <NAME>`: Provider to use (openrouter, anthropic, openai).
+- `--model <MODEL>`: Specific model to use.
+- `-t, --temperature <VALUE>`: Temperature (0.0 - 2.0, default: 0.7).
+- `--override-budget`: Allow exactly one over-budget request for this CLI session.
+- `--plan`: Run the session in plan mode (analysis-only tool execution).
+
+**Example:**
+
+```bash
+corvus code -m "Fix the bug in the authentication module"
 ```
 
 ### `daemon`
@@ -350,4 +377,22 @@ Manage runtime updates.
 
 ```bash
 corvus update check
+```
+
+### `cost`
+
+Inspect and manage runtime cost state.
+
+- `summary`: Show the current cost summary (session, daily, monthly).
+- `history`: Show aggregated cost history.
+  - `--period <PERIOD>`: Aggregation period (session, day, month).
+  - `--window <SIZE>`: Number of buckets to include (default: 30).
+- `reset`: Reset tracked costs for a specific scope.
+  - `--scope <SCOPE>`: Reset scope (session, day, month).
+  - `--reason <TEXT>`: Optional reason recorded in cost audit history.
+
+**Example:**
+
+```bash
+corvus cost summary
 ```
