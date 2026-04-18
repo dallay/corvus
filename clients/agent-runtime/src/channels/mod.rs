@@ -171,6 +171,14 @@ fn channel_timeout_abort_text(session_id: &str) -> String {
     )
 }
 
+struct ChannelIngressRequest<'a> {
+    session_id: &'a str,
+    sender: &'a str,
+    reply_target: &'a str,
+    content: &'a str,
+    execution_mode: ExecutionMode,
+}
+
 fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
     match channel_name {
         "telegram" => Some(
@@ -700,15 +708,21 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
     };
 
     let user_text = extract_user_text(&msg);
+    let tool_snapshot =
+        crate::bootstrap::slash_tool_snapshot_from_tools(ctx.tools_registry.as_ref())
+            .unwrap_or_default();
 
     if maybe_handle_channel_ingress(
         target_channel.as_ref(),
         ctx.memory.as_ref(),
-        &session_id,
-        &msg.sender,
-        &msg.reply_target,
-        &user_text,
-        ctx.config.agent.execution_mode,
+        &tool_snapshot,
+        ChannelIngressRequest {
+            session_id: &session_id,
+            sender: &msg.sender,
+            reply_target: &msg.reply_target,
+            content: &user_text,
+            execution_mode: ctx.config.agent.execution_mode,
+        },
     )
     .await
     .is_some()
@@ -1854,38 +1868,42 @@ fn build_history(
 async fn maybe_handle_channel_ingress(
     channel: Option<&Arc<dyn Channel>>,
     memory: &dyn Memory,
-    session_id: &str,
-    sender: &str,
-    reply_target: &str,
-    content: &str,
-    execution_mode: ExecutionMode,
+    tool_snapshot: &[crate::session_commands::SessionCommandToolEntry],
+    request: ChannelIngressRequest<'_>,
 ) -> Option<()> {
     let caller_scope = channel.map(|ch| {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(ch.name().as_bytes());
         hasher.update(b":");
-        hasher.update(sender.as_bytes());
+        hasher.update(request.sender.as_bytes());
         hex::encode(hasher.finalize())
     });
 
     let ingress_context = crate::session_commands::CommandContext::for_channel(
-        session_id,
+        request.session_id,
         crate::session_commands::CommandSessionSource::Existing,
-        execution_mode,
+        request.execution_mode,
         channel.map(|ch| ch.name()).unwrap_or("channel"),
         caller_scope,
     );
 
     match crate::pre_execution::adapt_handled_ingress(
-        crate::pre_execution::evaluate_ingress(memory, ingress_context, content, true).await,
+        crate::pre_execution::evaluate_ingress(
+            memory,
+            tool_snapshot,
+            ingress_context,
+            request.content,
+            true,
+        )
+        .await,
     ) {
         crate::pre_execution::HandledIngress::Handled(
             crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
         ) => {
             if let Some(ch) = channel {
                 let _ = ch
-                    .send(&SendMessage::new(success.message, reply_target))
+                    .send(&SendMessage::new(success.message, request.reply_target))
                     .await;
             }
             Some(())
@@ -1898,7 +1916,7 @@ async fn maybe_handle_channel_ingress(
         ) => {
             if let Some(ch) = channel {
                 let _ = ch
-                    .send(&SendMessage::new(failure.message, reply_target))
+                    .send(&SendMessage::new(failure.message, request.reply_target))
                     .await;
             }
             Some(())
@@ -1910,17 +1928,18 @@ async fn maybe_handle_channel_ingress(
                 let text = match blocking {
                     crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, .. } => {
                         format!(
-                        "[session:{session_id}] approval required for `{tool}`; request blocked"
-                    )
+                            "[session:{}] approval required for `{tool}`; request blocked",
+                            request.session_id,
+                        )
                     }
                     crate::pre_execution::BlockingOutcome::TimeoutAborted => {
-                        channel_timeout_abort_text(session_id)
+                        channel_timeout_abort_text(request.session_id)
                     }
                     crate::pre_execution::BlockingOutcome::Fallback { response } => {
-                        format!("[session:{session_id}] {response}")
+                        format!("[session:{}] {response}", request.session_id)
                     }
                 };
-                let _ = ch.send(&SendMessage::new(text, reply_target)).await;
+                let _ = ch.send(&SendMessage::new(text, request.reply_target)).await;
             }
             Some(())
         }
@@ -3298,11 +3317,14 @@ mod tests {
         let handled = maybe_handle_channel_ingress(
             Some(&channel_dyn),
             &memory,
-            "session-1",
-            "tester",
-            "reply-target",
-            "/tldr",
-            ExecutionMode::Standard,
+            &[],
+            ChannelIngressRequest {
+                session_id: "session-1",
+                sender: "tester",
+                reply_target: "reply-target",
+                content: "/tldr",
+                execution_mode: ExecutionMode::Standard,
+            },
         )
         .await;
 
@@ -3333,11 +3355,14 @@ mod tests {
         let handled = maybe_handle_channel_ingress(
             Some(&channel_dyn),
             &memory,
-            "session-1",
-            "tester",
-            "reply-target",
-            "/resume-later",
-            ExecutionMode::Standard,
+            &[],
+            ChannelIngressRequest {
+                session_id: "session-1",
+                sender: "tester",
+                reply_target: "reply-target",
+                content: "/resume-later",
+                execution_mode: ExecutionMode::Standard,
+            },
         )
         .await;
 
@@ -3355,11 +3380,14 @@ mod tests {
         let handled = maybe_handle_channel_ingress(
             Some(&channel_dyn),
             &memory,
-            "session-plan",
-            "tester",
-            "reply-target",
-            "/tldr",
-            ExecutionMode::Plan,
+            &[],
+            ChannelIngressRequest {
+                session_id: "session-plan",
+                sender: "tester",
+                reply_target: "reply-target",
+                content: "/tldr",
+                execution_mode: ExecutionMode::Plan,
+            },
         )
         .await;
 
@@ -3382,11 +3410,14 @@ mod tests {
         let handled = maybe_handle_channel_ingress(
             Some(&channel_dyn),
             &memory,
-            "session-control",
-            "tester",
-            "reply-target",
-            "/resume session-target",
-            ExecutionMode::Standard,
+            &[],
+            ChannelIngressRequest {
+                session_id: "session-control",
+                sender: "tester",
+                reply_target: "reply-target",
+                content: "/resume session-target",
+                execution_mode: ExecutionMode::Standard,
+            },
         )
         .await;
 
@@ -3410,11 +3441,14 @@ mod tests {
         let handled = maybe_handle_channel_ingress(
             Some(&channel_dyn),
             &memory,
-            "session-control",
-            "tester",
-            "reply-target",
-            "/resume session-target",
-            ExecutionMode::Standard,
+            &[],
+            ChannelIngressRequest {
+                session_id: "session-control",
+                sender: "tester",
+                reply_target: "reply-target",
+                content: "/resume session-target",
+                execution_mode: ExecutionMode::Standard,
+            },
         )
         .await;
 
@@ -3425,6 +3459,38 @@ mod tests {
             sent[0],
             "reply-target:[session:session-target] permission denied"
         );
+    }
+
+    #[tokio::test]
+    async fn ingress_outcome_handles_tools_listing_through_shared_ingress() {
+        let channel = Arc::new(RecordingChannel::default());
+        let channel_dyn: Arc<dyn Channel> = channel.clone();
+        let memory = CountingMemory::default();
+        let tool_snapshot = vec![crate::session_commands::SessionCommandToolEntry {
+            name: "shell".to_string(),
+            description: "Execute shell commands".to_string(),
+            source_kind: crate::session_commands::SessionCommandToolSourceKind::Native,
+            source_label: None,
+        }];
+
+        let handled = maybe_handle_channel_ingress(
+            Some(&channel_dyn),
+            &memory,
+            &tool_snapshot,
+            ChannelIngressRequest {
+                session_id: "session-tools",
+                sender: "tester",
+                reply_target: "reply-target",
+                content: "/tools",
+                execution_mode: ExecutionMode::Standard,
+            },
+        )
+        .await;
+
+        assert_eq!(handled, Some(()));
+        let sent = channel.sent_messages.lock().await.clone();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("Available tools (1):"));
     }
 
     /// Instrumented memory wrapper that counts recall/store invocations for testing.

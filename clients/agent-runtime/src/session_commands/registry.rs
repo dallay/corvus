@@ -166,7 +166,8 @@ fn build_default_registry() -> SlashCommandRegistry {
     registry
 }
 
-fn built_in_registrations() -> [SlashCommandRegistration; 4] {
+fn built_in_registrations() -> [SlashCommandRegistration; 5] {
+    const NO_CAPABILITIES: &[CommandCapability] = &[];
     const SESSION_LIFECYCLE: &[CommandCapability] = &[CommandCapability::SessionLifecycle];
     const SESSION_SUMMARY: &[CommandCapability] = &[CommandCapability::SessionSummary];
     const RESUME_PERMISSIONS: &[CommandPermission] = &[
@@ -177,6 +178,20 @@ fn built_in_registrations() -> [SlashCommandRegistration; 4] {
     const SQLITE_BACKEND: &[CommandBackend] = &[CommandBackend::SqliteSlashSessions];
 
     [
+        SlashCommandRegistration {
+            descriptor: SlashCommandDescriptor {
+                canonical_name: "/tools",
+                aliases: &[],
+                description: "List the effective tools available in this runtime.",
+                argument_shape: SlashCommandArgumentShape::None,
+                requirements: SlashCommandRequirements {
+                    capabilities: NO_CAPABILITIES,
+                    permissions: NO_PERMISSIONS,
+                    backends: &[],
+                },
+            },
+            handler: Arc::new(ToolsHandler),
+        },
         SlashCommandRegistration {
             descriptor: SlashCommandDescriptor {
                 canonical_name: "/resume",
@@ -236,10 +251,23 @@ fn built_in_registrations() -> [SlashCommandRegistration; 4] {
     ]
 }
 
+struct ToolsHandler;
 struct ResumeHandler;
 struct SuspendHandler;
 struct TldrHandler;
 struct CompactHandler;
+
+#[async_trait::async_trait]
+impl SlashCommandHandler for ToolsHandler {
+    async fn handle(
+        &self,
+        service: &SessionCommandService<'_>,
+        context: CommandContext,
+        _invocation: SlashInvocation,
+    ) -> SessionCommandOutcome {
+        service.handle_tools(&context.session.session_id)
+    }
+}
 
 #[async_trait::async_trait]
 impl SlashCommandHandler for ResumeHandler {
@@ -560,11 +588,22 @@ mod tests {
             .iter()
             .map(|descriptor| descriptor.canonical_name)
             .collect::<Vec<_>>();
+        let tools = registry
+            .get("/tools")
+            .expect("/tools descriptor should exist");
         let resume = registry
             .get("/resume")
             .expect("/resume descriptor should exist");
 
-        assert_eq!(names, vec!["/resume", "/suspend", "/tldr", "/compact"]);
+        assert_eq!(
+            names,
+            vec!["/tools", "/resume", "/suspend", "/tldr", "/compact"]
+        );
+        assert_eq!(tools.argument_shape, SlashCommandArgumentShape::None);
+        assert_eq!(
+            tools.description,
+            "List the effective tools available in this runtime."
+        );
         assert_eq!(
             Some(resume.argument_shape.clone()),
             Some(SlashCommandArgumentShape::OptionalTargetThenText)
@@ -626,6 +665,72 @@ mod tests {
                 kind: SessionCommandFailureKind::InvalidArguments,
                 ..
             }))
+        ));
+    }
+
+    #[tokio::test]
+    async fn dispatch_validates_argument_shape_for_tools() {
+        let tools = vec![crate::session_commands::SessionCommandToolEntry {
+            name: "shell".to_string(),
+            description: "Execute shell commands".to_string(),
+            source_kind: crate::session_commands::SessionCommandToolSourceKind::Native,
+            source_label: None,
+        }];
+        let service = SessionCommandService::with_tool_snapshot(&RegistryMemory, &tools);
+
+        let result = default_registry()
+            .dispatch(
+                &service,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                "/tools extra",
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Some(SessionCommandOutcome::Failure(SessionCommandFailure {
+                command: "/tools",
+                kind: SessionCommandFailureKind::InvalidArguments,
+                ..
+            }))
+        ));
+    }
+
+    #[tokio::test]
+    async fn dispatch_routes_tools_via_shared_service_handler() {
+        let tools = vec![crate::session_commands::SessionCommandToolEntry {
+            name: "shell".to_string(),
+            description: "Execute shell commands".to_string(),
+            source_kind: crate::session_commands::SessionCommandToolSourceKind::Native,
+            source_label: None,
+        }];
+        let service = SessionCommandService::with_tool_snapshot(&RegistryMemory, &tools);
+
+        let result = default_registry()
+            .dispatch(
+                &service,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                "/tools",
+            )
+            .await
+            .expect("built-in command should resolve");
+
+        assert!(matches!(
+            result,
+            SessionCommandOutcome::Success(crate::session_commands::SessionCommandSuccess {
+                command: "/tools",
+                ..
+            })
         ));
     }
 

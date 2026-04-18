@@ -1532,6 +1532,7 @@ async fn maybe_handle_cli_handled_ingress(
     message: &str,
 ) -> Result<Option<String>> {
     let (memory, _observer) = crate::bootstrap::create_memory_and_observer(config)?;
+    let tool_snapshot = crate::bootstrap::slash_tool_snapshot_from_config(config)?;
     let session_id_env = std::env::var("CORVUS_SESSION_ID").ok();
     let session_source = if session_id_env.is_some() {
         crate::session_commands::CommandSessionSource::Explicit
@@ -1547,7 +1548,14 @@ async fn maybe_handle_cli_handled_ingress(
     );
 
     match crate::pre_execution::adapt_handled_ingress(
-        crate::pre_execution::evaluate_ingress(memory.as_ref(), context, message, false).await,
+        crate::pre_execution::evaluate_ingress(
+            memory.as_ref(),
+            &tool_snapshot,
+            context,
+            message,
+            false,
+        )
+        .await,
     ) {
         crate::pre_execution::HandledIngress::Handled(
             crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
@@ -3526,5 +3534,19 @@ mod tests {
             .unwrap();
 
         assert!(handled.is_none());
+    }
+
+    #[tokio::test]
+    async fn cli_tools_command_returns_effective_tool_listing() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+
+        let handled = maybe_handle_cli_handled_ingress(&config, "/tools")
+            .await
+            .unwrap();
+
+        let message = handled.expect("/tools should be handled");
+        assert!(message.starts_with("Available tools ("));
+        assert!(message.contains("shell"));
     }
 }

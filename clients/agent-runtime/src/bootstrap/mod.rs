@@ -6,6 +6,7 @@ use crate::observability::{self, Observer};
 use crate::providers::{self, Provider, ProviderRuntimeOptions};
 use crate::runtime::{self, RuntimeAdapter};
 use crate::security::SecurityPolicy;
+use crate::session_commands::{SessionCommandToolEntry, SessionCommandToolSourceKind};
 use crate::tools::{self, Tool};
 use anyhow::bail;
 use std::path::PathBuf;
@@ -331,6 +332,43 @@ pub fn create_memory_and_observer(
 ) -> anyhow::Result<(Arc<dyn Memory>, Arc<dyn Observer>)> {
     let profile = AgentProfile::from_config(config)?;
     init_memory_and_observer(config, profile)
+}
+
+pub fn slash_tool_snapshot_from_tools(
+    tools: &[Box<dyn Tool>],
+) -> anyhow::Result<Vec<SessionCommandToolEntry>> {
+    let capability_registry = build_registry_from_tools(tools)?;
+    Ok(slash_tool_snapshot_from_registry(&capability_registry))
+}
+
+pub fn slash_tool_snapshot_from_config(
+    config: &Config,
+) -> anyhow::Result<Vec<SessionCommandToolEntry>> {
+    let ctx = BootstrapContext::from_config(config)?;
+    Ok(slash_tool_snapshot_from_registry(&ctx.capability_registry))
+}
+
+fn slash_tool_snapshot_from_registry(
+    capability_registry: &CapabilityRegistry,
+) -> Vec<SessionCommandToolEntry> {
+    capability_registry
+        .iter()
+        .map(|descriptor| SessionCommandToolEntry {
+            name: descriptor.id.clone(),
+            description: descriptor.metadata.description.clone(),
+            source_kind: match descriptor.namespace.as_str() {
+                "mcp.tool" => SessionCommandToolSourceKind::McpTool,
+                "mcp.resource" => SessionCommandToolSourceKind::McpResource,
+                "mcp.prompt" => SessionCommandToolSourceKind::McpPrompt,
+                _ => SessionCommandToolSourceKind::Native,
+            },
+            source_label: descriptor
+                .metadata
+                .mcp
+                .as_ref()
+                .map(|mcp| mcp.server.clone()),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -729,5 +767,41 @@ mod tests {
                 assert_eq!(source_kind_for_tool(id), ToolSourceKind::Native);
             }
         }
+    }
+
+    #[test]
+    fn slash_tool_snapshot_matches_effective_runtime_inventory() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.agent.profile = "lite".into();
+        config.mcp.enabled = true;
+        config.mcp.servers = vec![mock_mcp_server("docs", "search")];
+
+        let snapshot = slash_tool_snapshot_from_config(&config).unwrap();
+        let names = snapshot
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["shell", "file_read", "file_write"]);
+        assert!(!snapshot.iter().any(|entry| entry.name.starts_with("mcp.")));
+    }
+
+    #[test]
+    fn slash_tool_snapshot_keeps_effective_mcp_entries_when_active() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.agent.profile = "code".into();
+        config.mcp.enabled = true;
+        config.mcp.servers = vec![mock_mcp_server("docs", "search")];
+
+        let snapshot = slash_tool_snapshot_from_config(&config).unwrap();
+        let mcp_entry = snapshot
+            .iter()
+            .find(|entry| entry.name == "mcp.docs.search")
+            .expect("active MCP tool should be visible in slash snapshot");
+
+        assert_eq!(mcp_entry.source_kind, SessionCommandToolSourceKind::McpTool);
+        assert_eq!(mcp_entry.source_label.as_deref(), Some("docs"));
     }
 }
