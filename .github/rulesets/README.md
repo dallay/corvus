@@ -27,7 +27,7 @@ gh api \
   --method POST \
   -H "Accept: application/vnd.github+json" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
-  /repos/dALLAY/corvus/rulesets \
+  /repos/dallay/corvus/rulesets \
   --input .github/rulesets/main-protection.json
 
 # For minor branch
@@ -35,7 +35,7 @@ gh api \
   --method POST \
   -H "Accept: application/vnd.github+json" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
-  /repos/dALLAY/corvus/rulesets \
+  /repos/dallay/corvus/rulesets \
   --input .github/rulesets/minor-protection.json
 ```
 
