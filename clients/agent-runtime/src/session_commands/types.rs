@@ -478,7 +478,7 @@ pub enum SessionCommandSuccessData {
         status: SessionCommandSessionStatus,
     },
     SessionInspect {
-        inspect: SessionCommandSessionInspect,
+        inspect: Box<SessionCommandSessionInspect>,
     },
     SessionList {
         sessions: Vec<SessionListEntry>,
