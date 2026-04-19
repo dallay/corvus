@@ -91,4 +91,6 @@ Read-only fetch-and-extract parity tool for allowlisted web content.
 - **Security Tier:** Read-Only (Safe).
 - **Execution:** Uses the same outbound URL-policy boundary as `http_request` for host allowlists, private-host blocking, and redirect-denial behavior.
 - **Contract:** Requires `url` and `prompt`; returns extracted textual content, HTTP status metadata, and the final fetched URL.
-- **Scope boundary:** This slice only adds search/fetch parity. `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, and `TaskStop` remain explicitly deferred.
+- **Scope boundary:** `WebFetch` remains the read-only web parity surface. Persistent task lifecycle
+  parity (`TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, `TaskStop`) is now documented
+  separately and remains distinct from web/search behavior.

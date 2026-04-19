@@ -1903,7 +1903,10 @@ async fn maybe_handle_channel_ingress(
         ) => {
             if let Some(ch) = channel {
                 let _ = ch
-                    .send(&SendMessage::new(success.message, request.reply_target))
+                    .send(&SendMessage::new(
+                        success.message.clone(),
+                        request.reply_target,
+                    ))
                     .await;
             }
             Some(())

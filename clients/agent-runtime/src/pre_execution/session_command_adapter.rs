@@ -11,7 +11,7 @@ pub enum HandledIngress {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HandledIngressOutcome {
-    SessionCommandSuccess(SessionCommandSuccess),
+    SessionCommandSuccess(Box<SessionCommandSuccess>),
     SessionCommandFailure {
         class: SessionCommandFailureClass,
         failure: SessionCommandFailure,
@@ -32,9 +32,9 @@ pub fn adapt_handled_ingress(decision: IngressDecision) -> HandledIngress {
             HandledIngress::Handled(HandledIngressOutcome::Blocking(blocking))
         }
         IngressDecision::SessionCommand { outcome } => match outcome {
-            SessionCommandOutcome::Success(success) => {
-                HandledIngress::Handled(HandledIngressOutcome::SessionCommandSuccess(success))
-            }
+            SessionCommandOutcome::Success(success) => HandledIngress::Handled(
+                HandledIngressOutcome::SessionCommandSuccess(Box::new(success)),
+            ),
             SessionCommandOutcome::Failure(failure) => {
                 HandledIngress::Handled(HandledIngressOutcome::SessionCommandFailure {
                     class: classify_session_command_failure(failure.kind.clone()),

@@ -47,6 +47,18 @@ Claude-style parity content search backed by the same Corvus search internals us
 
 ---
 
+## Task parity boundary
+
+- **Current status:** `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, and `TaskStop` are now part
+  of the tooling-parity slice as persistent runtime task tools.
+- **Storage boundary:** They use the runtime SQLite memory store (`workspace/memory/brain.db`) and
+  are only surfaced when the active memory backend is `sqlite`.
+- **Non-goals:** This slice does **not** add reopen semantics, subtasks, or dependencies.
+- **Important distinction:** `schedule` and `cron_*` remain scheduler capabilities, not task
+  lifecycle replacements.
+
+---
+
 ## `shell`
 
 Executes an arbitrary shell command within the workspace directory.

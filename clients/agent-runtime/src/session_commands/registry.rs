@@ -166,10 +166,11 @@ fn build_default_registry() -> SlashCommandRegistry {
     registry
 }
 
-fn built_in_registrations() -> [SlashCommandRegistration; 10] {
+fn built_in_registrations() -> [SlashCommandRegistration; 11] {
     const NO_CAPABILITIES: &[CommandCapability] = &[];
     const SESSION_LIFECYCLE: &[CommandCapability] = &[CommandCapability::SessionLifecycle];
     const SESSION_SUMMARY: &[CommandCapability] = &[CommandCapability::SessionSummary];
+    const SESSION_READ: &[CommandCapability] = &[CommandCapability::SessionRead];
     const SETTINGS_READ: &[CommandCapability] = &[CommandCapability::SettingsRead];
     const MCP_MANAGEMENT: &[CommandCapability] = &[CommandCapability::McpManagement];
     const TOOL_MANAGEMENT: &[CommandCapability] = &[CommandCapability::ToolManagement];
@@ -253,6 +254,20 @@ fn built_in_registrations() -> [SlashCommandRegistration; 10] {
         },
         SlashCommandRegistration {
             descriptor: SlashCommandDescriptor {
+                canonical_name: "/session",
+                aliases: &[],
+                description: "Show session help or inspect the current session.",
+                argument_shape: SlashCommandArgumentShape::OptionalText,
+                requirements: SlashCommandRequirements {
+                    capabilities: SESSION_READ,
+                    permissions: NO_PERMISSIONS,
+                    backends: &[],
+                },
+            },
+            handler: Arc::new(SessionHandler),
+        },
+        SlashCommandRegistration {
+            descriptor: SlashCommandDescriptor {
                 canonical_name: "/model",
                 aliases: &[],
                 description: "Show or set the active model for this session.",
@@ -329,6 +344,7 @@ struct ResumeHandler;
 struct SuspendHandler;
 struct TldrHandler;
 struct CompactHandler;
+struct SessionHandler;
 struct ModelHandler;
 struct ProviderHandler;
 struct TemperatureHandler;
@@ -395,6 +411,20 @@ impl SlashCommandHandler for CompactHandler {
     ) -> SessionCommandOutcome {
         service
             .handle_compact(&context.session.session_id, &invocation.raw_args)
+            .await
+    }
+}
+
+#[async_trait::async_trait]
+impl SlashCommandHandler for SessionHandler {
+    async fn handle(
+        &self,
+        service: &SessionCommandService<'_>,
+        context: CommandContext,
+        invocation: SlashInvocation,
+    ) -> SessionCommandOutcome {
+        service
+            .handle_session(&context.session.session_id, &invocation.raw_args)
             .await
     }
 }
@@ -752,6 +782,9 @@ mod tests {
         let resume = registry
             .get("/resume")
             .expect("/resume descriptor should exist");
+        let session = registry
+            .get("/session")
+            .expect("/session descriptor should exist");
 
         assert_eq!(
             names,
@@ -761,6 +794,7 @@ mod tests {
                 "/suspend",
                 "/tldr",
                 "/compact",
+                "/session",
                 "/model",
                 "/provider",
                 "/temperature",
@@ -796,6 +830,15 @@ mod tests {
             resume.requirements.backends,
             &[CommandBackend::SqliteSlashSessions]
         );
+        assert_eq!(
+            session.argument_shape,
+            SlashCommandArgumentShape::OptionalText
+        );
+        assert_eq!(
+            session.requirements.capabilities,
+            &[CommandCapability::SessionRead]
+        );
+        assert!(registry.get("/session status").is_none());
 
         let resume_alias = registry
             .get("/continue")
@@ -1031,6 +1074,62 @@ mod tests {
             })
         ));
         assert!(memory.name_calls.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[tokio::test]
+    async fn dispatch_routes_session_root_help_with_empty_raw_args() {
+        let service = SessionCommandService::new(&RegistryMemory);
+
+        let result = default_registry()
+            .dispatch(
+                &service,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                "/session",
+            )
+            .await
+            .expect("built-in command should resolve");
+
+        assert!(matches!(
+            result,
+            SessionCommandOutcome::Success(crate::session_commands::SessionCommandSuccess {
+                command: "/session",
+                data: crate::session_commands::SessionCommandSuccessData::SessionHelp { .. },
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn dispatch_routes_session_status_as_raw_args_on_canonical_command() {
+        let service = SessionCommandService::new(&RegistryMemory);
+
+        let result = default_registry()
+            .dispatch(
+                &service,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                "/session status",
+            )
+            .await
+            .expect("built-in command should resolve");
+
+        assert!(matches!(
+            result,
+            SessionCommandOutcome::Failure(SessionCommandFailure {
+                command: "/session",
+                kind: SessionCommandFailureKind::UnsupportedBackend,
+                ..
+            })
+        ));
     }
 
     struct RegistryMemory;

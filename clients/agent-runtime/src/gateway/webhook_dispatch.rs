@@ -436,7 +436,7 @@ pub(crate) async fn execute(
                 session_id: request.session_id.clone(),
                 model: model.to_string(),
                 outcome: WebhookTerminalOutcome::Completed,
-                response_text: Some(success.message),
+                response_text: Some(success.message.clone()),
                 event_frames: Vec::new(),
                 tools_called: Vec::new(),
             };

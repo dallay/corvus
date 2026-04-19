@@ -31,6 +31,11 @@ pub mod schedule;
 pub mod schema;
 pub mod screenshot;
 pub mod shell;
+pub mod task_create;
+pub mod task_get;
+pub mod task_list;
+pub mod task_stop;
+pub mod task_update;
 pub mod traits;
 pub(crate) mod url_safety;
 pub mod web_fetch;
@@ -66,6 +71,11 @@ pub use schedule::ScheduleTool;
 pub use schema::{CleaningStrategy, SchemaCleanr};
 pub use screenshot::ScreenshotTool;
 pub use shell::ShellTool;
+pub use task_create::TaskCreateTool;
+pub use task_get::TaskGetTool;
+pub use task_list::TaskListTool;
+pub use task_stop::TaskStopTool;
+pub use task_update::TaskUpdateTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
@@ -76,6 +86,7 @@ use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::security::SecurityPolicy;
+use crate::tasks::TaskService;
 use std::collections::HashMap;
 #[cfg(feature = "mcp-runtime")]
 use std::collections::HashSet;
@@ -369,6 +380,27 @@ pub fn all_tools_with_runtime(
             memory.clone(),
             security.clone(),
         )));
+
+        if memory.name() == "sqlite" {
+            let task_service = Arc::new(TaskService::new(memory.clone()));
+            tools.push(Box::new(TaskCreateTool::new(
+                security.clone(),
+                task_service.clone(),
+            )));
+            tools.push(Box::new(TaskGetTool::new(
+                security.clone(),
+                task_service.clone(),
+            )));
+            tools.push(Box::new(TaskListTool::new(
+                security.clone(),
+                task_service.clone(),
+            )));
+            tools.push(Box::new(TaskUpdateTool::new(
+                security.clone(),
+                task_service.clone(),
+            )));
+            tools.push(Box::new(TaskStopTool::new(security.clone(), task_service)));
+        }
     } else if cerebro_configured {
         tools.push(Box::new(MemoryStoreTool::new(
             root_config.memory.cerebro.clone(),
@@ -520,6 +552,68 @@ mod tests {
         assert!(names.contains(&"code_search"));
         assert!(names.contains(&"file_read"));
         assert!(names.contains(&"file_write"));
+    }
+
+    #[test]
+    fn all_tools_registers_task_tools_only_for_sqlite_memory() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+
+        let sqlite_cfg = MemoryConfig {
+            backend: "sqlite".into(),
+            ..MemoryConfig::default()
+        };
+        let sqlite_mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&sqlite_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = crate::config::HttpRequestConfig::default();
+        let cfg = test_config(&tmp);
+
+        let sqlite_tools = all_tools(
+            Arc::new(Config::default()),
+            &security,
+            test_sandbox(),
+            sqlite_mem,
+            None,
+            None,
+            &browser,
+            &http,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let sqlite_names: Vec<&str> = sqlite_tools.iter().map(|tool| tool.name()).collect();
+        assert!(sqlite_names.contains(&"TaskCreate"));
+        assert!(sqlite_names.contains(&"TaskGet"));
+        assert!(sqlite_names.contains(&"TaskList"));
+        assert!(sqlite_names.contains(&"TaskUpdate"));
+        assert!(sqlite_names.contains(&"TaskStop"));
+
+        let markdown_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let markdown_mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&markdown_cfg, tmp.path(), None).unwrap());
+        let markdown_tools = all_tools(
+            Arc::new(Config::default()),
+            &security,
+            test_sandbox(),
+            markdown_mem,
+            None,
+            None,
+            &browser,
+            &http,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let markdown_names: Vec<&str> = markdown_tools.iter().map(|tool| tool.name()).collect();
+        assert!(!markdown_names.contains(&"TaskCreate"));
+        assert!(!markdown_names.contains(&"TaskList"));
     }
 
     #[test]

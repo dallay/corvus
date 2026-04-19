@@ -64,6 +64,7 @@ pub struct SlashCommandRequirements {
 pub enum CommandCapability {
     SessionLifecycle,
     SessionSummary,
+    SessionRead,
     SettingsRead,
     SettingsWrite,
     McpManagement,
@@ -366,6 +367,30 @@ pub struct SessionCommandToolEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionCommandHelpEntry {
+    pub name: &'static str,
+    pub usage: &'static str,
+    pub description: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionCommandSessionStatus {
+    pub session_id: String,
+    pub current_session_known: bool,
+    pub session_status: Option<crate::memory::SessionStatus>,
+    pub slash_lifecycle: Option<crate::memory::SlashSessionLifecycle>,
+    pub started_at: Option<String>,
+    pub last_activity: Option<String>,
+    pub ended_at: Option<String>,
+    pub message_count: Option<u32>,
+    pub has_tldr_snapshot: Option<bool>,
+    pub has_compact_snapshot: Option<bool>,
+    pub resume_hydration_pending: Option<bool>,
+    pub suspended_at: Option<String>,
+    pub recommendation: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionCommandToolSourceKind {
     Native,
     McpTool,
@@ -376,6 +401,12 @@ pub enum SessionCommandToolSourceKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionCommandSuccessData {
     None,
+    SessionHelp {
+        entries: Vec<SessionCommandHelpEntry>,
+    },
+    SessionStatus {
+        status: SessionCommandSessionStatus,
+    },
     Resumed {
         resumed_session_id: String,
     },

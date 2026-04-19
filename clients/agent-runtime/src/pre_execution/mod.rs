@@ -245,7 +245,7 @@ mod tests {
 
     #[tokio::test]
     async fn ingress_classifies_in_scope_session_commands_through_shared_seam() {
-        for prompt in ["/resume", "/suspend", "/tldr", "/compact"] {
+        for prompt in ["/resume", "/suspend", "/tldr", "/compact", "/session"] {
             let decision = evaluate_ingress(
                 &IngressMemory,
                 &[],
@@ -262,23 +262,96 @@ mod tests {
 
             match decision {
                 IngressDecision::SessionCommand { outcome } => {
-                    assert_eq!(
-                        outcome,
-                        SessionCommandOutcome::Failure(
-                            crate::session_commands::SessionCommandFailure {
-                                command: prompt,
-                                kind: SessionCommandFailureKind::UnsupportedBackend,
-                                session_id: Some("session-1".to_string()),
-                                message: "slash-session commands require sqlite memory backend (backend=none)"
-                                    .to_string(),
-                            }
-                        )
-                    );
+                    if prompt == "/session" {
+                        assert!(matches!(
+                            outcome,
+                            SessionCommandOutcome::Success(SessionCommandSuccess {
+                                command: "/session",
+                                data: SessionCommandSuccessData::SessionHelp { .. },
+                                ..
+                            })
+                        ));
+                    } else {
+                        assert_eq!(
+                            outcome,
+                            SessionCommandOutcome::Failure(
+                                crate::session_commands::SessionCommandFailure {
+                                    command: prompt,
+                                    kind: SessionCommandFailureKind::UnsupportedBackend,
+                                    session_id: Some("session-1".to_string()),
+                                    message: "slash-session commands require sqlite memory backend (backend=none)"
+                                        .to_string(),
+                                }
+                            )
+                        );
+                    }
                 }
                 other => {
                     panic!("expected session command interception for {prompt}, got {other:?}")
                 }
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn ingress_classifies_session_status_through_shared_seam() {
+        let decision = evaluate_ingress(
+            &IngressMemory,
+            &[],
+            CommandContext::for_cli(
+                "session-1",
+                CommandSessionSource::Existing,
+                ExecutionMode::Standard,
+                None,
+            ),
+            "/session status",
+            true,
+        )
+        .await;
+
+        match decision {
+            IngressDecision::SessionCommand { outcome } => {
+                assert!(matches!(
+                    outcome,
+                    SessionCommandOutcome::Failure(SessionCommandFailure {
+                        command: "/session",
+                        kind: SessionCommandFailureKind::UnsupportedBackend,
+                        ..
+                    })
+                ));
+            }
+            other => panic!("expected /session status interception, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn ingress_keeps_unsupported_session_subcommands_inside_family_handler_boundary() {
+        let decision = evaluate_ingress(
+            &IngressMemory,
+            &[],
+            CommandContext::for_cli(
+                "session-1",
+                CommandSessionSource::Existing,
+                ExecutionMode::Standard,
+                None,
+            ),
+            "/session inspect",
+            true,
+        )
+        .await;
+
+        match decision {
+            IngressDecision::SessionCommand { outcome } => {
+                assert!(matches!(
+                    outcome,
+                    SessionCommandOutcome::Failure(SessionCommandFailure {
+                        command: "/session",
+                        kind: SessionCommandFailureKind::InvalidArguments,
+                        ..
+                    })
+                ));
+            }
+            other => panic!("expected /session family interception, got {other:?}"),
         }
     }
 
@@ -394,7 +467,7 @@ mod tests {
                 outcome: SessionCommandOutcome::Success(success.clone()),
             }),
             HandledIngress::Handled(HandledIngressOutcome::SessionCommandSuccess(actual))
-                if actual == success
+                if actual.as_ref() == &success
         ));
     }
 

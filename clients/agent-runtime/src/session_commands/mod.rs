@@ -13,8 +13,9 @@ pub use types::{
     CommandBackend, CommandCaller, CommandCapability, CommandContext, CommandContextFacts,
     CommandIngressContext, CommandIngressSource, CommandPermission, CommandSessionContext,
     CommandSessionSource, RawSlashInvocation, SessionCommandFailure, SessionCommandFailureKind,
-    SessionCommandOutcome, SessionCommandSuccess, SessionCommandSuccessData,
-    SessionCommandToolEntry, SessionCommandToolSourceKind, SlashCommandArgumentShape,
-    SlashCommandDescriptor, SlashCommandHandler, SlashCommandRegistration,
-    SlashCommandRequirements, SlashInvocation, SlashRegistryError,
+    SessionCommandHelpEntry, SessionCommandOutcome, SessionCommandSessionStatus,
+    SessionCommandSuccess, SessionCommandSuccessData, SessionCommandToolEntry,
+    SessionCommandToolSourceKind, SlashCommandArgumentShape, SlashCommandDescriptor,
+    SlashCommandHandler, SlashCommandRegistration, SlashCommandRequirements, SlashInvocation,
+    SlashRegistryError,
 };

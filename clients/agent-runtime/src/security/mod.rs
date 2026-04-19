@@ -23,8 +23,8 @@ pub use detect::create_sandbox;
 pub use pairing::PairingGuard;
 #[allow(unused_imports)]
 pub use policy::{
-    source_kind_for_tool, AutonomyLevel, ExecutionOrigin, SecurityPolicy, ToolPolicyDecision,
-    ToolPolicyOutcome, ToolSourceKind, PLAN_MODE_BLOCKED_CODE,
+    source_kind_for_tool, AutonomyLevel, ExecutionOrigin, SecurityPolicy, ToolOperation,
+    ToolPolicyDecision, ToolPolicyOutcome, ToolSourceKind, PLAN_MODE_BLOCKED_CODE,
 };
 #[allow(unused_imports)]
 pub use secrets::SecretStore;

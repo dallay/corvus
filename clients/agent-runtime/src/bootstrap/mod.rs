@@ -36,6 +36,11 @@ const LITE_TOOL_ALLOWLIST: &[&str] = &["shell", "file_read", "file_write"];
 const CODE_TOOL_ALLOWLIST: &[&str] = &[
     "Glob",
     "Grep",
+    "TaskCreate",
+    "TaskGet",
+    "TaskList",
+    "TaskUpdate",
+    "TaskStop",
     "WebFetch",
     "browser",
     "browser_open",
@@ -696,6 +701,34 @@ mod tests {
         assert!(names.contains("WebFetch"));
         assert!(names.contains("code_search"));
         assert!(names.contains("http_request"));
+    }
+
+    #[test]
+    fn bootstrap_code_profile_only_exposes_task_tools_when_backend_supports_them() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut sqlite_config = test_config(&tmp);
+        sqlite_config.agent.profile = "code".into();
+        sqlite_config.memory.backend = "sqlite".into();
+
+        let sqlite_ctx = BootstrapContext::from_config(&sqlite_config).unwrap();
+        let sqlite_names: HashSet<&str> = sqlite_ctx.tools.iter().map(|tool| tool.name()).collect();
+        assert!(sqlite_names.contains("TaskCreate"));
+        assert!(sqlite_names.contains("TaskGet"));
+        assert!(sqlite_names.contains("TaskList"));
+        assert!(sqlite_names.contains("TaskUpdate"));
+        assert!(sqlite_names.contains("TaskStop"));
+
+        let mut lucid_config = test_config(&tmp);
+        lucid_config.agent.profile = "code".into();
+        lucid_config.memory.backend = "lucid".into();
+
+        let lucid_ctx = BootstrapContext::from_config(&lucid_config).unwrap();
+        let lucid_names: HashSet<&str> = lucid_ctx.tools.iter().map(|tool| tool.name()).collect();
+        assert!(!lucid_names.contains("TaskCreate"));
+        assert!(!lucid_names.contains("TaskGet"));
+        assert!(!lucid_names.contains("TaskList"));
+        assert!(!lucid_names.contains("TaskUpdate"));
+        assert!(!lucid_names.contains("TaskStop"));
     }
 
     #[test]

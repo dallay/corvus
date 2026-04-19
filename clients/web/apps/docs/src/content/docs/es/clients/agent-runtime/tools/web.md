@@ -91,4 +91,7 @@ Herramienta de paridad de solo lectura para fetch-and-extract de contenido web p
 - **Nivel de Seguridad:** Solo Lectura (Segura).
 - **Ejecución:** Usa el mismo límite de política URL saliente que `http_request` para allowlists de hosts, bloqueo de hosts privados y denegación de redirecciones.
 - **Contrato:** Requiere `url` y `prompt`; devuelve contenido textual extraído, metadatos del estado HTTP y la URL final obtenida.
-- **Límite de alcance:** Este slice solo añade paridad de búsqueda/fetch. `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` y `TaskStop` siguen diferidos explícitamente.
+- **Límite de alcance:** `WebFetch` sigue siendo la superficie de paridad web de solo lectura. La
+  paridad del ciclo de vida persistente de tareas (`TaskCreate`, `TaskGet`, `TaskList`,
+  `TaskUpdate`, `TaskStop`) ahora se documenta aparte y se mantiene separada del comportamiento
+  web/de búsqueda.

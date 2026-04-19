@@ -21,6 +21,25 @@ pub fn is_slash_session_unsupported_error(error: &anyhow::Error) -> bool {
         .is_some()
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("persistent task tools require sqlite memory backend (backend={backend})")]
+pub struct TaskUnsupportedBackendError {
+    pub backend: String,
+}
+
+pub fn task_unsupported_error(backend: &str) -> anyhow::Error {
+    TaskUnsupportedBackendError {
+        backend: backend.to_string(),
+    }
+    .into()
+}
+
+pub fn is_task_unsupported_error(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<TaskUnsupportedBackendError>()
+        .is_some()
+}
+
 /// A single memory entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEntry {
@@ -94,6 +113,131 @@ pub struct SessionEntry {
     pub message_count: u32,
     pub last_activity: String,
     pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Cancelled,
+}
+
+impl TaskStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::InProgress => "in_progress",
+            Self::Completed => "completed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+impl std::fmt::Display for TaskStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for TaskStatus {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "pending" => Ok(Self::Pending),
+            "in_progress" => Ok(Self::InProgress),
+            "completed" => Ok(Self::Completed),
+            "cancelled" => Ok(Self::Cancelled),
+            other => Err(anyhow::anyhow!("unknown task status: {other}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskPriority {
+    Low,
+    Medium,
+    High,
+}
+
+impl TaskPriority {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
+impl std::fmt::Display for TaskPriority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for TaskPriority {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "low" => Ok(Self::Low),
+            "medium" => Ok(Self::Medium),
+            "high" => Ok(Self::High),
+            other => Err(anyhow::anyhow!("unknown task priority: {other}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskRecord {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub status: TaskStatus,
+    pub priority: TaskPriority,
+    pub session_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskListQuery {
+    pub session_id: Option<String>,
+    pub status: Option<TaskStatus>,
+    pub priority: Option<TaskPriority>,
+    pub limit: u32,
+    pub offset: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskListPage {
+    pub tasks: Vec<TaskRecord>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskCreateInput {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub status: TaskStatus,
+    pub priority: TaskPriority,
+    pub session_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskPatch {
+    pub id: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub status: Option<TaskStatus>,
+    pub priority: Option<TaskPriority>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -339,6 +483,14 @@ pub trait Memory: Send + Sync {
         Ok(None)
     }
 
+    async fn get_session_for_scope(
+        &self,
+        _session_id: &str,
+        _caller_scope_key: &str,
+    ) -> anyhow::Result<Option<SessionEntry>> {
+        Err(slash_session_unsupported_error(self.name()))
+    }
+
     /// List sessions scoped to a specific token hash, with pagination.
     async fn list_sessions_for_token(
         &self,
@@ -422,6 +574,22 @@ pub trait Memory: Send + Sync {
         _session_id: &str,
     ) -> anyhow::Result<Option<SessionSnapshotRecord>> {
         Err(slash_session_unsupported_error(self.name()))
+    }
+
+    async fn create_task(&self, _input: TaskCreateInput) -> anyhow::Result<TaskRecord> {
+        Err(task_unsupported_error(self.name()))
+    }
+
+    async fn get_task(&self, _id: &str) -> anyhow::Result<Option<TaskRecord>> {
+        Err(task_unsupported_error(self.name()))
+    }
+
+    async fn list_tasks(&self, _query: TaskListQuery) -> anyhow::Result<TaskListPage> {
+        Err(task_unsupported_error(self.name()))
+    }
+
+    async fn update_task(&self, _patch: TaskPatch) -> anyhow::Result<Option<TaskRecord>> {
+        Err(task_unsupported_error(self.name()))
     }
 }
 
@@ -577,5 +745,71 @@ mod tests {
             .await
             .unwrap_err();
         assert!(scoped_error.to_string().contains("backend=minimal"));
+    }
+
+    #[test]
+    fn task_enums_roundtrip_known_values() {
+        assert!(matches!(
+            "pending".parse::<TaskStatus>(),
+            Ok(TaskStatus::Pending)
+        ));
+        assert!(matches!(
+            "in_progress".parse::<TaskStatus>(),
+            Ok(TaskStatus::InProgress)
+        ));
+        assert!(matches!(
+            "medium".parse::<TaskPriority>(),
+            Ok(TaskPriority::Medium)
+        ));
+        assert!(matches!(
+            "high".parse::<TaskPriority>(),
+            Ok(TaskPriority::High)
+        ));
+        assert!("paused".parse::<TaskStatus>().is_err());
+        assert!("urgent".parse::<TaskPriority>().is_err());
+    }
+
+    #[tokio::test]
+    async fn task_defaults_fail_explicitly_for_non_sqlite_backends() {
+        let memory = MinimalMemory;
+
+        let create_error = memory
+            .create_task(TaskCreateInput {
+                id: "11111111-1111-4111-8111-111111111111".into(),
+                title: "Review parity slice".into(),
+                description: String::new(),
+                status: TaskStatus::Pending,
+                priority: TaskPriority::Medium,
+                session_id: None,
+                created_at: "2026-04-18T00:00:00Z".into(),
+                updated_at: "2026-04-18T00:00:00Z".into(),
+            })
+            .await
+            .unwrap_err();
+        assert!(is_task_unsupported_error(&create_error));
+
+        let list_error = memory
+            .list_tasks(TaskListQuery {
+                session_id: None,
+                status: None,
+                priority: None,
+                limit: 10,
+                offset: 0,
+            })
+            .await
+            .unwrap_err();
+        assert!(list_error.to_string().contains("backend=minimal"));
+
+        let update_error = memory
+            .update_task(TaskPatch {
+                id: "11111111-1111-4111-8111-111111111111".into(),
+                title: Some("Updated".into()),
+                description: None,
+                status: None,
+                priority: None,
+            })
+            .await
+            .unwrap_err();
+        assert!(is_task_unsupported_error(&update_error));
     }
 }
