@@ -387,6 +387,10 @@ impl Memory for LucidMemory {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use crate::memory::{
+        is_task_unsupported_error, TaskCreateInput, TaskListQuery, TaskPatch, TaskPriority,
+        TaskStatus,
+    };
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use tempfile::TempDir;
@@ -690,5 +694,51 @@ exit 1
 
         let calls = fs::read_to_string(&marker).unwrap_or_default();
         assert!(calls.lines().count() <= 1);
+    }
+
+    #[tokio::test]
+    async fn lucid_rejects_persistent_task_operations() {
+        let tmp = TempDir::new().unwrap();
+        let local = SqliteMemory::new(tmp.path()).unwrap();
+        let memory = LucidMemory::new(tmp.path(), local);
+
+        let create_error = memory
+            .create_task(TaskCreateInput {
+                id: "11111111-1111-4111-8111-111111111111".into(),
+                title: "Review parity slice".into(),
+                description: String::new(),
+                status: TaskStatus::Pending,
+                priority: TaskPriority::Medium,
+                session_id: None,
+                created_at: "2026-04-18T00:00:00Z".into(),
+                updated_at: "2026-04-18T00:00:00Z".into(),
+            })
+            .await
+            .unwrap_err();
+        assert!(is_task_unsupported_error(&create_error));
+
+        let list_error = memory
+            .list_tasks(TaskListQuery {
+                session_id: None,
+                status: None,
+                priority: None,
+                limit: 10,
+                offset: 0,
+            })
+            .await
+            .unwrap_err();
+        assert!(list_error.to_string().contains("backend=lucid"));
+
+        let update_error = memory
+            .update_task(TaskPatch {
+                id: "11111111-1111-4111-8111-111111111111".into(),
+                title: None,
+                description: Some("Updated".into()),
+                status: None,
+                priority: None,
+            })
+            .await
+            .unwrap_err();
+        assert!(is_task_unsupported_error(&update_error));
     }
 }

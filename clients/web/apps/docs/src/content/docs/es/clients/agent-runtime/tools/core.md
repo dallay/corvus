@@ -49,6 +49,18 @@ Herramienta de paridad estilo Claude para búsqueda de contenido, respaldada por
 
 ---
 
+## Límite de paridad de tareas
+
+- **Estado actual:** `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` y `TaskStop` ya forman parte
+  de este slice de paridad como herramientas persistentes de tareas del runtime.
+- **Límite de almacenamiento:** Usan el store SQLite del runtime (`workspace/memory/brain.db`) y
+  solo se exponen cuando el backend de memoria activo es `sqlite`.
+- **No objetivos:** Este slice **no** añade semántica de reapertura, subtareas ni dependencias.
+- **Distinción importante:** `schedule` y `cron_*` siguen siendo capacidades de scheduler, no
+  reemplazos del ciclo de vida de tareas.
+
+---
+
 ## `shell`
 
 Ejecuta un comando de shell arbitrario dentro del directorio del workspace.

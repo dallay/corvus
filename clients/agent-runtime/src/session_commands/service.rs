@@ -1,6 +1,7 @@
 use super::types::{
     sanitize_storage_error, CommandContext, SessionCommandFailure, SessionCommandFailureKind,
-    SessionCommandOutcome, SessionCommandSuccess, SessionCommandSuccessData,
+    SessionCommandHelpEntry, SessionCommandOutcome, SessionCommandSessionStatus,
+    SessionCommandSuccess, SessionCommandSuccessData,
     SessionCommandToolEntry, SessionCommandToolSourceKind,
 };
 use crate::memory::{
@@ -11,6 +12,18 @@ use serde_json::json;
 
 const DEFAULT_EXCERPT_LIMIT: usize = 8;
 const PREVIEW_LIMIT: usize = 120;
+const SESSION_HELP_ENTRIES: &[SessionCommandHelpEntry] = &[
+    SessionCommandHelpEntry {
+        name: "/session",
+        usage: "/session",
+        description: "Show session command help and discoverability guidance.",
+    },
+    SessionCommandHelpEntry {
+        name: "/session status",
+        usage: "/session status",
+        description: "Inspect the current session without mutating session state.",
+    },
+];
 
 pub struct SessionCommandService<'a> {
     memory: &'a dyn Memory,
@@ -44,6 +57,56 @@ impl<'a> SessionCommandService<'a> {
             message: format_tool_listing_message(&tools),
             data: SessionCommandSuccessData::ToolListing { tools },
         })
+    }
+
+    pub async fn handle_session(&self, session_id: &str, raw_args: &str) -> SessionCommandOutcome {
+        let trimmed = raw_args.trim();
+
+        if trimmed.is_empty() {
+            return SessionCommandOutcome::Success(SessionCommandSuccess {
+                command: "/session",
+                session_id: session_id.to_string(),
+                message: format_session_help_message(),
+                data: SessionCommandSuccessData::SessionHelp {
+                    entries: SESSION_HELP_ENTRIES.to_vec(),
+                },
+            });
+        }
+
+        if trimmed != "status" {
+            return SessionCommandOutcome::Failure(self.failure(
+                "/session",
+                SessionCommandFailureKind::InvalidArguments,
+                Some(session_id),
+                invalid_session_usage_message(trimmed),
+            ));
+        }
+
+        let result: Result<SessionCommandSuccess, SessionCommandFailure> = async {
+            self.ensure_sqlite("/session", Some(session_id))?;
+
+            let session = self
+                .memory
+                .get_session(session_id)
+                .await
+                .map_err(|error| self.map_storage_error("/session", Some(session_id), error))?;
+            let state = self
+                .memory
+                .get_session_state_record(session_id)
+                .await
+                .map_err(|error| self.map_storage_error("/session", Some(session_id), error))?;
+
+            let status = assemble_session_status(session_id, session, state);
+            Ok(SessionCommandSuccess {
+                command: "/session",
+                session_id: session_id.to_string(),
+                message: format_session_status_message(&status),
+                data: SessionCommandSuccessData::SessionStatus { status },
+            })
+        }
+        .await;
+
+        Self::outcome_from_result(result)
     }
 
     pub async fn handle_tldr(&self, session_id: &str) -> SessionCommandOutcome {
@@ -707,6 +770,139 @@ impl<'a> SessionCommandService<'a> {
                 format!("Unknown /tool subcommand: '{other}'. Use enable or disable."),
             )),
         }
+    }
+}
+
+fn format_session_help_message() -> String {
+    let entries = SESSION_HELP_ENTRIES
+        .iter()
+        .map(|entry| format!("- {} — {}", entry.usage, entry.description))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        "Session commands:\n{entries}\nRelated lifecycle commands: /resume, /suspend, /compact, /tldr"
+    )
+}
+
+fn invalid_session_usage_message(raw_args: &str) -> String {
+    format!(
+        "Unknown /session subcommand: '{raw_args}'. Usage: /session or /session status"
+    )
+}
+
+fn assemble_session_status(
+    session_id: &str,
+    session: Option<crate::memory::SessionEntry>,
+    state: Option<crate::memory::SessionStateRecord>,
+) -> SessionCommandSessionStatus {
+    let Some(session) = session else {
+        return SessionCommandSessionStatus {
+            session_id: session_id.to_string(),
+            current_session_known: false,
+            session_status: None,
+            slash_lifecycle: None,
+            started_at: None,
+            last_activity: None,
+            ended_at: None,
+            message_count: None,
+            has_tldr_snapshot: None,
+            has_compact_snapshot: None,
+            resume_hydration_pending: None,
+            suspended_at: None,
+            recommendation: None,
+        };
+    };
+
+    let slash_lifecycle = state
+        .as_ref()
+        .map(|record| record.lifecycle)
+        .unwrap_or(SlashSessionLifecycle::Active);
+    let has_tldr_snapshot = state
+        .as_ref()
+        .map(|record| record.latest_tldr_snapshot_id.is_some())
+        .unwrap_or(false);
+    let has_compact_snapshot = state
+        .as_ref()
+        .map(|record| record.latest_compact_snapshot_id.is_some())
+        .unwrap_or(false);
+    let resume_hydration_pending = state
+        .as_ref()
+        .map(|record| record.pending_hydration_snapshot_id.is_some())
+        .unwrap_or(false);
+    let suspended_at = if slash_lifecycle == SlashSessionLifecycle::Suspended {
+        state.as_ref().and_then(|record| record.suspended_at.clone())
+    } else {
+        None
+    };
+    let recommendation = session_status_recommendation(slash_lifecycle, has_compact_snapshot)
+        .map(str::to_string);
+
+    SessionCommandSessionStatus {
+        session_id: session.id,
+        current_session_known: true,
+        session_status: Some(session.status),
+        slash_lifecycle: Some(slash_lifecycle),
+        started_at: Some(session.started_at),
+        last_activity: Some(session.last_activity),
+        ended_at: session.ended_at,
+        message_count: Some(session.message_count),
+        has_tldr_snapshot: Some(has_tldr_snapshot),
+        has_compact_snapshot: Some(has_compact_snapshot),
+        resume_hydration_pending: Some(resume_hydration_pending),
+        suspended_at,
+        recommendation,
+    }
+}
+
+fn session_status_recommendation(
+    slash_lifecycle: SlashSessionLifecycle,
+    has_compact_snapshot: bool,
+) -> Option<&'static str> {
+    match (slash_lifecycle, has_compact_snapshot) {
+        (SlashSessionLifecycle::Active, false) => Some("/compact"),
+        (SlashSessionLifecycle::Active, true) => Some("/suspend"),
+        (SlashSessionLifecycle::Suspended, true) => Some("/resume"),
+        (SlashSessionLifecycle::Suspended, false) => None,
+    }
+}
+
+fn format_session_status_message(status: &SessionCommandSessionStatus) -> String {
+    if !status.current_session_known {
+        return format!(
+            "[session:{}] current session is unknown to slash-session state",
+            status.session_id
+        );
+    }
+
+    let lifecycle = status
+        .slash_lifecycle
+        .map(SlashSessionLifecycle::as_str)
+        .unwrap_or("unknown");
+    let compact = bool_label(status.has_compact_snapshot);
+    let tldr = bool_label(status.has_tldr_snapshot);
+    let recommendation = status
+        .recommendation
+        .as_deref()
+        .map(|value| format!("\nRecommended next command: {value}"))
+        .unwrap_or_default();
+    let suspended = status
+        .suspended_at
+        .as_deref()
+        .map(|value| format!("\nSuspended at: {value}"))
+        .unwrap_or_default();
+
+    format!(
+        "[session:{}] current session status: {lifecycle}\nTLDR snapshot available: {tldr}\nCompact snapshot available: {compact}{suspended}{recommendation}",
+        status.session_id
+    )
+}
+
+fn bool_label(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "yes",
+        Some(false) => "no",
+        None => "unknown",
     }
 }
 
@@ -1484,6 +1680,230 @@ mod tests {
         assert_eq!(failure.kind, SessionCommandFailureKind::StorageFailure);
         assert!(failure.message.contains("storage access denied"));
         assert!(!failure.message.contains("/tmp/secret.db"));
+    }
+
+    #[tokio::test]
+    async fn session_root_help_returns_discoverability_guidance_without_mutation() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+
+        let result = expect_success(service.handle_session("session-current", "").await);
+
+        assert_eq!(result.command, "/session");
+        assert!(result.message.contains("/session status"));
+        assert!(result.message.contains("/resume"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::SessionHelp { ref entries }
+            if entries.iter().any(|entry| entry.usage == "/session status")
+        ));
+        assert!(memory.states.lock().unwrap().is_empty());
+        assert!(memory.snapshots.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn session_status_reports_active_current_session_and_recommends_compact() {
+        let memory = FakeMemory {
+            sessions: HashMap::from([(
+                "session-current".to_string(),
+                SessionEntry {
+                    id: "session-current".into(),
+                    ..active_session()
+                },
+            )]),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = expect_success(service.handle_session("session-current", "status").await);
+
+        assert_eq!(result.command, "/session");
+        assert!(result.message.contains("Recommended next command: /compact"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::SessionStatus { ref status }
+                if status.session_id == "session-current"
+                    && status.current_session_known
+                    && status.session_status == Some(SessionStatus::Active)
+                    && status.slash_lifecycle == Some(SlashSessionLifecycle::Active)
+                    && status.has_compact_snapshot == Some(false)
+                    && status.recommendation.as_deref() == Some("/compact")
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_status_reports_suspended_state_and_recommends_resume() {
+        let memory = FakeMemory {
+            sessions: HashMap::from([(
+                "session-current".to_string(),
+                SessionEntry {
+                    id: "session-current".into(),
+                    ..active_session()
+                },
+            )]),
+            states: Mutex::new(HashMap::from([(
+                "session-current".to_string(),
+                SessionStateRecord {
+                    session_id: "session-current".to_string(),
+                    lifecycle: SlashSessionLifecycle::Suspended,
+                    latest_tldr_snapshot_id: Some("tldr-1".to_string()),
+                    latest_compact_snapshot_id: Some("compact-1".to_string()),
+                    pending_hydration_snapshot_id: None,
+                    suspended_at: Some("suspended-at".to_string()),
+                    updated_at: "now".to_string(),
+                },
+            )])),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = expect_success(service.handle_session("session-current", "status").await);
+
+        assert!(result.message.contains("Recommended next command: /resume"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::SessionStatus { ref status }
+                if status.slash_lifecycle == Some(SlashSessionLifecycle::Suspended)
+                    && status.has_tldr_snapshot == Some(true)
+                    && status.has_compact_snapshot == Some(true)
+                    && status.suspended_at.as_deref() == Some("suspended-at")
+                    && status.recommendation.as_deref() == Some("/resume")
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_status_defaults_missing_state_to_active_and_recommends_compact() {
+        let memory = FakeMemory {
+            sessions: HashMap::from([(
+                "session-current".to_string(),
+                SessionEntry {
+                    id: "session-current".into(),
+                    ..active_session()
+                },
+            )]),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = expect_success(service.handle_session("session-current", "status").await);
+
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::SessionStatus { ref status }
+                if status.slash_lifecycle == Some(SlashSessionLifecycle::Active)
+                    && status.has_tldr_snapshot == Some(false)
+                    && status.has_compact_snapshot == Some(false)
+                    && status.resume_hydration_pending == Some(false)
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_status_reports_unknown_current_session_without_inventing_state() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+
+        let result = expect_success(service.handle_session("session-missing", "status").await);
+
+        assert!(result
+            .message
+            .contains("current session is unknown to slash-session state"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::SessionStatus { ref status }
+                if status.session_id == "session-missing"
+                    && !status.current_session_known
+                    && status.session_status.is_none()
+                    && status.slash_lifecycle.is_none()
+                    && status.has_tldr_snapshot.is_none()
+                    && status.has_compact_snapshot.is_none()
+                    && status.recommendation.is_none()
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_status_requires_sqlite_backend_only_for_status_branch() {
+        let memory = FakeMemory {
+            backend: "markdown",
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let help = expect_success(service.handle_session("session-current", "").await);
+        let failure = expect_failure(service.handle_session("session-current", "status").await);
+
+        assert!(matches!(help.data, SessionCommandSuccessData::SessionHelp { .. }));
+        assert_eq!(failure.kind, SessionCommandFailureKind::UnsupportedBackend);
+    }
+
+    #[tokio::test]
+    async fn session_status_recommends_suspend_when_compact_snapshot_exists() {
+        let memory = FakeMemory {
+            sessions: HashMap::from([(
+                "session-current".to_string(),
+                SessionEntry {
+                    id: "session-current".into(),
+                    ..active_session()
+                },
+            )]),
+            states: Mutex::new(HashMap::from([(
+                "session-current".to_string(),
+                SessionStateRecord {
+                    session_id: "session-current".to_string(),
+                    lifecycle: SlashSessionLifecycle::Active,
+                    latest_tldr_snapshot_id: None,
+                    latest_compact_snapshot_id: Some("compact-1".to_string()),
+                    pending_hydration_snapshot_id: None,
+                    suspended_at: None,
+                    updated_at: "now".to_string(),
+                },
+            )])),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = expect_success(service.handle_session("session-current", "status").await);
+
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::SessionStatus { ref status }
+                if status.recommendation.as_deref() == Some("/suspend")
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_rejects_invalid_subcommands_with_usage_guidance() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+
+        let failure = expect_failure(service.handle_session("session-current", "inspect").await);
+
+        assert_eq!(failure.command, "/session");
+        assert_eq!(failure.kind, SessionCommandFailureKind::InvalidArguments);
+        assert!(failure.message.contains("Usage: /session"));
+        assert!(failure.message.contains("/session status"));
+    }
+
+    #[tokio::test]
+    async fn session_status_rejects_extra_tokens_after_supported_subcommand() {
+        let memory = FakeMemory {
+            sessions: HashMap::from([(
+                "session-current".to_string(),
+                SessionEntry {
+                    id: "session-current".into(),
+                    ..active_session()
+                },
+            )]),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let failure = expect_failure(
+            service
+                .handle_session("session-current", "status extra")
+                .await,
+        );
+
+        assert_eq!(failure.kind, SessionCommandFailureKind::InvalidArguments);
     }
 
     // --- handle_model ---

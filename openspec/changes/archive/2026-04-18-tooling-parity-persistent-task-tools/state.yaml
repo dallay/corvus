@@ -1,0 +1,13 @@
+change: tooling-parity-persistent-task-tools
+current_phase: archive
+completed:
+  - explore
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+  - archive
+next: none
+archived: 2026-04-18T00:00:00Z

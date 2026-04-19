@@ -33,7 +33,7 @@ Every tool execution passes through the `SecurityPolicy` layer. Tools are classi
 These tools do not modify the system or external state. They are generally allowed even in low-autonomy modes.
 - *Examples:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `hardware_board_info`.
 
-## Claude-style parity mapping (slice 1)
+## Claude-style parity mapping
 
 This slice adds first-class parity tools without removing existing Corvus-native names.
 
@@ -42,9 +42,13 @@ This slice adds first-class parity tools without removing existing Corvus-native
 | `Glob` | Workspace discovery metadata helpers | Additive + canonical for parity-facing docs | New native tool for file-pattern discovery. |
 | `Grep` | Shared search backend aligned with `code_search` | Additive + canonical for parity-facing docs | `code_search` remains available for the native contract. |
 | `WebFetch` | Shared outbound HTTP policy derived from `http_request` | Additive + canonical for parity-facing docs | Read-only fetch-and-extract surface. |
-| `TaskCreate` / `TaskGet` / `TaskList` / `TaskUpdate` / `TaskStop` | None in this slice | Deferred | Explicitly out of scope; `schedule` and `cron_*` are not task-lifecycle replacements. |
+| `TaskCreate` / `TaskGet` / `TaskList` / `TaskUpdate` / `TaskStop` | Persistent runtime task lifecycle in `brain.db` | Additive + canonical for parity-facing docs | Supported only with the `sqlite` memory backend. `schedule` and `cron_*` remain separate scheduler semantics, not task-lifecycle replacements. |
 
 This slice does **not** require broad renames or removal of existing internal tool names.
+
+Persistent task parity stays intentionally narrow in this slice: global tasks with optional
+`session_id`, UUID IDs, statuses `pending | in_progress | completed | cancelled`, priorities
+`low | medium | high`, and no reopen semantics, subtasks, or dependencies.
 
 ### Action-Bearing (Risk-bearing)
 These tools can modify files, execute code, or interact with external services. They may require explicit user approval in supervised modes.

@@ -70,6 +70,7 @@ pub mod security;
 pub mod service;
 pub mod session_commands;
 pub mod skills;
+pub mod tasks;
 pub mod tools;
 pub mod transcription;
 pub mod tunnel;

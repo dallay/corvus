@@ -76,6 +76,7 @@ mod service;
 mod session_commands;
 mod skillforge;
 mod skills;
+mod tasks;
 #[cfg(test)]
 mod test_support;
 mod tools;

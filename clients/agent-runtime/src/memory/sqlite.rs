@@ -2,7 +2,8 @@ use super::embeddings::EmbeddingProvider;
 use super::traits::{
     Memory, MemoryCategory, MemoryEntry, MemoryStats, ResumableSessionEntry, SessionEntry,
     SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation, SessionStatePatch,
-    SessionStateRecord, SessionStatus, SlashSessionLifecycle,
+    SessionStateRecord, SessionStatus, SlashSessionLifecycle, TaskCreateInput, TaskListPage,
+    TaskListQuery, TaskPatch, TaskPriority, TaskRecord, TaskStatus,
 };
 use super::vector;
 use anyhow::Context;
@@ -235,7 +236,29 @@ impl SqliteMemory {
                  FOREIGN KEY(pending_hydration_snapshot_id) REFERENCES session_snapshots(id)
              );
              CREATE INDEX IF NOT EXISTS idx_session_state_lifecycle
-                 ON session_state(lifecycle_state, updated_at DESC);",
+                  ON session_state(lifecycle_state, updated_at DESC);",
+        )?;
+
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS tasks (
+                 id          TEXT PRIMARY KEY,
+                 title       TEXT NOT NULL,
+                 description TEXT NOT NULL,
+                 status      TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled')),
+                 priority    TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high')),
+                 session_id  TEXT,
+                 created_at  TEXT NOT NULL,
+                 updated_at  TEXT NOT NULL,
+                 FOREIGN KEY(session_id) REFERENCES sessions(id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_tasks_created_id
+                 ON tasks(created_at DESC, id ASC);
+             CREATE INDEX IF NOT EXISTS idx_tasks_session_created_id
+                 ON tasks(session_id, created_at DESC, id ASC);
+             CREATE INDEX IF NOT EXISTS idx_tasks_status_created_id
+                 ON tasks(status, created_at DESC, id ASC);
+             CREATE INDEX IF NOT EXISTS idx_tasks_priority_created_id
+                 ON tasks(priority, created_at DESC, id ASC);",
         )?;
 
         Ok(())
@@ -287,6 +310,52 @@ impl SqliteMemory {
                 )),
             )),
         }
+    }
+
+    fn task_status_from_row(value: String) -> rusqlite::Result<TaskStatus> {
+        match value.as_str() {
+            "pending" => Ok(TaskStatus::Pending),
+            "in_progress" => Ok(TaskStatus::InProgress),
+            "completed" => Ok(TaskStatus::Completed),
+            "cancelled" => Ok(TaskStatus::Cancelled),
+            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown task status value: {value}"),
+                )),
+            )),
+        }
+    }
+
+    fn task_priority_from_row(value: String) -> rusqlite::Result<TaskPriority> {
+        match value.as_str() {
+            "low" => Ok(TaskPriority::Low),
+            "medium" => Ok(TaskPriority::Medium),
+            "high" => Ok(TaskPriority::High),
+            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown task priority value: {value}"),
+                )),
+            )),
+        }
+    }
+
+    fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
+        Ok(TaskRecord {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            description: row.get(2)?,
+            status: Self::task_status_from_row(row.get::<_, String>(3)?)?,
+            priority: Self::task_priority_from_row(row.get::<_, String>(4)?)?,
+            session_id: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+        })
     }
 
     fn ensure_session_exists(conn: &Connection, session_id: &str) -> anyhow::Result<()> {
@@ -1168,6 +1237,49 @@ impl Memory for SqliteMemory {
         .await?
     }
 
+    async fn get_session_for_scope(
+        &self,
+        session_id: &str,
+        caller_scope_key: &str,
+    ) -> anyhow::Result<Option<SessionEntry>> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+        let caller_scope_key = caller_scope_key.to_string();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Option<SessionEntry>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT id, started_at, ended_at, status, message_count, last_activity, metadata
+                 FROM sessions WHERE id = ?1 AND token_hash IS ?2",
+            )?;
+
+            let mut rows = stmt.query_map(params![session_id, caller_scope_key], |row| {
+                #[allow(clippy::cast_sign_loss)]
+                Ok(SessionEntry {
+                    id: row.get(0)?,
+                    started_at: row.get(1)?,
+                    ended_at: row.get(2)?,
+                    status: row
+                        .get::<_, String>(3)?
+                        .parse()
+                        .unwrap_or(SessionStatus::Active),
+                    message_count: row.get::<_, i32>(4)? as u32,
+                    last_activity: row.get(5)?,
+                    metadata: row
+                        .get::<_, Option<String>>(6)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
+                })
+            })?;
+
+            match rows.next() {
+                Some(Ok(record)) => Ok(Some(record)),
+                Some(Err(error)) => Err(error.into()),
+                None => Ok(None),
+            }
+        })
+        .await?
+    }
+
     async fn list_sessions_for_token(
         &self,
         token_hash: &str,
@@ -1595,6 +1707,160 @@ impl Memory for SqliteMemory {
         .await?
     }
 
+    async fn create_task(&self, input: TaskCreateInput) -> anyhow::Result<TaskRecord> {
+        let conn = self.conn.clone();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<TaskRecord> {
+            let conn = conn.lock();
+            if let Some(session_id) = input.session_id.as_deref() {
+                Self::ensure_session_exists(&conn, session_id)?;
+            }
+
+            conn.execute(
+                "INSERT INTO tasks (id, title, description, status, priority, session_id, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    input.id,
+                    input.title,
+                    input.description,
+                    input.status.as_str(),
+                    input.priority.as_str(),
+                    input.session_id,
+                    input.created_at,
+                    input.updated_at,
+                ],
+            )?;
+
+            Ok(TaskRecord {
+                id: input.id,
+                title: input.title,
+                description: input.description,
+                status: input.status,
+                priority: input.priority,
+                session_id: input.session_id,
+                created_at: input.created_at,
+                updated_at: input.updated_at,
+            })
+        })
+        .await?
+    }
+
+    async fn get_task(&self, id: &str) -> anyhow::Result<Option<TaskRecord>> {
+        let conn = self.conn.clone();
+        let id = id.to_string();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Option<TaskRecord>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT id, title, description, status, priority, session_id, created_at, updated_at
+                 FROM tasks WHERE id = ?1",
+            )?;
+            stmt.query_row(params![id], Self::task_from_row)
+                .optional()
+                .map_err(Into::into)
+        })
+        .await?
+    }
+
+    async fn list_tasks(&self, query: TaskListQuery) -> anyhow::Result<TaskListPage> {
+        let conn = self.conn.clone();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<TaskListPage> {
+            let conn = conn.lock();
+            let effective_limit = query.limit.clamp(1, MAX_LIST_LIMIT);
+            let fetch_limit = i64::from(effective_limit.saturating_add(1));
+            let offset = i64::from(query.offset);
+
+            let mut sql = String::from(
+                "SELECT id, title, description, status, priority, session_id, created_at, updated_at FROM tasks",
+            );
+            let mut conditions = Vec::new();
+            let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+            if let Some(status) = query.status {
+                conditions.push("status = ?".to_string());
+                param_values.push(Box::new(status.as_str().to_string()));
+            }
+            if let Some(priority) = query.priority {
+                conditions.push("priority = ?".to_string());
+                param_values.push(Box::new(priority.as_str().to_string()));
+            }
+            if let Some(session_id) = query.session_id {
+                conditions.push("session_id = ?".to_string());
+                param_values.push(Box::new(session_id));
+            }
+
+            if !conditions.is_empty() {
+                sql.push_str(" WHERE ");
+                sql.push_str(&conditions.join(" AND "));
+            }
+
+            sql.push_str(" ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?");
+            param_values.push(Box::new(fetch_limit));
+            param_values.push(Box::new(offset));
+            let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+                param_values.iter().map(AsRef::as_ref).collect();
+
+            let mut stmt = conn.prepare(&sql)?;
+            let mut tasks = stmt
+                .query_map(params_ref.as_slice(), Self::task_from_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+
+            let has_more = tasks.len() > effective_limit as usize;
+            tasks.truncate(effective_limit as usize);
+
+            Ok(TaskListPage { tasks, has_more })
+        })
+        .await?
+    }
+
+    async fn update_task(&self, patch: TaskPatch) -> anyhow::Result<Option<TaskRecord>> {
+        let conn = self.conn.clone();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Option<TaskRecord>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT id, title, description, status, priority, session_id, created_at, updated_at
+                 FROM tasks WHERE id = ?1",
+            )?;
+            let current = stmt
+                .query_row(params![patch.id.clone()], Self::task_from_row)
+                .optional()?;
+            let Some(current) = current else {
+                return Ok(None);
+            };
+
+            let updated_at = chrono::Utc::now().to_rfc3339();
+            let next = TaskRecord {
+                id: current.id,
+                title: patch.title.unwrap_or(current.title),
+                description: patch.description.unwrap_or(current.description),
+                status: patch.status.unwrap_or(current.status),
+                priority: patch.priority.unwrap_or(current.priority),
+                session_id: current.session_id,
+                created_at: current.created_at,
+                updated_at: updated_at.clone(),
+            };
+
+            conn.execute(
+                "UPDATE tasks
+                 SET title = ?2, description = ?3, status = ?4, priority = ?5, updated_at = ?6
+                 WHERE id = ?1",
+                params![
+                    patch.id,
+                    next.title,
+                    next.description,
+                    next.status.as_str(),
+                    next.priority.as_str(),
+                    updated_at,
+                ],
+            )?;
+
+            Ok(Some(next))
+        })
+        .await?
+    }
+
     async fn memory_stats(&self) -> anyhow::Result<MemoryStats> {
         let conn = self.conn.clone();
 
@@ -1649,7 +1915,9 @@ impl Memory for SqliteMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::SessionFieldPatch;
+    use crate::memory::{
+        SessionFieldPatch, TaskCreateInput, TaskListQuery, TaskPatch, TaskPriority, TaskStatus,
+    };
     use tempfile::TempDir;
 
     fn temp_sqlite() -> (TempDir, SqliteMemory) {
@@ -1668,6 +1936,165 @@ mod tests {
     async fn sqlite_health() {
         let (_tmp, mem) = temp_sqlite();
         assert!(mem.health_check().await);
+    }
+
+    #[tokio::test]
+    async fn sqlite_task_roundtrip_create_get_list_and_update() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-123", None).await.unwrap();
+
+        let created = mem
+            .create_task(TaskCreateInput {
+                id: "11111111-1111-4111-8111-111111111111".into(),
+                title: "Review parity slice".into(),
+                description: "Capture follow-up work".into(),
+                status: TaskStatus::Pending,
+                priority: TaskPriority::High,
+                session_id: Some("session-123".into()),
+                created_at: "2026-04-18T00:00:00Z".into(),
+                updated_at: "2026-04-18T00:00:00Z".into(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(created.id, "11111111-1111-4111-8111-111111111111");
+        assert_eq!(created.status, TaskStatus::Pending);
+        assert_eq!(created.session_id.as_deref(), Some("session-123"));
+
+        let fetched = mem
+            .get_task("11111111-1111-4111-8111-111111111111")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(fetched.title, "Review parity slice");
+
+        let updated = mem
+            .update_task(TaskPatch {
+                id: "11111111-1111-4111-8111-111111111111".into(),
+                title: Some("Review persistent parity slice".into()),
+                description: None,
+                status: Some(TaskStatus::InProgress),
+                priority: Some(TaskPriority::Medium),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.title, "Review persistent parity slice");
+        assert_eq!(updated.status, TaskStatus::InProgress);
+        assert_eq!(updated.priority, TaskPriority::Medium);
+        assert_ne!(updated.updated_at, created.updated_at);
+
+        let page = mem
+            .list_tasks(TaskListQuery {
+                session_id: Some("session-123".into()),
+                status: Some(TaskStatus::InProgress),
+                priority: None,
+                limit: 10,
+                offset: 0,
+            })
+            .await
+            .unwrap();
+        assert_eq!(page.tasks.len(), 1);
+        assert!(!page.has_more);
+        assert_eq!(page.tasks[0].id, "11111111-1111-4111-8111-111111111111");
+    }
+
+    #[tokio::test]
+    async fn sqlite_task_list_uses_deterministic_order_and_page_metadata() {
+        let (_tmp, mem) = temp_sqlite();
+
+        for (id, title, created_at) in [
+            (
+                "11111111-1111-4111-8111-111111111111",
+                "oldest",
+                "2026-04-18T00:00:00Z",
+            ),
+            (
+                "22222222-2222-4222-8222-222222222222",
+                "middle",
+                "2026-04-18T01:00:00Z",
+            ),
+            (
+                "33333333-3333-4333-8333-333333333333",
+                "newest",
+                "2026-04-18T02:00:00Z",
+            ),
+        ] {
+            mem.create_task(TaskCreateInput {
+                id: id.into(),
+                title: title.into(),
+                description: String::new(),
+                status: TaskStatus::Pending,
+                priority: TaskPriority::Medium,
+                session_id: None,
+                created_at: created_at.into(),
+                updated_at: created_at.into(),
+            })
+            .await
+            .unwrap();
+        }
+
+        let first_page = mem
+            .list_tasks(TaskListQuery {
+                session_id: None,
+                status: None,
+                priority: None,
+                limit: 2,
+                offset: 0,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            first_page
+                .tasks
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "33333333-3333-4333-8333-333333333333",
+                "22222222-2222-4222-8222-222222222222",
+            ]
+        );
+        assert!(first_page.has_more);
+
+        let second_page = mem
+            .list_tasks(TaskListQuery {
+                session_id: None,
+                status: None,
+                priority: None,
+                limit: 2,
+                offset: 2,
+            })
+            .await
+            .unwrap();
+        assert_eq!(second_page.tasks.len(), 1);
+        assert_eq!(
+            second_page.tasks[0].id,
+            "11111111-1111-4111-8111-111111111111"
+        );
+        assert!(!second_page.has_more);
+    }
+
+    #[tokio::test]
+    async fn sqlite_task_create_rejects_unknown_session_association() {
+        let (_tmp, mem) = temp_sqlite();
+
+        let error = mem
+            .create_task(TaskCreateInput {
+                id: "11111111-1111-4111-8111-111111111111".into(),
+                title: "Review parity slice".into(),
+                description: String::new(),
+                status: TaskStatus::Pending,
+                priority: TaskPriority::Medium,
+                session_id: Some("missing-session".into()),
+                created_at: "2026-04-18T00:00:00Z".into(),
+                updated_at: "2026-04-18T00:00:00Z".into(),
+            })
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("unknown session"));
     }
 
     #[tokio::test]
