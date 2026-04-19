@@ -1791,7 +1791,7 @@ async fn maybe_handle_http_ingress(
             crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
         ) => {
             let body = serde_json::json!({
-                "response": success.message,
+                "response": success.message.clone(),
                 "model": state.model,
                 "session_id": session_id,
             });

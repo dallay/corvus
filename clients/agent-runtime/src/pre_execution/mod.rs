@@ -467,7 +467,7 @@ mod tests {
                 outcome: SessionCommandOutcome::Success(success.clone()),
             }),
             HandledIngress::Handled(HandledIngressOutcome::SessionCommandSuccess(actual))
-                if actual == success
+                if actual.as_ref() == &success
         ));
     }
 

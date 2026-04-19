@@ -1560,7 +1560,7 @@ async fn maybe_handle_cli_handled_ingress(
     ) {
         crate::pre_execution::HandledIngress::Handled(
             crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
-        ) => Ok(Some(success.message)),
+        ) => Ok(Some(success.message.clone())),
         crate::pre_execution::HandledIngress::Handled(
             crate::pre_execution::HandledIngressOutcome::SessionCommandFailure { class, failure },
         ) => match class {
