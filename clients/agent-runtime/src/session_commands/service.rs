@@ -1,8 +1,8 @@
 use super::types::{
     sanitize_storage_error, CommandContext, SessionCommandFailure, SessionCommandFailureKind,
     SessionCommandHelpEntry, SessionCommandOutcome, SessionCommandSessionStatus,
-    SessionCommandSuccess, SessionCommandSuccessData,
-    SessionCommandToolEntry, SessionCommandToolSourceKind,
+    SessionCommandSuccess, SessionCommandSuccessData, SessionCommandToolEntry,
+    SessionCommandToolSourceKind,
 };
 use crate::memory::{
     is_slash_session_unsupported_error, Memory, SessionFieldPatch, SessionSnapshotKind,
@@ -786,9 +786,7 @@ fn format_session_help_message() -> String {
 }
 
 fn invalid_session_usage_message(raw_args: &str) -> String {
-    format!(
-        "Unknown /session subcommand: '{raw_args}'. Usage: /session or /session status"
-    )
+    format!("Unknown /session subcommand: '{raw_args}'. Usage: /session or /session status")
 }
 
 fn assemble_session_status(
@@ -831,12 +829,14 @@ fn assemble_session_status(
         .map(|record| record.pending_hydration_snapshot_id.is_some())
         .unwrap_or(false);
     let suspended_at = if slash_lifecycle == SlashSessionLifecycle::Suspended {
-        state.as_ref().and_then(|record| record.suspended_at.clone())
+        state
+            .as_ref()
+            .and_then(|record| record.suspended_at.clone())
     } else {
         None
     };
-    let recommendation = session_status_recommendation(slash_lifecycle, has_compact_snapshot)
-        .map(str::to_string);
+    let recommendation =
+        session_status_recommendation(slash_lifecycle, has_compact_snapshot).map(str::to_string);
 
     SessionCommandSessionStatus {
         session_id: session.id,
@@ -1718,7 +1718,9 @@ mod tests {
         let result = expect_success(service.handle_session("session-current", "status").await);
 
         assert_eq!(result.command, "/session");
-        assert!(result.message.contains("Recommended next command: /compact"));
+        assert!(result
+            .message
+            .contains("Recommended next command: /compact"));
         assert!(matches!(
             result.data,
             SessionCommandSuccessData::SessionStatus { ref status }
@@ -1831,7 +1833,10 @@ mod tests {
         let help = expect_success(service.handle_session("session-current", "").await);
         let failure = expect_failure(service.handle_session("session-current", "status").await);
 
-        assert!(matches!(help.data, SessionCommandSuccessData::SessionHelp { .. }));
+        assert!(matches!(
+            help.data,
+            SessionCommandSuccessData::SessionHelp { .. }
+        ));
         assert_eq!(failure.kind, SessionCommandFailureKind::UnsupportedBackend);
     }
 

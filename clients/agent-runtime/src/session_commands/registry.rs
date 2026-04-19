@@ -830,7 +830,10 @@ mod tests {
             resume.requirements.backends,
             &[CommandBackend::SqliteSlashSessions]
         );
-        assert_eq!(session.argument_shape, SlashCommandArgumentShape::OptionalText);
+        assert_eq!(
+            session.argument_shape,
+            SlashCommandArgumentShape::OptionalText
+        );
         assert_eq!(
             session.requirements.capabilities,
             &[CommandCapability::SessionRead]
