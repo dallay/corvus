@@ -256,7 +256,8 @@ fn built_in_registrations() -> [SlashCommandRegistration; 11] {
             descriptor: SlashCommandDescriptor {
                 canonical_name: "/session",
                 aliases: &[],
-                description: "Show session help, caller-scoped list, compact status, or richer inspection.",
+                description:
+                    "Show session help, caller-scoped list, compact status, or richer inspection.",
                 argument_shape: SlashCommandArgumentShape::OptionalText,
                 requirements: SlashCommandRequirements {
                     capabilities: SESSION_READ,

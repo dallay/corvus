@@ -18,8 +18,7 @@ pub use types::{
     SessionCommandInspectSnapshotSlot, SessionCommandInspectSnapshots,
     SessionCommandInspectStateRecord, SessionCommandOutcome, SessionCommandSessionInspect,
     SessionCommandSessionStatus, SessionCommandSuccess, SessionCommandSuccessData,
-    SessionCommandToolEntry,
-    SessionCommandToolSourceKind, SlashCommandArgumentShape, SlashCommandDescriptor,
-    SlashCommandHandler, SlashCommandRegistration, SlashCommandRequirements, SlashInvocation,
-    SlashRegistryError,
+    SessionCommandToolEntry, SessionCommandToolSourceKind, SlashCommandArgumentShape,
+    SlashCommandDescriptor, SlashCommandHandler, SlashCommandRegistration,
+    SlashCommandRequirements, SlashInvocation, SlashRegistryError,
 };

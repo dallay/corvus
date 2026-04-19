@@ -2,9 +2,8 @@ use super::embeddings::EmbeddingProvider;
 use super::traits::{
     Memory, MemoryCategory, MemoryEntry, MemoryStats, ResumableSessionEntry, SessionEntry,
     SessionListEntry, SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation,
-    SessionStatePatch,
-    SessionStateRecord, SessionStatus, SlashSessionLifecycle, TaskCreateInput, TaskListPage,
-    TaskListQuery, TaskPatch, TaskPriority, TaskRecord, TaskStatus,
+    SessionStatePatch, SessionStateRecord, SessionStatus, SlashSessionLifecycle, TaskCreateInput,
+    TaskListPage, TaskListQuery, TaskPatch, TaskPriority, TaskRecord, TaskStatus,
 };
 use super::vector;
 use anyhow::Context;
@@ -2778,7 +2777,9 @@ mod tests {
     async fn list_session_rows_for_scope_uses_last_activity_then_id_desc_ordering() {
         let (_tmp, mem) = temp_sqlite();
         for session_id in ["b", "a", "c"] {
-            mem.upsert_session(session_id, Some("token-a")).await.unwrap();
+            mem.upsert_session(session_id, Some("token-a"))
+                .await
+                .unwrap();
         }
 
         {

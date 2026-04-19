@@ -8,8 +8,7 @@ use super::types::{
     SessionCommandToolEntry, SessionCommandToolSourceKind,
 };
 use crate::memory::{
-    is_slash_session_unsupported_error, Memory, SessionEntry, SessionFieldPatch,
-    SessionListEntry,
+    is_slash_session_unsupported_error, Memory, SessionEntry, SessionFieldPatch, SessionListEntry,
     SessionSnapshotKind, SessionSnapshotRecord, SessionStatePatch, SessionStateRecord,
     SessionStatus, SlashSessionLifecycle,
 };
@@ -33,7 +32,8 @@ const SESSION_HELP_ENTRIES: &[SessionCommandHelpEntry] = &[
     SessionCommandHelpEntry {
         name: "/session inspect",
         usage: "/session inspect",
-        description: "Show a richer current-session inspection view without mutating session state.",
+        description:
+            "Show a richer current-session inspection view without mutating session state.",
     },
     SessionCommandHelpEntry {
         name: "/session list",
@@ -136,7 +136,9 @@ impl<'a> SessionCommandService<'a> {
     ) -> Result<SessionCommandSuccess, SessionCommandFailure> {
         self.ensure_sqlite("/session", Some(session_id))?;
 
-        let read_model = self.load_current_session_read_model("/session", session_id).await?;
+        let read_model = self
+            .load_current_session_read_model("/session", session_id)
+            .await?;
         let status = assemble_session_status(session_id, read_model.session, read_model.state);
         Ok(SessionCommandSuccess {
             command: "/session",
@@ -152,13 +154,17 @@ impl<'a> SessionCommandService<'a> {
     ) -> Result<SessionCommandSuccess, SessionCommandFailure> {
         self.ensure_sqlite("/session", Some(session_id))?;
 
-        let read_model = self.load_current_session_read_model("/session", session_id).await?;
+        let read_model = self
+            .load_current_session_read_model("/session", session_id)
+            .await?;
         let inspect = assemble_session_inspect(session_id, read_model);
         Ok(SessionCommandSuccess {
             command: "/session",
             session_id: session_id.to_string(),
             message: format_session_inspect_message(&inspect),
-            data: SessionCommandSuccessData::SessionInspect { inspect },
+            data: SessionCommandSuccessData::SessionInspect {
+                inspect: Box::new(inspect),
+            },
         })
     }
 
@@ -213,7 +219,10 @@ impl<'a> SessionCommandService<'a> {
 
         let state = self.get_session_state_optional(command, session_id).await?;
         let snapshots = match state.as_ref() {
-            Some(state) => self.resolve_inspect_snapshots(command, session_id, state).await?,
+            Some(state) => {
+                self.resolve_inspect_snapshots(command, session_id, state)
+                    .await?
+            }
             None => ResolvedInspectSnapshots::default(),
         };
 
@@ -1155,8 +1164,9 @@ fn assemble_session_inspect(
         gaps.push(SessionCommandInspectGap {
             code: SessionCommandInspectGapCode::SnapshotUnavailableWithoutState,
             reference_id: None,
-            detail: "snapshot-derived details are unavailable because slash-session state is missing"
-                .to_string(),
+            detail:
+                "snapshot-derived details are unavailable because slash-session state is missing"
+                    .to_string(),
         });
     }
 
@@ -1192,13 +1202,15 @@ fn assemble_inspect_snapshot_slot(
 
     SessionCommandInspectSnapshotSlot {
         reference_id: resolved.reference_id,
-        snapshot: resolved.snapshot.map(|snapshot| SessionCommandInspectSnapshot {
-            snapshot_id: snapshot.id,
-            kind: snapshot.kind,
-            created_at: snapshot.created_at,
-            resume_capable: snapshot.resume_capable,
-            payload: snapshot.payload,
-        }),
+        snapshot: resolved
+            .snapshot
+            .map(|snapshot| SessionCommandInspectSnapshot {
+                snapshot_id: snapshot.id,
+                kind: snapshot.kind,
+                created_at: snapshot.created_at,
+                resume_capable: snapshot.resume_capable,
+                payload: snapshot.payload,
+            }),
     }
 }
 
@@ -1298,12 +1310,7 @@ fn format_session_inspect_message(inspect: &SessionCommandSessionInspect) -> Str
 
     if !inspect.gaps.is_empty() {
         lines.push("Gaps:".to_string());
-        lines.extend(
-            inspect
-                .gaps
-                .iter()
-                .map(|gap| format!("- {}", gap.detail)),
-        );
+        lines.extend(inspect.gaps.iter().map(|gap| format!("- {}", gap.detail)));
     }
 
     lines.join("\n")
@@ -1314,7 +1321,11 @@ fn format_snapshot_line(
     slot: &SessionCommandInspectSnapshotSlot,
     has_state: bool,
 ) -> String {
-    match (slot.reference_id.as_deref(), slot.snapshot.as_ref(), has_state) {
+    match (
+        slot.reference_id.as_deref(),
+        slot.snapshot.as_ref(),
+        has_state,
+    ) {
         (Some(_reference_id), Some(snapshot), _) => {
             let resume_capable = if snapshot.resume_capable {
                 " (resume-capable)"
@@ -1474,8 +1485,8 @@ mod tests {
     use crate::config::ExecutionMode;
     use crate::memory::{
         MemoryCategory, MemoryEntry, ResumableSessionEntry, SessionEntry, SessionFieldPatch,
-        SessionListEntry,
-        SessionSnapshotKind, SessionSnapshotRecord, SessionStatePatch, SessionStateRecord,
+        SessionListEntry, SessionSnapshotKind, SessionSnapshotRecord, SessionStatePatch,
+        SessionStateRecord,
     };
     use crate::session_commands::{
         CommandContext, CommandSessionSource, SessionCommandInspectGapCode,
@@ -2484,11 +2495,7 @@ mod tests {
         };
         let service = SessionCommandService::new(&memory);
 
-        let failure = expect_failure(
-            service
-                .handle_session(&context(None), "status extra")
-                .await,
-        );
+        let failure = expect_failure(service.handle_session(&context(None), "status extra").await);
 
         assert_eq!(failure.kind, SessionCommandFailureKind::InvalidArguments);
     }
@@ -2531,7 +2538,9 @@ mod tests {
         assert!(result.message.contains("Session record: active"));
         assert!(result.message.contains("Slash state: suspended"));
         assert!(result.message.contains("TLDR: tldr-1 @ tldr-created"));
-        assert!(result.message.contains("Compact: compact-1 @ now (resume-capable)"));
+        assert!(result
+            .message
+            .contains("Compact: compact-1 @ now (resume-capable)"));
         assert!(matches!(
             result.data,
             SessionCommandSuccessData::SessionInspect { ref inspect }
@@ -2545,8 +2554,12 @@ mod tests {
                     && inspect.snapshots.latest_tldr.snapshot.as_ref().map(|snapshot| snapshot.snapshot_id.as_str())
                         == Some("tldr-1")
                     && inspect.snapshots.latest_compact.reference_id.as_deref() == Some("compact-1")
-                    && inspect.snapshots.latest_compact.snapshot.as_ref().map(|snapshot| snapshot.resume_capable)
-                        == Some(true)
+                    && inspect
+                        .snapshots
+                        .latest_compact
+                        .snapshot
+                        .as_ref()
+                        .is_some_and(|snapshot| snapshot.resume_capable)
                     && inspect.snapshots.pending_hydration.reference_id.as_deref() == Some("compact-1")
                     && inspect.snapshots.pending_hydration.snapshot.as_ref().map(|snapshot| snapshot.snapshot_id.as_str())
                         == Some("compact-1")
