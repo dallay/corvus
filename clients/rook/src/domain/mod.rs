@@ -7,7 +7,9 @@
 //! FIXME: add domain service traits (e.g., ProviderAccountService) once
 //!       registry persistence is in place.
 
-use serde::{Deserialize, Serialize};
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -40,20 +42,69 @@ pub enum RookError {
 
 // ── Newtypes ─────────────────────────────────────────────────────────────────
 
-/// Opaque identifier for a [`ProviderAccount`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct AccountId(Uuid);
+macro_rules! uuid_newtype {
+    ($(#[$meta:meta])* $name:ident) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[serde(transparent)]
+        pub struct $name(Uuid);
 
-/// Opaque identifier for a [`ProviderPool`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PoolId(Uuid);
+        impl $name {
+            /// Wrap an existing [`Uuid`].
+            pub fn new(uuid: Uuid) -> Self {
+                Self(uuid)
+            }
 
-/// Opaque identifier for a [`ModelRoute`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct RouteId(Uuid);
+            /// Mint a new random [`Uuid`] (v4).
+            pub fn generate() -> Self {
+                Self(Uuid::new_v4())
+            }
+
+            /// Borrow the inner [`Uuid`].
+            pub fn as_uuid(&self) -> Uuid {
+                self.0
+            }
+
+            /// Consume `self` and return the inner [`Uuid`].
+            pub fn into_inner(self) -> Uuid {
+                self.0
+            }
+        }
+
+        impl From<Uuid> for $name {
+            fn from(uuid: Uuid) -> Self {
+                Self(uuid)
+            }
+        }
+
+        impl From<$name> for Uuid {
+            fn from(id: $name) -> Uuid {
+                id.0
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                self.0.fmt(f)
+            }
+        }
+    };
+}
+
+uuid_newtype!(
+    /// Opaque identifier for a [`ProviderAccount`].
+    AccountId
+);
+
+uuid_newtype!(
+    /// Opaque identifier for a [`ProviderPool`].
+    PoolId
+);
+
+uuid_newtype!(
+    /// Opaque identifier for a [`ModelRoute`].
+    RouteId
+);
 
 // ── Enums ────────────────────────────────────────────────────────────────────
 
@@ -65,7 +116,14 @@ pub struct RouteId(Uuid);
 /// Unit variants serialize as snake_case strings (e.g., `"open_ai"`).
 /// `Other(slug)` serializes as a bare string (e.g., `"my_vendor"`) so that
 /// unknown vendors round-trip transparently without wrapping in `{"other":…}`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Deserialization is handled by a custom impl that:
+/// 1. Normalizes the input (lowercase, strip `_` and `-`).
+/// 2. Maps normalized tokens to the canonical unit variant.
+/// 3. Returns an error for near-misses (normalized form matches a known token
+///    but the original string did not, indicating a likely typo).
+/// 4. Falls through to `Other(original)` for genuinely unknown vendors.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderVendor {
     OpenAi,
@@ -75,10 +133,85 @@ pub enum ProviderVendor {
     DeepSeek,
     /// Arbitrary vendor identified by its string slug.
     ///
-    /// `untagged` on this variant means it serializes/deserializes as a plain
-    /// string rather than `{"other": "…"}`.
+    /// Serializes as a bare string (no wrapping object).
     #[serde(untagged)]
     Other(String),
+}
+
+/// Normalized token → canonical snake_case string pairs used during
+/// deserialization. The canonical form is what [`ProviderVendor`] serializes
+/// to, so a round-trip through `Other` always produces the canonical string.
+const KNOWN_VENDORS: &[(&str, ProviderVendor)] = &[
+    ("openai", ProviderVendor::OpenAi),
+    ("anthropic", ProviderVendor::Anthropic),
+    ("google", ProviderVendor::Google),
+    ("openrouter", ProviderVendor::OpenRouter),
+    ("deepseek", ProviderVendor::DeepSeek),
+];
+
+/// Normalize a vendor string for loose matching: lowercase + strip `_` and `-`.
+fn normalize_vendor(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .filter(|&c| c != '_' && c != '-')
+        .collect()
+}
+
+impl<'de> Deserialize<'de> for ProviderVendor {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct VendorVisitor;
+
+        impl<'de> Visitor<'de> for VendorVisitor {
+            type Value = ProviderVendor;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "a vendor string such as \"open_ai\" or \"anthropic\"")
+            }
+
+            fn visit_str<E: de::Error>(self, value: &str) -> Result<ProviderVendor, E> {
+                // 1. Exact canonical match first (fast path).
+                for (token, variant) in KNOWN_VENDORS {
+                    if value == canonical_for(token) {
+                        return Ok(variant.clone());
+                    }
+                }
+
+                // 2. Normalized match — near-miss detection.
+                let norm = normalize_vendor(value);
+                for (token, _) in KNOWN_VENDORS {
+                    if norm == *token {
+                        // The normalized form matched a known vendor but the
+                        // original string was not the canonical snake_case form.
+                        // This is almost certainly a typo or casing mistake.
+                        return Err(de::Error::custom(format!(
+                            "unknown vendor string \"{value}\"; \
+                             did you mean \"{}\"?",
+                            canonical_for(token)
+                        )));
+                    }
+                }
+
+                // 3. Genuinely unknown vendor — accept as Other.
+                Ok(ProviderVendor::Other(value.to_owned()))
+            }
+        }
+
+        deserializer.deserialize_str(VendorVisitor)
+    }
+}
+
+/// Return the canonical serialized form for a normalized vendor token.
+///
+/// Must stay in sync with `#[serde(rename_all = "snake_case")]` on the enum.
+fn canonical_for(token: &str) -> &'static str {
+    match token {
+        "openai" => "open_ai",
+        "anthropic" => "anthropic",
+        "google" => "google",
+        "openrouter" => "open_router",
+        "deepseek" => "deep_seek",
+        _ => unreachable!("canonical_for called with unknown token"),
+    }
 }
 
 /// Strategy used by a [`ProviderPool`] when selecting a member account.
@@ -180,26 +313,14 @@ mod tests {
     /// Unit variants must serialize as snake_case strings.
     #[test]
     fn provider_vendor_unit_variants_serialize_as_snake_case() {
-        assert_eq!(
-            serde_json::to_string(&ProviderVendor::OpenAi).unwrap(),
-            r#""open_ai""#
-        );
-        assert_eq!(
-            serde_json::to_string(&ProviderVendor::Anthropic).unwrap(),
-            r#""anthropic""#
-        );
-        assert_eq!(
-            serde_json::to_string(&ProviderVendor::Google).unwrap(),
-            r#""google""#
-        );
+        assert_eq!(serde_json::to_string(&ProviderVendor::OpenAi).unwrap(), r#""open_ai""#);
+        assert_eq!(serde_json::to_string(&ProviderVendor::Anthropic).unwrap(), r#""anthropic""#);
+        assert_eq!(serde_json::to_string(&ProviderVendor::Google).unwrap(), r#""google""#);
         assert_eq!(
             serde_json::to_string(&ProviderVendor::OpenRouter).unwrap(),
             r#""open_router""#
         );
-        assert_eq!(
-            serde_json::to_string(&ProviderVendor::DeepSeek).unwrap(),
-            r#""deep_seek""#
-        );
+        assert_eq!(serde_json::to_string(&ProviderVendor::DeepSeek).unwrap(), r#""deep_seek""#);
     }
 
     /// `Other` must serialize as a bare string, NOT as `{"other":"…"}`.
@@ -209,7 +330,7 @@ mod tests {
         assert_eq!(serde_json::to_string(&vendor).unwrap(), r#""mistral""#);
     }
 
-    /// Unit variants must deserialize from their snake_case string.
+    /// Canonical snake_case strings must deserialize to the right unit variant.
     #[test]
     fn provider_vendor_unit_variants_deserialize_from_snake_case() {
         assert_eq!(
@@ -220,13 +341,62 @@ mod tests {
             serde_json::from_str::<ProviderVendor>(r#""anthropic""#).unwrap(),
             ProviderVendor::Anthropic
         );
+        assert_eq!(
+            serde_json::from_str::<ProviderVendor>(r#""open_router""#).unwrap(),
+            ProviderVendor::OpenRouter
+        );
+        assert_eq!(
+            serde_json::from_str::<ProviderVendor>(r#""deep_seek""#).unwrap(),
+            ProviderVendor::DeepSeek
+        );
+        assert_eq!(
+            serde_json::from_str::<ProviderVendor>(r#""google""#).unwrap(),
+            ProviderVendor::Google
+        );
     }
 
-    /// An unknown string must deserialize into `Other(slug)`.
+    /// Near-misses (typos / alternative casings) must produce an error, not
+    /// silently collapse into `Other`.
+    #[test]
+    fn provider_vendor_near_misses_are_rejected() {
+        let cases = [
+            "openai",    // missing underscore
+            "OpenAI",    // wrong casing
+            "open-ai",   // dash instead of underscore
+            "OPENAI",    // all-caps
+            "Anthropic", // wrong casing
+            "ANTHROPIC",
+            "deepseek",  // missing underscore
+            "DeepSeek",  // wrong casing
+            "deep-seek",
+            "openrouter",
+            "OpenRouter",
+            "open-router",
+        ];
+        for case in cases {
+            let result = serde_json::from_str::<ProviderVendor>(&format!(r#""{case}""#));
+            assert!(
+                result.is_err(),
+                "expected error for near-miss \"{case}\" but got Ok({:?})",
+                result.unwrap()
+            );
+            // Error message must name the canonical form.
+            let msg = result.unwrap_err().to_string();
+            assert!(
+                msg.contains("did you mean"),
+                "error for \"{case}\" should suggest canonical form, got: {msg}"
+            );
+        }
+    }
+
+    /// Genuinely unknown vendors (not near-misses) must become `Other`.
     #[test]
     fn provider_vendor_unknown_string_deserializes_to_other() {
         let vendor = serde_json::from_str::<ProviderVendor>(r#""mistral""#).unwrap();
         assert_eq!(vendor, ProviderVendor::Other("mistral".to_string()));
+
+        let vendor = serde_json::from_str::<ProviderVendor>(r#""cohere""#).unwrap();
+        assert_eq!(vendor, ProviderVendor::Other("cohere".to_string()));
     }
 
     /// Round-trip: `Other` value survives serialize → deserialize unchanged.
@@ -238,33 +408,68 @@ mod tests {
         assert_eq!(original, restored);
     }
 
+    // ── ID newtype constructors and accessors ─────────────────────────────────
+
+    #[test]
+    fn account_id_new_and_accessors() {
+        let uuid = Uuid::new_v4();
+        let id = AccountId::new(uuid);
+        assert_eq!(id.as_uuid(), uuid);
+        assert_eq!(id.into_inner(), uuid);
+    }
+
+    #[test]
+    fn account_id_generate_is_unique() {
+        let a = AccountId::generate();
+        let b = AccountId::generate();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn account_id_from_into_uuid() {
+        let uuid = Uuid::new_v4();
+        let id: AccountId = uuid.into();
+        let back: Uuid = id.into();
+        assert_eq!(uuid, back);
+    }
+
+    #[test]
+    fn pool_id_and_route_id_same_pattern() {
+        let u1 = Uuid::new_v4();
+        let u2 = Uuid::new_v4();
+
+        let pid = PoolId::new(u1);
+        assert_eq!(pid.as_uuid(), u1);
+        assert_eq!(Uuid::from(pid), u1);
+
+        let rid = RouteId::new(u2);
+        assert_eq!(rid.as_uuid(), u2);
+        assert_eq!(Uuid::from(rid), u2);
+    }
+
+    #[test]
+    fn id_display_matches_uuid_display() {
+        let uuid = Uuid::new_v4();
+        let id = AccountId::new(uuid);
+        assert_eq!(id.to_string(), uuid.to_string());
+    }
+
     // ── SelectionStrategy serialization ──────────────────────────────────────
 
     #[test]
     fn test_selection_strategy_serializes_to_snake_case() {
-        let priority = SelectionStrategy::Priority;
-        let json = serde_json::to_string(&priority).unwrap();
-        assert_eq!(json, r#""priority""#);
-        let deserialized: SelectionStrategy = serde_json::from_str(&json).unwrap();
-        assert_eq!(priority, deserialized);
-
-        let round_robin = SelectionStrategy::RoundRobin;
-        let json = serde_json::to_string(&round_robin).unwrap();
-        assert_eq!(json, r#""round_robin""#);
-        let deserialized: SelectionStrategy = serde_json::from_str(&json).unwrap();
-        assert_eq!(round_robin, deserialized);
-
-        let weighted = SelectionStrategy::Weighted;
-        let json = serde_json::to_string(&weighted).unwrap();
-        assert_eq!(json, r#""weighted""#);
-        let deserialized: SelectionStrategy = serde_json::from_str(&json).unwrap();
-        assert_eq!(weighted, deserialized);
-
-        let failover = SelectionStrategy::Failover;
-        let json = serde_json::to_string(&failover).unwrap();
-        assert_eq!(json, r#""failover""#);
-        let deserialized: SelectionStrategy = serde_json::from_str(&json).unwrap();
-        assert_eq!(failover, deserialized);
+        let cases = [
+            (SelectionStrategy::Priority, "\"priority\""),
+            (SelectionStrategy::RoundRobin, "\"round_robin\""),
+            (SelectionStrategy::Weighted, "\"weighted\""),
+            (SelectionStrategy::Failover, "\"failover\""),
+        ];
+        for (variant, expected) in cases {
+            let json = serde_json::to_string(&variant).unwrap();
+            assert_eq!(json, expected);
+            let de: SelectionStrategy = serde_json::from_str(&json).unwrap();
+            assert_eq!(de, variant);
+        }
     }
 
     // ── RookError conversions ─────────────────────────────────────────────────
