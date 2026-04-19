@@ -1,5 +1,8 @@
 use crate::config::ExecutionMode;
-use crate::memory::ResumableSessionEntry;
+use crate::memory::{
+    ResumableSessionEntry, SessionListEntry, SessionSnapshotKind, SessionStatus,
+    SlashSessionLifecycle,
+};
 use std::sync::Arc;
 
 /// Sanitize storage errors for user-facing messages.
@@ -390,6 +393,73 @@ pub struct SessionCommandSessionStatus {
     pub recommendation: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionCommandSessionInspect {
+    pub session_id: String,
+    pub current_session_known: bool,
+    pub session: Option<SessionCommandInspectSessionRecord>,
+    pub state: Option<SessionCommandInspectStateRecord>,
+    pub snapshots: SessionCommandInspectSnapshots,
+    pub gaps: Vec<SessionCommandInspectGap>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionCommandInspectSessionRecord {
+    pub status: SessionStatus,
+    pub started_at: String,
+    pub last_activity: String,
+    pub ended_at: Option<String>,
+    pub message_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionCommandInspectStateRecord {
+    pub lifecycle: SlashSessionLifecycle,
+    pub latest_tldr_snapshot_id: Option<String>,
+    pub latest_compact_snapshot_id: Option<String>,
+    pub pending_hydration_snapshot_id: Option<String>,
+    pub suspended_at: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SessionCommandInspectSnapshots {
+    pub latest_tldr: SessionCommandInspectSnapshotSlot,
+    pub latest_compact: SessionCommandInspectSnapshotSlot,
+    pub pending_hydration: SessionCommandInspectSnapshotSlot,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SessionCommandInspectSnapshotSlot {
+    pub reference_id: Option<String>,
+    pub snapshot: Option<SessionCommandInspectSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionCommandInspectSnapshot {
+    pub snapshot_id: String,
+    pub kind: SessionSnapshotKind,
+    pub created_at: String,
+    pub resume_capable: bool,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionCommandInspectGap {
+    pub code: SessionCommandInspectGapCode,
+    pub reference_id: Option<String>,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionCommandInspectGapCode {
+    SlashSessionStateMissing,
+    SnapshotUnavailableWithoutState,
+    ReferencedSnapshotMissing,
+    ReferencedSnapshotOwnershipMismatch,
+    ReferencedSnapshotKindMismatch,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionCommandToolSourceKind {
     Native,
@@ -406,6 +476,12 @@ pub enum SessionCommandSuccessData {
     },
     SessionStatus {
         status: SessionCommandSessionStatus,
+    },
+    SessionInspect {
+        inspect: SessionCommandSessionInspect,
+    },
+    SessionList {
+        sessions: Vec<SessionListEntry>,
     },
     Resumed {
         resumed_session_id: String,
