@@ -28,10 +28,10 @@ cargo run --manifest-path clients/rook/Cargo.toml -- serve
 # Launch operator TUI (stub)
 cargo run --manifest-path clients/rook/Cargo.toml -- tui
 
-# Run diagnostics
+# Run diagnostics (stub — not yet implemented)
 cargo run --manifest-path clients/rook/Cargo.toml -- doctor
 
-# Export current config
+# Export current config (stub — not yet implemented)
 cargo run --manifest-path clients/rook/Cargo.toml -- config export
 ```
 
@@ -65,6 +65,10 @@ dependencies. It does **not** depend on the `corvus` binary or its internals.
 
 This is the initial layout skeleton. All subcommands print
 `"not yet implemented"` stubs. Implementation follows per the Rook roadmap.
+
+**Note:** An official Spanish translation of this README is pending. Contributions
+and translations are welcome — please see the main Corvus repository for
+translation guidelines.
 
 ## License
 

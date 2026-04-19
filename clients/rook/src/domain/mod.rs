@@ -41,16 +41,19 @@ pub enum RookError {
 // ── Newtypes ─────────────────────────────────────────────────────────────────
 
 /// Opaque identifier for a [`ProviderAccount`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct AccountId(pub Uuid);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AccountId(Uuid);
 
 /// Opaque identifier for a [`ProviderPool`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct PoolId(pub Uuid);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PoolId(Uuid);
 
 /// Opaque identifier for a [`ModelRoute`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct RouteId(pub Uuid);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RouteId(Uuid);
 
 // ── Enums ────────────────────────────────────────────────────────────────────
 
@@ -59,7 +62,7 @@ pub struct RouteId(pub Uuid);
 /// `Other` captures any vendor not yet enumerated so the type remains
 /// extensible without a breaking change.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(untagged, rename_all = "snake_case")]
 pub enum ProviderVendor {
     OpenAi,
     Anthropic,
@@ -156,4 +159,78 @@ pub struct RoutingPolicy {
     pub max_retries: u32,
     /// Seconds a failed account is excluded from routing.
     pub cooldown_seconds: u64,
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_provider_vendor_serde_round_trip() {
+        // Known variants
+        let known = ProviderVendor::Anthropic;
+        let json = serde_json::to_string(&known).unwrap();
+        let deserialized: ProviderVendor = serde_json::from_str(&json).unwrap();
+        assert_eq!(known, deserialized);
+
+        // Other variant with custom slug
+        let other = ProviderVendor::Other("mistral".to_string());
+        let json = serde_json::to_string(&other).unwrap();
+        let deserialized: ProviderVendor = serde_json::from_str(&json).unwrap();
+        assert_eq!(other, deserialized);
+
+        // Test that known vendor slugs deserialize correctly
+        let anthropic: ProviderVendor = serde_json::from_str(r#""anthropic""#).unwrap();
+        assert_eq!(anthropic, ProviderVendor::Anthropic);
+
+        // Test that unknown slugs deserialize to Other
+        let unknown: ProviderVendor = serde_json::from_str(r#""mistral""#).unwrap();
+        assert_eq!(unknown, ProviderVendor::Other("mistral".to_string()));
+    }
+
+    #[test]
+    fn test_selection_strategy_serializes_to_snake_case() {
+        // Priority
+        let priority = SelectionStrategy::Priority;
+        let json = serde_json::to_string(&priority).unwrap();
+        assert_eq!(json, r#""priority""#);
+        let deserialized: SelectionStrategy = serde_json::from_str(&json).unwrap();
+        assert_eq!(priority, deserialized);
+
+        // RoundRobin
+        let round_robin = SelectionStrategy::RoundRobin;
+        let json = serde_json::to_string(&round_robin).unwrap();
+        assert_eq!(json, r#""round_robin""#);
+        let deserialized: SelectionStrategy = serde_json::from_str(&json).unwrap();
+        assert_eq!(round_robin, deserialized);
+
+        // Weighted
+        let weighted = SelectionStrategy::Weighted;
+        let json = serde_json::to_string(&weighted).unwrap();
+        assert_eq!(json, r#""weighted""#);
+        let deserialized: SelectionStrategy = serde_json::from_str(&json).unwrap();
+        assert_eq!(weighted, deserialized);
+
+        // Failover
+        let failover = SelectionStrategy::Failover;
+        let json = serde_json::to_string(&failover).unwrap();
+        assert_eq!(json, r#""failover""#);
+        let deserialized: SelectionStrategy = serde_json::from_str(&json).unwrap();
+        assert_eq!(failover, deserialized);
+    }
+
+    #[test]
+    fn test_rook_error_from_conversions() {
+        // Io error conversion
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let rook_err: RookError = io_err.into();
+        assert!(matches!(rook_err, RookError::Io(_)));
+
+        // anyhow::Error conversion
+        let anyhow_err = anyhow::anyhow!("something went wrong");
+        let rook_err: RookError = anyhow_err.into();
+        assert!(matches!(rook_err, RookError::Other(_)));
+    }
 }

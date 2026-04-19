@@ -47,19 +47,21 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Serve => {
             println!("rook serve: not yet implemented");
+            std::process::exit(1);
         }
         Commands::Tui => {
             println!("rook tui: not yet implemented");
+            std::process::exit(1);
         }
         Commands::Doctor => {
             println!("rook doctor: not yet implemented");
+            std::process::exit(1);
         }
         Commands::Config {
             action: ConfigCommands::Export,
         } => {
             println!("rook config export: not yet implemented");
+            std::process::exit(1);
         }
     }
-
-    Ok(())
 }
