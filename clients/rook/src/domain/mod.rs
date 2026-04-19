@@ -61,8 +61,12 @@ pub struct RouteId(Uuid);
 ///
 /// `Other` captures any vendor not yet enumerated so the type remains
 /// extensible without a breaking change.
+///
+/// Unit variants serialize as snake_case strings (e.g., `"open_ai"`).
+/// `Other(slug)` serializes as a bare string (e.g., `"my_vendor"`) so that
+/// unknown vendors round-trip transparently without wrapping in `{"other":…}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged, rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum ProviderVendor {
     OpenAi,
     Anthropic,
@@ -70,6 +74,10 @@ pub enum ProviderVendor {
     OpenRouter,
     DeepSeek,
     /// Arbitrary vendor identified by its string slug.
+    ///
+    /// `untagged` on this variant means it serializes/deserializes as a plain
+    /// string rather than `{"other": "…"}`.
+    #[serde(untagged)]
     Other(String),
 }
 
@@ -167,53 +175,91 @@ pub struct RoutingPolicy {
 mod tests {
     use super::*;
 
+    // ── ProviderVendor serialization ──────────────────────────────────────────
+
+    /// Unit variants must serialize as snake_case strings.
     #[test]
-    fn test_provider_vendor_serde_round_trip() {
-        // Known variants
-        let known = ProviderVendor::Anthropic;
-        let json = serde_json::to_string(&known).unwrap();
-        let deserialized: ProviderVendor = serde_json::from_str(&json).unwrap();
-        assert_eq!(known, deserialized);
-
-        // Other variant with custom slug
-        let other = ProviderVendor::Other("mistral".to_string());
-        let json = serde_json::to_string(&other).unwrap();
-        let deserialized: ProviderVendor = serde_json::from_str(&json).unwrap();
-        assert_eq!(other, deserialized);
-
-        // Test that known vendor slugs deserialize correctly
-        let anthropic: ProviderVendor = serde_json::from_str(r#""anthropic""#).unwrap();
-        assert_eq!(anthropic, ProviderVendor::Anthropic);
-
-        // Test that unknown slugs deserialize to Other
-        let unknown: ProviderVendor = serde_json::from_str(r#""mistral""#).unwrap();
-        assert_eq!(unknown, ProviderVendor::Other("mistral".to_string()));
+    fn provider_vendor_unit_variants_serialize_as_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&ProviderVendor::OpenAi).unwrap(),
+            r#""open_ai""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ProviderVendor::Anthropic).unwrap(),
+            r#""anthropic""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ProviderVendor::Google).unwrap(),
+            r#""google""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ProviderVendor::OpenRouter).unwrap(),
+            r#""open_router""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ProviderVendor::DeepSeek).unwrap(),
+            r#""deep_seek""#
+        );
     }
+
+    /// `Other` must serialize as a bare string, NOT as `{"other":"…"}`.
+    #[test]
+    fn provider_vendor_other_serializes_as_bare_string() {
+        let vendor = ProviderVendor::Other("mistral".to_string());
+        assert_eq!(serde_json::to_string(&vendor).unwrap(), r#""mistral""#);
+    }
+
+    /// Unit variants must deserialize from their snake_case string.
+    #[test]
+    fn provider_vendor_unit_variants_deserialize_from_snake_case() {
+        assert_eq!(
+            serde_json::from_str::<ProviderVendor>(r#""open_ai""#).unwrap(),
+            ProviderVendor::OpenAi
+        );
+        assert_eq!(
+            serde_json::from_str::<ProviderVendor>(r#""anthropic""#).unwrap(),
+            ProviderVendor::Anthropic
+        );
+    }
+
+    /// An unknown string must deserialize into `Other(slug)`.
+    #[test]
+    fn provider_vendor_unknown_string_deserializes_to_other() {
+        let vendor = serde_json::from_str::<ProviderVendor>(r#""mistral""#).unwrap();
+        assert_eq!(vendor, ProviderVendor::Other("mistral".to_string()));
+    }
+
+    /// Round-trip: `Other` value survives serialize → deserialize unchanged.
+    #[test]
+    fn provider_vendor_other_round_trips() {
+        let original = ProviderVendor::Other("cohere".to_string());
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: ProviderVendor = serde_json::from_str(&json).unwrap();
+        assert_eq!(original, restored);
+    }
+
+    // ── SelectionStrategy serialization ──────────────────────────────────────
 
     #[test]
     fn test_selection_strategy_serializes_to_snake_case() {
-        // Priority
         let priority = SelectionStrategy::Priority;
         let json = serde_json::to_string(&priority).unwrap();
         assert_eq!(json, r#""priority""#);
         let deserialized: SelectionStrategy = serde_json::from_str(&json).unwrap();
         assert_eq!(priority, deserialized);
 
-        // RoundRobin
         let round_robin = SelectionStrategy::RoundRobin;
         let json = serde_json::to_string(&round_robin).unwrap();
         assert_eq!(json, r#""round_robin""#);
         let deserialized: SelectionStrategy = serde_json::from_str(&json).unwrap();
         assert_eq!(round_robin, deserialized);
 
-        // Weighted
         let weighted = SelectionStrategy::Weighted;
         let json = serde_json::to_string(&weighted).unwrap();
         assert_eq!(json, r#""weighted""#);
         let deserialized: SelectionStrategy = serde_json::from_str(&json).unwrap();
         assert_eq!(weighted, deserialized);
 
-        // Failover
         let failover = SelectionStrategy::Failover;
         let json = serde_json::to_string(&failover).unwrap();
         assert_eq!(json, r#""failover""#);
@@ -221,14 +267,14 @@ mod tests {
         assert_eq!(failover, deserialized);
     }
 
+    // ── RookError conversions ─────────────────────────────────────────────────
+
     #[test]
     fn test_rook_error_from_conversions() {
-        // Io error conversion
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let rook_err: RookError = io_err.into();
         assert!(matches!(rook_err, RookError::Io(_)));
 
-        // anyhow::Error conversion
         let anyhow_err = anyhow::anyhow!("something went wrong");
         let rook_err: RookError = anyhow_err.into();
         assert!(matches!(rook_err, RookError::Other(_)));
