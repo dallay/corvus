@@ -27,7 +27,7 @@ Command: `cargo clippy --all-targets -- -D warnings` (workdir: `clients/agent-ru
 
 **Runtime tests**: ✅ Passed  
 Command: `cargo test` (workdir: `clients/agent-runtime`)  
-Observed result: 3865 passed / 0 failed / 0 ignored across lib, integration, and doc-test binaries.
+Observed result: full runtime lib/integration/doc test run passed, including coordinator and delegate regression coverage.
 
 Representative passing evidence for this slice:
 
@@ -38,23 +38,15 @@ Representative passing evidence for this slice:
 - `agent::coordinator::tests::aggregate_results_preserve_launch_order`
 - `agent::coordinator::tests::fatal_child_failure_cancels_siblings`
 - `agent::coordinator::tests::parent_cancellation_propagates_to_active_children`
-- `agent::coordinator::tests::parent_can_inspect_child_lifecycle_progression_during_live_run`
-- `agent::coordinator::tests::live_run_preserves_in_process_transport_and_end_to_end_correlation`
-- `agent::coordinator::tests::fan_in_does_not_report_success_before_all_required_children_finish`
 - `tools::delegate::tests::session_mode_routes_through_single_child_coordinator_request`
 - `tools::delegate::tests::session_mode_preserves_single_child_tool_result_contract_from_coordinator_outcome`
 - `tools::delegate::tests::oneshot_mode_does_not_route_through_session_coordinator_executor`
 - `tools::delegate::tests::session_mode_blocked_in_readonly_policy`
 - `tools::delegate::tests::session_mode_preserves_fail_closed_boundaries_for_deferred_transport_and_escalation`
 
-**Web tests**: ❌ Failed  
+**Web tests**: ✅ Passed  
 Command: `make web-test-all` (workdir: repo root)  
-Observed result: dashboard coverage run reported `46` passing suites, `1` failing suite, `323` passing tests, exit code `1`.
-
-Blocking failure:
-
-- `clients/web/apps/dashboard/src/composables/chatOnboardingContract.spec.ts`
-- Error: `Denied ID /Users/acosta/Dev/corvus/clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatWorkspace.kt?raw`
+Observed result: `47` test files passed / `328` tests passed / exit code `0`.
 
 **Web checks**: ✅ Passed  
 Command: `pnpm check` (workdir: `clients/web`)
@@ -112,7 +104,7 @@ Command: `pnpm check` (workdir: `clients/web`)
 | Put coordinator foundations under `agent/`, not inside `delegate` | ✅ Yes | `clients/agent-runtime/src/agent/coordinator.rs` is the primary orchestration module and `agent/mod.rs` exports it. |
 | Use explicit coordinator and child state machines | ✅ Yes | `CoordinatorState`, `ChildState`, and parent-owned terminal handling are explicit. |
 | Define transport-agnostic envelopes with in-process-only transport in Slice 1 | ✅ Yes | `CoordinatorTransport::InProcess` is the only transport variant and invalid transports fail closed. |
-| Keep child execution behind a runner abstraction reusing delegated bootstrap | ✅ Yes | `CoordinatorChildRunner` + `DelegatedAgentRunner` reuse `Agent::code_from_config_with_delegated(...)`. |
+| Keep child execution behind a runner abstraction reusing delegated bootstrap | ✅ Yes | `CoordinatorChildRunner` + `DelegatedAgentRunner` reuse delegated bootstrap semantics. |
 | Preserve existing `delegate` identity and one-shot behavior | ✅ Yes | `OneShot` remains direct while `Session` routes through the coordinator seam. |
 | File changes table expected `agent.rs` modification | ⚠️ Deviated | The implementation reused existing agent bootstrap behavior without a new `agent.rs` diff. This is a valid simplification, not a behavioral miss. |
 | Optional rollout gate in `config/schema.rs` | ✅ Not introduced | No new coordinator rollout flag was added; the slice kept the existing config surface and session-mode semantics. |
@@ -123,19 +115,17 @@ Command: `pnpm check` (workdir: `clients/web`)
 
 **CRITICAL**
 
-- `make web-test-all` still fails in the current working tree. The blocking suite is `clients/web/apps/dashboard/src/composables/chatOnboardingContract.spec.ts`, which errors on denied raw import access to `clients/composeApp/.../ChatWorkspace.kt?raw`.
-- `Track 4 Roadmap Traceability` is still `❌ UNTESTED` because no automated test proves the roadmap-update scenario at runtime.
+- `Track 4 Roadmap Traceability` remains `❌ UNTESTED` because no automated test proves the roadmap-update scenario at runtime.
 
 **WARNING**
 
-- The current working tree includes unrelated changes outside this slice, including `clients/rook/**` and broader `clients/agent-runtime/**` edits, so the tree is not isolated to the coordinator slice.
-- The design file anticipated an `agent.rs` change, but the implementation correctly reused an existing helper instead.
-- `make web-test-all` emits repeated Vue `onScopeDispose()` warnings in `useChat.spec.ts`; they did not fail the command, but they remain noise in the validation output.
+- The current working tree still includes unrelated edits outside this slice, including `clients/rook/**`, wide `clients/agent-runtime/**` changes, and the dashboard Vite raw-import fix, so verification evidence is not from an isolated tree.
+- `make web-test-all` still emits repeated Vue `onScopeDispose()` warnings in `clients/web/apps/dashboard/src/composables/useChat.spec.ts`; they do not fail the command, but they remain validation noise.
+- The design file anticipated an `agent.rs` modification, but the implementation correctly reused existing bootstrap behavior instead.
 
 **SUGGESTION**
 
-- Add an automated regression asserting the required `tmp/CLAUDIO_ROADMAP.md` Track 4 content if roadmap traceability is meant to be a hard spec scenario.
-- If the repo-wide verify gate is intended to pass before archive, fix or quarantine `chatOnboardingContract.spec.ts` so the configured web test command is green again.
+- Add an automated regression asserting the required `tmp/CLAUDIO_ROADMAP.md` Track 4 content if roadmap traceability is meant to remain a hard spec scenario.
 
 ---
 
@@ -143,4 +133,4 @@ Command: `pnpm check` (workdir: `clients/web`)
 
 **FAIL**
 
-The coordinator foundations slice is behaviorally correct in Rust and its slice-specific tests pass, but the current working tree does not clear the configured verification gate because `make web-test-all` fails and the roadmap-traceability scenario remains untested.
+The dashboard raw-import regression is fixed and all configured verification commands now pass, but the change still fails strict spec verification because the `Track 4 Roadmap Traceability` scenario has static evidence only and no passing automated test.
