@@ -3328,11 +3328,11 @@ impl Config {
             let parsed = Url::parse(url)
                 .map_err(|e| anyhow::anyhow!("invalid catalog_repo_url '{}': {}", url, e))?;
             if parsed.scheme() != "https" {
-                anyhow::bail!("catalog_repo_url must use https:// scheme, got '{}'", url,);
+                anyhow::bail!("catalog_repo_url must use https:// scheme, got '{}'", url);
             }
             let host = parsed.host_str().unwrap_or("");
             if host.is_empty() || Self::is_loopback_host(host) {
-                anyhow::bail!("catalog_repo_url must not point to localhost: '{}'", url,);
+                anyhow::bail!("catalog_repo_url must not point to localhost: '{}'", url);
             }
         }
         if self.skills.catalog_cache_ttl_hours == Some(0) {
@@ -3688,8 +3688,7 @@ impl Config {
             .auth_token
             .as_deref()
             .map(str::trim)
-            .filter(|token| !token.is_empty())
-            .is_none()
+            .is_none_or(str::is_empty)
         {
             anyhow::bail!("memory.cerebro.auth_token is required when endpoint is configured");
         }

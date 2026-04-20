@@ -27,8 +27,10 @@
 //! preserving policy, workspace, and audit settings.
 
 use super::traits::{Tool, ToolResult};
-use crate::agent::code_session::{CodeSessionResult, CodeSessionStatus};
-use crate::agent::{Agent, AgentExecutionError};
+use crate::agent::coordinator::{
+    ChildAgentId, ChildLaunchRequest, Coordinator, CoordinatorChildOutcome,
+    CoordinatorLaunchRequest, CoordinatorOutcome, DelegatedAgentRunner, FanInPolicy,
+};
 use crate::config::{Config, DelegateAgentConfig, DelegateExecutionMode};
 use crate::providers::{self, Provider};
 use crate::security::policy::ToolOperation;
@@ -42,6 +44,38 @@ use std::time::Duration;
 /// Default timeout for sub-agent provider calls.
 const DELEGATE_TIMEOUT_SECS: u64 = 120;
 
+#[async_trait]
+trait SessionCoordinatorExecutor: Send + Sync {
+    async fn execute(
+        &self,
+        request: CoordinatorLaunchRequest,
+        base_config: Arc<Config>,
+        agents: Arc<HashMap<String, DelegateAgentConfig>>,
+        fallback_credential: Option<String>,
+    ) -> Result<CoordinatorOutcome, anyhow::Error>;
+}
+
+struct DefaultSessionCoordinatorExecutor;
+
+#[async_trait]
+impl SessionCoordinatorExecutor for DefaultSessionCoordinatorExecutor {
+    async fn execute(
+        &self,
+        request: CoordinatorLaunchRequest,
+        base_config: Arc<Config>,
+        agents: Arc<HashMap<String, DelegateAgentConfig>>,
+        fallback_credential: Option<String>,
+    ) -> Result<CoordinatorOutcome, anyhow::Error> {
+        let coordinator = Coordinator::new();
+        let runner = Arc::new(DelegatedAgentRunner::new(
+            base_config,
+            agents,
+            fallback_credential,
+        ));
+        coordinator.run(request, runner).await.map_err(Into::into)
+    }
+}
+
 /// Tool that delegates a subtask to a named agent with a different
 /// provider/model configuration. Enables multi-agent workflows where
 /// a primary agent can hand off specialized work (research, coding,
@@ -54,6 +88,7 @@ pub struct DelegateTool {
     /// Depth at which this tool instance lives in the delegation chain.
     depth: u32,
     base_config: Arc<Config>,
+    session_executor: Arc<dyn SessionCoordinatorExecutor>,
 }
 
 impl DelegateTool {
@@ -69,6 +104,7 @@ impl DelegateTool {
             fallback_credential,
             depth: 0,
             base_config,
+            session_executor: Arc::new(DefaultSessionCoordinatorExecutor),
         }
     }
 
@@ -88,140 +124,118 @@ impl DelegateTool {
             fallback_credential,
             depth,
             base_config,
+            session_executor: Arc::new(DefaultSessionCoordinatorExecutor),
         }
     }
 
-    /// Run a delegated sub-agent in Session (full tool-loop) mode.
-    ///
-    /// Constructs a child `Agent` via `Agent::code_from_config`, applies
-    /// overrides from `agent_config`, and runs a single `turn()`. The
-    /// agent output is parsed via `CodeSessionResult::parse_from_output`
-    /// and returned as a structured `ToolResult`.
+    #[cfg(test)]
+    fn with_session_executor(
+        agents: HashMap<String, DelegateAgentConfig>,
+        fallback_credential: Option<String>,
+        security: Arc<SecurityPolicy>,
+        base_config: Arc<Config>,
+        session_executor: Arc<dyn SessionCoordinatorExecutor>,
+    ) -> Self {
+        Self {
+            agents: Arc::new(agents),
+            security,
+            fallback_credential,
+            depth: 0,
+            base_config,
+            session_executor,
+        }
+    }
+
+    fn fail_closed_session_result(agent_name: &str, message: impl Into<String>) -> ToolResult {
+        ToolResult {
+            success: false,
+            output: String::new(),
+            error: Some(format!(
+                "Agent '{agent_name}' session failed closed: {}",
+                message.into()
+            )),
+            structured: None,
+        }
+    }
+
+    fn session_result_from_child_outcome(
+        agent_name: &str,
+        outcome: &CoordinatorChildOutcome,
+    ) -> ToolResult {
+        match outcome {
+            CoordinatorChildOutcome::Succeeded { result, .. } => result.tool_result.clone(),
+            CoordinatorChildOutcome::Failed { error, .. } => {
+                error.tool_result.clone().unwrap_or_else(|| {
+                    Self::fail_closed_session_result(agent_name, error.error.clone())
+                })
+            }
+            CoordinatorChildOutcome::Cancelled { reason, .. } => {
+                Self::fail_closed_session_result(agent_name, format!("cancelled: {reason:?}"))
+            }
+        }
+    }
+
+    fn session_result_from_outcome(agent_name: &str, outcome: CoordinatorOutcome) -> ToolResult {
+        match outcome {
+            CoordinatorOutcome::Completed { children, .. } => children
+                .first()
+                .map(|child| Self::session_result_from_child_outcome(agent_name, child))
+                .unwrap_or_else(|| {
+                    Self::fail_closed_session_result(
+                        agent_name,
+                        "coordinator completed without a child outcome",
+                    )
+                }),
+            CoordinatorOutcome::Failed {
+                error, children, ..
+            } => children
+                .first()
+                .map(|child| Self::session_result_from_child_outcome(agent_name, child))
+                .unwrap_or_else(|| Self::fail_closed_session_result(agent_name, error)),
+            CoordinatorOutcome::Cancelled {
+                reason, children, ..
+            } => children
+                .first()
+                .map(|child| Self::session_result_from_child_outcome(agent_name, child))
+                .unwrap_or_else(|| {
+                    Self::fail_closed_session_result(agent_name, format!("cancelled: {reason:?}"))
+                }),
+        }
+    }
+
+    /// Run a delegated sub-agent in Session (full tool-loop) mode through the
+    /// coordinator seam using a single-child launch request.
     async fn run_session(
         &self,
         agent_name: &str,
-        agent_config: &DelegateAgentConfig,
-        full_prompt: &str,
+        prompt: &str,
+        context: Option<&str>,
     ) -> anyhow::Result<ToolResult> {
-        let session_id = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-            .to_string();
-
-        // Build a Config that the child agent can bootstrap from.
-        // Start from defaults and apply delegate-specific overrides.
-        let mut config = (*self.base_config).clone();
-        config.default_provider = Some(agent_config.provider.clone());
-        config.default_model = Some(agent_config.model.clone());
-        config.agent.profile = "code".to_string();
-        config.agent.code_session.enabled = true;
-        if let Some(iterations) = agent_config.max_iterations {
-            config.agent.max_tool_iterations = iterations;
-            config.agent.code_session.max_iterations = iterations;
-        }
-        if let Some(key) = &agent_config.api_key {
-            config.api_key = Some(key.clone());
-        } else if let Some(key) = &self.fallback_credential {
-            config.api_key = Some(key.clone());
-        }
-
-        let mut agent = match Agent::code_from_config_with_delegated(&config, true) {
-            Ok(a) => a,
-            Err(e) => {
-                let mut result = CodeSessionResult::from_error(
-                    &session_id,
-                    CodeSessionStatus::Error,
-                    format!(
-                        "Failed to create provider '{}' for agent '{agent_name}' session: {e}",
-                        agent_config.provider
-                    ),
-                );
-                result.blockers.push(format!("provider init failed: {e}"));
-                let rendered = result.render();
-                return Ok(ToolResult {
-                    success: false,
-                    output: format!(
-                        "[Agent '{agent_name}' session ({provider}/{model})]\n{rendered}",
-                        provider = agent_config.provider,
-                        model = agent_config.model,
-                    ),
-                    error: Some(format!(
-                        "Failed to create provider '{}' for agent '{agent_name}' session: {e}",
-                        agent_config.provider
-                    )),
-                    structured: Some(result.to_structured()),
-                });
-            }
+        let request = CoordinatorLaunchRequest {
+            parent_session_id: None,
+            children: vec![ChildLaunchRequest {
+                child_id: ChildAgentId(agent_name.to_string()),
+                agent_name: agent_name.to_string(),
+                prompt: prompt.to_string(),
+                context: context.map(ToOwned::to_owned),
+                launch_index: 0,
+            }],
+            fan_in: FanInPolicy::AllMustSucceed,
         };
 
-        let timeout_ms = agent_config
-            .timeout_ms
-            .or_else(|| Some(config.agent.code_session.timeout_ms))
-            .unwrap_or(DELEGATE_TIMEOUT_SECS.saturating_mul(1000))
-            .max(1);
-        let timeout = Duration::from_millis(timeout_ms);
+        let outcome = self
+            .session_executor
+            .execute(
+                request,
+                self.base_config.clone(),
+                self.agents.clone(),
+                self.fallback_credential.clone(),
+            )
+            .await;
 
-        let agent_output = tokio::time::timeout(timeout, agent.turn(full_prompt)).await;
-
-        let (result, error) = match agent_output {
-            Ok(Ok(output)) => (
-                CodeSessionResult::parse_from_output(&output, &session_id),
-                None,
-            ),
-            Ok(Err(e)) => {
-                let status = match e.downcast_ref::<AgentExecutionError>() {
-                    Some(
-                        AgentExecutionError::IterationBudgetExceeded { .. }
-                        | AgentExecutionError::CostBudgetExceeded { .. },
-                    ) => CodeSessionStatus::BudgetExceeded,
-                    None => CodeSessionStatus::Error,
-                };
-                let error_text = e.to_string();
-                let mut result = CodeSessionResult::from_error(
-                    &session_id,
-                    status,
-                    format!("Agent '{agent_name}' session failed: {error_text}"),
-                );
-                result
-                    .blockers
-                    .push(format!("session failed: {error_text}"));
-                (
-                    result,
-                    Some(format!("Agent '{agent_name}' session failed: {e}")),
-                )
-            }
-            Err(_elapsed) => {
-                let mut result = CodeSessionResult::from_error(
-                    &session_id,
-                    CodeSessionStatus::BudgetExceeded,
-                    format!("Agent '{agent_name}' session timed out after {timeout_ms}ms"),
-                );
-                result
-                    .blockers
-                    .push("timeout exceeded before completion".to_string());
-                (
-                    result,
-                    Some(format!(
-                        "Agent '{agent_name}' session timed out after {timeout_ms}ms"
-                    )),
-                )
-            }
-        };
-
-        let success = result.is_success();
-        let rendered = result.render();
-        let structured = Some(result.to_structured());
-
-        Ok(ToolResult {
-            success,
-            output: format!(
-                "[Agent '{agent_name}' session ({provider}/{model})]\n{rendered}",
-                provider = agent_config.provider,
-                model = agent_config.model,
-            ),
-            error,
-            structured,
+        Ok(match outcome {
+            Ok(outcome) => Self::session_result_from_outcome(agent_name, outcome),
+            Err(error) => Self::fail_closed_session_result(agent_name, error.to_string()),
         })
     }
 }
@@ -356,6 +370,13 @@ impl Tool for DelegateTool {
             });
         }
 
+        // Dispatch to Session or OneShot based on the agent's execution_mode
+        if agent_config.execution_mode == DelegateExecutionMode::Session {
+            return self
+                .run_session(agent_name, prompt, (!context.is_empty()).then_some(context))
+                .await;
+        }
+
         // Create provider for this agent
         let provider_credential_owned = agent_config
             .api_key
@@ -386,13 +407,6 @@ impl Tool for DelegateTool {
         } else {
             format!("[Context]\n{context}\n\n[Task]\n{prompt}")
         };
-
-        // Dispatch to Session or OneShot based on the agent's execution_mode
-        if agent_config.execution_mode == DelegateExecutionMode::Session {
-            return self
-                .run_session(agent_name, agent_config, &full_prompt)
-                .await;
-        }
 
         let temperature = agent_config.temperature.unwrap_or(0.7);
 
@@ -443,7 +457,7 @@ impl Tool for DelegateTool {
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some(format!("Agent '{agent_name}' failed: {e}",)),
+                error: Some(format!("Agent '{agent_name}' failed: {e}")),
                 structured: None,
             }),
         }
@@ -456,6 +470,39 @@ mod tests {
     use crate::config::{Config, DelegateExecutionMode};
     use crate::security::{AutonomyLevel, SecurityPolicy};
     use tempfile::TempDir;
+    use tokio::sync::Mutex as AsyncMutex;
+
+    struct StubSessionCoordinatorExecutor {
+        requests: Arc<AsyncMutex<Vec<CoordinatorLaunchRequest>>>,
+        outcome: CoordinatorOutcome,
+    }
+
+    impl StubSessionCoordinatorExecutor {
+        fn new(outcome: CoordinatorOutcome) -> Self {
+            Self {
+                requests: Arc::new(AsyncMutex::new(Vec::new())),
+                outcome,
+            }
+        }
+
+        async fn recorded_requests(&self) -> Vec<CoordinatorLaunchRequest> {
+            self.requests.lock().await.clone()
+        }
+    }
+
+    #[async_trait]
+    impl SessionCoordinatorExecutor for StubSessionCoordinatorExecutor {
+        async fn execute(
+            &self,
+            request: CoordinatorLaunchRequest,
+            _base_config: Arc<Config>,
+            _agents: Arc<HashMap<String, DelegateAgentConfig>>,
+            _fallback_credential: Option<String>,
+        ) -> Result<CoordinatorOutcome, anyhow::Error> {
+            self.requests.lock().await.push(request);
+            Ok(self.outcome.clone())
+        }
+    }
 
     fn test_security() -> Arc<SecurityPolicy> {
         Arc::new(SecurityPolicy::default())
@@ -918,6 +965,160 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn session_mode_routes_through_single_child_coordinator_request() {
+        let tmp = TempDir::new().unwrap();
+        let mut agents = HashMap::new();
+        agents.insert(
+            "code_agent".to_string(),
+            DelegateAgentConfig {
+                provider: "openrouter".to_string(),
+                model: "anthropic/claude-sonnet-4-20250514".to_string(),
+                system_prompt: None,
+                api_key: Some("test-key".to_string()),
+                temperature: None,
+                max_depth: 3,
+                execution_mode: DelegateExecutionMode::Session,
+                max_iterations: None,
+                timeout_ms: None,
+            },
+        );
+        let executor = Arc::new(StubSessionCoordinatorExecutor::new(
+            CoordinatorOutcome::Completed {
+                coordinator_id: "coord-1".to_string(),
+                children: vec![],
+            },
+        ));
+        let tool = DelegateTool::with_session_executor(
+            agents,
+            None,
+            test_security(),
+            test_base_config(&tmp),
+            executor.clone(),
+        );
+
+        let _ = tool
+            .execute(json!({"agent": "code_agent", "prompt": "write tests"}))
+            .await;
+
+        let requests = executor.recorded_requests().await;
+        assert_eq!(
+            requests.len(),
+            1,
+            "session mode must delegate through the coordinator seam"
+        );
+        let request = &requests[0];
+        assert_eq!(request.children.len(), 1);
+        assert_eq!(request.fan_in, FanInPolicy::AllMustSucceed);
+        assert_eq!(request.children[0].agent_name, "code_agent");
+        assert_eq!(request.children[0].launch_index, 0);
+        assert!(request.children[0].context.is_none());
+    }
+
+    #[tokio::test]
+    async fn session_mode_preserves_single_child_tool_result_contract_from_coordinator_outcome() {
+        let tmp = TempDir::new().unwrap();
+        let mut agents = HashMap::new();
+        agents.insert(
+            "code_agent".to_string(),
+            DelegateAgentConfig {
+                provider: "openrouter".to_string(),
+                model: "anthropic/claude-sonnet-4-20250514".to_string(),
+                system_prompt: None,
+                api_key: Some("test-key".to_string()),
+                temperature: None,
+                max_depth: 3,
+                execution_mode: DelegateExecutionMode::Session,
+                max_iterations: None,
+                timeout_ms: None,
+            },
+        );
+        let expected = ToolResult {
+            success: false,
+            output: "[Agent 'code_agent' session (openrouter/anthropic/claude-sonnet-4-20250514)]\nFINAL RESULT: blocked".to_string(),
+            error: Some("blocked by policy".to_string()),
+            structured: Some(json!({"status": "error", "summary": "blocked by policy"})),
+        };
+        let executor = Arc::new(StubSessionCoordinatorExecutor::new(
+            CoordinatorOutcome::Failed {
+                coordinator_id: "coord-2".to_string(),
+                error: "blocked by policy".to_string(),
+                children: vec![CoordinatorChildOutcome::Failed {
+                    child_id: ChildAgentId("code_agent".to_string()),
+                    launch_index: 0,
+                    error: crate::agent::coordinator::ChildExecutionError {
+                        session_id: Some("session-1".to_string()),
+                        error: "blocked by policy".to_string(),
+                        tool_result: Some(expected.clone()),
+                    },
+                }],
+            },
+        ));
+        let tool = DelegateTool::with_session_executor(
+            agents,
+            None,
+            test_security(),
+            test_base_config(&tmp),
+            executor,
+        );
+
+        let result = tool
+            .execute(json!({"agent": "code_agent", "prompt": "write tests"}))
+            .await
+            .unwrap();
+
+        assert_eq!(result.success, expected.success);
+        assert_eq!(result.output, expected.output);
+        assert_eq!(result.error, expected.error);
+        assert_eq!(result.structured, expected.structured);
+    }
+
+    #[tokio::test]
+    async fn oneshot_mode_does_not_route_through_session_coordinator_executor() {
+        let tmp = TempDir::new().unwrap();
+        let mut agents = HashMap::new();
+        agents.insert(
+            "researcher".to_string(),
+            DelegateAgentConfig {
+                provider: "totally-invalid-provider".to_string(),
+                model: "model".to_string(),
+                system_prompt: None,
+                api_key: None,
+                temperature: None,
+                max_depth: 3,
+                execution_mode: DelegateExecutionMode::OneShot,
+                max_iterations: None,
+                timeout_ms: None,
+            },
+        );
+        let executor = Arc::new(StubSessionCoordinatorExecutor::new(
+            CoordinatorOutcome::Completed {
+                coordinator_id: "coord-oneshot".to_string(),
+                children: vec![],
+            },
+        ));
+        let tool = DelegateTool::with_session_executor(
+            agents,
+            None,
+            test_security(),
+            test_base_config(&tmp),
+            executor.clone(),
+        );
+
+        let result = tool
+            .execute(json!({"agent": "researcher", "prompt": "summarize this"}))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Failed to create provider"));
+        assert!(executor.recorded_requests().await.is_empty());
+    }
+
     /// Session mode must be blocked in read-only security policy (same as OneShot).
     #[tokio::test]
     async fn session_mode_blocked_in_readonly_policy() {
@@ -956,6 +1157,60 @@ mod tests {
             "expected read-only error, got: {:?}",
             result.error
         );
+    }
+
+    #[tokio::test]
+    async fn session_mode_preserves_fail_closed_boundaries_for_deferred_transport_and_escalation() {
+        let mut agents = HashMap::new();
+        agents.insert(
+            "code_agent".to_string(),
+            DelegateAgentConfig {
+                provider: "openrouter".to_string(),
+                model: "anthropic/claude-sonnet-4-20250514".to_string(),
+                system_prompt: None,
+                api_key: Some("test-key".to_string()),
+                temperature: None,
+                max_depth: 3,
+                execution_mode: DelegateExecutionMode::Session,
+                max_iterations: None,
+                timeout_ms: None,
+            },
+        );
+        let readonly = Arc::new(SecurityPolicy {
+            autonomy: crate::security::AutonomyLevel::ReadOnly,
+            ..SecurityPolicy::default()
+        });
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(agents, None, readonly, test_base_config(&tmp));
+
+        let result = tool
+            .execute(json!({
+                "agent": "code_agent",
+                "prompt": "write tests",
+                "transport": "cross_process",
+                "mailbox": "disk",
+                "remote_bridge": true,
+                "worktree": { "isolated": true },
+                "permission_escalation": { "delegate": true }
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("read-only mode"));
+
+        let schema = tool.parameters_schema();
+        assert_eq!(schema["additionalProperties"], json!(false));
+        let properties = schema["properties"].as_object().unwrap();
+        assert!(!properties.contains_key("transport"));
+        assert!(!properties.contains_key("mailbox"));
+        assert!(!properties.contains_key("remote_bridge"));
+        assert!(!properties.contains_key("worktree"));
+        assert!(!properties.contains_key("permission_escalation"));
     }
 
     /// Session mode must respect the depth limit (same as OneShot).

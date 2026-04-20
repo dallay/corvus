@@ -469,7 +469,7 @@ mod tests {
         obs.record_event(&ObserverEvent::MissionCompleted {
             mission_id: "m-001".into(),
             checkpoints_completed: 3,
-            duration: Duration::from_secs(120),
+            duration: Duration::from_mins(2),
         });
     }
 
