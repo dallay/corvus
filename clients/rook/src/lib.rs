@@ -8,4 +8,5 @@ pub mod domain;
 pub mod gateway;
 pub mod registry;
 pub mod routing;
+pub mod services;
 pub mod tui;
