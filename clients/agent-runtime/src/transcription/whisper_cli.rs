@@ -392,7 +392,7 @@ mod tests {
         let t = WhisperCliTranscriber::new("whisper-cli".into(), "base", "es".into(), 120, 2);
         assert_eq!(t.binary_path, "whisper-cli");
         assert_eq!(t.language, "es");
-        assert_eq!(t.timeout, Duration::from_secs(120));
+        assert_eq!(t.timeout, Duration::from_mins(2));
         assert!(t.model_path.to_string_lossy().contains("ggml-base.bin"));
     }
 

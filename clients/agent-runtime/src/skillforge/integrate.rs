@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn integrate_creates_skill_md_with_frontmatter() {
         let tmp =
-            std::env::temp_dir().join(format!("corvus-test-integrate-{}", std::process::id(),));
+            std::env::temp_dir().join(format!("corvus-test-integrate-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
 
         let integrator = Integrator::new(tmp.to_string_lossy().into_owned());
