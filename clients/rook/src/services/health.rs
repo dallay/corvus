@@ -62,11 +62,11 @@ pub trait HealthService: Send + Sync {
     fn get(&self, account_id: AccountId) -> AccountHealth;
 
     /// Record a successful probe for `account_id`, clearing any cooldown.
-    fn mark_success(&self, account_id: AccountId) -> Result<(), RookError>;
+    fn mark_success(&self, account_id: AccountId);
 
     /// Record a failed probe for `account_id` and set a cooldown window of
     /// `cooldown_seconds` from now.
-    fn mark_failure(&self, account_id: AccountId, cooldown_seconds: u64) -> Result<(), RookError>;
+    fn mark_failure(&self, account_id: AccountId, cooldown_seconds: u64);
 
     /// Return `true` when the account is healthy and any previous cooldown has
     /// expired.
@@ -93,7 +93,9 @@ impl InMemoryHealthService {
     }
 
     /// Acquire the lock, propagating a [`RookError::Registry`] on poisoning.
-    fn lock(&self) -> Result<std::sync::MutexGuard<'_, HashMap<AccountId, AccountHealth>>, RookError> {
+    fn lock(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, HashMap<AccountId, AccountHealth>>, RookError> {
         self.store.lock().map_err(|e| RookError::Registry(e.to_string()))
     }
 }
@@ -106,43 +108,40 @@ impl HealthService for InMemoryHealthService {
             .unwrap_or_else(|_| AccountHealth::new(account_id))
     }
 
-    fn mark_success(&self, account_id: AccountId) -> Result<(), RookError> {
-        let mut guard = self.lock()?;
-        let entry = guard.entry(account_id).or_insert_with(|| AccountHealth::new(account_id));
-        entry.status = HealthStatus::Healthy;
-        entry.last_checked = Some(Utc::now());
-        entry.consecutive_failures = 0;
-        entry.cooldown_until = None;
-        Ok(())
+    fn mark_success(&self, account_id: AccountId) {
+        if let Ok(mut guard) = self.lock() {
+            let entry =
+                guard.entry(account_id).or_insert_with(|| AccountHealth::new(account_id));
+            entry.status = HealthStatus::Healthy;
+            entry.last_checked = Some(Utc::now());
+            entry.consecutive_failures = 0;
+            entry.cooldown_until = None;
+        }
     }
 
-    fn mark_failure(&self, account_id: AccountId, cooldown_seconds: u64) -> Result<(), RookError> {
-        let mut guard = self.lock()?;
-        let entry = guard.entry(account_id).or_insert_with(|| AccountHealth::new(account_id));
-        entry.consecutive_failures = entry.consecutive_failures.saturating_add(1);
-        entry.last_checked = Some(Utc::now());
-        entry.status = HealthStatus::Unhealthy;
-
-        let cooldown_i64 = i64::try_from(cooldown_seconds)
-            .map_err(|e| RookError::Registry(format!("cooldown conversion failed: {}", e)))?;
-        let duration = chrono::Duration::seconds(cooldown_i64);
-        let cooldown_time = Utc::now()
-            .checked_add_signed(duration)
-            .ok_or_else(|| RookError::Registry("cooldown time overflow".to_string()))?;
-
-        entry.cooldown_until = Some(cooldown_time);
-        Ok(())
+    fn mark_failure(&self, account_id: AccountId, cooldown_seconds: u64) {
+        if let Ok(mut guard) = self.lock() {
+            let entry =
+                guard.entry(account_id).or_insert_with(|| AccountHealth::new(account_id));
+            entry.consecutive_failures = entry.consecutive_failures.saturating_add(1);
+            entry.last_checked = Some(Utc::now());
+            entry.status = HealthStatus::Unhealthy;
+            entry.cooldown_until = Some(
+                Utc::now()
+                    + chrono::Duration::seconds(cooldown_seconds as i64),
+            );
+        }
     }
 
     fn is_available(&self, account_id: AccountId) -> bool {
         let health = self.get(account_id);
+        if health.status == HealthStatus::Unhealthy {
+            return false;
+        }
         if let Some(until) = health.cooldown_until {
             if Utc::now() < until {
                 return false;
             }
-        }
-        if health.status == HealthStatus::Unhealthy && health.cooldown_until.is_some() {
-            return false;
         }
         true
     }
@@ -164,6 +163,7 @@ mod tests {
         let id = AccountId::generate();
         let health = svc.get(id);
         assert_eq!(health.status, HealthStatus::Unknown);
+        // Unknown accounts are treated as available (no cooldown, not explicitly unhealthy).
         assert!(svc.is_available(id));
     }
 
@@ -172,10 +172,12 @@ mod tests {
         let svc = InMemoryHealthService::new();
         let id = AccountId::generate();
 
-        svc.mark_failure(id, 300).unwrap();
+        // First mark as failed to set a cooldown.
+        svc.mark_failure(id, 300);
         assert!(!svc.is_available(id));
 
-        svc.mark_success(id).unwrap();
+        // Then recover.
+        svc.mark_success(id);
         let health = svc.get(id);
         assert_eq!(health.status, HealthStatus::Healthy);
         assert_eq!(health.consecutive_failures, 0);
@@ -188,14 +190,15 @@ mod tests {
         let svc = InMemoryHealthService::new();
         let id = AccountId::generate();
 
-        svc.mark_failure(id, 60).unwrap();
+        svc.mark_failure(id, 60);
         let health = svc.get(id);
         assert_eq!(health.status, HealthStatus::Unhealthy);
         assert_eq!(health.consecutive_failures, 1);
         assert!(health.cooldown_until.is_some());
         assert!(health.cooldown_until.unwrap() > Utc::now());
 
-        svc.mark_failure(id, 60).unwrap();
+        // Second failure increments counter.
+        svc.mark_failure(id, 60);
         assert_eq!(svc.get(id).consecutive_failures, 2);
     }
 
@@ -204,7 +207,8 @@ mod tests {
         let svc = InMemoryHealthService::new();
         let id = AccountId::generate();
 
-        svc.mark_failure(id, 9999).unwrap();
+        // Large cooldown — will not expire within the test.
+        svc.mark_failure(id, 9999);
         assert!(!svc.is_available(id));
     }
 
@@ -216,9 +220,9 @@ mod tests {
         let good2 = AccountId::generate();
         let bad = AccountId::generate();
 
-        svc.mark_success(good1).unwrap();
-        svc.mark_success(good2).unwrap();
-        svc.mark_failure(bad, 9999).unwrap();
+        svc.mark_success(good1);
+        svc.mark_success(good2);
+        svc.mark_failure(bad, 9999);
 
         let healthy = svc.list_healthy(&[good1, bad, good2]);
         assert_eq!(healthy.len(), 2);
@@ -232,11 +236,13 @@ mod tests {
         let svc = InMemoryHealthService::new();
         let id = AccountId::generate();
 
+        // get creates a default entry
         let h = svc.get(id);
         assert_eq!(h.account_id, id);
 
-        svc.mark_failure(id, 1).unwrap();
-        svc.mark_success(id).unwrap();
+        // mark failure then success
+        svc.mark_failure(id, 1);
+        svc.mark_success(id);
         assert_eq!(svc.get(id).status, HealthStatus::Healthy);
     }
 }
