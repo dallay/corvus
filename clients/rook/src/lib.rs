@@ -4,8 +4,11 @@
 
 pub mod config;
 pub mod dashboard;
+pub mod db;
 pub mod domain;
 pub mod gateway;
 pub mod registry;
 pub mod routing;
+pub mod server;
+pub mod services;
 pub mod tui;
