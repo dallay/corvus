@@ -350,7 +350,7 @@ impl Channel for WhatsAppChannel {
 
         // Keep the task alive — it will be cancelled when the channel shuts down
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            tokio::time::sleep(std::time::Duration::from_hours(1)).await;
         }
     }
 

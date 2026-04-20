@@ -2,6 +2,7 @@
 pub mod agent;
 pub mod classifier;
 pub mod code_session;
+pub mod coordinator;
 pub mod dispatcher;
 pub mod memory_loader;
 pub mod mission;
