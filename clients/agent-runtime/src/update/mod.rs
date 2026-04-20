@@ -1581,7 +1581,8 @@ async fn execute_minimal_update_strategy(target_version: &str) -> UpdateExecutio
             Ok(child) => {
                 // Hold the PID before consuming child so we can signal on timeout.
                 let child_id = child.id();
-                match tokio::time::timeout(Duration::from_mins(1), child.wait_with_output()).await {
+                match tokio::time::timeout(Duration::from_secs(60), child.wait_with_output()).await
+                {
                     Ok(Ok(out)) => out,
                     Ok(Err(_)) => continue,
                     Err(_timeout) => {

@@ -107,7 +107,7 @@ impl ActionTracker {
     pub fn record(&self) -> usize {
         let mut actions = self.actions.lock();
         let cutoff = Instant::now()
-            .checked_sub(std::time::Duration::from_hours(1))
+            .checked_sub(std::time::Duration::from_secs(3600))
             .unwrap_or_else(Instant::now);
         actions.retain(|t| *t > cutoff);
         actions.push(Instant::now());
@@ -118,7 +118,7 @@ impl ActionTracker {
     pub fn count(&self) -> usize {
         let mut actions = self.actions.lock();
         let cutoff = Instant::now()
-            .checked_sub(std::time::Duration::from_hours(1))
+            .checked_sub(std::time::Duration::from_secs(3600))
             .unwrap_or_else(Instant::now);
         actions.retain(|t| *t > cutoff);
         actions.len()

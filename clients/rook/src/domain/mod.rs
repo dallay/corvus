@@ -302,37 +302,6 @@ pub struct RoutingPolicy {
     pub cooldown_seconds: u64,
 }
 
-/// Global runtime settings for the Rook gateway.
-///
-/// Stored as a single row in the `settings` table (key/value or single-row
-/// schema). Defaults are applied when no row is present.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RookSettings {
-    /// TCP port the HTTP gateway listens on.
-    pub gateway_port: u16,
-    /// Default routing policy applied when no per-route policy is set.
-    pub default_routing_policy: RoutingPolicy,
-    /// Whether to emit structured JSON logs (false = human-readable).
-    pub log_json: bool,
-    /// Minimum log level filter (e.g., `"info"`, `"debug"`).
-    pub log_level: String,
-}
-
-impl Default for RookSettings {
-    fn default() -> Self {
-        Self {
-            gateway_port: 11434,
-            default_routing_policy: RoutingPolicy {
-                strategy: SelectionStrategy::Priority,
-                max_retries: 3,
-                cooldown_seconds: 60,
-            },
-            log_json: false,
-            log_level: "info".to_owned(),
-        }
-    }
-}
-
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

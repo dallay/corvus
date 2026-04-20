@@ -57,7 +57,7 @@ impl ShellTool {
             security,
             runtime,
             sandbox,
-            timeout: Duration::from_mins(1),
+            timeout: Duration::from_secs(60),
         }
     }
 

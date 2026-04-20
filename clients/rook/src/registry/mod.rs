@@ -1,11 +1,10 @@
-//! Registry — the composition root for Rook's persistence layer.
+//! Registry — persistence layer for Rook domain objects.
 //!
-//! [`RookRegistry`] owns a [`SqliteDb`] handle and exposes each domain
-//! service as a concrete `SqliteXxxService` (or `InMemory` for health).
+//! Owns all SQLite read/write operations for [`ProviderAccount`],
+//! [`ProviderPool`], [`ModelRoute`], and [`RoutingPolicy`].
 //!
-//! Consumers (gateway, TUI, dashboard) depend on the service traits via
-//! generic bounds or direct method calls on the concrete types returned here.
-//! They must never touch SQLite directly.
+//! Consumers (gateway, TUI, dashboard) interact with higher-level service
+//! types; they must never call SQLite directly.
 //!
 //! # Example
 //!
@@ -72,13 +71,6 @@ impl RookRegistry {
         }
     }
 
-    /// Expose the raw database handle for test-only surgery (e.g. breaking FK
-    /// constraints to set up adversarial scenarios).
-    #[cfg(test)]
-    pub fn db(&self) -> &SqliteDb {
-        &self.db
-    }
-
     // ── Accessors ─────────────────────────────────────────────────────────────
 
     /// Account service — manage provider accounts.
@@ -105,9 +97,16 @@ impl RookRegistry {
     pub fn health(&self) -> &InMemoryHealthService {
         &self.health
     }
+
+    /// Expose the raw database handle for test-only surgery (e.g. breaking FK
+    /// constraints to set up adversarial scenarios).
+    #[cfg(test)]
+    pub fn db(&self) -> &SqliteDb {
+        &self.db
+    }
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+// ── Tests ────────────────────────────────────────────────────────────────��────
 
 #[cfg(test)]
 mod tests {
@@ -125,31 +124,64 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn registry_opens_and_accounts_empty() {
+    async fn registry_accounts_round_trip() {
         let r = registry().await;
-        let list = r.accounts().list().await;
-        assert!(list.is_empty());
+        let a = r.accounts().create(crate::domain::ProviderAccount {
+            id: crate::domain::AccountId::generate(),
+            vendor: crate::domain::ProviderVendor::OpenAi,
+            display_name: "test-account".into(),
+            api_base_override: None,
+            enabled: true,
+            weight: 100,
+            priority: 0,
+            tags: vec![],
+            capabilities: vec![],
+        }).await.unwrap();
+        assert_eq!(r.accounts().get(a.id).await.unwrap().display_name, "test-account");
     }
 
     #[tokio::test]
-    async fn registry_opens_and_pools_empty() {
+    async fn registry_pools_round_trip() {
         let r = registry().await;
-        let list = r.pools().list().await;
-        assert!(list.is_empty());
+        let p = r.pools().create(crate::domain::ProviderPool {
+            id: crate::domain::PoolId::generate(),
+            name: "test-pool".into(),
+            strategy: crate::domain::SelectionStrategy::Priority,
+            members: vec![],
+            fallback_pool_id: None,
+        }).await.unwrap();
+        assert_eq!(r.pools().get(p.id).await.unwrap().name, "test-pool");
     }
 
     #[tokio::test]
-    async fn registry_opens_and_routes_empty() {
+    async fn registry_routes_round_trip() {
         let r = registry().await;
-        let list = r.routes().list().await;
-        assert!(list.is_empty());
-    }
-
-    #[tokio::test]
-    async fn registry_settings_default_on_fresh_db() {
-        let r = registry().await;
-        let s = r.settings().load().await;
-        assert_eq!(s.gateway_port, RookSettings::default().gateway_port);
+        let a = r.accounts().create(crate::domain::ProviderAccount {
+            id: crate::domain::AccountId::generate(),
+            vendor: crate::domain::ProviderVendor::OpenAi,
+            display_name: "account".into(),
+            api_base_override: None,
+            enabled: true,
+            weight: 100,
+            priority: 0,
+            tags: vec![],
+            capabilities: vec![],
+        }).await.unwrap();
+        let p = r.pools().create(crate::domain::ProviderPool {
+            id: crate::domain::PoolId::generate(),
+            name: "pool".into(),
+            strategy: crate::domain::SelectionStrategy::Priority,
+            members: vec![a.id],
+            fallback_pool_id: None,
+        }).await.unwrap();
+        let route = r.routes().create(crate::domain::ModelRoute {
+            id: crate::domain::RouteId::generate(),
+            logical_model: "gpt-4o".into(),
+            target_pool_id: p.id,
+            fallback_route_id: None,
+            capability_constraints: vec![],
+        }).await.unwrap();
+        assert_eq!(r.routes().resolve("gpt-4o").await.unwrap().target_pool_id, p.id);
     }
 
     #[tokio::test]

@@ -2224,7 +2224,7 @@ mod tests {
         {
             let mut guard = ch.typing_handle.lock();
             *guard = Some(tokio::spawn(async {
-                tokio::time::sleep(Duration::from_mins(1)).await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
             }));
         }
 
@@ -2243,7 +2243,7 @@ mod tests {
         {
             let mut guard = ch.typing_handle.lock();
             *guard = Some(tokio::spawn(async {
-                tokio::time::sleep(Duration::from_mins(1)).await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
             }));
         }
 

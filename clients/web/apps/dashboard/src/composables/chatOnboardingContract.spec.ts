@@ -13,27 +13,6 @@ import clientSurfacesSpec from "../../../../../../openspec/specs/client-surfaces
 import dashboardSpec from "../../../../../../openspec/specs/dashboard/spec.md?raw";
 import onboardingSpec from "../../../../../../openspec/specs/onboarding/spec.md?raw";
 
-// Inline roadmap fixture for stable test - maps to key headings/markers rather than exact prose
-const roadmapFixture = `
-# CLAUDIO Roadmap
-
-## 1) Foundation
-...
-## 2) Provider Resilience
-...
-## 3) Memory Architecture
-...
-## 4) Multi-Agent Orchestration 🔄 IN PROGRESS / PARTIAL
-...
-### Track 4 Slice 1 coordinator foundations
-...
-### deferred: mailbox-on-disk / persistent orchestration messaging
-### deferred: remote bridge and other cross-process coordinator transport
-### deferred: worktree / sandbox / repository isolation boundaries
-### deferred: permission escalation / approval-broker workflows
-...
-`;
-
 /**
  * Creates a minimal mock of the useConfig return type for contract tests.
  */
@@ -167,15 +146,6 @@ describe("chat onboarding contract evidence (dashboard)", () => {
     expect(dashboardSpec).toContain(
       "If the user accepts dashboard activation, the system SHALL provide a compact operator activation"
     );
-  });
-
-  it("keeps Track 4 roadmap traceability explicit for shipped coordinator foundations and deferred gaps", () => {
-    // Assert on stable markers: headings (##), keywords, and section indicators
-    // instead of exact prose to avoid test brittleness from reworded content
-    expect(roadmapFixture).toMatch(/^## /m); // Has section headings
-    expect(roadmapFixture).toMatch(/##.*4\).*Multi-Agent Orchestration/);
-    expect(roadmapFixture).toMatch(/Track 4/);
-    expect(roadmapFixture).toMatch(/deferred:/); // Marks deferred items
   });
 
   it("keeps web and mobile recovery labels comparable through normalized product taxonomy", () => {

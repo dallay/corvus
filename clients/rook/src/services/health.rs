@@ -2,7 +2,6 @@
 //! availability and cooldown state.
 
 use std::collections::HashMap;
-use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
@@ -60,28 +59,21 @@ pub trait HealthService: Send + Sync {
     ///
     /// Always returns a record — creates a default `Unknown` entry if no probe
     /// has run yet.
-    fn get(&self, account_id: AccountId) -> impl Future<Output = AccountHealth> + Send;
+    fn get(&self, account_id: AccountId) -> AccountHealth;
 
     /// Record a successful probe for `account_id`, clearing any cooldown.
-    fn mark_success(&self, account_id: AccountId) -> impl Future<Output = ()> + Send;
+    fn mark_success(&self, account_id: AccountId);
 
     /// Record a failed probe for `account_id` and set a cooldown window of
     /// `cooldown_seconds` from now.
-    fn mark_failure(
-        &self,
-        account_id: AccountId,
-        cooldown_seconds: u64,
-    ) -> impl Future<Output = ()> + Send;
+    fn mark_failure(&self, account_id: AccountId, cooldown_seconds: u64);
 
     /// Return `true` when the account is healthy and any previous cooldown has
     /// expired.
-    fn is_available(&self, account_id: AccountId) -> impl Future<Output = bool> + Send;
+    fn is_available(&self, account_id: AccountId) -> bool;
 
     /// Filter `account_ids` to those that are currently available.
-    fn list_healthy(
-        &self,
-        account_ids: &[AccountId],
-    ) -> impl Future<Output = Vec<AccountId>> + Send;
+    fn list_healthy(&self, account_ids: &[AccountId]) -> Vec<AccountId>;
 }
 
 // ── In-memory implementation ──────────────────────────────────────────────────
@@ -89,7 +81,7 @@ pub trait HealthService: Send + Sync {
 /// In-memory [`HealthService`] backed by a `HashMap`.
 ///
 /// No persistence — used for tests and bootstrap scenarios.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct InMemoryHealthService {
     store: Arc<Mutex<HashMap<AccountId, AccountHealth>>>,
 }
@@ -109,18 +101,14 @@ impl InMemoryHealthService {
 }
 
 impl HealthService for InMemoryHealthService {
-    async fn get(&self, account_id: AccountId) -> AccountHealth {
+    fn get(&self, account_id: AccountId) -> AccountHealth {
         self.store
             .lock()
-            .map(|mut g| {
-                g.entry(account_id)
-                    .or_insert_with(|| AccountHealth::new(account_id))
-                    .clone()
-            })
+            .map(|mut g| g.entry(account_id).or_insert_with(|| AccountHealth::new(account_id)).clone())
             .unwrap_or_else(|_| AccountHealth::new(account_id))
     }
 
-    async fn mark_success(&self, account_id: AccountId) {
+    fn mark_success(&self, account_id: AccountId) {
         match self.lock() {
             Ok(mut guard) => {
                 let entry =
@@ -131,16 +119,12 @@ impl HealthService for InMemoryHealthService {
                 entry.cooldown_until = None;
             }
             Err(e) => {
-                tracing::warn!(
-                    "mark_success: poisoned mutex for account {}: {}",
-                    account_id,
-                    e
-                );
+                tracing::warn!("mark_success: poisoned mutex for account {}: {}", account_id, e);
             }
         }
     }
 
-    async fn mark_failure(&self, account_id: AccountId, cooldown_seconds: u64) {
+    fn mark_failure(&self, account_id: AccountId, cooldown_seconds: u64) {
         match self.lock() {
             Ok(mut guard) => {
                 let entry =
@@ -149,21 +133,18 @@ impl HealthService for InMemoryHealthService {
                 entry.last_checked = Some(Utc::now());
                 entry.status = HealthStatus::Unhealthy;
                 let cooldown_secs = i64::try_from(cooldown_seconds).unwrap_or(i64::MAX);
-                entry.cooldown_until =
-                    Some(Utc::now() + chrono::Duration::seconds(cooldown_secs));
+                entry.cooldown_until = Some(
+                    Utc::now() + chrono::Duration::seconds(cooldown_secs),
+                );
             }
             Err(e) => {
-                tracing::warn!(
-                    "mark_failure: poisoned mutex for account {}: {}",
-                    account_id,
-                    e
-                );
+                tracing::warn!("mark_failure: poisoned mutex for account {}: {}", account_id, e);
             }
         }
     }
 
-    async fn is_available(&self, account_id: AccountId) -> bool {
-        let health = self.get(account_id).await;
+    fn is_available(&self, account_id: AccountId) -> bool {
+        let health = self.get(account_id);
         if health.status == HealthStatus::Unhealthy {
             return false;
         }
@@ -175,14 +156,8 @@ impl HealthService for InMemoryHealthService {
         true
     }
 
-    async fn list_healthy(&self, account_ids: &[AccountId]) -> Vec<AccountId> {
-        let mut result = Vec::new();
-        for id in account_ids {
-            if self.is_available(*id).await {
-                result.push(*id);
-            }
-        }
-        result
+    fn list_healthy(&self, account_ids: &[AccountId]) -> Vec<AccountId> {
+        account_ids.iter().filter(|id| self.is_available(**id)).copied().collect()
     }
 }
 
@@ -192,92 +167,92 @@ impl HealthService for InMemoryHealthService {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn initial_health_is_unknown_and_available() {
+    #[test]
+    fn initial_health_is_unknown_and_available() {
         let svc = InMemoryHealthService::new();
         let id = AccountId::generate();
-        let health = svc.get(id).await;
+        let health = svc.get(id);
         assert_eq!(health.status, HealthStatus::Unknown);
         // Unknown accounts are treated as available (no cooldown, not explicitly unhealthy).
-        assert!(svc.is_available(id).await);
+        assert!(svc.is_available(id));
     }
 
-    #[tokio::test]
-    async fn mark_success_sets_healthy_and_clears_cooldown() {
+    #[test]
+    fn mark_success_sets_healthy_and_clears_cooldown() {
         let svc = InMemoryHealthService::new();
         let id = AccountId::generate();
 
         // First mark as failed to set a cooldown.
-        svc.mark_failure(id, 300).await;
-        assert!(!svc.is_available(id).await);
+        svc.mark_failure(id, 300);
+        assert!(!svc.is_available(id));
 
         // Then recover.
-        svc.mark_success(id).await;
-        let health = svc.get(id).await;
+        svc.mark_success(id);
+        let health = svc.get(id);
         assert_eq!(health.status, HealthStatus::Healthy);
         assert_eq!(health.consecutive_failures, 0);
         assert!(health.cooldown_until.is_none());
-        assert!(svc.is_available(id).await);
+        assert!(svc.is_available(id));
     }
 
-    #[tokio::test]
-    async fn mark_failure_increments_failures_and_sets_cooldown() {
+    #[test]
+    fn mark_failure_increments_failures_and_sets_cooldown() {
         let svc = InMemoryHealthService::new();
         let id = AccountId::generate();
 
-        svc.mark_failure(id, 60).await;
-        let health = svc.get(id).await;
+        svc.mark_failure(id, 60);
+        let health = svc.get(id);
         assert_eq!(health.status, HealthStatus::Unhealthy);
         assert_eq!(health.consecutive_failures, 1);
         assert!(health.cooldown_until.is_some());
         assert!(health.cooldown_until.unwrap() > Utc::now());
 
         // Second failure increments counter.
-        svc.mark_failure(id, 60).await;
-        assert_eq!(svc.get(id).await.consecutive_failures, 2);
+        svc.mark_failure(id, 60);
+        assert_eq!(svc.get(id).consecutive_failures, 2);
     }
 
-    #[tokio::test]
-    async fn is_available_false_during_cooldown() {
+    #[test]
+    fn is_available_false_during_cooldown() {
         let svc = InMemoryHealthService::new();
         let id = AccountId::generate();
 
         // Large cooldown — will not expire within the test.
-        svc.mark_failure(id, 9999).await;
-        assert!(!svc.is_available(id).await);
+        svc.mark_failure(id, 9999);
+        assert!(!svc.is_available(id));
     }
 
-    #[tokio::test]
-    async fn list_healthy_excludes_unhealthy_accounts() {
+    #[test]
+    fn list_healthy_excludes_unhealthy_accounts() {
         let svc = InMemoryHealthService::new();
 
         let good1 = AccountId::generate();
         let good2 = AccountId::generate();
         let bad = AccountId::generate();
 
-        svc.mark_success(good1).await;
-        svc.mark_success(good2).await;
-        svc.mark_failure(bad, 9999).await;
+        svc.mark_success(good1);
+        svc.mark_success(good2);
+        svc.mark_failure(bad, 9999);
 
-        let healthy = svc.list_healthy(&[good1, bad, good2]).await;
+        let healthy = svc.list_healthy(&[good1, bad, good2]);
         assert_eq!(healthy.len(), 2);
         assert!(healthy.contains(&good1));
         assert!(healthy.contains(&good2));
         assert!(!healthy.contains(&bad));
     }
 
-    #[tokio::test]
-    async fn crud_round_trip_via_get() {
+    #[test]
+    fn crud_round_trip_via_get() {
         let svc = InMemoryHealthService::new();
         let id = AccountId::generate();
 
         // get creates a default entry
-        let h = svc.get(id).await;
+        let h = svc.get(id);
         assert_eq!(h.account_id, id);
 
         // mark failure then success
-        svc.mark_failure(id, 1).await;
-        svc.mark_success(id).await;
-        assert_eq!(svc.get(id).await.status, HealthStatus::Healthy);
+        svc.mark_failure(id, 1);
+        svc.mark_success(id);
+        assert_eq!(svc.get(id).status, HealthStatus::Healthy);
     }
 }
