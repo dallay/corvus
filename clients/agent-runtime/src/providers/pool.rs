@@ -516,7 +516,7 @@ mod tests {
         provider
             .cooldown_until
             .lock()
-            .insert("a".to_string(), Instant::now() + Duration::from_mins(1));
+            .insert("a".to_string(), Instant::now() + Duration::from_secs(60));
 
         let selected = provider.select_account_index().unwrap();
         assert_eq!(provider.accounts[selected].id, "b");

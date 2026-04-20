@@ -2223,7 +2223,7 @@ async fn handle_browser_flow_login(
 
     let code = match auth::openai_oauth::receive_loopback_code(
         &pkce.state,
-        std::time::Duration::from_mins(3),
+        std::time::Duration::from_secs(180),
         auth::openai_oauth::OPENAI_LOOPBACK_PORT,
     )
     .await
@@ -2890,7 +2890,7 @@ mod tests {
         config.multimodal.staged_image_reaper_threshold_minutes = Some(90);
         assert_eq!(
             startup_staged_image_reaper_threshold(&config),
-            Duration::from_mins(90)
+            Duration::from_secs(90 * 60)
         );
     }
 

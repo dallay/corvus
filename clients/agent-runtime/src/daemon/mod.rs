@@ -497,10 +497,10 @@ mod tests {
     fn updater_interval_uses_configured_minutes_with_floor() {
         let mut config = Config::default();
         config.updates.check_interval_minutes = 30;
-        assert_eq!(updater_check_interval(&config), Duration::from_mins(30));
+        assert_eq!(updater_check_interval(&config), Duration::from_secs(1800));
 
         config.updates.check_interval_minutes = 0;
-        assert_eq!(updater_check_interval(&config), Duration::from_mins(1));
+        assert_eq!(updater_check_interval(&config), Duration::from_secs(60));
     }
 
     #[test]

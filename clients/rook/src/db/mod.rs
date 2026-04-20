@@ -8,7 +8,6 @@
 pub mod account;
 pub mod pool;
 pub mod route;
-pub mod settings;
 
 use crate::domain::RookError;
 use chrono::Utc;
@@ -19,11 +18,6 @@ use std::str::FromStr;
 const MIGRATION_SQL: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/0001_initial.sql"
-));
-
-const MIGRATION_SQL_0002: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/migrations/0002_settings.sql"
 ));
 
 /// A handle to the Rook SQLite database.
@@ -128,35 +122,6 @@ impl SqliteDb {
             .execute(pool)
             .await
             .map_err(|e| RookError::Registry(format!("failed to record migration: {e}")))?;
-        }
-
-        // ── Migration 0002: settings ──────────────────────────────────────────
-        let version_0002 = "0002_settings";
-        let row_0002: Option<(String,)> = sqlx::query_as(
-            "SELECT version FROM schema_migrations WHERE version = ?"
-        )
-        .bind(version_0002)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| RookError::Registry(format!("failed to check migration 0002 status: {e}")))?;
-
-        if row_0002.is_none() {
-            sqlx::raw_sql(MIGRATION_SQL_0002)
-                .execute(pool)
-                .await
-                .map_err(|e| RookError::Registry(format!("migration 0002 failed: {e}")))?;
-
-            let now = Utc::now().to_rfc3339();
-            sqlx::query(
-                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)"
-            )
-            .bind(version_0002)
-            .bind(&now)
-            .execute(pool)
-            .await
-            .map_err(|e| {
-                RookError::Registry(format!("failed to record migration 0002: {e}"))
-            })?;
         }
 
         Ok(())

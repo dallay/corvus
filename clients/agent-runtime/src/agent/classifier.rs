@@ -57,7 +57,7 @@ pub fn classify(config: &QueryClassificationConfig, message: &str) -> Option<Str
     let len = message.len();
 
     let mut rules: Vec<_> = config.rules.iter().collect();
-    rules.sort_by_key(|rule| std::cmp::Reverse(rule.priority));
+    rules.sort_by(|a, b| b.priority.cmp(&a.priority));
 
     for rule in rules {
         if !within_length_constraints(len, rule.min_length, rule.max_length) {

@@ -91,7 +91,7 @@ impl GlmProvider {
             api_key_secret: secret,
             base_url: "https://api.z.ai/api/paas/v4".to_string(),
             client: Client::builder()
-                .timeout(std::time::Duration::from_mins(2))
+                .timeout(std::time::Duration::from_secs(120))
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),

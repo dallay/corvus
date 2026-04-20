@@ -38,7 +38,7 @@ impl ComposioTool {
             default_entity_id: normalize_entity_id(default_entity_id.unwrap_or("default")),
             security,
             client: Client::builder()
-                .timeout(std::time::Duration::from_mins(1))
+                .timeout(std::time::Duration::from_secs(60))
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),

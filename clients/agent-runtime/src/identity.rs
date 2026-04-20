@@ -454,7 +454,7 @@ fn append_weighted_map(
     prompt.push('\n');
     append_line(prompt, heading);
     let mut entries = values.iter().collect::<Vec<_>>();
-    entries.sort_by_key(|(left, _)| *left);
+    entries.sort_by(|(left, _), (right, _)| left.cmp(right));
     for (name, weight) in entries {
         append_line(prompt, &format!("- {name}: {weight:.2}"));
     }
@@ -472,7 +472,7 @@ fn append_map_list(
     prompt.push('\n');
     append_line(prompt, heading);
     let mut entries = values.iter().collect::<Vec<_>>();
-    entries.sort_by_key(|(left, _)| *left);
+    entries.sort_by(|(left, _), (right, _)| left.cmp(right));
     for (key, value) in entries {
         append_line(prompt, &format!("- {key}: {value}"));
     }

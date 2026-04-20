@@ -466,7 +466,7 @@ fn cli_rejection_message(
         AudioRejectionReason::Oversize => {
             let max = max_value.unwrap_or(MAX_AUDIO_BYTES);
             if let Some(actual) = actual_value {
-                format!("Audio file is too large ({actual} bytes). Maximum size is {max} bytes.")
+                format!("Audio file is too large ({actual} bytes). Maximum size is {max} bytes.",)
             } else {
                 format!("Audio file is too large. Maximum size is {max} bytes.")
             }

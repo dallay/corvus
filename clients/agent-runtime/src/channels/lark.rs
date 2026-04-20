@@ -125,7 +125,7 @@ struct LarkMessage {
 
 /// Heartbeat timeout for WS connection — must be larger than ping_interval (default 120 s).
 /// If no binary frame (pong or event) is received within this window, reconnect.
-const WS_HEARTBEAT_TIMEOUT: Duration = Duration::from_mins(5);
+const WS_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Lark/Feishu channel.
 ///
@@ -306,7 +306,7 @@ impl LarkChannel {
                                     break;
                                 }
                                 // GC stale fragments > 5 min
-                                let cutoff = Instant::now().checked_sub(Duration::from_mins(5)).unwrap_or(Instant::now());
+                                let cutoff = Instant::now().checked_sub(Duration::from_secs(300)).unwrap_or(Instant::now());
                                 frag_cache.retain(|_, (_, ts)| *ts > cutoff);
                             }
 
@@ -410,7 +410,7 @@ impl LarkChannel {
                                     let now = Instant::now();
                                     let mut seen = self.ws_seen_ids.write().await;
                                     // GC
-                                    seen.retain(|_, t| now.duration_since(*t) < Duration::from_mins(30));
+                                    seen.retain(|_, t| now.duration_since(*t) < Duration::from_secs(30 * 60));
                                     if seen.contains_key(&lark_msg.message_id) {
                                         tracing::debug!("Lark WS: dup {}", lark_msg.message_id);
                                         continue;

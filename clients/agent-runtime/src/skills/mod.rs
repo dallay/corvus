@@ -631,7 +631,7 @@ fn handle_discover_command(_workspace_dir: &Path, query: Option<&str>) -> Result
             result.description.chars().take(50).collect::<String>(),
             result.stars,
         );
-        println!("  {:<25} {}", "", console::style(&result.url).dim());
+        println!("  {:<25} {}", "", console::style(&result.url).dim(),);
     }
 
     println!(
@@ -1281,7 +1281,7 @@ fn update_single_skill(
 
     match trust_tier {
         trust::SkillTrust::Local => {
-            anyhow::bail!("Local skill '{name}' — skipping (not managed by a remote source)");
+            anyhow::bail!("Local skill '{name}' — skipping (not managed by a remote source)",);
         }
         trust::SkillTrust::Official => update_official_skill(workspace_dir, name, entry, config),
         trust::SkillTrust::ThirdParty => update_thirdparty_skill(workspace_dir, name, entry),
@@ -1372,7 +1372,7 @@ fn clone_and_swap_official_subdir(
     let source_path = temp_base.join(subdir_path);
     if !source_path.exists() {
         let _ = std::fs::remove_dir_all(&temp_base);
-        anyhow::bail!("Skill path '{}' not found in official repo", subdir_path);
+        anyhow::bail!("Skill path '{}' not found in official repo", subdir_path,);
     }
 
     let staging_dir = skill_dir.with_extension("staging");
