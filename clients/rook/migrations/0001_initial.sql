@@ -40,5 +40,8 @@ CREATE TABLE IF NOT EXISTS model_routes (
     policy            TEXT NOT NULL DEFAULT '{}',  -- JSON-serialized RoutingPolicy
     created_at        TEXT NOT NULL,
     updated_at        TEXT NOT NULL,
-    FOREIGN KEY (target_pool_id) REFERENCES provider_pools(id)
+    FOREIGN KEY (target_pool_id) REFERENCES provider_pools(id) ON DELETE RESTRICT,
+    FOREIGN KEY (fallback_route_id) REFERENCES model_routes(id) ON DELETE SET NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_pool_members_account_id ON pool_members(account_id);

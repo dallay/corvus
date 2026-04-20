@@ -7,6 +7,27 @@ use chrono::Utc;
 use sqlx::Row;
 use uuid::Uuid;
 
+// ── Vendor serialization helpers ──────────────────────────────────────────────
+
+/// Convert a `ProviderVendor` to its canonical database string representation.
+fn vendor_to_db_str(vendor: &ProviderVendor) -> Result<String, RookError> {
+    match vendor {
+        ProviderVendor::OpenAi => Ok("open_ai".to_string()),
+        ProviderVendor::Anthropic => Ok("anthropic".to_string()),
+        ProviderVendor::Google => Ok("google".to_string()),
+        ProviderVendor::OpenRouter => Ok("open_router".to_string()),
+        ProviderVendor::DeepSeek => Ok("deep_seek".to_string()),
+        ProviderVendor::Other(s) => Ok(s.clone()),
+    }
+}
+
+/// Parse a database string into a `ProviderVendor`.
+fn db_str_to_vendor(s: &str) -> Result<ProviderVendor, RookError> {
+    // Parse as JSON string to leverage existing deserialization logic
+    serde_json::from_str(&format!("\"{s}\""))
+        .map_err(|e| RookError::Registry(format!("invalid vendor '{s}': {e}")))
+}
+
 // ── Row mapping ───────────────────────────────────────────────────────────────
 
 fn row_to_account(row: &sqlx::sqlite::SqliteRow) -> Result<ProviderAccount, RookError> {
@@ -21,9 +42,7 @@ fn row_to_account(row: &sqlx::sqlite::SqliteRow) -> Result<ProviderAccount, Rook
     let vendor_str: String = row
         .try_get("vendor")
         .map_err(|e| RookError::Registry(format!("missing vendor: {e}")))?;
-    let vendor: ProviderVendor =
-        serde_json::from_str(&format!("\"{vendor_str}\""))
-            .map_err(|e| RookError::Registry(format!("invalid vendor '{vendor_str}': {e}")))?;
+    let vendor = db_str_to_vendor(&vendor_str)?;
 
     let display_name: String = row
         .try_get("display_name")
@@ -53,14 +72,19 @@ fn row_to_account(row: &sqlx::sqlite::SqliteRow) -> Result<ProviderAccount, Rook
     let capabilities: Vec<String> = serde_json::from_str(&caps_str)
         .map_err(|e| RookError::Registry(format!("invalid capabilities JSON: {e}")))?;
 
+    let weight = u32::try_from(weight)
+        .map_err(|_| RookError::Registry(format!("weight out of range: {}", weight)))?;
+    let priority = u32::try_from(priority)
+        .map_err(|_| RookError::Registry(format!("priority out of range: {}", priority)))?;
+
     Ok(ProviderAccount {
         id,
         display_name,
         vendor,
         api_base_override: api_base,
         enabled: enabled != 0,
-        weight: weight as u32,
-        priority: priority as u32,
+        weight,
+        priority,
         tags,
         capabilities,
     })
@@ -74,11 +98,8 @@ impl SqliteDb {
     /// Returns [`RookError::Registry`] if the ID already exists.
     pub async fn insert_account(&self, account: &ProviderAccount) -> Result<(), RookError> {
         let id = account.id.to_string();
-        // Serialize vendor to its canonical string (strip surrounding quotes).
-        let vendor_json = serde_json::to_string(&account.vendor)
-            .map_err(|e| RookError::Registry(format!("failed to serialize vendor: {e}")))?;
-        // vendor_json is `"open_ai"` — strip the outer quotes for storage.
-        let vendor_str = vendor_json.trim_matches('"').to_string();
+        // Convert vendor to its canonical string form for storage
+        let vendor_str = vendor_to_db_str(&account.vendor)?;
 
         let tags = serde_json::to_string(&account.tags)
             .map_err(|e| RookError::Registry(format!("failed to serialize tags: {e}")))?;
@@ -274,5 +295,24 @@ mod tests {
         db.insert_account(&account).await.unwrap();
         let fetched = db.get_account(&account.id).await.unwrap().unwrap();
         assert_eq!(fetched.vendor, ProviderVendor::Other("mistral".to_string()));
+    }
+
+    #[tokio::test]
+    async fn vendor_other_with_quotes_round_trips() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+        let account = ProviderAccount {
+            id: AccountId::generate(),
+            display_name: "Weird Vendor".to_string(),
+            vendor: ProviderVendor::Other("weird\"name".to_string()),
+            api_base_override: None,
+            enabled: true,
+            weight: 100,
+            priority: 0,
+            tags: vec![],
+            capabilities: vec![],
+        };
+        db.insert_account(&account).await.unwrap();
+        let fetched = db.get_account(&account.id).await.unwrap().unwrap();
+        assert_eq!(fetched.vendor, ProviderVendor::Other("weird\"name".to_string()));
     }
 }
