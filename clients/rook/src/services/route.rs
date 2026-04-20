@@ -70,6 +70,8 @@ impl RouteService for InMemoryRouteService {
             .filter(|r| r.logical_model == logical_model)
             .cloned()
             .collect();
+
+        // Only return a route if exactly one is found
         if matches.len() == 1 {
             Some(matches[0].clone())
         } else {
@@ -79,16 +81,23 @@ impl RouteService for InMemoryRouteService {
 
     fn create(&self, route: ModelRoute) -> Result<RouteId, RookError> {
         let id = route.id;
-        let mut guard = self
-            .store
+        let mut guard = self.store
             .lock()
             .map_err(|e| RookError::Registry(e.to_string()))?;
 
-        if guard.values().any(|r| r.logical_model == route.logical_model) {
-            return Err(RookError::Registry(format!(
-                "route with logical_model '{}' already exists",
-                route.logical_model
-            )));
+        // Check for duplicate route ID
+        if guard.contains_key(&id) {
+            return Err(RookError::Registry(format!("duplicate route id {}", id)));
+        }
+
+        // Check for duplicate logical_model
+        for existing in guard.values() {
+            if existing.logical_model == route.logical_model {
+                return Err(RookError::Registry(format!(
+                    "route for logical_model '{}' already exists",
+                    route.logical_model
+                )));
+            }
         }
 
         guard.insert(id, route);
@@ -96,16 +105,22 @@ impl RouteService for InMemoryRouteService {
     }
 
     fn update(&self, route: ModelRoute) -> Result<(), RookError> {
-        let mut guard = self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard =
+            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+
+        // Verify route exists
         if !guard.contains_key(&route.id) {
             return Err(RookError::Registry(format!("route {} not found", route.id)));
         }
 
-        if guard.values().any(|r| r.id != route.id && r.logical_model == route.logical_model) {
-            return Err(RookError::Registry(format!(
-                "another route with logical_model '{}' already exists",
-                route.logical_model
-            )));
+        // Check that no OTHER route has the same logical_model
+        for (existing_id, existing_route) in guard.iter() {
+            if *existing_id != route.id && existing_route.logical_model == route.logical_model {
+                return Err(RookError::Registry(format!(
+                    "route for logical_model '{}' already exists (id: {})",
+                    route.logical_model, existing_id
+                )));
+            }
         }
 
         guard.insert(route.id, route);
@@ -113,7 +128,8 @@ impl RouteService for InMemoryRouteService {
     }
 
     fn delete(&self, id: RouteId) -> Result<(), RookError> {
-        let mut guard = self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard =
+            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
         if guard.remove(&id).is_none() {
             return Err(RookError::Registry(format!("route {id} not found")));
         }
@@ -203,5 +219,71 @@ mod tests {
     fn resolve_returns_none_for_unknown_model() {
         let svc = InMemoryRouteService::new();
         assert!(svc.resolve("no-such-model").is_none());
+    }
+
+    #[test]
+    fn create_duplicate_route_id_returns_error() {
+        let svc = InMemoryRouteService::new();
+        let route = make_route("gpt-4o");
+
+        // First create should succeed
+        svc.create(route.clone()).unwrap();
+
+        // Second create with same ID should fail
+        let err = svc.create(route).unwrap_err();
+        assert!(err.to_string().contains("duplicate"));
+    }
+
+    #[test]
+    fn create_duplicate_logical_model_returns_error() {
+        let svc = InMemoryRouteService::new();
+        let route1 = make_route("gpt-4o");
+        let mut route2 = make_route("gpt-4o");
+        route2.id = RouteId::generate(); // different ID, same logical_model
+
+        // First create should succeed
+        svc.create(route1).unwrap();
+
+        // Second create with same logical_model should fail
+        let err = svc.create(route2).unwrap_err();
+        assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn update_with_duplicate_logical_model_returns_error() {
+        let svc = InMemoryRouteService::new();
+        let route1 = make_route("gpt-4o");
+        let route2 = make_route("claude-3-opus");
+
+        svc.create(route1.clone()).unwrap();
+        svc.create(route2.clone()).unwrap();
+
+        // Try to update route2 to have the same logical_model as route1
+        let mut updated_route2 = route2.clone();
+        updated_route2.logical_model = "gpt-4o".to_string();
+
+        let err = svc.update(updated_route2).unwrap_err();
+        assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn resolve_with_multiple_matches_returns_none() {
+        let svc = InMemoryRouteService::new();
+
+        // This shouldn't happen in practice due to create() validation,
+        // but resolve should handle it gracefully
+        let route1 = make_route("gpt-4o");
+        let mut route2 = make_route("gpt-4o");
+        route2.id = RouteId::generate();
+
+        // Manually insert both (bypassing create validation)
+        {
+            let mut guard = svc.store.lock().unwrap();
+            guard.insert(route1.id, route1);
+            guard.insert(route2.id, route2);
+        }
+
+        // resolve should return None when multiple routes match
+        assert!(svc.resolve("gpt-4o").is_none());
     }
 }

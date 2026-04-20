@@ -41,7 +41,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 uuid = { version = "1.23", default-features = false, features = ["v4", "std", "serde"] }
 
 # Persistence
-rusqlite = { version = "0.38", features = ["bundled"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite"] }
 
 # Time
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }

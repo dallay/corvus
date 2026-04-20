@@ -72,19 +72,21 @@ impl PoolService for InMemoryPoolService {
 
     fn create(&self, pool: ProviderPool) -> Result<PoolId, RookError> {
         let id = pool.id;
-        let mut guard = self
-            .store
+        let mut guard = self.store
             .lock()
             .map_err(|e| RookError::Registry(e.to_string()))?;
+
         if guard.contains_key(&id) {
-            return Err(RookError::Registry(format!("pool {} already exists", id)));
+            return Err(RookError::Registry(format!("duplicate pool id {}", id)));
         }
+
         guard.insert(id, pool);
         Ok(id)
     }
 
     fn update(&self, pool: ProviderPool) -> Result<(), RookError> {
-        let mut guard = self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard =
+            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
         if !guard.contains_key(&pool.id) {
             return Err(RookError::Registry(format!("pool {} not found", pool.id)));
         }
@@ -93,7 +95,8 @@ impl PoolService for InMemoryPoolService {
     }
 
     fn delete(&self, id: PoolId) -> Result<(), RookError> {
-        let mut guard = self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard =
+            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
         if guard.remove(&id).is_none() {
             return Err(RookError::Registry(format!("pool {id} not found")));
         }
@@ -101,7 +104,8 @@ impl PoolService for InMemoryPoolService {
     }
 
     fn add_member(&self, pool_id: PoolId, account_id: AccountId) -> Result<(), RookError> {
-        let mut guard = self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard =
+            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
         let pool = guard
             .get_mut(&pool_id)
             .ok_or_else(|| RookError::Registry(format!("pool {pool_id} not found")))?;
@@ -112,7 +116,8 @@ impl PoolService for InMemoryPoolService {
     }
 
     fn remove_member(&self, pool_id: PoolId, account_id: AccountId) -> Result<(), RookError> {
-        let mut guard = self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard =
+            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
         let pool = guard
             .get_mut(&pool_id)
             .ok_or_else(|| RookError::Registry(format!("pool {pool_id} not found")))?;
@@ -228,5 +233,18 @@ mod tests {
         let svc = InMemoryPoolService::new();
         let err = svc.add_member(PoolId::generate(), AccountId::generate()).unwrap_err();
         assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn create_duplicate_pool_returns_error() {
+        let svc = InMemoryPoolService::new();
+        let pool = make_pool("test");
+
+        // First create should succeed
+        svc.create(pool.clone()).unwrap();
+
+        // Second create with same ID should fail
+        let err = svc.create(pool).unwrap_err();
+        assert!(err.to_string().contains("duplicate"));
     }
 }
