@@ -27,7 +27,7 @@ Command: `cargo clippy --all-targets -- -D warnings` (workdir: `clients/agent-ru
 
 **Runtime tests**: ✅ Passed  
 Command: `cargo test` (workdir: `clients/agent-runtime`)  
-Observed result: full runtime lib/integration/doc test run passed, including coordinator and delegate regression coverage.
+Observed result: exit code `0`; runtime suite passed with `3731` unit/integration/doc tests plus the listed runtime integration suites.
 
 Representative passing evidence for this slice:
 
@@ -36,8 +36,10 @@ Representative passing evidence for this slice:
 - `agent::coordinator::tests::duplicate_child_identity_is_rejected`
 - `agent::coordinator::tests::invalid_envelope_fails_closed`
 - `agent::coordinator::tests::aggregate_results_preserve_launch_order`
+- `agent::coordinator::tests::fan_in_does_not_report_success_before_all_required_children_finish`
 - `agent::coordinator::tests::fatal_child_failure_cancels_siblings`
 - `agent::coordinator::tests::parent_cancellation_propagates_to_active_children`
+- `agent::coordinator::tests::live_run_preserves_in_process_transport_and_end_to_end_correlation`
 - `tools::delegate::tests::session_mode_routes_through_single_child_coordinator_request`
 - `tools::delegate::tests::session_mode_preserves_single_child_tool_result_contract_from_coordinator_outcome`
 - `tools::delegate::tests::oneshot_mode_does_not_route_through_session_coordinator_executor`
@@ -46,10 +48,15 @@ Representative passing evidence for this slice:
 
 **Web tests**: ✅ Passed  
 Command: `make web-test-all` (workdir: repo root)  
-Observed result: `47` test files passed / `328` tests passed / exit code `0`.
+Observed result: exit code `0`; dashboard coverage run reported `47` test files passed / `329` tests passed, and Gradle completed with `BUILD SUCCESSFUL`.
+
+Representative passing evidence for the traceability scenario:
+
+- `clients/web/apps/dashboard/src/composables/chatOnboardingContract.spec.ts > keeps Track 4 roadmap traceability explicit for shipped coordinator foundations and deferred gaps`
 
 **Web checks**: ✅ Passed  
-Command: `pnpm check` (workdir: `clients/web`)
+Command: `pnpm check` (workdir: `clients/web`)  
+Observed result: exit code `0`; dashboard Biome check, docs Astro/Biome/content validation, marketing Biome check, and shared package checks all passed.
 
 **Coverage**: ➖ Not configured in `openspec/config.yaml`
 
@@ -74,10 +81,10 @@ Command: `pnpm check` (workdir: `clients/web`)
 | Multi-Agent Orchestration: Slice Boundaries and Deferred Track 4 Work | Out-of-scope transport and persistence remain unavailable | `agent::coordinator::tests::coordinator_slice_defers_non_in_process_transport_and_deferred_scope`; `tools::delegate::tests::session_mode_preserves_fail_closed_boundaries_for_deferred_transport_and_escalation` | ✅ COMPLIANT |
 | Multi-Agent Orchestration: Slice Boundaries and Deferred Track 4 Work | Delegated permission escalation remains deferred | `tools::delegate::tests::session_mode_preserves_fail_closed_boundaries_for_deferred_transport_and_escalation`; `tools::delegate::tests::session_mode_blocked_in_readonly_policy` | ✅ COMPLIANT |
 | Multi-Agent Orchestration: Integration and Regression Coverage | Regression suite covers coordinator foundations | `cargo test` plus the coordinator/delegate tests listed above | ✅ COMPLIANT |
-| Multi-Agent Orchestration: Integration and Regression Coverage | Nondeterministic aggregation regression is caught | `agent::coordinator::tests::aggregate_results_preserve_launch_order` | ✅ COMPLIANT |
-| Multi-Agent Orchestration: Track 4 Roadmap Traceability | Roadmap records delivered slice and pending work | Static evidence in `tmp/CLAUDIO_ROADMAP.md` lines 165-178; no dedicated automated test found | ❌ UNTESTED |
+| Multi-Agent Orchestration: Nondeterministic aggregation regression is caught | Nondeterministic aggregation regression is caught | `agent::coordinator::tests::aggregate_results_preserve_launch_order` | ✅ COMPLIANT |
+| Multi-Agent Orchestration: Track 4 Roadmap Traceability | Roadmap records delivered slice and pending work | `clients/web/apps/dashboard/src/composables/chatOnboardingContract.spec.ts > keeps Track 4 roadmap traceability explicit for shipped coordinator foundations and deferred gaps` | ✅ COMPLIANT |
 
-**Compliance summary**: 16/17 scenarios compliant, 1/17 untested.
+**Compliance summary**: 17/17 scenarios compliant
 
 ---
 
@@ -85,15 +92,15 @@ Command: `pnpm check` (workdir: `clients/web`)
 
 | Requirement | Status | Notes |
 |---|---|---|
-| Coordinator-Backed Delegation Boundary | ✅ Implemented | `tools/delegate.rs` routes `DelegateExecutionMode::Session` through a single-child `CoordinatorLaunchRequest` and returns the coordinator-owned outcome back through the existing `ToolResult` contract. |
+| Coordinator-Backed Delegation Boundary | ✅ Implemented | `tools/delegate.rs` routes `DelegateExecutionMode::Session` through a single-child `CoordinatorLaunchRequest` and returns the coordinator-owned outcome through the existing `ToolResult` contract. |
 | Coordinator State Machine | ✅ Implemented | `clients/agent-runtime/src/agent/coordinator.rs` defines explicit lifecycle states and guarded transitions with terminal immutability. |
-| Child Lifecycle Supervision | ✅ Implemented | Stable `ChildAgentId`, `ChildRecord`, registry admission, write-once terminal handling, and ordered inspection are present in `coordinator.rs`. |
+| Child Lifecycle Supervision | ✅ Implemented | Stable `ChildAgentId`, `ChildRecord`, registry admission, write-once terminal handling, and ordered inspection live in `coordinator.rs`. |
 | Structured In-Process Agent Messaging Envelopes | ✅ Implemented | `EnvelopeMeta`, `MessageEnvelope`, correlation metadata, in-process transport, and fail-closed validation exist in `coordinator.rs`. |
 | Deterministic Parallel Fan-Out and Fan-In | ✅ Implemented | `JoinSet` supervision plus launch-index ordering provide deterministic aggregation independent of completion order. |
 | Deterministic Failure and Cancel Propagation | ✅ Implemented | Parent-owned cancellation and sibling shutdown behavior are implemented in `Coordinator::run_with_cancellation(...)`. |
-| Slice Boundaries and Deferred Track 4 Work | ✅ Implemented | Coordinator comments/tests and delegate schema keep remote transport, mailbox persistence, worktree isolation, and escalation deferred. |
+| Slice Boundaries and Deferred Track 4 Work | ✅ Implemented | Coordinator comments/tests and delegate behavior keep remote transport, mailbox persistence, worktree isolation, and escalation deferred. |
 | Integration and Regression Coverage | ✅ Implemented | Coordinator and delegate regression coverage exists in module-local tests and passed under `cargo test`. |
-| Track 4 Roadmap Traceability | ✅ Implemented (static) | `tmp/CLAUDIO_ROADMAP.md` documents the delivered slice scope and deferred work, but no automated test covers it. |
+| Track 4 Roadmap Traceability | ✅ Implemented | `tmp/CLAUDIO_ROADMAP.md` lines 151-178 and the dashboard contract test prove the delivered slice/pending-gap split. |
 
 ---
 
@@ -115,22 +122,22 @@ Command: `pnpm check` (workdir: `clients/web`)
 
 **CRITICAL**
 
-- `Track 4 Roadmap Traceability` remains `❌ UNTESTED` because no automated test proves the roadmap-update scenario at runtime.
+- None.
 
 **WARNING**
 
-- The current working tree still includes unrelated edits outside this slice, including `clients/rook/**`, wide `clients/agent-runtime/**` changes, and the dashboard Vite raw-import fix, so verification evidence is not from an isolated tree.
+- The working tree is not clean during re-verification: `clients/web/apps/dashboard/src/composables/chatOnboardingContract.spec.ts` and this `verify-report.md` are modified.
 - `make web-test-all` still emits repeated Vue `onScopeDispose()` warnings in `clients/web/apps/dashboard/src/composables/useChat.spec.ts`; they do not fail the command, but they remain validation noise.
 - The design file anticipated an `agent.rs` modification, but the implementation correctly reused existing bootstrap behavior instead.
 
 **SUGGESTION**
 
-- Add an automated regression asserting the required `tmp/CLAUDIO_ROADMAP.md` Track 4 content if roadmap traceability is meant to remain a hard spec scenario.
+- Consider eliminating the `useChat.spec.ts` Vue scope warnings so future verify runs stay signal-rich.
 
 ---
 
 ### Verdict
 
-**FAIL**
+**PASS WITH WARNINGS**
 
-The dashboard raw-import regression is fixed and all configured verification commands now pass, but the change still fails strict spec verification because the `Track 4 Roadmap Traceability` scenario has static evidence only and no passing automated test.
+All required tasks are complete, all configured verification commands now pass, and all 17 spec scenarios have runtime-backed compliance evidence; remaining issues are non-blocking warnings only.
