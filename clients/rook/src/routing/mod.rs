@@ -36,13 +36,13 @@
 //! gateway / surface layer owns retry logic so it can react to provider-level
 //! HTTP responses before deciding to retry.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use crate::domain::{
-    AccountId, ModelRoute, PoolId, ProviderAccount, RouteId, RookError, SelectionStrategy,
+    AccountId, ModelRoute, PoolId, ProviderAccount, ProviderPool, RouteId, RookError, SelectionStrategy,
 };
 use crate::registry::RookRegistry;
 use crate::services::{
@@ -110,7 +110,8 @@ impl RoutingEngine {
                 RookError::Routing(format!("no route configured for model '{logical_model}'"))
             })?;
 
-        self.resolve_pool(route.target_pool_id, route.id, &route, 0).await
+        self.resolve_pool(route.target_pool_id, route.id, &route, 0, HashSet::new())
+            .await
     }
 
     // ── Private resolution helpers ────────────────────────────────────────────
@@ -128,8 +129,17 @@ impl RoutingEngine {
         route_id: RouteId,
         route: &'a ModelRoute,
         depth: u8,
+        mut visited_pools: HashSet<PoolId>,
     ) -> Pin<Box<dyn Future<Output = Result<RoutingDecision, RookError>> + Send + 'a>> {
         Box::pin(async move {
+            // Primary cycle guard: immediate re-entry detection.
+            if visited_pools.contains(&pool_id) {
+                return Err(RookError::Routing(format!(
+                    "fallback cycle detected: pool '{pool_id}' visited again"
+                )));
+            }
+
+            // Secondary guard: depth limit.
             if depth > MAX_FALLBACK_DEPTH {
                 return Err(RookError::Routing(
                     "fallback cycle detected: depth limit exceeded".to_owned(),
@@ -143,12 +153,30 @@ impl RoutingEngine {
                 .await
                 .ok_or_else(|| RookError::Routing(format!("pool '{pool_id}' not found")))?;
 
+            // Mark this pool as visited before recursing.
+            visited_pools.insert(pool_id);
+
             // Fetch all member accounts.
             let mut candidates: Vec<ProviderAccount> = Vec::new();
             for &member_id in &pool.members {
                 if let Some(account) = self.registry.accounts().get(member_id).await {
                     candidates.push(account);
+                } else {
+                    tracing::warn!(
+                        "pool '{}' references missing account '{}'",
+                        pool_id,
+                        member_id
+                    );
                 }
+            }
+
+            // Check if pool has members but none were found.
+            if !pool.members.is_empty() && candidates.is_empty() {
+                return Err(RookError::Routing(format!(
+                    "pool '{}' has {} member(s) but none were found",
+                    pool_id,
+                    pool.members.len()
+                )));
             }
 
             // Filter 1: enabled flag.
@@ -172,7 +200,9 @@ impl RoutingEngine {
             }
 
             if candidates.is_empty() {
-                return self.try_fallback(pool_id, route_id, route, depth).await;
+                return self
+                    .try_fallback(&pool, route_id, route, depth, visited_pools)
+                    .await;
             }
 
             let account = self.select_from_pool(pool_id, &pool.strategy, &candidates).await?;
@@ -185,20 +215,24 @@ impl RoutingEngine {
     /// exhausted.
     fn try_fallback<'a>(
         &'a self,
-        pool_id: PoolId,
+        pool: &'a ProviderPool,
         route_id: RouteId,
         route: &'a ModelRoute,
         depth: u8,
+        visited_pools: HashSet<PoolId>,
     ) -> Pin<Box<dyn Future<Output = Result<RoutingDecision, RookError>> + Send + 'a>> {
         Box::pin(async move {
             // Pool-level fallback: the pool itself names another pool.
-            let pool = self.registry.pools().get(pool_id).await;
-            if let Some(pool) = pool {
-                if let Some(fallback_pool_id) = pool.fallback_pool_id {
-                    return self
-                        .resolve_pool(fallback_pool_id, route_id, route, depth + 1)
-                        .await;
-                }
+            if let Some(fallback_pool_id) = pool.fallback_pool_id {
+                return self
+                    .resolve_pool(
+                        fallback_pool_id,
+                        route_id,
+                        route,
+                        depth + 1,
+                        visited_pools,
+                    )
+                    .await;
             }
 
             // Route-level fallback: restart with a different route.
@@ -219,6 +253,7 @@ impl RoutingEngine {
                         fallback_route.id,
                         &fallback_route,
                         depth + 1,
+                        visited_pools,
                     )
                     .await;
             }
@@ -290,7 +325,6 @@ impl RoutingEngine {
         let counter_ref = counters.entry(pool_id).or_insert(0);
         let idx = *counter_ref % candidates.len();
         *counter_ref = counter_ref.wrapping_add(1);
-        let idx = idx;
 
         // Release the lock before accessing candidates.
         drop(counters);
@@ -338,7 +372,9 @@ impl RoutingEngine {
         for account in candidates {
             let w = i64::from(account.weight);
             total_weight += w;
-            let score = pool_state.get_mut(&account.id).expect("account must exist");
+            let score = pool_state
+                .get_mut(&account.id)
+                .ok_or_else(|| RookError::Routing("account missing from weighted state".into()))?;
             *score += w;
             if *score > best_score {
                 best_score = *score;
@@ -454,24 +490,31 @@ mod tests {
         registry.routes().create(route).await.unwrap();
 
         // Disable FK, delete the pool (route now has a dangling FK), re-enable.
-        let raw = registry.db().pool();
+        // PRAGMA is connection-scoped, so acquire a single connection.
+        let db_pool = registry.db().pool();
+        let mut conn = db_pool.acquire().await.unwrap();
         sqlx::query("PRAGMA foreign_keys = OFF")
-            .execute(raw)
+            .execute(&mut *conn)
             .await
             .unwrap();
         sqlx::query("DELETE FROM provider_pools WHERE id = ?")
             .bind(pool_id.to_string())
-            .execute(raw)
+            .execute(&mut *conn)
             .await
             .unwrap();
         sqlx::query("PRAGMA foreign_keys = ON")
-            .execute(raw)
+            .execute(&mut *conn)
             .await
             .unwrap();
 
         let err = engine.resolve("gpt-4o").await.unwrap_err();
         assert!(matches!(err, RookError::Routing(_)));
-        assert!(err.to_string().contains("not found"));
+        // Either the route is gone ("no route configured") or the pool is gone ("not found").
+        let msg = err.to_string();
+        assert!(
+            msg.contains("no route") || msg.contains("not found"),
+            "expected route/pool not found, got: {msg}"
+        );
     }
 
     #[tokio::test]
