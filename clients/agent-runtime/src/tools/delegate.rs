@@ -1159,8 +1159,10 @@ mod tests {
         );
     }
 
+    /// Session mode rejects deferred transport fields at schema level and fails in read-only mode.
+    /// Note: This validates schema rejection, not runtime coordinator call inspection.
     #[tokio::test]
-    async fn session_mode_preserves_fail_closed_boundaries_for_deferred_transport_and_escalation() {
+    async fn session_mode_schema_rejects_deferred_transport_fields() {
         let mut agents = HashMap::new();
         agents.insert(
             "code_agent".to_string(),

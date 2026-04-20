@@ -69,6 +69,12 @@ Envelope processing MUST be transport-agnostic for future Track 4 work, but this
 message delivery in-process only. The system MUST fail closed when an inbound message omits required
 envelope metadata or cannot be correlated to the owning coordinator or child.
 
+> **Note (non-normative):** In the current implementation, `kind` is conveyed by the
+> typed `CoordinatorMessage` payload variant (e.g., `ChildReady`, `ChildCompleted`,
+> `ChildFailed`). The `sender` and `recipient` are derived implicitly from `coordinator_id`
+> + `child_id` plus the message direction (coordinator→child or child→coordinator).
+> See `EnvelopeMeta` in `clients/agent-runtime/src/agent/coordinator.rs` for the structural mapping.
+
 #### Scenario: Child response correlates to parent request
 
 - GIVEN a coordinator sends work to a supervised child using a structured messaging envelope

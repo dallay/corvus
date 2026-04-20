@@ -401,11 +401,15 @@ impl CoordinatorChildRunner for DelegatedAgentRunner {
                     }
                 }
                 Ok(Err(error)) => {
+                    #[allow(clippy::match_same_arms, unreachable_patterns)]
                     let status = match error.downcast_ref::<AgentExecutionError>() {
                         Some(
                             AgentExecutionError::IterationBudgetExceeded { .. }
                             | AgentExecutionError::CostBudgetExceeded { .. },
                         ) => CodeSessionStatus::BudgetExceeded,
+                        // Catch-all for any new AgentExecutionError variants: map to Error
+                        Some(_) => CodeSessionStatus::Error,
+                        // None means it's not an AgentExecutionError at all
                         None => CodeSessionStatus::Error,
                     };
                     let parsed = Self::session_error_result(
@@ -1342,22 +1346,22 @@ mod tests {
         assert_eq!(second.meta.correlation_id, first.meta.correlation_id);
     }
 
+    /// Compile-time assertion: CoordinatorTransport must ONLY contain InProcess for this slice.
+    /// RemoteBridge, CrossProcess, MailboxPersistence, WorktreeIsolation are deferred to Track 4.
     #[test]
     fn coordinator_slice_defers_non_in_process_transport_and_deferred_scope() {
-        let source = include_str!("coordinator.rs");
-        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
-
-        assert!(production_source.contains("pub enum CoordinatorTransport"));
-        assert!(production_source.contains("InProcess"));
-        assert!(!production_source.contains("RemoteBridge"));
-        assert!(!production_source.contains("CrossProcess"));
-        assert!(!production_source.contains("MailboxPersistence"));
-        assert!(!production_source.contains("WorktreeIsolation"));
-        assert!(production_source.contains(
-            "Mailbox persistence, remote bridge transport, worktree isolation, and permission"
-        ));
+        // Exhaustive match ensures CI fails if new transport variants are added.
+        // This is a compile-time guard - if CoordinatorTransport gets a new variant,
+        // the match below will fail to compile, alerting developers that Track 4
+        // deferral assumptions need updating.
+        fn assert_only_in_process(t: CoordinatorTransport) -> Option<()> {
+            match t {
+                CoordinatorTransport::InProcess => Some(()),
+            }
+        }
         assert!(
-            production_source.contains("escalation flows remain deferred to later Track 4 slices.")
+            assert_only_in_process(CoordinatorTransport::InProcess).is_some(),
+            "CoordinatorTransport must only have InProcess for this slice"
         );
     }
 
