@@ -1,7 +1,7 @@
 use crate::errors::CerebroError;
 use crate::server::AuthContext;
 use crate::storage::{MemoryRecord, Storage};
-use crate::validation::require_non_empty;
+use crate::validation::{require_non_empty, require_optional_non_empty};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -582,6 +582,8 @@ impl CerebroTools {
         let input: ToolInput<MemUpdateRequest> = serde_json::from_value(payload)
             .map_err(|err| CerebroError::Validation(err.to_string()))?;
         require_non_empty("memory_id", &input.input.memory_id)?;
+        require_optional_non_empty("topic_key", input.input.topic_key.as_deref())?;
+        require_optional_non_empty("scope", input.input.scope.as_deref())?;
 
         let mut record = self
             .storage
