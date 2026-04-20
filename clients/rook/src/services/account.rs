@@ -2,6 +2,7 @@
 //! lifecycle management.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use crate::domain::{AccountId, ProviderAccount, RookError};
@@ -11,23 +12,29 @@ use crate::domain::{AccountId, ProviderAccount, RookError};
 /// Port for managing [`ProviderAccount`] lifecycle.
 pub trait AccountService: Send + Sync {
     /// Return all accounts.
-    fn list(&self) -> Vec<ProviderAccount>;
+    fn list(&self) -> impl Future<Output = Vec<ProviderAccount>> + Send;
 
     /// Return a single account by ID, or `None` if not found.
-    fn get(&self, id: AccountId) -> Option<ProviderAccount>;
+    fn get(&self, id: AccountId) -> impl Future<Output = Option<ProviderAccount>> + Send;
 
     /// Persist a new account and return its assigned [`AccountId`].
-    fn create(&self, account: ProviderAccount) -> Result<AccountId, RookError>;
+    fn create(
+        &self,
+        account: ProviderAccount,
+    ) -> impl Future<Output = Result<AccountId, RookError>> + Send;
 
     /// Overwrite an existing account.
     ///
     /// Returns [`RookError::Registry`] if the ID is unknown.
-    fn update(&self, account: ProviderAccount) -> Result<(), RookError>;
+    fn update(
+        &self,
+        account: ProviderAccount,
+    ) -> impl Future<Output = Result<(), RookError>> + Send;
 
     /// Remove an account by ID.
     ///
     /// Returns [`RookError::Registry`] if the ID is unknown.
-    fn delete(&self, id: AccountId) -> Result<(), RookError>;
+    fn delete(&self, id: AccountId) -> impl Future<Output = Result<(), RookError>> + Send;
 }
 
 // ── In-memory implementation ──────────────────────────────────────────────────
@@ -48,20 +55,21 @@ impl InMemoryAccountService {
 }
 
 impl AccountService for InMemoryAccountService {
-    fn list(&self) -> Vec<ProviderAccount> {
+    async fn list(&self) -> Vec<ProviderAccount> {
         self.store
             .lock()
             .map(|g| g.values().cloned().collect())
             .unwrap_or_default()
     }
 
-    fn get(&self, id: AccountId) -> Option<ProviderAccount> {
+    async fn get(&self, id: AccountId) -> Option<ProviderAccount> {
         self.store.lock().ok()?.get(&id).cloned()
     }
 
-    fn create(&self, account: ProviderAccount) -> Result<AccountId, RookError> {
+    async fn create(&self, account: ProviderAccount) -> Result<AccountId, RookError> {
         let id = account.id;
-        let mut guard = self.store
+        let mut guard = self
+            .store
             .lock()
             .map_err(|e| RookError::Registry(e.to_string()))?;
 
@@ -73,7 +81,7 @@ impl AccountService for InMemoryAccountService {
         Ok(id)
     }
 
-    fn update(&self, account: ProviderAccount) -> Result<(), RookError> {
+    async fn update(&self, account: ProviderAccount) -> Result<(), RookError> {
         let mut guard =
             self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
         if !guard.contains_key(&account.id) {
@@ -86,13 +94,56 @@ impl AccountService for InMemoryAccountService {
         Ok(())
     }
 
-    fn delete(&self, id: AccountId) -> Result<(), RookError> {
+    async fn delete(&self, id: AccountId) -> Result<(), RookError> {
         let mut guard =
             self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
         if guard.remove(&id).is_none() {
             return Err(RookError::Registry(format!("account {id} not found")));
         }
         Ok(())
+    }
+}
+
+// ── SQLite implementation ─────────────────────────────────────────────────────
+
+/// SQLite-backed [`AccountService`].
+///
+/// Delegates all storage to the Rook [`crate::db::SqliteDb`] connection pool.
+#[derive(Clone, Debug)]
+pub struct SqliteAccountService {
+    db: crate::db::SqliteDb,
+}
+
+impl SqliteAccountService {
+    /// Wrap an existing [`crate::db::SqliteDb`].
+    pub fn new(db: crate::db::SqliteDb) -> Self {
+        Self { db }
+    }
+}
+
+impl AccountService for SqliteAccountService {
+    async fn list(&self) -> Vec<ProviderAccount> {
+        self.db.list_accounts().await.unwrap_or_default()
+    }
+
+    async fn get(&self, id: AccountId) -> Option<ProviderAccount> {
+        self.db.get_account(&id).await.ok().flatten()
+    }
+
+    async fn create(&self, account: ProviderAccount) -> Result<AccountId, RookError> {
+        let id = account.id;
+        self.db.insert_account(&account).await?;
+        Ok(id)
+    }
+
+    async fn update(&self, account: ProviderAccount) -> Result<(), RookError> {
+        // No update_account in db layer — implement as delete + re-insert.
+        self.db.delete_account(&account.id).await.map(|_| ())?;
+        self.db.insert_account(&account).await
+    }
+
+    async fn delete(&self, id: AccountId) -> Result<(), RookError> {
+        self.db.delete_account(&id).await.map(|_| ())
     }
 }
 
@@ -123,66 +174,66 @@ mod tests {
         let _ = SelectionStrategy::Priority;
     };
 
-    #[test]
-    fn crud_round_trip() {
+    #[tokio::test]
+    async fn crud_round_trip() {
         let svc = InMemoryAccountService::new();
         let account = make_account("test");
         let id = account.id;
 
         // Create
-        let returned_id = svc.create(account.clone()).unwrap();
+        let returned_id = svc.create(account.clone()).await.unwrap();
         assert_eq!(returned_id, id);
 
         // Read
-        let fetched = svc.get(id).unwrap();
+        let fetched = svc.get(id).await.unwrap();
         assert_eq!(fetched.display_name, "test");
 
         // List
-        assert_eq!(svc.list().len(), 1);
+        assert_eq!(svc.list().await.len(), 1);
 
         // Update
         let mut updated = fetched.clone();
         updated.display_name = "updated".to_owned();
-        svc.update(updated).unwrap();
-        assert_eq!(svc.get(id).unwrap().display_name, "updated");
+        svc.update(updated).await.unwrap();
+        assert_eq!(svc.get(id).await.unwrap().display_name, "updated");
 
         // Delete
-        svc.delete(id).unwrap();
-        assert!(svc.get(id).is_none());
-        assert!(svc.list().is_empty());
+        svc.delete(id).await.unwrap();
+        assert!(svc.get(id).await.is_none());
+        assert!(svc.list().await.is_empty());
     }
 
-    #[test]
-    fn get_nonexistent_returns_none() {
+    #[tokio::test]
+    async fn get_nonexistent_returns_none() {
         let svc = InMemoryAccountService::new();
-        assert!(svc.get(AccountId::generate()).is_none());
+        assert!(svc.get(AccountId::generate()).await.is_none());
     }
 
-    #[test]
-    fn delete_nonexistent_returns_error() {
+    #[tokio::test]
+    async fn delete_nonexistent_returns_error() {
         let svc = InMemoryAccountService::new();
-        let err = svc.delete(AccountId::generate()).unwrap_err();
+        let err = svc.delete(AccountId::generate()).await.unwrap_err();
         assert!(err.to_string().contains("not found"));
     }
 
-    #[test]
-    fn update_nonexistent_returns_error() {
+    #[tokio::test]
+    async fn update_nonexistent_returns_error() {
         let svc = InMemoryAccountService::new();
         let account = make_account("ghost");
-        let err = svc.update(account).unwrap_err();
+        let err = svc.update(account).await.unwrap_err();
         assert!(err.to_string().contains("not found"));
     }
 
-    #[test]
-    fn create_duplicate_returns_error() {
+    #[tokio::test]
+    async fn create_duplicate_returns_error() {
         let svc = InMemoryAccountService::new();
         let account = make_account("test");
 
         // First create should succeed
-        svc.create(account.clone()).unwrap();
+        svc.create(account.clone()).await.unwrap();
 
         // Second create with same ID should fail
-        let err = svc.create(account).unwrap_err();
+        let err = svc.create(account).await.unwrap_err();
         assert!(err.to_string().contains("duplicate"));
     }
 }
