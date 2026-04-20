@@ -1,9 +1,9 @@
 use super::embeddings::EmbeddingProvider;
 use super::traits::{
     Memory, MemoryCategory, MemoryEntry, MemoryStats, ResumableSessionEntry, SessionEntry,
-    SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation, SessionStatePatch,
-    SessionStateRecord, SessionStatus, SlashSessionLifecycle, TaskCreateInput, TaskListPage,
-    TaskListQuery, TaskPatch, TaskPriority, TaskRecord, TaskStatus,
+    SessionListEntry, SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation,
+    SessionStatePatch, SessionStateRecord, SessionStatus, SlashSessionLifecycle, TaskCreateInput,
+    TaskListPage, TaskListQuery, TaskPatch, TaskPriority, TaskRecord, TaskStatus,
 };
 use super::vector;
 use anyhow::Context;
@@ -1615,6 +1615,60 @@ impl Memory for SqliteMemory {
         .await?
     }
 
+    async fn list_session_rows_for_scope(
+        &self,
+        caller_scope_key: &str,
+        limit: u32,
+        offset: u32,
+    ) -> anyhow::Result<Vec<SessionListEntry>> {
+        let conn = self.conn.clone();
+        let caller_scope_key = caller_scope_key.to_string();
+        let limit = Self::capped_list_limit(limit.max(1));
+        let offset = i64::from(offset);
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<SessionListEntry>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT s.id,
+                        s.last_activity,
+                        CASE
+                            WHEN state.lifecycle_state = 'suspended' THEN 'suspended'
+                            ELSE 'active'
+                        END AS lifecycle,
+                        CASE
+                            WHEN state.lifecycle_state = 'suspended'
+                                 AND state.latest_compact_snapshot_id IS NOT NULL
+                                 AND snap.id IS NOT NULL
+                                 AND snap.is_resume_capable = 1
+                            THEN 1
+                            ELSE 0
+                        END AS resumable
+                 FROM sessions s
+                 LEFT JOIN session_state state ON state.session_id = s.id
+                  LEFT JOIN session_snapshots snap
+                      ON snap.id = state.latest_compact_snapshot_id
+                      AND snap.session_id = s.id
+                      AND snap.snapshot_kind = 'compact'
+                 WHERE s.status != 'ended'
+                   AND s.token_hash IS ?3
+                 ORDER BY s.last_activity DESC, s.id DESC
+                 LIMIT ?1 OFFSET ?2",
+            )?;
+            let rows = stmt
+                .query_map(params![limit, offset, caller_scope_key], |row| {
+                    Ok(SessionListEntry {
+                        id: row.get(0)?,
+                        last_activity: row.get(1)?,
+                        lifecycle: Self::lifecycle_from_row(row.get::<_, String>(2)?)?,
+                        resumable: row.get::<_, i64>(3)? != 0,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await?
+    }
+
     async fn get_resumable_session_for_scope(
         &self,
         session_id: &str,
@@ -2646,6 +2700,107 @@ mod tests {
 
         let unscoped_results = mem.list_resumable_sessions(None, 10, 0).await.unwrap();
         assert!(unscoped_results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_session_rows_for_scope_filters_by_scope_and_excludes_ended_sessions() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-a", Some("token-a"))
+            .await
+            .unwrap();
+        mem.upsert_session("session-b", Some("token-b"))
+            .await
+            .unwrap();
+        mem.upsert_session("session-ended", Some("token-a"))
+            .await
+            .unwrap();
+        mem.end_session("session-ended").await.unwrap();
+
+        let rows = mem
+            .list_session_rows_for_scope("token-a", 10, 0)
+            .await
+            .unwrap();
+
+        let ids: Vec<_> = rows.into_iter().map(|row| row.id).collect();
+        assert_eq!(ids, vec!["session-a"]);
+    }
+
+    #[tokio::test]
+    async fn list_session_rows_for_scope_derives_lifecycle_and_resumable_authoritatively() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-active", Some("token-a"))
+            .await
+            .unwrap();
+        mem.upsert_session("session-suspended", Some("token-a"))
+            .await
+            .unwrap();
+
+        let snapshot = mem
+            .create_session_snapshot(
+                "session-suspended",
+                SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "Preview A",
+                    "summary": "Preview A",
+                    "resume_context": "Preview A",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+        mem.apply_session_state_patch(SessionStatePatch {
+            session_id: "session-suspended".into(),
+            lifecycle: Some(SlashSessionLifecycle::Suspended),
+            latest_tldr_snapshot_id: SessionFieldPatch::Keep,
+            latest_compact_snapshot_id: SessionFieldPatch::Set(snapshot.id),
+            pending_hydration_snapshot_id: SessionFieldPatch::Clear,
+            suspended_at: SessionFieldPatch::Set("now".into()),
+        })
+        .await
+        .unwrap();
+
+        let rows = mem
+            .list_session_rows_for_scope("token-a", 10, 0)
+            .await
+            .unwrap();
+
+        assert!(rows.iter().any(|row| {
+            row.id == "session-active"
+                && row.lifecycle == SlashSessionLifecycle::Active
+                && !row.resumable
+        }));
+        assert!(rows.iter().any(|row| {
+            row.id == "session-suspended"
+                && row.lifecycle == SlashSessionLifecycle::Suspended
+                && row.resumable
+        }));
+    }
+
+    #[tokio::test]
+    async fn list_session_rows_for_scope_uses_last_activity_then_id_desc_ordering() {
+        let (_tmp, mem) = temp_sqlite();
+        for session_id in ["b", "a", "c"] {
+            mem.upsert_session(session_id, Some("token-a"))
+                .await
+                .unwrap();
+        }
+
+        {
+            let conn = mem.conn.lock();
+            conn.execute(
+                "UPDATE sessions SET last_activity = ?1 WHERE token_hash = ?2",
+                params!["2026-03-29T00:00:00Z", "token-a"],
+            )
+            .unwrap();
+        }
+
+        let rows = mem
+            .list_session_rows_for_scope("token-a", MAX_LIST_LIMIT + 500, 0)
+            .await
+            .unwrap();
+
+        let ids: Vec<_> = rows.into_iter().map(|row| row.id).collect();
+        assert_eq!(ids, vec!["c", "b", "a"]);
     }
 
     #[tokio::test]
