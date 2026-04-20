@@ -58,7 +58,8 @@ fn row_to_route(row: &sqlx::sqlite::SqliteRow) -> Result<ModelRoute, RookError> 
     let policy_json: String = row
         .try_get("policy")
         .map_err(|e| RookError::Registry(format!("missing policy: {e}")))?;
-    let policy: StoredPolicy = serde_json::from_str(&policy_json).unwrap_or_default();
+    let policy: StoredPolicy = serde_json::from_str(&policy_json)
+        .map_err(|e| RookError::Registry(format!("invalid policy JSON: {e}; policy_json={policy_json}")))?;
 
     Ok(ModelRoute {
         id,
@@ -77,6 +78,22 @@ impl SqliteDb {
         let id = route.id.to_string();
         let target_pool_id = route.target_pool_id.to_string();
         let fallback_route_id = route.fallback_route_id.as_ref().map(|r| r.to_string());
+
+        // Validate that fallback_route_id exists if provided
+        if let Some(fallback_id) = &route.fallback_route_id {
+            let exists = sqlx::query("SELECT 1 FROM model_routes WHERE id = ?")
+                .bind(fallback_id.to_string())
+                .fetch_optional(self.pool())
+                .await
+                .map_err(|e| RookError::Registry(format!("failed to validate fallback_route_id: {e}")))?;
+
+            if exists.is_none() {
+                return Err(RookError::Registry(format!(
+                    "fallback_route_id {} does not exist",
+                    fallback_id
+                )));
+            }
+        }
 
         let policy = StoredPolicy {
             capability_constraints: route.capability_constraints.clone(),
@@ -158,6 +175,23 @@ impl SqliteDb {
     /// Returns `true` if a row was deleted, `false` if not found.
     pub async fn delete_route(&self, id: &RouteId) -> Result<bool, RookError> {
         let id_str = id.to_string();
+
+        // Check if any routes reference this one as a fallback
+        let referencing: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM model_routes WHERE fallback_route_id = ? LIMIT 1"
+        )
+        .bind(&id_str)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| RookError::Registry(format!("failed to check route references: {e}")))?;
+
+        if let Some((referring_id,)) = referencing {
+            return Err(RookError::Registry(format!(
+                "cannot delete route {}: referenced by route {} as fallback",
+                id, referring_id
+            )));
+        }
+
         let result = sqlx::query("DELETE FROM model_routes WHERE id = ?")
             .bind(&id_str)
             .execute(self.pool())
@@ -306,5 +340,80 @@ mod tests {
         let missing = RouteId::generate();
         let deleted = db.delete_route(&missing).await.unwrap();
         assert!(!deleted);
+    }
+
+    #[tokio::test]
+    async fn insert_route_with_nonexistent_fallback_fails() {
+        let (db, pool_id) = make_db_with_pool().await;
+        let route = ModelRoute {
+            id: RouteId::generate(),
+            logical_model: "gpt-4o".to_string(),
+            target_pool_id: pool_id,
+            fallback_route_id: Some(RouteId::generate()), // doesn't exist
+            capability_constraints: vec![],
+        };
+
+        let result = db.insert_route(&route).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not exist"));
+    }
+
+    #[tokio::test]
+    async fn delete_route_referenced_as_fallback_fails() {
+        let (db, pool_id) = make_db_with_pool().await;
+
+        // Create fallback route first
+        let fallback_route = ModelRoute {
+            id: RouteId::generate(),
+            logical_model: "gpt-4o-fallback".to_string(),
+            target_pool_id: pool_id,
+            fallback_route_id: None,
+            capability_constraints: vec![],
+        };
+        db.insert_route(&fallback_route).await.unwrap();
+
+        // Create primary route that references the fallback
+        let primary_route = ModelRoute {
+            id: RouteId::generate(),
+            logical_model: "gpt-4o".to_string(),
+            target_pool_id: pool_id,
+            fallback_route_id: Some(fallback_route.id),
+            capability_constraints: vec![],
+        };
+        db.insert_route(&primary_route).await.unwrap();
+
+        // Try to delete the fallback route - should fail
+        let result = db.delete_route(&fallback_route.id).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("referenced by"));
+    }
+
+    #[tokio::test]
+    async fn insert_route_with_existing_fallback_succeeds() {
+        let (db, pool_id) = make_db_with_pool().await;
+
+        // Create fallback route first
+        let fallback_route = ModelRoute {
+            id: RouteId::generate(),
+            logical_model: "gpt-4o-fallback".to_string(),
+            target_pool_id: pool_id,
+            fallback_route_id: None,
+            capability_constraints: vec![],
+        };
+        db.insert_route(&fallback_route).await.unwrap();
+
+        // Create primary route that references the fallback
+        let primary_route = ModelRoute {
+            id: RouteId::generate(),
+            logical_model: "gpt-4o".to_string(),
+            target_pool_id: pool_id,
+            fallback_route_id: Some(fallback_route.id),
+            capability_constraints: vec![],
+        };
+        db.insert_route(&primary_route).await.unwrap();
+
+        // Verify it was created
+        let fetched = db.get_route(&primary_route.id).await.unwrap().unwrap();
+        assert_eq!(fetched.fallback_route_id, Some(fallback_route.id));
     }
 }

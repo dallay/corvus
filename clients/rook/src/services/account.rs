@@ -61,10 +61,15 @@ impl AccountService for InMemoryAccountService {
 
     fn create(&self, account: ProviderAccount) -> Result<AccountId, RookError> {
         let id = account.id;
-        self.store
+        let mut guard = self.store
             .lock()
-            .map_err(|e| RookError::Registry(e.to_string()))?
-            .insert(id, account);
+            .map_err(|e| RookError::Registry(e.to_string()))?;
+
+        if guard.contains_key(&id) {
+            return Err(RookError::Registry(format!("duplicate account id {}", id)));
+        }
+
+        guard.insert(id, account);
         Ok(id)
     }
 
@@ -166,5 +171,18 @@ mod tests {
         let account = make_account("ghost");
         let err = svc.update(account).unwrap_err();
         assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn create_duplicate_returns_error() {
+        let svc = InMemoryAccountService::new();
+        let account = make_account("test");
+
+        // First create should succeed
+        svc.create(account.clone()).unwrap();
+
+        // Second create with same ID should fail
+        let err = svc.create(account).unwrap_err();
+        assert!(err.to_string().contains("duplicate"));
     }
 }

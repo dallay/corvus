@@ -109,27 +109,37 @@ impl HealthService for InMemoryHealthService {
     }
 
     fn mark_success(&self, account_id: AccountId) {
-        if let Ok(mut guard) = self.lock() {
-            let entry =
-                guard.entry(account_id).or_insert_with(|| AccountHealth::new(account_id));
-            entry.status = HealthStatus::Healthy;
-            entry.last_checked = Some(Utc::now());
-            entry.consecutive_failures = 0;
-            entry.cooldown_until = None;
+        match self.lock() {
+            Ok(mut guard) => {
+                let entry =
+                    guard.entry(account_id).or_insert_with(|| AccountHealth::new(account_id));
+                entry.status = HealthStatus::Healthy;
+                entry.last_checked = Some(Utc::now());
+                entry.consecutive_failures = 0;
+                entry.cooldown_until = None;
+            }
+            Err(e) => {
+                tracing::warn!("mark_success: poisoned mutex for account {}: {}", account_id, e);
+            }
         }
     }
 
     fn mark_failure(&self, account_id: AccountId, cooldown_seconds: u64) {
-        if let Ok(mut guard) = self.lock() {
-            let entry =
-                guard.entry(account_id).or_insert_with(|| AccountHealth::new(account_id));
-            entry.consecutive_failures = entry.consecutive_failures.saturating_add(1);
-            entry.last_checked = Some(Utc::now());
-            entry.status = HealthStatus::Unhealthy;
-            entry.cooldown_until = Some(
-                Utc::now()
-                    + chrono::Duration::seconds(cooldown_seconds as i64),
-            );
+        match self.lock() {
+            Ok(mut guard) => {
+                let entry =
+                    guard.entry(account_id).or_insert_with(|| AccountHealth::new(account_id));
+                entry.consecutive_failures = entry.consecutive_failures.saturating_add(1);
+                entry.last_checked = Some(Utc::now());
+                entry.status = HealthStatus::Unhealthy;
+                let cooldown_secs = i64::try_from(cooldown_seconds).unwrap_or(i64::MAX);
+                entry.cooldown_until = Some(
+                    Utc::now() + chrono::Duration::seconds(cooldown_secs),
+                );
+            }
+            Err(e) => {
+                tracing::warn!("mark_failure: poisoned mutex for account {}: {}", account_id, e);
+            }
         }
     }
 

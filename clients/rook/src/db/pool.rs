@@ -7,6 +7,25 @@ use chrono::Utc;
 use sqlx::Row;
 use uuid::Uuid;
 
+// ── SelectionStrategy serialization helpers ───────────────────────────────────
+
+/// Convert a `SelectionStrategy` to its canonical database string representation.
+fn strategy_to_db_str(strategy: &SelectionStrategy) -> Result<String, RookError> {
+    match strategy {
+        SelectionStrategy::Priority => Ok("priority".to_string()),
+        SelectionStrategy::RoundRobin => Ok("round_robin".to_string()),
+        SelectionStrategy::Weighted => Ok("weighted".to_string()),
+        SelectionStrategy::Failover => Ok("failover".to_string()),
+    }
+}
+
+/// Parse a database string into a `SelectionStrategy`.
+fn db_str_to_strategy(s: &str) -> Result<SelectionStrategy, RookError> {
+    // Parse as JSON string to leverage existing deserialization logic
+    serde_json::from_str(&format!("\"{s}\""))
+        .map_err(|e| RookError::Registry(format!("invalid strategy '{s}': {e}")))
+}
+
 // ── Row mapping ───────────────────────────────────────────────────────────────
 
 fn row_to_pool(
@@ -28,11 +47,7 @@ fn row_to_pool(
     let strategy_str: String = row
         .try_get("strategy")
         .map_err(|e| RookError::Registry(format!("missing strategy: {e}")))?;
-    let strategy: SelectionStrategy =
-        serde_json::from_str(&format!("\"{strategy_str}\""))
-            .map_err(|e| {
-                RookError::Registry(format!("invalid strategy '{strategy_str}': {e}"))
-            })?;
+    let strategy = db_str_to_strategy(&strategy_str)?;
 
     let fallback_str: Option<String> = row
         .try_get("fallback_pool_id")
@@ -64,12 +79,17 @@ impl SqliteDb {
     /// Members in `pool.members` are inserted into `pool_members`.
     pub async fn insert_pool(&self, pool: &ProviderPool) -> Result<(), RookError> {
         let id = pool.id.to_string();
-        let strategy_json = serde_json::to_string(&pool.strategy)
-            .map_err(|e| RookError::Registry(format!("failed to serialize strategy: {e}")))?;
-        let strategy_str = strategy_json.trim_matches('"').to_string();
+        let strategy_str = strategy_to_db_str(&pool.strategy)?;
         let fallback = pool.fallback_pool_id.as_ref().map(|p| p.to_string());
         let now = Utc::now().to_rfc3339();
 
+        // Start transaction to make pool + members insertion atomic
+        let mut tx = self.pool()
+            .begin()
+            .await
+            .map_err(|e| RookError::Registry(format!("failed to begin transaction: {e}")))?;
+
+        // Insert pool
         sqlx::query(
             "INSERT INTO provider_pools \
              (id, name, strategy, fallback_pool_id, created_at, updated_at) \
@@ -81,13 +101,27 @@ impl SqliteDb {
         .bind(&fallback)
         .bind(&now)
         .bind(&now)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(|e| RookError::Registry(format!("insert_pool failed: {e}")))?;
 
+        // Insert members
         for account_id in &pool.members {
-            self.add_pool_member(&pool.id, account_id).await?;
+            let acct_str = account_id.to_string();
+            sqlx::query(
+                "INSERT OR IGNORE INTO pool_members (pool_id, account_id) VALUES (?, ?)",
+            )
+            .bind(&id)
+            .bind(&acct_str)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RookError::Registry(format!("add_pool_member failed: {e}")))?;
         }
+
+        // Commit transaction
+        tx.commit()
+            .await
+            .map_err(|e| RookError::Registry(format!("failed to commit transaction: {e}")))?;
 
         Ok(())
     }
@@ -123,16 +157,68 @@ impl SqliteDb {
         .await
         .map_err(|e| RookError::Registry(format!("list_pools failed: {e}")))?;
 
-        let mut pools = Vec::with_capacity(rows.len());
-        for row in &rows {
+        if rows.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Collect all pool IDs
+        let pool_ids: Vec<PoolId> = rows
+            .iter()
+            .map(|row| {
+                let pool_id_str: String = row
+                    .try_get("id")
+                    .map_err(|e| RookError::Registry(format!("missing pool id: {e}")))?;
+                Uuid::parse_str(&pool_id_str)
+                    .map(PoolId::new)
+                    .map_err(|e| RookError::Registry(format!("invalid pool UUID: {e}")))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Query all members in one go
+        let pool_id_strings: Vec<String> = pool_ids.iter().map(|id| id.to_string()).collect();
+        let placeholders = pool_id_strings.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let query_str = format!(
+            "SELECT pool_id, account_id FROM pool_members WHERE pool_id IN ({}) ORDER BY pool_id, account_id",
+            placeholders
+        );
+
+        let mut query = sqlx::query(&query_str);
+        for id_str in &pool_id_strings {
+            query = query.bind(id_str);
+        }
+
+        let member_rows = query
+            .fetch_all(self.pool())
+            .await
+            .map_err(|e| RookError::Registry(format!("fetch pool_members failed: {e}")))?;
+
+        // Group members by pool_id
+        let mut members_by_pool: std::collections::HashMap<PoolId, Vec<AccountId>> =
+            std::collections::HashMap::new();
+        for row in member_rows {
             let pool_id_str: String = row
-                .try_get("id")
-                .map_err(|e| RookError::Registry(format!("missing pool id: {e}")))?;
+                .try_get("pool_id")
+                .map_err(|e| RookError::Registry(format!("missing pool_id: {e}")))?;
             let pool_id = PoolId::new(
                 Uuid::parse_str(&pool_id_str)
                     .map_err(|e| RookError::Registry(format!("invalid pool UUID: {e}")))?,
             );
-            let members = self.get_pool_members(&pool_id).await?;
+
+            let account_id_str: String = row
+                .try_get("account_id")
+                .map_err(|e| RookError::Registry(format!("missing account_id: {e}")))?;
+            let account_id = AccountId::new(
+                Uuid::parse_str(&account_id_str)
+                    .map_err(|e| RookError::Registry(format!("invalid account UUID: {e}")))?,
+            );
+
+            members_by_pool.entry(pool_id).or_default().push(account_id);
+        }
+
+        // Build pools with their members
+        let mut pools = Vec::with_capacity(rows.len());
+        for (row, pool_id) in rows.iter().zip(pool_ids.iter()) {
+            let members = members_by_pool.remove(pool_id).unwrap_or_default();
             pools.push(row_to_pool(row, members)?);
         }
 
@@ -348,5 +434,28 @@ mod tests {
 
         let members = db.get_pool_members(&pool.id).await.unwrap();
         assert_eq!(members.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn deleting_pool_cascades_to_pool_members() {
+        let (db, a1, a2) = make_db_with_accounts().await;
+        let pool = make_pool(vec![a1, a2]);
+        db.insert_pool(&pool).await.unwrap();
+
+        // Verify members exist
+        let members = db.get_pool_members(&pool.id).await.unwrap();
+        assert_eq!(members.len(), 2);
+
+        // Delete the pool directly via SQL (simulating CASCADE)
+        let pool_id_str = pool.id.to_string();
+        sqlx::query("DELETE FROM provider_pools WHERE id = ?")
+            .bind(&pool_id_str)
+            .execute(db.pool())
+            .await
+            .unwrap();
+
+        // Verify pool_members rows are gone (CASCADE behavior)
+        let members_after = db.get_pool_members(&pool.id).await.unwrap();
+        assert_eq!(members_after.len(), 0);
     }
 }
