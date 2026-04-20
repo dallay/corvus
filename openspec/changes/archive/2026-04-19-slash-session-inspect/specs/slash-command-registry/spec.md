@@ -50,8 +50,10 @@ The system MUST route `/resume`, `/suspend`, `/tldr`, `/compact`, and the canoni
 
 #### Scenario: Unsupported `/session` subcommand stays inside the family handler boundary
 
-- GIVEN a supported ingress surface receives `/session list`
+- GIVEN a supported ingress surface receives `/session archive`
 - WHEN the runtime evaluates ingress
 - THEN the registry MUST still resolve the canonical `/session` command
-- AND the invocation MUST be delivered with raw arguments equal to `list`
+- AND the invocation MUST be delivered with raw arguments equal to `archive`
 - AND the transport MUST NOT reclassify it as unknown-command fallthrough before the `/session` handler evaluates it.
+
+Note: `/session list` is now a supported subcommand and is handled by the separate list slice with caller-scoped visibility.

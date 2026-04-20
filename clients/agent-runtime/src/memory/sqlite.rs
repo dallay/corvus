@@ -1645,7 +1645,10 @@ impl Memory for SqliteMemory {
                         END AS resumable
                  FROM sessions s
                  LEFT JOIN session_state state ON state.session_id = s.id
-                 LEFT JOIN session_snapshots snap ON snap.id = state.latest_compact_snapshot_id
+                  LEFT JOIN session_snapshots snap
+                      ON snap.id = state.latest_compact_snapshot_id
+                      AND snap.session_id = s.id
+                      AND snap.snapshot_kind = 'compact'
                  WHERE s.status != 'ended'
                    AND s.token_hash IS ?3
                  ORDER BY s.last_activity DESC, s.id DESC

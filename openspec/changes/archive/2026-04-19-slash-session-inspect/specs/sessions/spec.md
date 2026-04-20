@@ -28,7 +28,8 @@ The `/session status` result MUST identify the current session id from the execu
 The `/session status` result MUST also include exactly one actionable recommendation derived from the current session state:
 - it MUST recommend `/compact` when the current session is active and has no latest compact snapshot reference;
 - it MUST recommend `/suspend` when the current session is active and already has a latest compact snapshot reference;
-- it MUST recommend `/resume` when the current session is suspended and has a latest compact snapshot reference; and
+- it MUST recommend `/resume` when the current session is suspended and has a latest compact snapshot reference;
+- it MUST recommend `/compact` when the current session is suspended and has no latest compact snapshot reference; and
 - it MUST withhold lifecycle-command recommendations when no authoritative current session record exists.
 
 `/session status` SHOULD remain concise enough to act as the compact summary view for the `/session` family, and it MAY direct callers to `/session inspect` when a richer inspection view is needed. `/session status` MUST NOT mutate session records, slash-session state, or snapshots.

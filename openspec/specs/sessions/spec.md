@@ -386,8 +386,8 @@ any other mutation behavior. It MUST NOT expose rich row metadata beyond the min
 - GIVEN the current caller scope is authorized to view sessions `sess-a` and `sess-b`
 - AND both sessions have the same authoritative `last_activity` value
 - WHEN the user runs `/session list` multiple times without any underlying session changes
-- THEN the system MUST return `sess-a` and `sess-b` in the same relative order on each execution
-- AND that ordering MUST be produced by a stable secondary ordering rule.
+- THEN the system MUST return `sess-b` and `sess-a` in the same relative order on each execution
+- AND that ordering MUST be produced by the stable secondary ordering rule `id DESC`.
 
 #### Scenario: Missing caller-scope context does not broaden visibility
 

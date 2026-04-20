@@ -98,7 +98,7 @@ Key passed tests:
 | Widen only the `/session` service seam | ✅ Yes | Implemented exactly via `handle_session(&CommandContext, raw_args)`. |
 | Dedicated read-only session-list query | ✅ Yes | New `list_session_rows_for_scope(...)` contract added instead of reusing `/resume` listing. |
 | Lifecycle derivation aligned with existing semantics | ✅ Yes | SQLite derives `suspended` only from `session_state.lifecycle_state = 'suspended'`; otherwise `active`; ended rows excluded. |
-| Resumable derived from authoritative current capability | ✅ Yes | Query requires suspended lifecycle, latest compact snapshot reference, existing snapshot row, and `is_resume_capable = 1`. |
+| Resumable derived from authoritative current capability | ✅ Yes | Query requires the lifecycle to be suspended, latest compact snapshot reference, existing snapshot row, and `is_resume_capable = 1`. |
 | Balanced output at service boundary | ✅ Yes | Message and structured payload share the same row model. |
 | File changes table alignment | ✅ Yes | All planned runtime files and both delta specs are present and modified consistently with design scope. |
 

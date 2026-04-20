@@ -73,13 +73,13 @@ cargo test --manifest-path clients/agent-runtime/Cargo.toml dispatch_routes_sess
 |------|--------|-------|
 | Canonical `/session` registration only | ✅ Implemented | `registry.rs` keeps `/session` registration as `OptionalText`; `/session status` and `/session inspect` are explicitly absent from registry lookup tests. |
 | Scope boundary: no standalone `/session inspect` | ✅ Implemented | No separate descriptor/alias exists; service handles exact raw args branches only. |
-| Scope boundary: no list/browse/target-session expansion | ✅ Implemented | `handle_session(...)` accepts only `""`, `status`, and `inspect`; anything else returns `InvalidArguments`. |
-| Current-session-only, read-only inspect loader | ✅ Implemented | `load_current_session_read_model(...)` calls `get_session(session_id)` first, then optional `get_session_state_record(session_id)`, then only referenced `get_session_snapshot(...)` lookups. |
+| Scope boundary: no list/browse/target-session expansion | ✅ Implemented | `handle_session(...)` (the inspect slice) accepts only `""`, `status`, and `inspect`; anything else returns `InvalidArguments`. `/session list` is implemented separately via a widened service boundary accepting `CommandContext` for caller-scoped visibility. |
+| Current-session-only, read-only inspect loader | ✅ Implemented | `load_current_session_read_model(...)` (used by inspect) calls `get_session(session_id)` first, then optional `get_session_state_record(session_id)`, then only referenced `get_session_snapshot(...)` lookups. |
 | Human + structured output from same assembled model | ✅ Implemented | `handle_session_inspect(...)` builds one `SessionCommandSessionInspect` value, then `format_session_inspect_message(&inspect)` and `SessionCommandSuccessData::SessionInspect { inspect }` both derive from that same object. |
 | Explicit partial-data gap reporting | ✅ Implemented | Gap codes include `SlashSessionStateMissing`, `SnapshotUnavailableWithoutState`, `ReferencedSnapshotMissing`, `ReferencedSnapshotOwnershipMismatch`, and `ReferencedSnapshotKindMismatch`; message rendering prints those same gap details. |
 | Non-invented state behavior | ✅ Implemented | Unknown session returns `current_session_known = false` with no state/snapshots; missing state produces explicit gaps instead of default lifecycle/snapshot facts. |
 | `/session status` remains compact | ✅ Implemented | Status path still uses dedicated compact payload/message formatter and remains separate from inspect via a distinct `SessionInspect` success variant. |
-| Memory/sqlite scope containment | ✅ Implemented | Existing memory trait exports and SQLite methods already provide needed read APIs; no new memory contract or persistence expansion was introduced. |
+| Memory/sqlite scope containment | ✅ Implemented | Existing memory trait exports and SQLite methods provide read APIs used by inspect; no new memory contract or persistence expansion was introduced for the inspect slice. `/session list` introduces a separate caller-scoped list contract via a widened service boundary. |
 
 ---
 

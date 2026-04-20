@@ -441,7 +441,7 @@ pub struct SessionCommandInspectSnapshot {
     pub kind: SessionSnapshotKind,
     pub created_at: String,
     pub resume_capable: bool,
-    pub payload: serde_json::Value,
+    pub payload_preview: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

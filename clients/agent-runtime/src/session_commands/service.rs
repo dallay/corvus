@@ -136,10 +136,15 @@ impl<'a> SessionCommandService<'a> {
     ) -> Result<SessionCommandSuccess, SessionCommandFailure> {
         self.ensure_sqlite("/session", Some(session_id))?;
 
-        let read_model = self
-            .load_current_session_read_model("/session", session_id)
+        let session = self
+            .memory
+            .get_session(session_id)
+            .await
+            .map_err(|e| self.map_storage_error("/session", Some(session_id), e))?;
+        let state = self
+            .get_session_state_optional("/session", session_id)
             .await?;
-        let status = assemble_session_status(session_id, read_model.session, read_model.state);
+        let status = assemble_session_status(session_id, session, state);
         Ok(SessionCommandSuccess {
             command: "/session",
             session_id: session_id.to_string(),
@@ -1202,15 +1207,16 @@ fn assemble_inspect_snapshot_slot(
 
     SessionCommandInspectSnapshotSlot {
         reference_id: resolved.reference_id,
-        snapshot: resolved
-            .snapshot
-            .map(|snapshot| SessionCommandInspectSnapshot {
+        snapshot: resolved.snapshot.map(|snapshot| {
+            let payload_preview = create_payload_preview(&snapshot.payload);
+            SessionCommandInspectSnapshot {
                 snapshot_id: snapshot.id,
                 kind: snapshot.kind,
                 created_at: snapshot.created_at,
                 resume_capable: snapshot.resume_capable,
-                payload: snapshot.payload,
-            }),
+                payload_preview,
+            }
+        }),
     }
 }
 
@@ -1361,6 +1367,20 @@ fn bool_label(value: Option<bool>) -> &'static str {
         Some(true) => "yes",
         Some(false) => "no",
         None => "unknown",
+    }
+}
+
+/// Creates a redacted size-bounded preview of snapshot payload.
+/// Returns None for empty payloads, otherwise returns a preview truncated to 256 chars.
+fn create_payload_preview(payload: &serde_json::Value) -> Option<String> {
+    let payload_str = payload.to_string();
+    if payload_str.is_empty() {
+        return None;
+    }
+    if payload_str.len() <= 256 {
+        Some(payload_str)
+    } else {
+        Some(format!("{}...", &payload_str[..253]))
     }
 }
 

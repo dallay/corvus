@@ -175,24 +175,23 @@ SessionEntry?
 
 ```rust
 impl<'a> SessionCommandService<'a> {
-    pub async fn handle_session(&self, session_id: &str, raw_args: &str) -> SessionCommandOutcome;
+    pub async fn handle_session(&self, context: &CommandContext, raw_args: &str) -> SessionCommandOutcome;
 }
 ```
 
-Expected branch behavior:
+**Pre-list/inspect-slice contract** (for `status` and `inspect` branches only):
 
 ```text
-raw_args == ""           => success(SessionHelp)
 raw_args == "status"     => success(SessionStatus)
-raw_args == "inspect"    => success(SessionInspect)
-anything else             => failure(InvalidArguments)
+raw_args == "inspect"  => success(SessionInspect)
+raw_args == ""          => success(SessionHelp)
 ```
 
-Extra trailing tokens remain invalid for this slice:
+For `/session list`, see the separate slice that widens the service boundary to accept `CommandContext` for caller-scoped visibility. Extra trailing tokens remain invalid for this slice:
 
 ```text
+/session status extra  => InvalidArguments
 /session inspect extra => InvalidArguments
-/session list          => InvalidArguments
 ```
 
 ### Dedicated inspect success contract (preferred)
