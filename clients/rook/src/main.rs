@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use rook::server::ServerConfig;
 
 #[derive(Parser)]
 #[command(
@@ -19,8 +20,20 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Start the OpenAI-compatible HTTP gateway
-    Serve,
+    /// Start the OpenAI-compatible HTTP gateway and embedded dashboard
+    Serve {
+        /// Host address to bind to
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+
+        /// TCP port to listen on
+        #[arg(long, default_value_t = 4141)]
+        port: u16,
+
+        /// Enable the operator TUI alongside the HTTP server
+        #[arg(long, default_value_t = false)]
+        tui: bool,
+    },
     /// Launch the operator TUI
     Tui,
     /// Run diagnostics and check configuration
@@ -45,9 +58,13 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Serve => {
-            println!("rook serve: not yet implemented");
-            std::process::exit(1);
+        Commands::Serve { host, port, tui } => {
+            let config = ServerConfig {
+                host,
+                port,
+                enable_tui: tui,
+            };
+            rook::server::run(config).await?;
         }
         Commands::Tui => {
             println!("rook tui: not yet implemented");
@@ -64,4 +81,6 @@ async fn main() -> Result<()> {
             std::process::exit(1);
         }
     }
+
+    Ok(())
 }
