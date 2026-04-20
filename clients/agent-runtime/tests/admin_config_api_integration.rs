@@ -82,7 +82,7 @@ fn state_with_config(config: Config) -> AppState {
         trust_forwarded_headers: false,
         rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 1000)),
         idempotency_store: Arc::new(IdempotencyStore::new(
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_mins(1),
             1000,
         )),
         whatsapp: None,

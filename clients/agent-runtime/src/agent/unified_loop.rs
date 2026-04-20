@@ -13,7 +13,7 @@ impl Default for LoopConfig {
     fn default() -> Self {
         Self {
             max_iterations: 10,
-            timeout: Duration::from_secs(60),
+            timeout: Duration::from_mins(1),
             compaction_threshold: 4_096,
             approval_required_tool: None,
         }
