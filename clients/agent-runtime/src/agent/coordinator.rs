@@ -961,6 +961,629 @@ impl Coordinator {
     }
 }
 
+// ── Track 4 Slice 2: Supervised Child Lifecycle ──────────────────────────────
+//
+// Public read-model types and the `SupervisedOrchestrationService` that wraps
+// the `Coordinator` behind a lifecycle-aware registry.  All deferred
+// capabilities (peer messaging, remote transport, worktree isolation, permission
+// escalation) are explicitly out of scope for this slice.
+
+use std::sync::RwLock;
+use tokio::sync::Mutex as AsyncMutex;
+use tokio::task::JoinHandle;
+
+// ── Task 1.2: Read-model state enums ─────────────────────────────────────────
+
+/// Public mirror of [`CoordinatorState`] that does not leak internal details.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CoordinatorStateView {
+    Initialized,
+    Dispatching,
+    Supervising,
+    Cancelling,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl From<CoordinatorState> for CoordinatorStateView {
+    fn from(s: CoordinatorState) -> Self {
+        match s {
+            CoordinatorState::Initialized => Self::Initialized,
+            CoordinatorState::Dispatching => Self::Dispatching,
+            CoordinatorState::Supervising => Self::Supervising,
+            CoordinatorState::Cancelling => Self::Cancelling,
+            CoordinatorState::Completed => Self::Completed,
+            CoordinatorState::Failed => Self::Failed,
+            CoordinatorState::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
+/// Public mirror of [`ChildState`] that does not leak internal details.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChildStateView {
+    Registered,
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled,
+}
+
+impl From<ChildState> for ChildStateView {
+    fn from(s: ChildState) -> Self {
+        match s {
+            ChildState::Registered => Self::Registered,
+            ChildState::Running => Self::Running,
+            ChildState::Succeeded => Self::Succeeded,
+            ChildState::Failed => Self::Failed,
+            ChildState::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
+// ── Task 1.1: Public read-model types ────────────────────────────────────────
+
+/// Opaque handle that uniquely identifies a supervised orchestration run.
+///
+/// Implements `Hash + Eq` so it can serve as a `HashMap` key.
+/// Generated via UUIDv4; treat as an opaque string externally.
+///
+/// # Non-goals (deferred)
+/// Peer messaging, remote transport, worktree isolation, and permission
+/// escalation are not addressable via this handle in this slice.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct OrchestrationHandle(pub String);
+
+impl std::fmt::Display for OrchestrationHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl OrchestrationHandle {
+    fn new() -> Self {
+        Self(Uuid::new_v4().to_string())
+    }
+}
+
+/// Returned immediately by `SupervisedOrchestrationService::launch()`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OrchestrationLaunchReceipt {
+    pub handle: OrchestrationHandle,
+    pub snapshot: OrchestrationSnapshot,
+}
+
+/// Point-in-time read-model snapshot of a supervised orchestration run.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OrchestrationSnapshot {
+    pub handle: OrchestrationHandle,
+    pub parent_session_id: Option<String>,
+    pub state: CoordinatorStateView,
+    pub children: Vec<ChildLifecycleView>,
+    pub outcome: Option<OrchestrationOutcomeView>,
+}
+
+/// Read-model view of a single child within an orchestration run.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ChildLifecycleView {
+    pub child_id: String,
+    pub agent_name: String,
+    pub launch_index: u32,
+    pub session_id: Option<String>,
+    pub state: ChildStateView,
+    pub summary: Option<String>,
+    pub terminal_reason: Option<ChildTerminationView>,
+}
+
+impl From<&ChildRecord> for ChildLifecycleView {
+    fn from(r: &ChildRecord) -> Self {
+        Self {
+            child_id: r.child_id.0.clone(),
+            agent_name: r.agent_name.clone(),
+            launch_index: r.launch_index,
+            session_id: r.session_id.clone(),
+            state: r.state.clone().into(),
+            summary: r.summary.clone(),
+            terminal_reason: r.terminal_reason.as_ref().map(ChildTerminationView::from),
+        }
+    }
+}
+
+/// Read-model view of why a child's run terminated.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ChildTerminationView {
+    Completed,
+    Failed { message: String },
+    Cancelled { reason: CancellationReasonView },
+}
+
+impl From<&ChildTerminationReason> for ChildTerminationView {
+    fn from(r: &ChildTerminationReason) -> Self {
+        match r {
+            ChildTerminationReason::Completed => Self::Completed,
+            ChildTerminationReason::Failed(msg) => Self::Failed {
+                message: msg.clone(),
+            },
+            ChildTerminationReason::Cancelled(reason) => Self::Cancelled {
+                reason: reason.into(),
+            },
+        }
+    }
+}
+
+/// Read-model view of a cancellation reason.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CancellationReasonView {
+    ParentRequested,
+    SiblingFailed { child_id: String },
+}
+
+impl From<&CancellationReason> for CancellationReasonView {
+    fn from(r: &CancellationReason) -> Self {
+        match r {
+            CancellationReason::ParentRequested => Self::ParentRequested,
+            CancellationReason::SiblingFailed { child_id } => Self::SiblingFailed {
+                child_id: child_id.0.clone(),
+            },
+        }
+    }
+}
+
+/// Compact read-model view of a single child outcome used inside
+/// [`OrchestrationOutcomeView`].
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ChildOutcomeView {
+    pub child_id: String,
+    pub launch_index: u32,
+    pub state: ChildStateView,
+}
+
+impl From<&CoordinatorChildOutcome> for ChildOutcomeView {
+    fn from(o: &CoordinatorChildOutcome) -> Self {
+        match o {
+            CoordinatorChildOutcome::Succeeded {
+                child_id,
+                launch_index,
+                ..
+            } => Self {
+                child_id: child_id.0.clone(),
+                launch_index: *launch_index,
+                state: ChildStateView::Succeeded,
+            },
+            CoordinatorChildOutcome::Failed {
+                child_id,
+                launch_index,
+                ..
+            } => Self {
+                child_id: child_id.0.clone(),
+                launch_index: *launch_index,
+                state: ChildStateView::Failed,
+            },
+            CoordinatorChildOutcome::Cancelled {
+                child_id,
+                launch_index,
+                ..
+            } => Self {
+                child_id: child_id.0.clone(),
+                launch_index: *launch_index,
+                state: ChildStateView::Cancelled,
+            },
+        }
+    }
+}
+
+/// Terminal outcome of a supervised orchestration run.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OrchestrationOutcomeView {
+    Completed {
+        handle: OrchestrationHandle,
+        children: Vec<ChildOutcomeView>,
+    },
+    Failed {
+        handle: OrchestrationHandle,
+        error: String,
+        children: Vec<ChildOutcomeView>,
+    },
+    Cancelled {
+        handle: OrchestrationHandle,
+        reason: CancellationReasonView,
+        children: Vec<ChildOutcomeView>,
+    },
+}
+
+/// Disposition of a cancel request.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CancelDisposition {
+    /// The cancellation was accepted and the run has now terminated.
+    Accepted,
+    /// The run was already in a terminal state; no action was taken.
+    AlreadyTerminal,
+}
+
+/// Result returned by `SupervisedOrchestrationService::cancel()`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CancelResult {
+    pub disposition: CancelDisposition,
+    pub snapshot: OrchestrationSnapshot,
+}
+
+// ── Task 1.3: Internal registry types ────────────────────────────────────────
+
+/// Live state of a running orchestration tracked by the service.
+struct ActiveRun {
+    coordinator: Arc<Coordinator>,
+    cancel_token: CancellationToken,
+    /// Wrapped in `AsyncMutex<Option<...>>` so `cancel()` can `.take()` it
+    /// without holding the registry `RwLock` across an `.await`.
+    join_handle: AsyncMutex<Option<JoinHandle<Result<CoordinatorOutcome, CoordinatorError>>>>,
+    request: CoordinatorLaunchRequest,
+}
+
+/// Entry in the service registry.
+enum RunEntry {
+    Active(ActiveRun),
+    Terminal(OrchestrationSnapshot, CoordinatorOutcome),
+}
+
+// ── Task 1.3 (cont.) + Phase 2: SupervisedOrchestrationService ───────────────
+
+/// Error type for orchestration service operations.
+#[derive(Debug, thiserror::Error)]
+pub enum OrchestrationServiceError {
+    #[error("registry lock poisoned")]
+    LockPoisoned,
+    #[error("coordinator error: {0}")]
+    CoordinatorError(#[from] CoordinatorError),
+}
+
+/// Lifecycle-aware in-process orchestration service.
+///
+/// Wraps the `Coordinator` behind a handle-based registry, exposing
+/// `launch`, `inspect`, `cancel`, and `run_to_completion` service
+/// entrypoints.
+///
+/// # Non-goals (deferred to later slices)
+/// - Peer-to-peer child messaging
+/// - Remote bridge transport
+/// - Worktree / filesystem isolation
+/// - Permission escalation flows
+pub struct SupervisedOrchestrationService {
+    registry: RwLock<HashMap<OrchestrationHandle, RunEntry>>,
+}
+
+impl SupervisedOrchestrationService {
+    /// Create a new service with an empty registry.
+    pub fn new() -> Self {
+        Self {
+            registry: RwLock::new(HashMap::new()),
+        }
+    }
+
+    // ── Task 1.4: snapshot helper ─────────────────────────────────────────
+
+    fn snapshot_from_coordinator(
+        handle: &OrchestrationHandle,
+        coordinator: &Coordinator,
+        request: &CoordinatorLaunchRequest,
+        outcome: Option<OrchestrationOutcomeView>,
+    ) -> Result<OrchestrationSnapshot, OrchestrationServiceError> {
+        let state: CoordinatorStateView = coordinator
+            .current_state()
+            .map_err(OrchestrationServiceError::CoordinatorError)?
+            .into();
+
+        let child_ids = coordinator
+            .ordered_child_ids()
+            .map_err(OrchestrationServiceError::CoordinatorError)?;
+
+        let mut children = Vec::with_capacity(child_ids.len());
+        for id in &child_ids {
+            if let Some(record) = coordinator
+                .child_record(id)
+                .map_err(OrchestrationServiceError::CoordinatorError)?
+            {
+                children.push(ChildLifecycleView::from(&record));
+            }
+        }
+
+        Ok(OrchestrationSnapshot {
+            handle: handle.clone(),
+            parent_session_id: request.parent_session_id.clone(),
+            state,
+            children,
+            outcome,
+        })
+    }
+
+    // ── Task 2.1: launch ──────────────────────────────────────────────────
+
+    /// Launch a new supervised orchestration run.
+    ///
+    /// Creates a `Coordinator`, spawns it under a parent cancellation token,
+    /// registers the active run, and returns a receipt with an initial
+    /// snapshot.
+    pub async fn launch(
+        &self,
+        request: CoordinatorLaunchRequest,
+        runner: Arc<dyn CoordinatorChildRunner>,
+    ) -> Result<OrchestrationLaunchReceipt, OrchestrationServiceError> {
+        let handle = OrchestrationHandle::new();
+        let coordinator = Arc::new(Coordinator::new());
+        let cancel_token = CancellationToken::new();
+
+        let join_handle = {
+            let coordinator = coordinator.clone();
+            let token = cancel_token.clone();
+            let req = request.clone();
+            tokio::spawn(async move { coordinator.run_with_cancellation(req, runner, token).await })
+        };
+
+        let snapshot = Self::snapshot_from_coordinator(
+            &handle,
+            &coordinator,
+            &request,
+            None,
+        )?;
+
+        let active = ActiveRun {
+            coordinator,
+            cancel_token,
+            join_handle: AsyncMutex::new(Some(join_handle)),
+            request,
+        };
+
+        self.registry
+            .write()
+            .map_err(|_| OrchestrationServiceError::LockPoisoned)?
+            .insert(handle.clone(), RunEntry::Active(active));
+
+        Ok(OrchestrationLaunchReceipt { handle, snapshot })
+    }
+
+    // ── Task 2.2: inspect ─────────────────────────────────────────────────
+
+    /// Return a point-in-time snapshot for the given handle, or `None` if
+    /// the handle is unknown.
+    pub fn inspect(
+        &self,
+        handle: &OrchestrationHandle,
+    ) -> Result<Option<OrchestrationSnapshot>, OrchestrationServiceError> {
+        let registry = self
+            .registry
+            .read()
+            .map_err(|_| OrchestrationServiceError::LockPoisoned)?;
+
+        match registry.get(handle) {
+            None => Ok(None),
+            Some(RunEntry::Terminal(snapshot, _)) => Ok(Some(snapshot.clone())),
+            Some(RunEntry::Active(active)) => {
+                let snapshot = Self::snapshot_from_coordinator(
+                    handle,
+                    &active.coordinator,
+                    &active.request,
+                    None,
+                )?;
+                Ok(Some(snapshot))
+            }
+        }
+    }
+
+    // ── Task 2.3: cancel ──────────────────────────────────────────────────
+
+    /// Cancel a supervised run by handle.
+    ///
+    /// Returns `None` for unknown handles.
+    /// Returns `CancelDisposition::AlreadyTerminal` if the run is already done.
+    ///
+    /// IMPORTANT: does NOT hold the `RwLock` guard across any `.await`.
+    pub async fn cancel(
+        &self,
+        handle: &OrchestrationHandle,
+    ) -> Result<Option<CancelResult>, OrchestrationServiceError> {
+        // Step 1: read token + check terminal — hold read lock briefly.
+        let token_opt = {
+            let registry = self
+                .registry
+                .read()
+                .map_err(|_| OrchestrationServiceError::LockPoisoned)?;
+            match registry.get(handle) {
+                None => return Ok(None),
+                Some(RunEntry::Terminal(snapshot, _)) => {
+                    return Ok(Some(CancelResult {
+                        disposition: CancelDisposition::AlreadyTerminal,
+                        snapshot: snapshot.clone(),
+                    }));
+                }
+                Some(RunEntry::Active(active)) => Some(active.cancel_token.clone()),
+            }
+        }; // read lock dropped here
+
+        // Step 2: trigger cancellation outside any lock.
+        if let Some(token) = token_opt {
+            token.cancel();
+        }
+
+        // Step 3: take JoinHandle under async mutex (not RwLock).
+        let join_handle_opt = {
+            let registry = self
+                .registry
+                .read()
+                .map_err(|_| OrchestrationServiceError::LockPoisoned)?;
+            if let Some(RunEntry::Active(active)) = registry.get(handle) {
+                // Lock the async mutex to take the handle.
+                // `.try_lock()` is fine here since we just cancelled — no other
+                // future will be awaiting this handle except us.
+                active.join_handle.try_lock().ok().and_then(|mut g| g.take())
+            } else {
+                None
+            }
+        }; // read lock dropped here
+
+        // Step 4: await the join handle without any lock held.
+        let coordinator_outcome = if let Some(jh) = join_handle_opt {
+            jh.await
+                .map_err(|e| {
+                    OrchestrationServiceError::CoordinatorError(CoordinatorError::FailedClosed(
+                        format!("join error: {e}"),
+                    ))
+                })?
+                .map_err(OrchestrationServiceError::CoordinatorError)?
+        } else {
+            // Already taken (concurrent cancel?) — re-inspect.
+            let registry = self
+                .registry
+                .read()
+                .map_err(|_| OrchestrationServiceError::LockPoisoned)?;
+            if let Some(RunEntry::Terminal(snapshot, _)) = registry.get(handle) {
+                return Ok(Some(CancelResult {
+                    disposition: CancelDisposition::AlreadyTerminal,
+                    snapshot: snapshot.clone(),
+                }));
+            }
+            return Ok(None);
+        };
+
+        // Step 5: build outcome view + snapshot, store Terminal entry.
+        let outcome_view =
+            Self::build_outcome_view(handle, &coordinator_outcome);
+
+        // We need to read request from the active entry to build the snapshot.
+        // Move active → terminal under write lock.
+        let snapshot = {
+            let mut registry = self
+                .registry
+                .write()
+                .map_err(|_| OrchestrationServiceError::LockPoisoned)?;
+
+            if let Some(RunEntry::Active(active)) = registry.get(handle) {
+                let snap = Self::snapshot_from_coordinator(
+                    handle,
+                    &active.coordinator,
+                    &active.request,
+                    Some(outcome_view.clone()),
+                )?;
+                registry.insert(
+                    handle.clone(),
+                    RunEntry::Terminal(snap.clone(), coordinator_outcome),
+                );
+                snap
+            } else if let Some(RunEntry::Terminal(snap, _)) = registry.get(handle) {
+                snap.clone()
+            } else {
+                return Ok(None);
+            }
+        };
+
+        Ok(Some(CancelResult {
+            disposition: CancelDisposition::Accepted,
+            snapshot,
+        }))
+    }
+
+    // ── Task 2.4: run_to_completion ───────────────────────────────────────
+
+    /// Thin convenience wrapper: launch and await the terminal outcome.
+    ///
+    /// Reused by `DelegateTool` session-mode compatibility path.
+    pub async fn run_to_completion(
+        &self,
+        request: CoordinatorLaunchRequest,
+        runner: Arc<dyn CoordinatorChildRunner>,
+    ) -> Result<CoordinatorOutcome, OrchestrationServiceError> {
+        let receipt = self.launch(request, runner).await?;
+        let handle = receipt.handle;
+
+        // Take join handle and await without holding any lock.
+        let join_handle_opt = {
+            let registry = self
+                .registry
+                .read()
+                .map_err(|_| OrchestrationServiceError::LockPoisoned)?;
+            if let Some(RunEntry::Active(active)) = registry.get(&handle) {
+                active.join_handle.try_lock().ok().and_then(|mut g| g.take())
+            } else {
+                None
+            }
+        };
+
+        let outcome = if let Some(jh) = join_handle_opt {
+            jh.await
+                .map_err(|e| {
+                    OrchestrationServiceError::CoordinatorError(CoordinatorError::FailedClosed(
+                        format!("join error: {e}"),
+                    ))
+                })?
+                .map_err(OrchestrationServiceError::CoordinatorError)?
+        } else {
+            return Err(OrchestrationServiceError::CoordinatorError(
+                CoordinatorError::FailedClosed("join handle already taken".to_string()),
+            ));
+        };
+
+        let outcome_view = Self::build_outcome_view(&handle, &outcome);
+
+        // Store terminal entry.
+        {
+            let mut registry = self
+                .registry
+                .write()
+                .map_err(|_| OrchestrationServiceError::LockPoisoned)?;
+            if let Some(RunEntry::Active(active)) = registry.get(&handle) {
+                let snap = Self::snapshot_from_coordinator(
+                    &handle,
+                    &active.coordinator,
+                    &active.request,
+                    Some(outcome_view),
+                )?;
+                registry.insert(handle.clone(), RunEntry::Terminal(snap, outcome.clone()));
+            }
+        }
+
+        Ok(outcome)
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────
+
+    fn build_outcome_view(
+        handle: &OrchestrationHandle,
+        outcome: &CoordinatorOutcome,
+    ) -> OrchestrationOutcomeView {
+        match outcome {
+            CoordinatorOutcome::Completed { children, .. } => OrchestrationOutcomeView::Completed {
+                handle: handle.clone(),
+                children: children.iter().map(ChildOutcomeView::from).collect(),
+            },
+            CoordinatorOutcome::Failed {
+                error, children, ..
+            } => OrchestrationOutcomeView::Failed {
+                handle: handle.clone(),
+                error: error.clone(),
+                children: children.iter().map(ChildOutcomeView::from).collect(),
+            },
+            CoordinatorOutcome::Cancelled {
+                reason, children, ..
+            } => OrchestrationOutcomeView::Cancelled {
+                handle: handle.clone(),
+                reason: reason.into(),
+                children: children.iter().map(ChildOutcomeView::from).collect(),
+            },
+        }
+    }
+}
+
+impl Default for SupervisedOrchestrationService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
