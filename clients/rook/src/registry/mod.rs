@@ -40,6 +40,8 @@ pub struct RookRegistry {
     routes: SqliteRouteService,
     settings: SqliteSettingsService,
     health: InMemoryHealthService,
+    #[cfg(test)]
+    db: SqliteDb,
 }
 
 impl RookRegistry {
@@ -65,7 +67,16 @@ impl RookRegistry {
             routes: SqliteRouteService::new(db.clone()),
             settings: SqliteSettingsService::new(db.clone()),
             health: InMemoryHealthService::new(),
+            #[cfg(test)]
+            db,
         }
+    }
+
+    /// Expose the raw database handle for test-only surgery (e.g. breaking FK
+    /// constraints to set up adversarial scenarios).
+    #[cfg(test)]
+    pub fn db(&self) -> &SqliteDb {
+        &self.db
     }
 
     // ── Accessors ─────────────────────────────────────────────────────────────
