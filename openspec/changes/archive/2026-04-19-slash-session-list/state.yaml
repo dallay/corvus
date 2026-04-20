@@ -1,0 +1,13 @@
+change: slash-session-list
+current_phase: archive
+completed:
+  - explore
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+  - archive
+next: none
+updated: 2026-04-19T23:59:59Z

@@ -1,17 +1,23 @@
 use super::types::{
     sanitize_storage_error, CommandContext, SessionCommandFailure, SessionCommandFailureKind,
-    SessionCommandHelpEntry, SessionCommandOutcome, SessionCommandSessionStatus,
-    SessionCommandSuccess, SessionCommandSuccessData, SessionCommandToolEntry,
-    SessionCommandToolSourceKind,
+    SessionCommandHelpEntry, SessionCommandInspectGap, SessionCommandInspectGapCode,
+    SessionCommandInspectSessionRecord, SessionCommandInspectSnapshot,
+    SessionCommandInspectSnapshotSlot, SessionCommandInspectSnapshots,
+    SessionCommandInspectStateRecord, SessionCommandOutcome, SessionCommandSessionInspect,
+    SessionCommandSessionStatus, SessionCommandSuccess, SessionCommandSuccessData,
+    SessionCommandToolEntry, SessionCommandToolSourceKind,
 };
 use crate::memory::{
-    is_slash_session_unsupported_error, Memory, SessionFieldPatch, SessionSnapshotKind,
-    SessionStatePatch, SessionStatus, SlashSessionLifecycle,
+    is_slash_session_unsupported_error, Memory, SessionEntry, SessionFieldPatch, SessionListEntry,
+    SessionSnapshotKind, SessionSnapshotRecord, SessionStatePatch, SessionStateRecord,
+    SessionStatus, SlashSessionLifecycle,
 };
 use serde_json::json;
+use std::collections::HashMap;
 
 const DEFAULT_EXCERPT_LIMIT: usize = 8;
 const PREVIEW_LIMIT: usize = 120;
+const SESSION_LIST_LIMIT: u32 = 50;
 const SESSION_HELP_ENTRIES: &[SessionCommandHelpEntry] = &[
     SessionCommandHelpEntry {
         name: "/session",
@@ -21,9 +27,40 @@ const SESSION_HELP_ENTRIES: &[SessionCommandHelpEntry] = &[
     SessionCommandHelpEntry {
         name: "/session status",
         usage: "/session status",
-        description: "Inspect the current session without mutating session state.",
+        description: "Show a compact current-session summary without mutating session state.",
+    },
+    SessionCommandHelpEntry {
+        name: "/session inspect",
+        usage: "/session inspect",
+        description:
+            "Show a richer current-session inspection view without mutating session state.",
+    },
+    SessionCommandHelpEntry {
+        name: "/session list",
+        usage: "/session list",
+        description: "List caller-scoped accessible sessions without mutating session state.",
     },
 ];
+
+struct CurrentSessionReadModel {
+    session: Option<SessionEntry>,
+    state: Option<SessionStateRecord>,
+    snapshots: ResolvedInspectSnapshots,
+}
+
+#[derive(Default)]
+struct ResolvedInspectSnapshots {
+    latest_tldr: ResolvedInspectSnapshotSlot,
+    latest_compact: ResolvedInspectSnapshotSlot,
+    pending_hydration: ResolvedInspectSnapshotSlot,
+}
+
+#[derive(Default)]
+struct ResolvedInspectSnapshotSlot {
+    reference_id: Option<String>,
+    snapshot: Option<SessionSnapshotRecord>,
+    gap: Option<SessionCommandInspectGap>,
+}
 
 pub struct SessionCommandService<'a> {
     memory: &'a dyn Memory,
@@ -59,8 +96,13 @@ impl<'a> SessionCommandService<'a> {
         })
     }
 
-    pub async fn handle_session(&self, session_id: &str, raw_args: &str) -> SessionCommandOutcome {
+    pub async fn handle_session(
+        &self,
+        context: &CommandContext,
+        raw_args: &str,
+    ) -> SessionCommandOutcome {
         let trimmed = raw_args.trim();
+        let session_id = context.session.session_id.as_str();
 
         if trimmed.is_empty() {
             return SessionCommandOutcome::Success(SessionCommandSuccess {
@@ -73,40 +115,236 @@ impl<'a> SessionCommandService<'a> {
             });
         }
 
-        if trimmed != "status" {
-            return SessionCommandOutcome::Failure(self.failure(
+        let result = match trimmed {
+            "status" => self.handle_session_status(session_id).await,
+            "inspect" => self.handle_session_inspect(session_id).await,
+            "list" => self.handle_session_list(context).await,
+            _ => Err(self.failure(
                 "/session",
                 SessionCommandFailureKind::InvalidArguments,
                 Some(session_id),
                 invalid_session_usage_message(trimmed),
-            ));
-        }
-
-        let result: Result<SessionCommandSuccess, SessionCommandFailure> = async {
-            self.ensure_sqlite("/session", Some(session_id))?;
-
-            let session = self
-                .memory
-                .get_session(session_id)
-                .await
-                .map_err(|error| self.map_storage_error("/session", Some(session_id), error))?;
-            let state = self
-                .memory
-                .get_session_state_record(session_id)
-                .await
-                .map_err(|error| self.map_storage_error("/session", Some(session_id), error))?;
-
-            let status = assemble_session_status(session_id, session, state);
-            Ok(SessionCommandSuccess {
-                command: "/session",
-                session_id: session_id.to_string(),
-                message: format_session_status_message(&status),
-                data: SessionCommandSuccessData::SessionStatus { status },
-            })
-        }
-        .await;
+            )),
+        };
 
         Self::outcome_from_result(result)
+    }
+
+    async fn handle_session_status(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionCommandSuccess, SessionCommandFailure> {
+        self.ensure_sqlite("/session", Some(session_id))?;
+
+        let session = self
+            .memory
+            .get_session(session_id)
+            .await
+            .map_err(|e| self.map_storage_error("/session", Some(session_id), e))?;
+        let state = self
+            .get_session_state_optional("/session", session_id)
+            .await?;
+        let status = assemble_session_status(session_id, session, state);
+        Ok(SessionCommandSuccess {
+            command: "/session",
+            session_id: session_id.to_string(),
+            message: format_session_status_message(&status),
+            data: SessionCommandSuccessData::SessionStatus { status },
+        })
+    }
+
+    async fn handle_session_inspect(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionCommandSuccess, SessionCommandFailure> {
+        self.ensure_sqlite("/session", Some(session_id))?;
+
+        let read_model = self
+            .load_current_session_read_model("/session", session_id)
+            .await?;
+        let inspect = assemble_session_inspect(session_id, read_model);
+        Ok(SessionCommandSuccess {
+            command: "/session",
+            session_id: session_id.to_string(),
+            message: format_session_inspect_message(&inspect),
+            data: SessionCommandSuccessData::SessionInspect {
+                inspect: Box::new(inspect),
+            },
+        })
+    }
+
+    async fn handle_session_list(
+        &self,
+        context: &CommandContext,
+    ) -> Result<SessionCommandSuccess, SessionCommandFailure> {
+        let session_id = context.session.session_id.as_str();
+        self.ensure_sqlite("/session", Some(session_id))?;
+
+        let caller_scope_key = context.caller.scope_key().ok_or_else(|| {
+            self.failure(
+                "/session",
+                SessionCommandFailureKind::MissingCallerScope,
+                Some(session_id),
+                format!("[session:{session_id}] caller scope is required for /session list"),
+            )
+        })?;
+
+        let sessions = self
+            .memory
+            .list_session_rows_for_scope(caller_scope_key, SESSION_LIST_LIMIT, 0)
+            .await
+            .map_err(|error| self.map_storage_error("/session", Some(session_id), error))?;
+
+        Ok(SessionCommandSuccess {
+            command: "/session",
+            session_id: session_id.to_string(),
+            message: format_session_list_message(&sessions),
+            data: SessionCommandSuccessData::SessionList { sessions },
+        })
+    }
+
+    async fn load_current_session_read_model(
+        &self,
+        command: &'static str,
+        session_id: &str,
+    ) -> Result<CurrentSessionReadModel, SessionCommandFailure> {
+        let session = self
+            .memory
+            .get_session(session_id)
+            .await
+            .map_err(|error| self.map_storage_error(command, Some(session_id), error))?;
+
+        let Some(session) = session else {
+            return Ok(CurrentSessionReadModel {
+                session: None,
+                state: None,
+                snapshots: ResolvedInspectSnapshots::default(),
+            });
+        };
+
+        let state = self.get_session_state_optional(command, session_id).await?;
+        let snapshots = match state.as_ref() {
+            Some(state) => {
+                self.resolve_inspect_snapshots(command, session_id, state)
+                    .await?
+            }
+            None => ResolvedInspectSnapshots::default(),
+        };
+
+        Ok(CurrentSessionReadModel {
+            session: Some(session),
+            state,
+            snapshots,
+        })
+    }
+
+    async fn resolve_inspect_snapshots(
+        &self,
+        command: &'static str,
+        session_id: &str,
+        state: &SessionStateRecord,
+    ) -> Result<ResolvedInspectSnapshots, SessionCommandFailure> {
+        let mut cache = HashMap::<String, Option<SessionSnapshotRecord>>::new();
+
+        Ok(ResolvedInspectSnapshots {
+            latest_tldr: self
+                .resolve_inspect_snapshot_slot(
+                    command,
+                    session_id,
+                    state.latest_tldr_snapshot_id.as_deref(),
+                    SessionSnapshotKind::Tldr,
+                    "latest TLDR",
+                    &mut cache,
+                )
+                .await?,
+            latest_compact: self
+                .resolve_inspect_snapshot_slot(
+                    command,
+                    session_id,
+                    state.latest_compact_snapshot_id.as_deref(),
+                    SessionSnapshotKind::Compact,
+                    "latest compact",
+                    &mut cache,
+                )
+                .await?,
+            pending_hydration: self
+                .resolve_inspect_snapshot_slot(
+                    command,
+                    session_id,
+                    state.pending_hydration_snapshot_id.as_deref(),
+                    SessionSnapshotKind::Compact,
+                    "pending hydration",
+                    &mut cache,
+                )
+                .await?,
+        })
+    }
+
+    async fn resolve_inspect_snapshot_slot(
+        &self,
+        command: &'static str,
+        session_id: &str,
+        reference_id: Option<&str>,
+        expected_kind: SessionSnapshotKind,
+        slot_label: &'static str,
+        cache: &mut HashMap<String, Option<SessionSnapshotRecord>>,
+    ) -> Result<ResolvedInspectSnapshotSlot, SessionCommandFailure> {
+        let Some(reference_id) = reference_id else {
+            return Ok(ResolvedInspectSnapshotSlot::default());
+        };
+
+        let snapshot = if let Some(snapshot) = cache.get(reference_id) {
+            snapshot.clone()
+        } else {
+            let snapshot = self
+                .memory
+                .get_session_snapshot(reference_id)
+                .await
+                .map_err(|error| self.map_storage_error(command, Some(session_id), error))?;
+            cache.insert(reference_id.to_string(), snapshot.clone());
+            snapshot
+        };
+
+        let mut slot = ResolvedInspectSnapshotSlot {
+            reference_id: Some(reference_id.to_string()),
+            snapshot: None,
+            gap: None,
+        };
+
+        match snapshot {
+            None => {
+                slot.gap = Some(SessionCommandInspectGap {
+                    code: SessionCommandInspectGapCode::ReferencedSnapshotMissing,
+                    reference_id: Some(reference_id.to_string()),
+                    detail: format!(
+                        "referenced snapshot {reference_id} is missing from authoritative storage"
+                    ),
+                });
+            }
+            Some(snapshot) if snapshot.session_id != session_id => {
+                slot.gap = Some(SessionCommandInspectGap {
+                    code: SessionCommandInspectGapCode::ReferencedSnapshotOwnershipMismatch,
+                    reference_id: Some(reference_id.to_string()),
+                    detail: format!(
+                        "referenced snapshot {reference_id} belongs to a different session"
+                    ),
+                });
+            }
+            Some(snapshot) if snapshot.kind != expected_kind => {
+                slot.gap = Some(SessionCommandInspectGap {
+                    code: SessionCommandInspectGapCode::ReferencedSnapshotKindMismatch,
+                    reference_id: Some(reference_id.to_string()),
+                    detail: format!(
+                        "referenced snapshot {reference_id} has unexpected kind for {slot_label}"
+                    ),
+                });
+            }
+            Some(snapshot) => {
+                slot.snapshot = Some(snapshot);
+            }
+        }
+
+        Ok(slot)
     }
 
     pub async fn handle_tldr(&self, session_id: &str) -> SessionCommandOutcome {
@@ -786,7 +1024,31 @@ fn format_session_help_message() -> String {
 }
 
 fn invalid_session_usage_message(raw_args: &str) -> String {
-    format!("Unknown /session subcommand: '{raw_args}'. Usage: /session or /session status")
+    format!(
+        "Unknown /session subcommand: '{raw_args}'. Usage: /session, /session status, /session inspect, or /session list"
+    )
+}
+
+fn format_session_list_message(sessions: &[SessionListEntry]) -> String {
+    if sessions.is_empty() {
+        return "No accessible sessions for the current caller scope.".to_string();
+    }
+
+    let rows = sessions
+        .iter()
+        .map(|session| {
+            format!(
+                "- {} — {}, resumable={}, last activity {}",
+                session.id,
+                session.lifecycle.as_str(),
+                if session.resumable { "yes" } else { "no" },
+                session.last_activity
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!("Accessible sessions ({}):\n{rows}", sessions.len())
 }
 
 fn assemble_session_status(
@@ -867,6 +1129,97 @@ fn session_status_recommendation(
     }
 }
 
+fn assemble_session_inspect(
+    session_id: &str,
+    read_model: CurrentSessionReadModel,
+) -> SessionCommandSessionInspect {
+    let CurrentSessionReadModel {
+        session,
+        state,
+        snapshots,
+    } = read_model;
+
+    let Some(session) = session else {
+        return SessionCommandSessionInspect {
+            session_id: session_id.to_string(),
+            current_session_known: false,
+            session: None,
+            state: None,
+            snapshots: SessionCommandInspectSnapshots::default(),
+            gaps: Vec::new(),
+        };
+    };
+
+    let mut gaps = Vec::new();
+    let state_record = state.map(|record| SessionCommandInspectStateRecord {
+        lifecycle: record.lifecycle,
+        latest_tldr_snapshot_id: record.latest_tldr_snapshot_id,
+        latest_compact_snapshot_id: record.latest_compact_snapshot_id,
+        pending_hydration_snapshot_id: record.pending_hydration_snapshot_id,
+        suspended_at: record.suspended_at,
+        updated_at: record.updated_at,
+    });
+
+    if state_record.is_none() {
+        gaps.push(SessionCommandInspectGap {
+            code: SessionCommandInspectGapCode::SlashSessionStateMissing,
+            reference_id: None,
+            detail: "slash-session state is missing from authoritative storage".to_string(),
+        });
+        gaps.push(SessionCommandInspectGap {
+            code: SessionCommandInspectGapCode::SnapshotUnavailableWithoutState,
+            reference_id: None,
+            detail:
+                "snapshot-derived details are unavailable because slash-session state is missing"
+                    .to_string(),
+        });
+    }
+
+    let inspect_snapshots = SessionCommandInspectSnapshots {
+        latest_tldr: assemble_inspect_snapshot_slot(snapshots.latest_tldr, &mut gaps),
+        latest_compact: assemble_inspect_snapshot_slot(snapshots.latest_compact, &mut gaps),
+        pending_hydration: assemble_inspect_snapshot_slot(snapshots.pending_hydration, &mut gaps),
+    };
+
+    SessionCommandSessionInspect {
+        session_id: session.id,
+        current_session_known: true,
+        session: Some(SessionCommandInspectSessionRecord {
+            status: session.status,
+            started_at: session.started_at,
+            last_activity: session.last_activity,
+            ended_at: session.ended_at,
+            message_count: session.message_count,
+        }),
+        state: state_record,
+        snapshots: inspect_snapshots,
+        gaps,
+    }
+}
+
+fn assemble_inspect_snapshot_slot(
+    resolved: ResolvedInspectSnapshotSlot,
+    gaps: &mut Vec<SessionCommandInspectGap>,
+) -> SessionCommandInspectSnapshotSlot {
+    if let Some(gap) = resolved.gap {
+        gaps.push(gap);
+    }
+
+    SessionCommandInspectSnapshotSlot {
+        reference_id: resolved.reference_id,
+        snapshot: resolved.snapshot.map(|snapshot| {
+            let payload_preview = create_payload_preview(&snapshot.payload);
+            SessionCommandInspectSnapshot {
+                snapshot_id: snapshot.id,
+                kind: snapshot.kind,
+                created_at: snapshot.created_at,
+                resume_capable: snapshot.resume_capable,
+                payload_preview,
+            }
+        }),
+    }
+}
+
 fn format_session_status_message(status: &SessionCommandSessionStatus) -> String {
     if !status.current_session_known {
         return format!(
@@ -898,11 +1251,136 @@ fn format_session_status_message(status: &SessionCommandSessionStatus) -> String
     )
 }
 
+fn format_session_inspect_message(inspect: &SessionCommandSessionInspect) -> String {
+    if !inspect.current_session_known {
+        return format!(
+            "[session:{}] current session is unknown to slash-session state",
+            inspect.session_id
+        );
+    }
+
+    let mut lines = vec![format!(
+        "[session:{}] current session inspection",
+        inspect.session_id
+    )];
+
+    if let Some(session) = inspect.session.as_ref() {
+        let ended = session
+            .ended_at
+            .as_deref()
+            .map(|ended_at| format!(", ended {ended_at}"))
+            .unwrap_or_default();
+        lines.push(format!(
+            "Session record: {}, started {}, last activity {}, messages {}{}",
+            session.status.as_str(),
+            session.started_at,
+            session.last_activity,
+            session.message_count,
+            ended,
+        ));
+    }
+
+    match inspect.state.as_ref() {
+        Some(state) => {
+            let suspended = state
+                .suspended_at
+                .as_deref()
+                .map(|value| format!(", suspended at {value}"))
+                .unwrap_or_default();
+            lines.push(format!(
+                "Slash state: {}, updated {}{}",
+                state.lifecycle.as_str(),
+                state.updated_at,
+                suspended,
+            ));
+        }
+        None => lines.push("Slash state: missing from authoritative storage".to_string()),
+    }
+
+    lines.push("Snapshots:".to_string());
+    lines.push(format_snapshot_line(
+        "TLDR",
+        &inspect.snapshots.latest_tldr,
+        inspect.state.is_some(),
+    ));
+    lines.push(format_snapshot_line(
+        "Compact",
+        &inspect.snapshots.latest_compact,
+        inspect.state.is_some(),
+    ));
+    lines.push(format_snapshot_line(
+        "Pending hydration",
+        &inspect.snapshots.pending_hydration,
+        inspect.state.is_some(),
+    ));
+
+    if !inspect.gaps.is_empty() {
+        lines.push("Gaps:".to_string());
+        lines.extend(inspect.gaps.iter().map(|gap| format!("- {}", gap.detail)));
+    }
+
+    lines.join("\n")
+}
+
+fn format_snapshot_line(
+    label: &str,
+    slot: &SessionCommandInspectSnapshotSlot,
+    has_state: bool,
+) -> String {
+    match (
+        slot.reference_id.as_deref(),
+        slot.snapshot.as_ref(),
+        has_state,
+    ) {
+        (Some(_reference_id), Some(snapshot), _) => {
+            let resume_capable = if snapshot.resume_capable {
+                " (resume-capable)"
+            } else {
+                ""
+            };
+            format!(
+                "- {label}: {} @ {}{}",
+                snapshot.snapshot_id, snapshot.created_at, resume_capable
+            )
+        }
+        (Some(reference_id), None, _) => {
+            format!("- {label}: referenced snapshot {reference_id} not available")
+        }
+        (None, None, false) => format!("- {label}: unavailable (slash-session state missing)"),
+        (None, None, true) => format!("- {label}: none"),
+        (None, Some(snapshot), _) => {
+            let resume_capable = if snapshot.resume_capable {
+                " (resume-capable)"
+            } else {
+                ""
+            };
+            format!(
+                "- {label}: {} @ {}{}",
+                snapshot.snapshot_id, snapshot.created_at, resume_capable
+            )
+        }
+    }
+}
+
 fn bool_label(value: Option<bool>) -> &'static str {
     match value {
         Some(true) => "yes",
         Some(false) => "no",
         None => "unknown",
+    }
+}
+
+/// Creates a redacted size-bounded preview of snapshot payload.
+/// Returns None for empty payloads, otherwise returns a preview truncated to 256 chars.
+fn create_payload_preview(payload: &serde_json::Value) -> Option<String> {
+    let payload_str = payload.to_string();
+    if payload_str.is_empty() {
+        return None;
+    }
+    if payload_str.len() <= 256 {
+        Some(payload_str)
+    } else {
+        Some(format!("{}...", &payload_str[..253]))
     }
 }
 
@@ -1027,10 +1505,12 @@ mod tests {
     use crate::config::ExecutionMode;
     use crate::memory::{
         MemoryCategory, MemoryEntry, ResumableSessionEntry, SessionEntry, SessionFieldPatch,
-        SessionSnapshotKind, SessionSnapshotRecord, SessionStatePatch, SessionStateRecord,
+        SessionListEntry, SessionSnapshotKind, SessionSnapshotRecord, SessionStatePatch,
+        SessionStateRecord,
     };
     use crate::session_commands::{
-        CommandContext, CommandSessionSource, SessionCommandToolEntry, SessionCommandToolSourceKind,
+        CommandContext, CommandSessionSource, SessionCommandInspectGapCode,
+        SessionCommandSuccessData, SessionCommandToolEntry, SessionCommandToolSourceKind,
     };
     use async_trait::async_trait;
     use std::collections::HashMap;
@@ -1043,6 +1523,7 @@ mod tests {
         states: Mutex<HashMap<String, SessionStateRecord>>,
         snapshots: Mutex<Vec<SessionSnapshotRecord>>,
         listed_by_scope: HashMap<String, Vec<ResumableSessionEntry>>,
+        session_rows_by_scope: HashMap<String, Vec<SessionListEntry>>,
         scoped_targets: HashMap<(String, String), ResumableSessionEntry>,
         list_error: Option<String>,
     }
@@ -1056,6 +1537,7 @@ mod tests {
                 states: Mutex::new(HashMap::new()),
                 snapshots: Mutex::new(Vec::new()),
                 listed_by_scope: HashMap::new(),
+                session_rows_by_scope: HashMap::new(),
                 scoped_targets: HashMap::new(),
                 list_error: None,
             }
@@ -1225,6 +1707,19 @@ mod tests {
                 .unwrap_or_default())
         }
 
+        async fn list_session_rows_for_scope(
+            &self,
+            caller_scope_key: &str,
+            _limit: u32,
+            _offset: u32,
+        ) -> anyhow::Result<Vec<SessionListEntry>> {
+            Ok(self
+                .session_rows_by_scope
+                .get(caller_scope_key)
+                .cloned()
+                .unwrap_or_default())
+        }
+
         async fn get_resumable_session_for_scope(
             &self,
             session_id: &str,
@@ -1320,6 +1815,17 @@ mod tests {
             created_at: "now".to_string(),
             payload: json!({"preview": "resume me"}),
             resume_capable: true,
+        }
+    }
+
+    fn tldr_snapshot(session_id: &str, snapshot_id: &str) -> SessionSnapshotRecord {
+        SessionSnapshotRecord {
+            id: snapshot_id.to_string(),
+            session_id: session_id.to_string(),
+            kind: SessionSnapshotKind::Tldr,
+            created_at: "tldr-created".to_string(),
+            payload: json!({"summary": "short summary"}),
+            resume_capable: false,
         }
     }
 
@@ -1687,18 +2193,117 @@ mod tests {
         let memory = FakeMemory::default();
         let service = SessionCommandService::new(&memory);
 
-        let result = expect_success(service.handle_session("session-current", "").await);
+        let result = expect_success(service.handle_session(&context(None), "").await);
 
         assert_eq!(result.command, "/session");
         assert!(result.message.contains("/session status"));
+        assert!(result.message.contains("/session inspect"));
+        assert!(result.message.contains("/session list"));
         assert!(result.message.contains("/resume"));
         assert!(matches!(
             result.data,
             SessionCommandSuccessData::SessionHelp { ref entries }
             if entries.iter().any(|entry| entry.usage == "/session status")
+                && entries.iter().any(|entry| entry.usage == "/session inspect")
+                && entries.iter().any(|entry| entry.usage == "/session list")
         ));
         assert!(memory.states.lock().unwrap().is_empty());
         assert!(memory.snapshots.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn session_root_help_mentions_session_list() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+
+        let result = expect_success(service.handle_session(&context(Some("scope-a")), "").await);
+
+        assert!(result.message.contains("/session list"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::SessionHelp { ref entries }
+                if entries.iter().any(|entry| entry.usage == "/session list")
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_list_returns_caller_scoped_rows_in_desc_order_with_balanced_output() {
+        let rows = vec![
+            SessionListEntry {
+                id: "sess-c".to_string(),
+                last_activity: "2026-04-19T12:01:00Z".to_string(),
+                lifecycle: SlashSessionLifecycle::Suspended,
+                resumable: true,
+            },
+            SessionListEntry {
+                id: "sess-a".to_string(),
+                last_activity: "2026-04-19T12:00:00Z".to_string(),
+                lifecycle: SlashSessionLifecycle::Active,
+                resumable: false,
+            },
+        ];
+        let memory = FakeMemory {
+            session_rows_by_scope: HashMap::from([("scope-a".to_string(), rows.clone())]),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = expect_success(
+            service
+                .handle_session(&context(Some("scope-a")), "list")
+                .await,
+        );
+
+        assert!(result.message.contains("sess-c"));
+        assert!(result.message.contains("sess-a"));
+        assert_eq!(
+            result.data,
+            SessionCommandSuccessData::SessionList { sessions: rows }
+        );
+    }
+
+    #[tokio::test]
+    async fn session_list_returns_empty_success_for_scope_with_no_visible_sessions() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+
+        let result = expect_success(
+            service
+                .handle_session(&context(Some("scope-a")), "list")
+                .await,
+        );
+
+        assert!(result.message.contains("No accessible sessions"));
+        assert_eq!(
+            result.data,
+            SessionCommandSuccessData::SessionList {
+                sessions: Vec::new(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn session_list_requires_caller_scope() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+
+        let failure = expect_failure(service.handle_session(&context(None), "list").await);
+
+        assert_eq!(failure.kind, SessionCommandFailureKind::MissingCallerScope);
+    }
+
+    #[tokio::test]
+    async fn session_list_rejects_extra_tokens_after_supported_subcommand() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+
+        let failure = expect_failure(
+            service
+                .handle_session(&context(Some("scope-a")), "list extra")
+                .await,
+        );
+
+        assert_eq!(failure.kind, SessionCommandFailureKind::InvalidArguments);
     }
 
     #[tokio::test]
@@ -1715,7 +2320,7 @@ mod tests {
         };
         let service = SessionCommandService::new(&memory);
 
-        let result = expect_success(service.handle_session("session-current", "status").await);
+        let result = expect_success(service.handle_session(&context(None), "status").await);
 
         assert_eq!(result.command, "/session");
         assert!(result
@@ -1759,7 +2364,7 @@ mod tests {
         };
         let service = SessionCommandService::new(&memory);
 
-        let result = expect_success(service.handle_session("session-current", "status").await);
+        let result = expect_success(service.handle_session(&context(None), "status").await);
 
         assert!(result.message.contains("Recommended next command: /resume"));
         assert!(matches!(
@@ -1787,7 +2392,7 @@ mod tests {
         };
         let service = SessionCommandService::new(&memory);
 
-        let result = expect_success(service.handle_session("session-current", "status").await);
+        let result = expect_success(service.handle_session(&context(None), "status").await);
 
         assert!(matches!(
             result.data,
@@ -1804,7 +2409,13 @@ mod tests {
         let memory = FakeMemory::default();
         let service = SessionCommandService::new(&memory);
 
-        let result = expect_success(service.handle_session("session-missing", "status").await);
+        let missing = CommandContext::for_cli(
+            "session-missing",
+            CommandSessionSource::Existing,
+            ExecutionMode::Standard,
+            None,
+        );
+        let result = expect_success(service.handle_session(&missing, "status").await);
 
         assert!(result
             .message
@@ -1830,8 +2441,8 @@ mod tests {
         };
         let service = SessionCommandService::new(&memory);
 
-        let help = expect_success(service.handle_session("session-current", "").await);
-        let failure = expect_failure(service.handle_session("session-current", "status").await);
+        let help = expect_success(service.handle_session(&context(None), "").await);
+        let failure = expect_failure(service.handle_session(&context(None), "status").await);
 
         assert!(matches!(
             help.data,
@@ -1866,7 +2477,7 @@ mod tests {
         };
         let service = SessionCommandService::new(&memory);
 
-        let result = expect_success(service.handle_session("session-current", "status").await);
+        let result = expect_success(service.handle_session(&context(None), "status").await);
 
         assert!(matches!(
             result.data,
@@ -1880,12 +2491,14 @@ mod tests {
         let memory = FakeMemory::default();
         let service = SessionCommandService::new(&memory);
 
-        let failure = expect_failure(service.handle_session("session-current", "inspect").await);
+        let failure = expect_failure(service.handle_session(&context(None), "archive").await);
 
         assert_eq!(failure.command, "/session");
         assert_eq!(failure.kind, SessionCommandFailureKind::InvalidArguments);
         assert!(failure.message.contains("Usage: /session"));
         assert!(failure.message.contains("/session status"));
+        assert!(failure.message.contains("/session inspect"));
+        assert!(failure.message.contains("/session list"));
     }
 
     #[tokio::test]
@@ -1902,9 +2515,230 @@ mod tests {
         };
         let service = SessionCommandService::new(&memory);
 
+        let failure = expect_failure(service.handle_session(&context(None), "status extra").await);
+
+        assert_eq!(failure.kind, SessionCommandFailureKind::InvalidArguments);
+    }
+
+    #[tokio::test]
+    async fn session_inspect_returns_richer_current_session_view_when_authoritative_data_is_complete(
+    ) {
+        let memory = FakeMemory {
+            sessions: HashMap::from([(
+                "session-current".to_string(),
+                SessionEntry {
+                    id: "session-current".into(),
+                    ..active_session()
+                },
+            )]),
+            states: Mutex::new(HashMap::from([(
+                "session-current".to_string(),
+                SessionStateRecord {
+                    session_id: "session-current".to_string(),
+                    lifecycle: SlashSessionLifecycle::Suspended,
+                    latest_tldr_snapshot_id: Some("tldr-1".to_string()),
+                    latest_compact_snapshot_id: Some("compact-1".to_string()),
+                    pending_hydration_snapshot_id: Some("compact-1".to_string()),
+                    suspended_at: Some("suspended-at".to_string()),
+                    updated_at: "updated-at".to_string(),
+                },
+            )])),
+            snapshots: Mutex::new(vec![
+                tldr_snapshot("session-current", "tldr-1"),
+                compact_snapshot("session-current", "compact-1"),
+            ]),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = expect_success(service.handle_session(&context(None), "inspect").await);
+
+        assert_eq!(result.command, "/session");
+        assert!(result.message.contains("current session inspection"));
+        assert!(result.message.contains("Session record: active"));
+        assert!(result.message.contains("Slash state: suspended"));
+        assert!(result.message.contains("TLDR: tldr-1 @ tldr-created"));
+        assert!(result
+            .message
+            .contains("Compact: compact-1 @ now (resume-capable)"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::SessionInspect { ref inspect }
+                if inspect.session_id == "session-current"
+                    && inspect.current_session_known
+                    && inspect.gaps.is_empty()
+                    && inspect.session.as_ref().map(|session| session.message_count) == Some(3)
+                    && inspect.state.as_ref().map(|state| state.lifecycle)
+                        == Some(SlashSessionLifecycle::Suspended)
+                    && inspect.snapshots.latest_tldr.reference_id.as_deref() == Some("tldr-1")
+                    && inspect.snapshots.latest_tldr.snapshot.as_ref().map(|snapshot| snapshot.snapshot_id.as_str())
+                        == Some("tldr-1")
+                    && inspect.snapshots.latest_compact.reference_id.as_deref() == Some("compact-1")
+                    && inspect
+                        .snapshots
+                        .latest_compact
+                        .snapshot
+                        .as_ref()
+                        .is_some_and(|snapshot| snapshot.resume_capable)
+                    && inspect.snapshots.pending_hydration.reference_id.as_deref() == Some("compact-1")
+                    && inspect.snapshots.pending_hydration.snapshot.as_ref().map(|snapshot| snapshot.snapshot_id.as_str())
+                        == Some("compact-1")
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_inspect_returns_partial_data_when_state_is_missing() {
+        let memory = FakeMemory {
+            sessions: HashMap::from([(
+                "session-current".to_string(),
+                SessionEntry {
+                    id: "session-current".into(),
+                    ..active_session()
+                },
+            )]),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = expect_success(service.handle_session(&context(None), "inspect").await);
+
+        assert!(result
+            .message
+            .contains("Slash state: missing from authoritative storage"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::SessionInspect { ref inspect }
+                if inspect.current_session_known
+                    && inspect.session.is_some()
+                    && inspect.state.is_none()
+                    && inspect.snapshots.latest_tldr.reference_id.is_none()
+                    && inspect.snapshots.latest_tldr.snapshot.is_none()
+                    && inspect.gaps.iter().any(|gap| gap.code == SessionCommandInspectGapCode::SlashSessionStateMissing)
+                    && inspect.gaps.iter().any(|gap| gap.code == SessionCommandInspectGapCode::SnapshotUnavailableWithoutState)
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_inspect_reports_missing_and_mismatched_referenced_snapshots_without_inventing_details(
+    ) {
+        let memory = FakeMemory {
+            sessions: HashMap::from([(
+                "session-current".to_string(),
+                SessionEntry {
+                    id: "session-current".into(),
+                    ..active_session()
+                },
+            )]),
+            states: Mutex::new(HashMap::from([(
+                "session-current".to_string(),
+                SessionStateRecord {
+                    session_id: "session-current".to_string(),
+                    lifecycle: SlashSessionLifecycle::Active,
+                    latest_tldr_snapshot_id: Some("missing-tldr".to_string()),
+                    latest_compact_snapshot_id: Some("other-session-compact".to_string()),
+                    pending_hydration_snapshot_id: Some("wrong-kind".to_string()),
+                    suspended_at: None,
+                    updated_at: "updated-at".to_string(),
+                },
+            )])),
+            snapshots: Mutex::new(vec![
+                compact_snapshot("other-session", "other-session-compact"),
+                tldr_snapshot("session-current", "wrong-kind"),
+            ]),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let result = expect_success(service.handle_session(&context(None), "inspect").await);
+
+        assert!(result
+            .message
+            .contains("referenced snapshot missing-tldr is missing from authoritative storage"));
+        assert!(result
+            .message
+            .contains("referenced snapshot other-session-compact belongs to a different session"));
+        assert!(result
+            .message
+            .contains("referenced snapshot wrong-kind has unexpected kind for pending hydration"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::SessionInspect { ref inspect }
+                if inspect.current_session_known
+                    && inspect.state.is_some()
+                    && inspect.snapshots.latest_tldr.reference_id.as_deref() == Some("missing-tldr")
+                    && inspect.snapshots.latest_tldr.snapshot.is_none()
+                    && inspect.snapshots.latest_compact.reference_id.as_deref() == Some("other-session-compact")
+                    && inspect.snapshots.latest_compact.snapshot.is_none()
+                    && inspect.snapshots.pending_hydration.reference_id.as_deref() == Some("wrong-kind")
+                    && inspect.snapshots.pending_hydration.snapshot.is_none()
+                    && inspect.gaps.iter().any(|gap| gap.code == SessionCommandInspectGapCode::ReferencedSnapshotMissing && gap.reference_id.as_deref() == Some("missing-tldr"))
+                    && inspect.gaps.iter().any(|gap| gap.code == SessionCommandInspectGapCode::ReferencedSnapshotOwnershipMismatch && gap.reference_id.as_deref() == Some("other-session-compact"))
+                    && inspect.gaps.iter().any(|gap| gap.code == SessionCommandInspectGapCode::ReferencedSnapshotKindMismatch && gap.reference_id.as_deref() == Some("wrong-kind"))
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_inspect_reports_unknown_current_session_without_inventing_state() {
+        let memory = FakeMemory::default();
+        let service = SessionCommandService::new(&memory);
+
+        let missing = CommandContext::for_cli(
+            "session-missing",
+            CommandSessionSource::Existing,
+            ExecutionMode::Standard,
+            None,
+        );
+        let result = expect_success(service.handle_session(&missing, "inspect").await);
+
+        assert!(result
+            .message
+            .contains("current session is unknown to slash-session state"));
+        assert!(matches!(
+            result.data,
+            SessionCommandSuccessData::SessionInspect { ref inspect }
+                if inspect.session_id == "session-missing"
+                    && !inspect.current_session_known
+                    && inspect.session.is_none()
+                    && inspect.state.is_none()
+                    && inspect.gaps.is_empty()
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_inspect_requires_sqlite_backend_only_for_inspect_branch() {
+        let memory = FakeMemory {
+            backend: "markdown",
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
+        let help = expect_success(service.handle_session(&context(None), "").await);
+        let failure = expect_failure(service.handle_session(&context(None), "inspect").await);
+
+        assert!(matches!(
+            help.data,
+            SessionCommandSuccessData::SessionHelp { .. }
+        ));
+        assert_eq!(failure.kind, SessionCommandFailureKind::UnsupportedBackend);
+    }
+
+    #[tokio::test]
+    async fn session_inspect_rejects_extra_tokens_after_supported_subcommand() {
+        let memory = FakeMemory {
+            sessions: HashMap::from([(
+                "session-current".to_string(),
+                SessionEntry {
+                    id: "session-current".into(),
+                    ..active_session()
+                },
+            )]),
+            ..Default::default()
+        };
+        let service = SessionCommandService::new(&memory);
+
         let failure = expect_failure(
             service
-                .handle_session("session-current", "status extra")
+                .handle_session(&context(None), "inspect extra")
                 .await,
         );
 

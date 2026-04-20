@@ -64,20 +64,35 @@ impl RouteService for InMemoryRouteService {
     }
 
     fn resolve(&self, logical_model: &str) -> Option<ModelRoute> {
-        self.store
-            .lock()
-            .ok()?
+        let guard = self.store.lock().ok()?;
+        let matches: Vec<ModelRoute> = guard
             .values()
-            .find(|r| r.logical_model == logical_model)
+            .filter(|r| r.logical_model == logical_model)
             .cloned()
+            .collect();
+        // Only return a route if exactly one match exists
+        if matches.len() == 1 {
+            Some(matches[0].clone())
+        } else {
+            None
+        }
     }
 
     fn create(&self, route: ModelRoute) -> Result<RouteId, RookError> {
         let id = route.id;
-        self.store
+        let mut guard = self.store
             .lock()
-            .map_err(|e| RookError::Registry(e.to_string()))?
-            .insert(id, route);
+            .map_err(|e| RookError::Registry(e.to_string()))?;
+
+        // Check for duplicate logical_model
+        if guard.values().any(|r| r.logical_model == route.logical_model) {
+            return Err(RookError::Registry(format!(
+                "route with logical_model '{}' already exists",
+                route.logical_model
+            )));
+        }
+
+        guard.insert(id, route);
         Ok(id)
     }
 
@@ -87,6 +102,15 @@ impl RouteService for InMemoryRouteService {
         if !guard.contains_key(&route.id) {
             return Err(RookError::Registry(format!("route {} not found", route.id)));
         }
+
+        // Check for duplicate logical_model (excluding the current route)
+        if guard.values().any(|r| r.id != route.id && r.logical_model == route.logical_model) {
+            return Err(RookError::Registry(format!(
+                "another route with logical_model '{}' already exists",
+                route.logical_model
+            )));
+        }
+
         guard.insert(route.id, route);
         Ok(())
     }

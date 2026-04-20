@@ -72,10 +72,16 @@ impl PoolService for InMemoryPoolService {
 
     fn create(&self, pool: ProviderPool) -> Result<PoolId, RookError> {
         let id = pool.id;
-        self.store
+        let mut guard = self.store
             .lock()
-            .map_err(|e| RookError::Registry(e.to_string()))?
-            .insert(id, pool);
+            .map_err(|e| RookError::Registry(e.to_string()))?;
+        if guard.contains_key(&id) {
+            return Err(RookError::Registry(format!(
+                "pool {} already exists",
+                id
+            )));
+        }
+        guard.insert(id, pool);
         Ok(id)
     }
 

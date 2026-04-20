@@ -256,7 +256,8 @@ fn built_in_registrations() -> [SlashCommandRegistration; 11] {
             descriptor: SlashCommandDescriptor {
                 canonical_name: "/session",
                 aliases: &[],
-                description: "Show session help or inspect the current session.",
+                description:
+                    "Show session help, caller-scoped list, compact status, or richer inspection.",
                 argument_shape: SlashCommandArgumentShape::OptionalText,
                 requirements: SlashCommandRequirements {
                     capabilities: SESSION_READ,
@@ -423,9 +424,7 @@ impl SlashCommandHandler for SessionHandler {
         context: CommandContext,
         invocation: SlashInvocation,
     ) -> SessionCommandOutcome {
-        service
-            .handle_session(&context.session.session_id, &invocation.raw_args)
-            .await
+        service.handle_session(&context, &invocation.raw_args).await
     }
 }
 
@@ -839,6 +838,8 @@ mod tests {
             &[CommandCapability::SessionRead]
         );
         assert!(registry.get("/session status").is_none());
+        assert!(registry.get("/session inspect").is_none());
+        assert!(registry.get("/session list").is_none());
 
         let resume_alias = registry
             .get("/continue")
@@ -1127,6 +1128,92 @@ mod tests {
             SessionCommandOutcome::Failure(SessionCommandFailure {
                 command: "/session",
                 kind: SessionCommandFailureKind::UnsupportedBackend,
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn dispatch_routes_session_inspect_as_raw_args_on_canonical_command() {
+        let service = SessionCommandService::new(&RegistryMemory);
+
+        let result = default_registry()
+            .dispatch(
+                &service,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                "/session inspect",
+            )
+            .await
+            .expect("built-in command should resolve");
+
+        assert!(matches!(
+            result,
+            SessionCommandOutcome::Failure(SessionCommandFailure {
+                command: "/session",
+                kind: SessionCommandFailureKind::UnsupportedBackend,
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn dispatch_routes_session_list_as_raw_args_on_canonical_command() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let memory = crate::memory::SqliteMemory::new(temp_dir.path()).unwrap();
+        let service = SessionCommandService::new(&memory);
+
+        let result = default_registry()
+            .dispatch(
+                &service,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    Some("scope-a".to_string()),
+                ),
+                "/session list",
+            )
+            .await
+            .expect("built-in command should resolve");
+
+        assert!(matches!(
+            result,
+            SessionCommandOutcome::Success(crate::session_commands::SessionCommandSuccess {
+                command: "/session",
+                data: crate::session_commands::SessionCommandSuccessData::SessionList { .. },
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn dispatch_keeps_unsupported_session_subcommands_inside_canonical_family_handler() {
+        let service = SessionCommandService::new(&RegistryMemory);
+
+        let result = default_registry()
+            .dispatch(
+                &service,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                "/session archive",
+            )
+            .await
+            .expect("built-in command should resolve");
+
+        assert!(matches!(
+            result,
+            SessionCommandOutcome::Failure(SessionCommandFailure {
+                command: "/session",
+                kind: SessionCommandFailureKind::InvalidArguments,
                 ..
             })
         ));
