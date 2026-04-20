@@ -81,7 +81,8 @@ pub struct RoutingEngine {
     /// Per-pool cursor for [`SelectionStrategy::RoundRobin`].
     round_robin_counters: Arc<Mutex<HashMap<PoolId, usize>>>,
     /// Per-pool SWRR current weights for [`SelectionStrategy::Weighted`].
-    weighted_state: Arc<Mutex<HashMap<PoolId, Vec<i64>>>>,
+    /// Keyed by AccountId so state persists even when candidate order changes.
+    weighted_state: Arc<Mutex<HashMap<PoolId, HashMap<AccountId, i64>>>>,
 }
 
 impl RoutingEngine {
@@ -238,10 +239,10 @@ impl RoutingEngine {
         debug_assert!(!candidates.is_empty(), "select_from_pool called with empty candidates");
 
         let account = match strategy {
-            SelectionStrategy::Priority => self.select_priority(candidates),
-            SelectionStrategy::Failover => self.select_failover(candidates),
-            SelectionStrategy::RoundRobin => self.select_round_robin(pool_id, candidates),
-            SelectionStrategy::Weighted => self.select_weighted(pool_id, candidates),
+            SelectionStrategy::Priority => self.select_priority(candidates)?,
+            SelectionStrategy::Failover => self.select_failover(candidates)?,
+            SelectionStrategy::RoundRobin => self.select_round_robin(pool_id, candidates)?,
+            SelectionStrategy::Weighted => self.select_weighted(pool_id, candidates)?,
         };
 
         Ok(account)
@@ -250,19 +251,19 @@ impl RoutingEngine {
     // ── Strategy implementations ──────────────────────────────────────────────
 
     /// Pick the candidate with the lowest `priority` value (highest priority).
-    fn select_priority(&self, candidates: &[ProviderAccount]) -> ProviderAccount {
+    fn select_priority(&self, candidates: &[ProviderAccount]) -> Result<ProviderAccount, RookError> {
         candidates
             .iter()
             .min_by_key(|a| a.priority)
-            .expect("candidates is non-empty")
-            .clone()
+            .cloned()
+            .ok_or_else(|| RookError::Routing("no candidates for priority selection".into()))
     }
 
     /// Pick the first candidate (index 0 = primary).
     ///
     /// The pool-level fallback chain handles the actual failover; here we
     /// simply return the best available candidate after health filtering.
-    fn select_failover(&self, candidates: &[ProviderAccount]) -> ProviderAccount {
+    fn select_failover(&self, candidates: &[ProviderAccount]) -> Result<ProviderAccount, RookError> {
         // Pick the account with the lowest priority value (highest urgency).
         // This mirrors Priority semantics: if all are healthy, the top-priority
         // account acts as primary; if it fails, the caller marks it unhealthy
@@ -270,23 +271,33 @@ impl RoutingEngine {
         candidates
             .iter()
             .min_by_key(|a| a.priority)
-            .expect("candidates is non-empty")
-            .clone()
+            .cloned()
+            .ok_or_else(|| RookError::Routing("no candidates for failover selection".into()))
     }
 
     /// Distribute evenly across candidates using a per-pool cursor.
-    fn select_round_robin(&self, pool_id: PoolId, candidates: &[ProviderAccount]) -> ProviderAccount {
-        let idx = {
-            let mut counters = self
-                .round_robin_counters
-                .lock()
-                .expect("round_robin_counters mutex poisoned");
-            let counter = counters.entry(pool_id).or_insert(0);
-            let idx = *counter % candidates.len();
-            *counter = counter.wrapping_add(1);
-            idx
-        };
-        candidates[idx].clone()
+    fn select_round_robin(
+        &self,
+        pool_id: PoolId,
+        candidates: &[ProviderAccount],
+    ) -> Result<ProviderAccount, RookError> {
+        let mut counters = self
+            .round_robin_counters
+            .lock()
+            .map_err(|_| RookError::Routing("round_robin_counters lock poisoned".into()))?;
+
+        // Get or insert the counter, then get the index before releasing the lock.
+        let counter_ref = counters.entry(pool_id).or_insert(0);
+        let idx = *counter_ref % candidates.len();
+        *counter_ref = counter_ref.wrapping_add(1);
+        let idx = idx;
+
+        // Release the lock before accessing candidates.
+        drop(counters);
+        candidates
+            .get(idx)
+            .cloned()
+            .ok_or_else(|| RookError::Routing("no candidates for round_robin selection".into()))
     }
 
     /// Smooth Weighted Round Robin (SWRR) — mirrors the agent-runtime impl.
@@ -294,36 +305,58 @@ impl RoutingEngine {
     /// Each iteration: add each candidate's weight to its current score, pick
     /// the highest, subtract the total weight from the winner. This distributes
     /// requests proportionally with low jitter.
-    fn select_weighted(&self, pool_id: PoolId, candidates: &[ProviderAccount]) -> ProviderAccount {
-        let n = candidates.len();
+    ///
+    /// State is keyed by AccountId so scores persist even if candidate order changes.
+    fn select_weighted(
+        &self,
+        pool_id: PoolId,
+        candidates: &[ProviderAccount],
+    ) -> Result<ProviderAccount, RookError> {
         let mut state = self
             .weighted_state
             .lock()
-            .expect("weighted_state mutex poisoned");
+            .map_err(|_| RookError::Routing("weighted_state lock poisoned".into()))?;
 
-        let current = state.entry(pool_id).or_insert_with(|| vec![0i64; n]);
+        let pool_state = state.entry(pool_id).or_insert_with(HashMap::new);
 
-        // Resize if the candidate count changed (e.g., accounts added/removed).
-        if current.len() != n {
-            *current = vec![0i64; n];
+        // Initialize missing accounts: any candidate not in the map gets score 0.
+        for account in candidates {
+            pool_state.entry(account.id).or_insert(0);
         }
 
+        // Remove stale accounts: any account in state not in current candidates.
+        let candidates_ids: Vec<_> = candidates.iter().map(|c| c.id).collect();
+        pool_state.retain(|id, _| candidates_ids.contains(id));
+
         let mut total_weight: i64 = 0;
-        let mut best_idx: usize = 0;
+        let best_account = candidates.first().ok_or_else(|| {
+            RookError::Routing("no candidates for weighted selection".into())
+        })?;
+        let mut best_id = best_account.id;
         let mut best_score: i64 = i64::MIN;
 
-        for (i, account) in candidates.iter().enumerate() {
+        for account in candidates {
             let w = i64::from(account.weight);
             total_weight += w;
-            current[i] += w;
-            if current[i] > best_score {
-                best_score = current[i];
-                best_idx = i;
+            let score = pool_state.get_mut(&account.id).expect("account must exist");
+            *score += w;
+            if *score > best_score {
+                best_score = *score;
+                best_id = account.id;
             }
         }
 
-        current[best_idx] -= total_weight;
-        candidates[best_idx].clone()
+        // Subtract total weight from the winner.
+        if let Some(winner_score) = pool_state.get_mut(&best_id) {
+            *winner_score -= total_weight;
+        }
+
+        // Find and return the selected account.
+        candidates
+            .iter()
+            .find(|c| c.id == best_id)
+            .cloned()
+            .ok_or_else(|| RookError::Routing("selected account not found".into()))
     }
 }
 
@@ -705,15 +738,15 @@ mod tests {
             }
         }
 
-        // With weights 3:1 over 40 requests we expect ~30 heavy and ~10 light.
-        // Allow generous tolerance (±10) to avoid flakiness.
+        // With weights 3:1 over 40 requests we expect ~30 heavy (75%) and ~10 light (25%).
+        // Tight bounds: heavy should get 24-32 (60-80%), light must be > 0 and 8-16.
         assert!(
-            heavy_count >= 20 && heavy_count <= 40,
-            "heavy account should get ~75% of traffic, got {heavy_count}/40"
+            heavy_count >= 24 && heavy_count <= 32,
+            "heavy account should get ~75% (60-80%) of traffic, got {heavy_count}/40"
         );
         assert!(
-            light_count <= 20,
-            "light account should get ~25% of traffic, got {light_count}/40"
+            light_count > 0 && light_count <= 16,
+            "light account should get ~25% (20-40%) of traffic, got {light_count}/40"
         );
     }
 
@@ -860,11 +893,11 @@ mod tests {
 
         let err = engine.resolve("cycle-model").await.unwrap_err();
         assert!(matches!(err, RookError::Routing(_)));
-        // Either "cycle detected" or "exhausted" is acceptable — both mean we stopped.
+        // Must contain "cycle" to verify fallback cycle detection.
         let msg = err.to_string();
         assert!(
-            msg.contains("cycle") || msg.contains("exhausted"),
-            "unexpected error message: {msg}"
+            msg.contains("cycle"),
+            "expected cycle detection, got: {msg}"
         );
     }
 
