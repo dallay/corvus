@@ -325,7 +325,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ingress_keeps_unsupported_session_subcommands_inside_family_handler_boundary() {
+    async fn ingress_classifies_session_inspect_through_shared_seam() {
         let decision = evaluate_ingress(
             &IngressMemory,
             &[],
@@ -336,6 +336,68 @@ mod tests {
                 None,
             ),
             "/session inspect",
+            true,
+        )
+        .await;
+
+        match decision {
+            IngressDecision::SessionCommand { outcome } => {
+                assert!(matches!(
+                    outcome,
+                    SessionCommandOutcome::Failure(SessionCommandFailure {
+                        command: "/session",
+                        kind: SessionCommandFailureKind::UnsupportedBackend,
+                        ..
+                    })
+                ));
+            }
+            other => panic!("expected /session inspect interception, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn ingress_classifies_session_list_through_shared_seam() {
+        let decision = evaluate_ingress(
+            &IngressMemory,
+            &[],
+            CommandContext::for_cli(
+                "session-1",
+                CommandSessionSource::Existing,
+                ExecutionMode::Standard,
+                Some("scope-a".to_string()),
+            ),
+            "/session list",
+            true,
+        )
+        .await;
+
+        match decision {
+            IngressDecision::SessionCommand { outcome } => {
+                assert!(matches!(
+                    outcome,
+                    SessionCommandOutcome::Failure(SessionCommandFailure {
+                        command: "/session",
+                        kind: SessionCommandFailureKind::UnsupportedBackend,
+                        ..
+                    })
+                ));
+            }
+            other => panic!("expected /session list interception, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn ingress_keeps_unsupported_session_subcommands_inside_family_handler_boundary() {
+        let decision = evaluate_ingress(
+            &IngressMemory,
+            &[],
+            CommandContext::for_cli(
+                "session-1",
+                CommandSessionSource::Existing,
+                ExecutionMode::Standard,
+                None,
+            ),
+            "/session archive",
             true,
         )
         .await;

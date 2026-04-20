@@ -26,7 +26,7 @@ pub use traits::Memory;
 pub use traits::{
     is_slash_session_unsupported_error, is_task_unsupported_error, task_unsupported_error,
     MemoryCategory, MemoryEntry, MemoryStats, MemoryValidationResult, ResumableSessionEntry,
-    SessionEntry, SessionFieldPatch, SessionSnapshotKind, SessionSnapshotRecord,
+    SessionEntry, SessionFieldPatch, SessionListEntry, SessionSnapshotKind, SessionSnapshotRecord,
     SessionStateMutation, SessionStatePatch, SessionStateRecord, SessionStatus,
     SlashSessionLifecycle, TaskCreateInput, TaskListPage, TaskListQuery, TaskPatch, TaskPriority,
     TaskRecord, TaskStatus,

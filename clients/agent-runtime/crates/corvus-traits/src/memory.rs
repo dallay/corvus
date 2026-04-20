@@ -354,6 +354,14 @@ pub struct ResumableSessionEntry {
     pub preview: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionListEntry {
+    pub id: String,
+    pub last_activity: String,
+    pub lifecycle: SlashSessionLifecycle,
+    pub resumable: bool,
+}
+
 /// Aggregated memory statistics.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MemoryStats {
@@ -558,6 +566,15 @@ pub trait Memory: Send + Sync {
         _limit: u32,
         _offset: u32,
     ) -> anyhow::Result<Vec<ResumableSessionEntry>> {
+        Err(slash_session_unsupported_error(self.name()))
+    }
+
+    async fn list_session_rows_for_scope(
+        &self,
+        _caller_scope_key: &str,
+        _limit: u32,
+        _offset: u32,
+    ) -> anyhow::Result<Vec<SessionListEntry>> {
         Err(slash_session_unsupported_error(self.name()))
     }
 

@@ -322,24 +322,96 @@ The `/resume` command MUST support deterministic list and load behavior for susp
 The system MUST treat `/session` with empty raw arguments as a read-only discoverability entry
 point for session commands in this slice.
 
-The response MUST describe `/session` root usage and `/session status` as the supported `/session`
-family forms for this slice. The response MAY mention adjacent slash-session lifecycle commands
-such as `/resume`, `/suspend`, `/compact`, and `/tldr`, but it MUST distinguish them from
-`/session` subcommands. `/session` root help MUST NOT create, update, suspend, resume, compact,
-summarize, or otherwise mutate session records or slash-session state.
+The response MUST describe `/session` root usage and the supported `/session` family forms for this
+slice. It MUST identify `/session status` as the compact current-session summary view, it MUST
+identify `/session inspect` as the richer current-session inspection view, and it MUST identify
+`/session list` as the caller-scoped accessible-session listing view. The response MAY mention
+adjacent slash-session lifecycle commands such as `/resume`, `/suspend`, `/compact`, and `/tldr`,
+but it MUST distinguish them from `/session` subcommands. `/session` root help MUST remain the
+family help or usage hub and MUST NOT create, update, suspend, resume, compact, summarize,
+inspect, list beyond the current caller scope, or otherwise mutate session records or slash-session
+state.
 
-#### Scenario: Root help returns discoverability guidance without mutation
+#### Scenario: Root help includes `/session list` without mutation
 
 - GIVEN a current session context exists
 - WHEN the user runs `/session`
 - THEN the system MUST return read-only help or usage guidance for the `/session` family
-- AND the guidance MUST include `/session status`
+- AND the guidance MUST include `/session status` as the compact summary view
+- AND the guidance MUST include `/session inspect` as the richer inspection view
+- AND the guidance MUST include `/session list` as the accessible-session listing view
+- AND no session lifecycle or snapshot state MUST be modified.
+
+### Requirement: Caller-Scoped Session List Discoverability
+
+The system MUST make `/session list` a read-only discoverability view over sessions accessible to
+the current caller scope represented by the typed slash command execution context.
+
+The `/session` handler and service boundary MUST preserve sufficient caller-scope context for
+`/session list` so the visibility contract can be enforced explicitly rather than inferred from
+only the current session identifier. `/session list` MUST list only sessions accessible to that
+current caller scope, and it MUST NOT broaden visibility to admin, global, or cross-scope session
+inventory. If the runtime cannot establish or preserve sufficient caller-scope facts for this
+authorization-sensitive listing operation, it MUST return an explicit denial or unsupported outcome
+instead of broadening visibility.
+
+The `/session list` result MUST be ordered by `last_activity DESC`. When two or more visible
+sessions share the same `last_activity`, the system MUST apply a stable secondary ordering rule so
+repeated executions over unchanged authoritative data return the same row order.
+
+The structured row contract for `/session list` MUST contain only these fields: `id`,
+`last_activity`, `lifecycle`, and `resumable`. In that contract, `id` MUST identify the listed
+session, `last_activity` MUST reflect the authoritative last-activity timestamp used for ordering,
+`lifecycle` MUST reflect the authoritative slash-session lifecycle classification for that session,
+and `resumable` MUST indicate whether that session currently has authoritative resume-capable state
+available for resume. The command MUST return balanced output consisting of concise human-readable
+summary text plus structured row data derived from the same authoritative listing model so both
+views remain consistent. `/session list` MUST remain read-only and MUST NOT require or accept
+target-session arguments, filters, search, pagination, attach, switch, delete, resume, suspend, or
+any other mutation behavior. It MUST NOT expose rich row metadata beyond the minimal row contract.
+
+#### Scenario: Session list returns only caller-visible rows in deterministic order
+
+- GIVEN authoritative session records include `sess-a`, `sess-b`, and `sess-c`
+- AND the typed execution context represents a caller scope authorized to view only `sess-a` and
+  `sess-c`
+- AND `sess-c` has more recent `last_activity` than `sess-a`
+- WHEN the user runs `/session list`
+- THEN the system MUST return only `sess-c` and `sess-a`
+- AND the rows MUST be ordered by `last_activity DESC`
+- AND each structured row MUST include only `id`, `last_activity`, `lifecycle`, and `resumable`.
+
+#### Scenario: Stable tiebreaker preserves repeated ordering for equal activity timestamps
+
+- GIVEN the current caller scope is authorized to view sessions `sess-a` and `sess-b`
+- AND both sessions have the same authoritative `last_activity` value
+- WHEN the user runs `/session list` multiple times without any underlying session changes
+- THEN the system MUST return `sess-b` and `sess-a` in the same relative order on each execution
+- AND that ordering MUST be produced by the stable secondary ordering rule `id DESC`.
+
+#### Scenario: Missing caller-scope context does not broaden visibility
+
+- GIVEN `/session list` is invoked on a surface where sufficient caller-scope facts are unavailable
+  at the `/session` handler or service boundary
+- WHEN the runtime evaluates the authorization-sensitive listing request
+- THEN the system MUST return an explicit denial or unsupported outcome
+- AND the system MUST NOT fall back to listing all sessions or an implementation-defined wider
+  scope.
+
+#### Scenario: Empty caller-visible set still returns balanced read-only output
+
+- GIVEN authoritative session records exist
+- AND the typed execution context represents a caller scope that is authorized to view none of
+  them
+- WHEN the user runs `/session list`
+- THEN the system MUST return a read-only success result with a human-readable empty-state summary
+- AND the structured result MUST contain zero rows
 - AND no session lifecycle or snapshot state MUST be modified.
 
 ### Requirement: Current Session Status Discoverability
 
-The system MUST make `/session status` a read-only status view over the current session identified
-by the typed slash command execution context.
+The system MUST make `/session status` a read-only compact summary view over the current session
+identified by the typed slash command execution context.
 
 The `/session status` result MUST identify the current session id from the execution context and
 MUST derive status from authoritative session records. When a `sessions` table record exists for
@@ -362,7 +434,86 @@ the current session state:
 - it MUST withhold lifecycle-command recommendations when no authoritative current session record
   exists.
 
-`/session status` MUST NOT mutate session records, slash-session state, or snapshots.
+`/session status` SHOULD remain concise enough to act as the compact summary view for the
+`/session` family, and it MAY direct callers to `/session inspect` when a richer inspection view is
+needed. `/session status` MUST NOT mutate session records, slash-session state, or snapshots.
+
+#### Scenario: Status remains the compact summary view
+
+- GIVEN the current session id resolves to an existing active session record
+- AND the current session already has authoritative slash-session state available
+- WHEN the user runs `/session status`
+- THEN the system MUST return a concise current-session summary
+- AND the result MAY direct the user to `/session inspect` for richer inspection details
+- AND the command MUST NOT mutate session state.
+
+### Requirement: Current Session Inspection Discoverability
+
+The system MUST make `/session inspect` a read-only richer inspection view over the current session
+identified by the typed slash command execution context.
+
+The `/session inspect` result MUST be current-session-only and MUST NOT accept or require
+target-session arguments. The result MUST combine authoritative data from the current session
+record, the dedicated slash-session state record, and any referenced authoritative snapshot rows
+that are available for that current session. The result MUST return balanced output consisting of a
+human-readable summary plus a structured inspect payload, and both views MUST be derived from the
+same authoritative inspect model so they remain consistent. `/session inspect` MUST NOT become a
+standalone canonical command or alias, and it MUST NOT mutate session records, slash-session
+state, or snapshots.
+
+When a current session record exists but slash-session state or referenced snapshot rows are
+missing or incomplete, `/session inspect` MUST return partial data for the current session, MUST
+explicitly identify each missing or incomplete data area as a gap, and MUST NOT invent lifecycle,
+snapshot, or hydration facts that are not present in authoritative storage. When no authoritative
+current session record exists, the result MUST report that the current session is unknown to
+slash-session state and MUST NOT invent state or snapshot details.
+
+#### Scenario: Inspect returns a richer current-session view when authoritative data is complete
+
+- GIVEN the typed slash command execution context identifies current session `abc-123`
+- AND an authoritative `sessions` row exists for `abc-123`
+- AND an authoritative slash-session state row exists for `abc-123`
+- AND the referenced authoritative snapshot rows exist for that state
+- WHEN the user runs `/session inspect`
+- THEN the system MUST return a human-readable inspection summary for `abc-123`
+- AND the system MUST return a structured inspect payload for `abc-123`
+- AND the structured payload MUST include session record details, slash-session state details, and
+  referenced snapshot details derived from authoritative storage
+- AND the command MUST NOT mutate session state.
+
+#### Scenario: Inspect returns partial data when slash-session state is missing
+
+- GIVEN the typed slash command execution context identifies current session `abc-123`
+- AND an authoritative `sessions` row exists for `abc-123`
+- AND no authoritative slash-session state row exists for `abc-123`
+- WHEN the user runs `/session inspect`
+- THEN the system MUST return the known current session record details for `abc-123`
+- AND the result MUST explicitly mark slash-session state as missing
+- AND the result MUST explicitly mark snapshot-derived details as unavailable when they depend on
+  missing state
+- AND the result MUST NOT invent lifecycle or snapshot facts.
+
+#### Scenario: Inspect returns partial data when a referenced snapshot is missing or incomplete
+
+- GIVEN the typed slash command execution context identifies current session `abc-123`
+- AND an authoritative `sessions` row exists for `abc-123`
+- AND an authoritative slash-session state row exists for `abc-123`
+- AND that state references a snapshot row that is missing or incomplete
+- WHEN the user runs `/session inspect`
+- THEN the system MUST return the known current session record details and slash-session state
+  details for `abc-123`
+- AND the result MUST explicitly identify the referenced snapshot gap
+- AND the result MUST preserve any authoritative snapshot fields that are available
+- AND the result MUST NOT synthesize the missing snapshot details.
+
+#### Scenario: Inspect reports an unknown current session without inventing state
+
+- GIVEN the typed slash command execution context identifies a current session id
+- AND no authoritative session record exists for that current session id
+- WHEN the user runs `/session inspect`
+- THEN the system MUST report the current session id
+- AND the system MUST report that the current session is unknown to slash-session state
+- AND the result MUST NOT invent lifecycle, state, or snapshot details.
 
 #### Scenario: Active current session without a compact snapshot recommends compact
 
