@@ -64,36 +64,56 @@ impl RouteService for InMemoryRouteService {
     }
 
     fn resolve(&self, logical_model: &str) -> Option<ModelRoute> {
-        self.store
-            .lock()
-            .ok()?
+        let guard = self.store.lock().ok()?;
+        let matches: Vec<ModelRoute> = guard
             .values()
-            .find(|r| r.logical_model == logical_model)
+            .filter(|r| r.logical_model == logical_model)
             .cloned()
+            .collect();
+        if matches.len() == 1 {
+            Some(matches[0].clone())
+        } else {
+            None
+        }
     }
 
     fn create(&self, route: ModelRoute) -> Result<RouteId, RookError> {
         let id = route.id;
-        self.store
+        let mut guard = self
+            .store
             .lock()
-            .map_err(|e| RookError::Registry(e.to_string()))?
-            .insert(id, route);
+            .map_err(|e| RookError::Registry(e.to_string()))?;
+
+        if guard.values().any(|r| r.logical_model == route.logical_model) {
+            return Err(RookError::Registry(format!(
+                "route with logical_model '{}' already exists",
+                route.logical_model
+            )));
+        }
+
+        guard.insert(id, route);
         Ok(id)
     }
 
     fn update(&self, route: ModelRoute) -> Result<(), RookError> {
-        let mut guard =
-            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard = self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
         if !guard.contains_key(&route.id) {
             return Err(RookError::Registry(format!("route {} not found", route.id)));
         }
+
+        if guard.values().any(|r| r.id != route.id && r.logical_model == route.logical_model) {
+            return Err(RookError::Registry(format!(
+                "another route with logical_model '{}' already exists",
+                route.logical_model
+            )));
+        }
+
         guard.insert(route.id, route);
         Ok(())
     }
 
     fn delete(&self, id: RouteId) -> Result<(), RookError> {
-        let mut guard =
-            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard = self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
         if guard.remove(&id).is_none() {
             return Err(RookError::Registry(format!("route {id} not found")));
         }
