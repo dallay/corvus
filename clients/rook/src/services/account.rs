@@ -61,10 +61,16 @@ impl AccountService for InMemoryAccountService {
 
     fn create(&self, account: ProviderAccount) -> Result<AccountId, RookError> {
         let id = account.id;
-        self.store
+        let mut guard = self.store
             .lock()
-            .map_err(|e| RookError::Registry(e.to_string()))?
-            .insert(id, account);
+            .map_err(|e| RookError::Registry(e.to_string()))?;
+        if guard.contains_key(&id) {
+            return Err(RookError::Registry(format!(
+                "account {} already exists",
+                id
+            )));
+        }
+        guard.insert(id, account);
         Ok(id)
     }
 
