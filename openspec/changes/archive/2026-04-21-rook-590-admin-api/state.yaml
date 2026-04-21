@@ -1,5 +1,5 @@
 change: rook-590-admin-api
-current_phase: verify
+current_phase: archive
 completed:
   - propose
   - spec
@@ -7,5 +7,6 @@ completed:
   - tasks
   - apply
   - verify
-next: archive
-updated: 2026-04-21
+  - archive
+next: none
+updated: 2026-04-21T00:00:00Z
