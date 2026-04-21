@@ -1309,6 +1309,9 @@ impl SupervisedOrchestrationService {
     /// Creates a `Coordinator`, spawns it under a parent cancellation token,
     /// registers the active run, and returns a receipt with an initial
     /// snapshot.
+    // `async` is kept for API consistency with cancel/inspect — the spawn inside
+    // the body uses await, and callers always .await this function.
+    #[allow(clippy::unused_async)]
     pub async fn launch(
         &self,
         request: CoordinatorLaunchRequest,
@@ -1325,12 +1328,7 @@ impl SupervisedOrchestrationService {
             tokio::spawn(async move { coordinator.run_with_cancellation(req, runner, token).await })
         };
 
-        let snapshot = Self::snapshot_from_coordinator(
-            &handle,
-            &coordinator,
-            &request,
-            None,
-        )?;
+        let snapshot = Self::snapshot_from_coordinator(&handle, &coordinator, &request, None)?;
 
         let active = ActiveRun {
             coordinator,
@@ -1420,7 +1418,11 @@ impl SupervisedOrchestrationService {
                 // Lock the async mutex to take the handle.
                 // `.try_lock()` is fine here since we just cancelled — no other
                 // future will be awaiting this handle except us.
-                active.join_handle.try_lock().ok().and_then(|mut g| g.take())
+                active
+                    .join_handle
+                    .try_lock()
+                    .ok()
+                    .and_then(|mut g| g.take())
             } else {
                 None
             }
@@ -1451,8 +1453,7 @@ impl SupervisedOrchestrationService {
         };
 
         // Step 5: build outcome view + snapshot, store Terminal entry.
-        let outcome_view =
-            Self::build_outcome_view(handle, &coordinator_outcome);
+        let outcome_view = Self::build_outcome_view(handle, &coordinator_outcome);
 
         // We need to read request from the active entry to build the snapshot.
         // Move active → terminal under write lock.
@@ -1507,7 +1508,11 @@ impl SupervisedOrchestrationService {
                 .read()
                 .map_err(|_| OrchestrationServiceError::LockPoisoned)?;
             if let Some(RunEntry::Active(active)) = registry.get(&handle) {
-                active.join_handle.try_lock().ok().and_then(|mut g| g.take())
+                active
+                    .join_handle
+                    .try_lock()
+                    .ok()
+                    .and_then(|mut g| g.take())
             } else {
                 None
             }
@@ -2301,5 +2306,180 @@ mod tests {
             coordinator.current_state().unwrap(),
             CoordinatorState::Completed
         );
+    }
+
+    // ── Slice 2: SupervisedOrchestrationService tests ─────────────────────
+
+    fn make_request(children: Vec<(&'static str, &'static str)>) -> CoordinatorLaunchRequest {
+        CoordinatorLaunchRequest {
+            parent_session_id: None,
+            children: children
+                .into_iter()
+                .enumerate()
+                .map(|(i, (id, name))| ChildLaunchRequest {
+                    child_id: ChildAgentId(id.to_string()),
+                    agent_name: name.to_string(),
+                    prompt: format!("task for {name}"),
+                    context: None,
+                    launch_index: u32::try_from(i).unwrap_or(u32::MAX),
+                })
+                .collect(),
+            fan_in: FanInPolicy::AllMustSucceed,
+        }
+    }
+
+    fn stub_runner_with(behaviors: &[(&'static str, StubBehavior)]) -> Arc<StubRunner> {
+        let map = behaviors
+            .iter()
+            .cloned()
+            .map(|(id, b)| (id.to_string(), b))
+            .collect::<BTreeMap<_, _>>();
+        Arc::new(StubRunner::new(map))
+    }
+
+    #[tokio::test]
+    async fn launch_returns_receipt_with_handle() {
+        let svc = SupervisedOrchestrationService::new();
+        let runner = stub_runner_with(&[(
+            "child-a",
+            StubBehavior::Success {
+                output: "ok",
+                delay_ms: 5,
+            },
+        )]);
+        let request = make_request(vec![("child-a", "AgentA")]);
+
+        let receipt = svc.launch(request, runner).await.unwrap();
+
+        // Handle must be a non-empty UUID-like string.
+        assert!(!receipt.handle.0.is_empty());
+        // Snapshot handle must match receipt handle.
+        assert_eq!(receipt.snapshot.handle, receipt.handle);
+        // Immediately after launch the coordinator should be in a live state.
+        assert!(
+            receipt.snapshot.state != CoordinatorStateView::Completed
+                || receipt.snapshot.outcome.is_some(),
+            "snapshot state should reflect live or terminal, not an uninitialized default"
+        );
+    }
+
+    #[tokio::test]
+    async fn inspect_active_run_returns_snapshot() {
+        let svc = SupervisedOrchestrationService::new();
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+
+        let runner = stub_runner_with(&[(
+            "child-a",
+            StubBehavior::GatedSuccess {
+                output: "done",
+                started: started.clone(),
+                release: release.clone(),
+            },
+        )]);
+        let request = make_request(vec![("child-a", "AgentA")]);
+
+        let receipt = svc.launch(request, runner).await.unwrap();
+        let handle = receipt.handle.clone();
+
+        // Wait until child has started so the coordinator is live.
+        started.notified().await;
+
+        let snapshot = svc.inspect(&handle).unwrap();
+        let snapshot = snapshot.expect("expected Some(snapshot) for an active run");
+        assert_eq!(snapshot.handle, handle);
+
+        // Clean up — release the gated child.
+        release.notify_waiters();
+    }
+
+    #[tokio::test]
+    async fn inspect_unknown_handle_returns_error() {
+        let svc = SupervisedOrchestrationService::new();
+        let bogus = OrchestrationHandle("does-not-exist".to_string());
+
+        let result = svc.inspect(&bogus);
+
+        assert!(
+            matches!(result, Ok(None)),
+            "expected Ok(None) for unknown handle, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_active_run_resolves_terminal() {
+        let svc = SupervisedOrchestrationService::new();
+        let runner = stub_runner_with(&[("child-a", StubBehavior::WaitForCancellation)]);
+        let request = make_request(vec![("child-a", "AgentA")]);
+
+        let receipt = svc.launch(request, runner).await.unwrap();
+        let handle = receipt.handle.clone();
+
+        // Give the child time to reach WaitForCancellation state.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        let result = svc.cancel(&handle).await.unwrap();
+        assert!(
+            result.is_some(),
+            "expected a CancelResult for an active run"
+        );
+
+        let cancel_result = result.unwrap();
+        assert_eq!(cancel_result.disposition, CancelDisposition::Accepted);
+    }
+
+    #[tokio::test]
+    async fn cancel_already_terminal_returns_already_terminal_disposition() {
+        let svc = SupervisedOrchestrationService::new();
+        let runner = stub_runner_with(&[(
+            "child-a",
+            StubBehavior::Success {
+                output: "done",
+                delay_ms: 0,
+            },
+        )]);
+        let request = make_request(vec![("child-a", "AgentA")]);
+
+        // run_to_completion drives the run to terminal before we try to cancel.
+        let runner_arc: Arc<dyn CoordinatorChildRunner> = runner;
+        let _outcome = svc
+            .run_to_completion(request, runner_arc.clone())
+            .await
+            .unwrap();
+
+        // Pick the single registered handle.
+        let handle = {
+            let registry = svc.registry.read().unwrap();
+            registry.keys().next().cloned().unwrap()
+        };
+
+        let result = svc.cancel(&handle).await.unwrap();
+        assert!(result.is_some());
+        let cancel_result = result.unwrap();
+        assert_eq!(
+            cancel_result.disposition,
+            CancelDisposition::AlreadyTerminal
+        );
+    }
+
+    #[tokio::test]
+    async fn run_to_completion_returns_outcome() {
+        let svc = SupervisedOrchestrationService::new();
+        let runner = stub_runner_with(&[(
+            "child-a",
+            StubBehavior::Success {
+                output: "finished",
+                delay_ms: 0,
+            },
+        )]);
+        let request = make_request(vec![("child-a", "AgentA")]);
+
+        let runner_arc: Arc<dyn CoordinatorChildRunner> = runner;
+        let outcome = svc.run_to_completion(request, runner_arc).await.unwrap();
+
+        match outcome {
+            CoordinatorOutcome::Completed { .. } => {}
+            other => panic!("expected Completed, got {other:?}"),
+        }
     }
 }

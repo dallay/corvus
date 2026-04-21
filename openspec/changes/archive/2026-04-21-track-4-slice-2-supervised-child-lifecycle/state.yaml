@@ -1,10 +1,12 @@
 change: track-4-slice-2-supervised-child-lifecycle
-current_phase: tasks
+current_phase: verify
 completed:
   - explore
   - propose
   - design
   - spec
   - tasks
-next: apply
-updated: 2026-04-20T00:00:00Z
+  - apply
+  - verify
+next: archive
+updated: 2026-04-21T00:00:00Z

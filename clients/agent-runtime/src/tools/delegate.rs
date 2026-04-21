@@ -28,8 +28,9 @@
 
 use super::traits::{Tool, ToolResult};
 use crate::agent::coordinator::{
-    ChildAgentId, ChildLaunchRequest, Coordinator, CoordinatorChildOutcome,
+    ChildAgentId, ChildLaunchRequest, Coordinator, CoordinatorChildOutcome, CoordinatorChildRunner,
     CoordinatorLaunchRequest, CoordinatorOutcome, DelegatedAgentRunner, FanInPolicy,
+    SupervisedOrchestrationService,
 };
 use crate::config::{Config, DelegateAgentConfig, DelegateExecutionMode};
 use crate::providers::{self, Provider};
@@ -73,6 +74,41 @@ impl SessionCoordinatorExecutor for DefaultSessionCoordinatorExecutor {
             fallback_credential,
         ));
         coordinator.run(request, runner).await.map_err(Into::into)
+    }
+}
+
+/// Routes a delegate session through [`SupervisedOrchestrationService::run_to_completion`].
+///
+/// This executor is used in production when the tool registry is built with a shared
+/// `SupervisedOrchestrationService`, enabling lifecycle tools (`delegate_launch`,
+/// `delegate_cancel`, `delegate_inspect`) to observe and control the same in-process runs.
+///
+/// ## Scope
+///
+/// In-process only. Child agents run as Tokio tasks within the same process and are
+/// not distributed across machines or containers.
+struct SupervisedSessionCoordinatorExecutor {
+    service: Arc<SupervisedOrchestrationService>,
+}
+
+#[async_trait]
+impl SessionCoordinatorExecutor for SupervisedSessionCoordinatorExecutor {
+    async fn execute(
+        &self,
+        request: CoordinatorLaunchRequest,
+        base_config: Arc<Config>,
+        agents: Arc<HashMap<String, DelegateAgentConfig>>,
+        fallback_credential: Option<String>,
+    ) -> Result<CoordinatorOutcome, anyhow::Error> {
+        let runner: Arc<dyn CoordinatorChildRunner> = Arc::new(DelegatedAgentRunner::new(
+            base_config,
+            agents,
+            fallback_credential,
+        ));
+        self.service
+            .run_to_completion(request, runner)
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -143,6 +179,32 @@ impl DelegateTool {
             depth: 0,
             base_config,
             session_executor,
+        }
+    }
+
+    /// Create a `DelegateTool` wired to a shared [`SupervisedOrchestrationService`].
+    ///
+    /// Use this constructor in the production tool registry so that `DelegateTool`
+    /// runs child sessions through the same supervised service that the lifecycle
+    /// tools (`delegate_launch`, `delegate_cancel`, `delegate_inspect`) observe.
+    ///
+    /// ## Scope
+    ///
+    /// In-process only — child agents run as Tokio tasks within the same process.
+    pub fn with_supervised_executor(
+        agents: HashMap<String, DelegateAgentConfig>,
+        fallback_credential: Option<String>,
+        security: Arc<SecurityPolicy>,
+        base_config: Arc<Config>,
+        service: Arc<SupervisedOrchestrationService>,
+    ) -> Self {
+        Self {
+            agents: Arc::new(agents),
+            security,
+            fallback_credential,
+            depth: 0,
+            base_config,
+            session_executor: Arc::new(SupervisedSessionCoordinatorExecutor { service }),
         }
     }
 

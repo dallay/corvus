@@ -9,6 +9,9 @@ pub mod cron_run;
 pub mod cron_runs;
 pub mod cron_update;
 pub mod delegate;
+pub mod delegate_cancel;
+pub mod delegate_inspect;
+pub mod delegate_launch;
 pub mod file_read;
 pub mod file_write;
 pub mod git_operations;
@@ -52,6 +55,9 @@ pub use cron_run::CronRunTool;
 pub use cron_runs::CronRunsTool;
 pub use cron_update::CronUpdateTool;
 pub use delegate::DelegateTool;
+pub use delegate_cancel::DelegateCancelTool;
+pub use delegate_inspect::DelegateInspectTool;
+pub use delegate_launch::DelegateLaunchTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
 pub use git_operations::GitOperationsTool;
@@ -82,6 +88,7 @@ pub use traits::{ToolResult, ToolSpec};
 pub use web_fetch::WebFetchTool;
 pub use web_search_tool::WebSearchTool;
 
+use crate::agent::coordinator::SupervisedOrchestrationService;
 use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
@@ -244,12 +251,26 @@ fn add_delegate_tool(
         let trimmed_value = value.trim();
         (!trimmed_value.is_empty()).then(|| trimmed_value.to_owned())
     });
-    tools.push(Box::new(DelegateTool::new(
+
+    let service = Arc::new(SupervisedOrchestrationService::new());
+
+    tools.push(Box::new(DelegateTool::with_supervised_executor(
         delegate_agents,
-        delegate_fallback_credential,
+        delegate_fallback_credential.clone(),
         security.clone(),
-        base_config,
+        base_config.clone(),
+        service.clone(),
     )));
+
+    let runner = Arc::new(crate::agent::coordinator::DelegatedAgentRunner::new(
+        base_config,
+        Arc::new(agents.clone()),
+        delegate_fallback_credential,
+    ));
+
+    tools.push(Box::new(DelegateLaunchTool::new(service.clone(), runner)));
+    tools.push(Box::new(DelegateCancelTool::new(service.clone())));
+    tools.push(Box::new(DelegateInspectTool::new(service)));
 }
 
 #[cfg(feature = "mcp-runtime")]
