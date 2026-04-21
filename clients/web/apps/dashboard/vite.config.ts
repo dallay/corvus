@@ -4,8 +4,10 @@ import { fileURLToPath, URL } from "node:url";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vite";
 
+import { isPlaywrightFsAllowMode } from "./src/utils/playwrightEnv";
+
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
-const isTestMode = process.env.NODE_ENV === "test";
+const isTestMode = isPlaywrightFsAllowMode();
 
 export default defineConfig({
   plugins: [vue()],
