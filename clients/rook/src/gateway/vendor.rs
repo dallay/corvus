@@ -3,8 +3,8 @@ use crate::domain::{ProviderAccount, ProviderVendor};
 pub fn default_base_url(vendor: &ProviderVendor) -> Option<&'static str> {
     match vendor {
         ProviderVendor::OpenAi => Some("https://api.openai.com"),
-        ProviderVendor::Anthropic => Some("https://api.anthropic.com"),
-        ProviderVendor::Google => Some("https://generativelanguage.googleapis.com"),
+        ProviderVendor::Anthropic => None,
+        ProviderVendor::Google => None,
         ProviderVendor::OpenRouter => Some("https://openrouter.ai/api"),
         ProviderVendor::DeepSeek => Some("https://api.deepseek.com"),
         ProviderVendor::Other(_) => None,
@@ -49,14 +49,8 @@ mod tests {
     #[test]
     fn default_base_url_maps_known_vendors() {
         assert_eq!(default_base_url(&ProviderVendor::OpenAi), Some("https://api.openai.com"));
-        assert_eq!(
-            default_base_url(&ProviderVendor::Anthropic),
-            Some("https://api.anthropic.com")
-        );
-        assert_eq!(
-            default_base_url(&ProviderVendor::Google),
-            Some("https://generativelanguage.googleapis.com")
-        );
+        assert_eq!(default_base_url(&ProviderVendor::Anthropic), None);
+        assert_eq!(default_base_url(&ProviderVendor::Google), None);
         assert_eq!(
             default_base_url(&ProviderVendor::OpenRouter),
             Some("https://openrouter.ai/api")

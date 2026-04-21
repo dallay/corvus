@@ -45,6 +45,11 @@ impl ServerConfig {
     pub fn socket_addr(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
+
+    /// Return the effective on-disk database path used for production startup.
+    pub fn effective_db_path(&self) -> &str {
+        self.db_path.as_deref().unwrap_or("./rook.db")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -57,12 +62,14 @@ fn api_stub_router() -> Router {
 }
 
 async fn build_app(config: ServerConfig) -> Result<Router, RookError> {
-    let db_path = config.db_path.as_deref().unwrap_or("./rook.db");
-    let registry = if db_path == ":memory:" {
-        RookRegistry::open_in_memory().await?
-    } else {
-        RookRegistry::open(db_path).await?
-    };
+    let registry = RookRegistry::open(config.effective_db_path()).await?;
+    build_app_with_registry(config, registry).await
+}
+
+async fn build_app_with_registry(
+    _config: ServerConfig,
+    registry: RookRegistry,
+) -> Result<Router, RookError> {
     let engine = RoutingEngine::new(registry.clone());
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -140,6 +147,8 @@ mod tests {
         assert_eq!(cfg.host, "127.0.0.1");
         assert_eq!(cfg.port, 4141);
         assert!(!cfg.enable_tui);
+        assert_eq!(cfg.db_path, None);
+        assert_eq!(cfg.effective_db_path(), "./rook.db");
     }
 
     #[test]
@@ -170,10 +179,8 @@ mod tests {
 
     #[tokio::test]
     async fn composed_server_router_keeps_api_health_route() {
-        let app = build_app(ServerConfig {
-            db_path: Some(":memory:".to_string()),
-            ..ServerConfig::default()
-        })
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let app = build_app_with_registry(ServerConfig::default(), registry)
         .await
         .unwrap();
 
@@ -189,12 +196,10 @@ mod tests {
 
     #[tokio::test]
     async fn composed_server_router_mounts_gateway_models_endpoint() {
-        let config = ServerConfig {
-            db_path: Some(":memory:".to_string()),
-            ..ServerConfig::default()
-        };
-
-        let app = build_app(config).await.unwrap();
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let app = build_app_with_registry(ServerConfig::default(), registry)
+            .await
+            .unwrap();
 
         let response = app
             .oneshot(Request::get("/v1/models").body(Body::empty()).unwrap())

@@ -576,12 +576,12 @@ When `stream` is `None` or `Some(false)`, the request MUST proceed normally.
 
 ---
 
-### R12: Gateway Router Construction and Mounting
+### R12: Gateway Router Construction and Relative Routes
 
 The system MUST provide a `gateway::build_router(state) -> axum::Router` function that:
 
-1. Mounts `POST /v1/chat/completions` → `handle_chat_completions` handler.
-2. Mounts `GET /v1/models` → `handle_list_models` handler.
+1. Mounts `POST /chat/completions` → `handle_chat_completions` handler.
+2. Mounts `GET /models` → `handle_list_models` handler.
 3. Accepts shared `GatewayState` as axum `State`.
 
 The `GatewayState` MUST contain:
@@ -594,15 +594,15 @@ The `GatewayState` MUST contain:
 
 `GatewayState` MUST be `Clone` (all inner types are `Clone`).
 
-The router MUST be mountable via `Router::merge()` in the server module without conflicting
+The router MUST be mountable under `Router::nest("/v1", ...)` in the server module without conflicting
 with existing routes (`/api/*`, dashboard assets).
 
 #### Scenario: Router mounts both endpoints
 
 - GIVEN a `GatewayState` with a valid registry, engine, and HTTP client
 - WHEN `build_router(state)` is called
-- THEN the returned `Router` MUST respond to `POST /v1/chat/completions`
-- AND the returned `Router` MUST respond to `GET /v1/models`
+- THEN the returned `Router` MUST respond to `POST /chat/completions`
+- AND the returned `Router` MUST respond to `GET /models`
 
 #### Scenario: Unrelated routes are unaffected
 
@@ -621,7 +621,7 @@ The `server::run` function MUST be updated to:
 2. Create a `RoutingEngine` backed by the registry.
 3. Create a `reqwest::Client` with a default timeout of 30 seconds.
 4. Construct `GatewayState` from the above.
-5. Call `gateway::build_router(state)` and merge the result into the main router.
+5. Call `gateway::build_router(state)` and mount it with `Router::nest("/v1", ...)` in the main router.
 
 The gateway routes MUST be available alongside existing `/api/*` and dashboard routes.
 

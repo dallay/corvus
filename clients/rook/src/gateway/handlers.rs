@@ -55,7 +55,11 @@ pub async fn handle_chat_completions(
 
     match upstream::proxy_chat_completion(&state.client, &decision.account, body).await {
         Ok(upstream_response) => {
-            state.registry.health().mark_success(decision.account.id).await;
+            let registry = state.registry.clone();
+            let account_id = decision.account.id;
+            tokio::spawn(async move {
+                registry.health().mark_success(account_id).await;
+            });
 
             let mut response = Response::new(axum::body::Body::from(upstream_response.body));
             *response.status_mut() = upstream_response.status;
@@ -72,11 +76,14 @@ pub async fn handle_chat_completions(
             response
         }
         Err(error) => {
-            state
-                .registry
-                .health()
-                .mark_failure(decision.account.id, FAILURE_COOLDOWN_SECS)
-                .await;
+            let registry = state.registry.clone();
+            let account_id = decision.account.id;
+            tokio::spawn(async move {
+                registry
+                    .health()
+                    .mark_failure(account_id, FAILURE_COOLDOWN_SECS)
+                    .await;
+            });
             map_upstream_error(error)
         }
     }
@@ -252,7 +259,10 @@ mod tests {
         account_id
     }
 
-    async fn mock_upstream(status: StatusCode, body: Value) -> tokio::task::JoinHandle<()> {
+    async fn mock_upstream(
+        status: StatusCode,
+        body: Value,
+    ) -> (tokio::task::JoinHandle<()>, String) {
         use axum::routing::post;
         use axum::{Json, Router};
         use tokio::net::TcpListener;
@@ -269,17 +279,17 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let url = format!("http://{addr}");
-        std::env::set_var("ROOK_TEST_UPSTREAM_URL", &url);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
-        })
+        });
+
+        (handle, url)
     }
 
     #[tokio::test]
     async fn chat_completions_happy_path_returns_upstream_body() {
-        let _server = mock_upstream(StatusCode::OK, json!({"id":"chatcmpl-123"})).await;
-        let upstream = std::env::var("ROOK_TEST_UPSTREAM_URL").unwrap();
+        let (_server, upstream) = mock_upstream(StatusCode::OK, json!({"id":"chatcmpl-123"})).await;
         let (app, registry) = test_app().await;
         let account_id = seed_route(
             &registry,
@@ -306,7 +316,18 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert_eq!(serde_json::from_slice::<Value>(&body).unwrap(), json!({"id":"chatcmpl-123"}));
-        assert_eq!(registry.health().get(account_id).await.status, crate::services::health::HealthStatus::Healthy);
+        let health = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                let health = registry.health().get(account_id).await;
+                if health.status == crate::services::health::HealthStatus::Healthy {
+                    break health;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(health.status, crate::services::health::HealthStatus::Healthy);
     }
 
     #[tokio::test]
@@ -333,8 +354,7 @@ mod tests {
 
     #[tokio::test]
     async fn chat_completions_missing_api_key_still_proxies_upstream() {
-        let _server = mock_upstream(StatusCode::OK, json!({"id":"chatcmpl-no-auth"})).await;
-        let upstream = std::env::var("ROOK_TEST_UPSTREAM_URL").unwrap();
+        let (_server, upstream) = mock_upstream(StatusCode::OK, json!({"id":"chatcmpl-no-auth"})).await;
         let (app, registry) = test_app().await;
         seed_route(
             &registry,
@@ -392,12 +412,11 @@ mod tests {
 
     #[tokio::test]
     async fn chat_completions_upstream_non_success_returns_502() {
-        let _server = mock_upstream(
+        let (_server, upstream) = mock_upstream(
             StatusCode::INTERNAL_SERVER_ERROR,
             json!({"error":{"message":"boom"}}),
         )
         .await;
-        let upstream = std::env::var("ROOK_TEST_UPSTREAM_URL").unwrap();
         let (app, registry) = test_app().await;
         seed_route(
             &registry,

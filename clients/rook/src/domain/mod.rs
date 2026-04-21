@@ -233,7 +233,7 @@ pub enum SelectionStrategy {
 /// A configured account for a specific AI provider.
 ///
 /// FIXME: persist via registry
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ProviderAccount {
     /// Unique stable identifier.
     pub id: AccountId,
@@ -244,7 +244,11 @@ pub struct ProviderAccount {
     /// Override the vendor's default API base URL (e.g., for local proxies).
     pub api_base_override: Option<String>,
     /// API key for authenticating with the upstream provider.
-    /// Stored as plaintext in M1; encryption-at-rest is #591.
+    ///
+    /// Security note: stored as plaintext in M1; encryption-at-rest is deferred
+    /// to #591. This field is intentionally omitted from serde serialization and
+    /// redacted in `Debug` output.
+    #[serde(skip_serializing, default)]
     pub api_key: Option<String>,
     /// Whether this account is eligible for routing.
     pub enabled: bool,
@@ -256,6 +260,23 @@ pub struct ProviderAccount {
     pub tags: Vec<String>,
     /// Model capabilities advertised by this account.
     pub capabilities: Vec<String>,
+}
+
+impl std::fmt::Debug for ProviderAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderAccount")
+            .field("id", &self.id)
+            .field("vendor", &self.vendor)
+            .field("display_name", &self.display_name)
+            .field("api_base_override", &self.api_base_override)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("enabled", &self.enabled)
+            .field("weight", &self.weight)
+            .field("priority", &self.priority)
+            .field("tags", &self.tags)
+            .field("capabilities", &self.capabilities)
+            .finish()
+    }
 }
 
 /// A named collection of [`ProviderAccount`]s with a shared routing strategy.

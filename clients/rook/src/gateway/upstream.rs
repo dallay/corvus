@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use reqwest::StatusCode;
+use tracing::warn;
 
 use crate::domain::ProviderAccount;
 use crate::gateway::vendor;
@@ -47,6 +48,12 @@ pub async fn proxy_chat_completion(
                 vendor: format!("{:?}", account.vendor),
             })?;
         request = request.header(header_name, &header_value);
+    } else {
+        warn!(
+            account_id = %account.id,
+            vendor = ?account.vendor,
+            "proxying upstream request without API credentials"
+        );
     }
 
     let response = request.send().await.map_err(|error| {

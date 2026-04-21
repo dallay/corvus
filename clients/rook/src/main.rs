@@ -33,6 +33,10 @@ enum Commands {
         /// Enable the operator TUI alongside the HTTP server
         #[arg(long, default_value_t = false)]
         tui: bool,
+
+        /// Path to the on-disk SQLite database file
+        #[arg(long)]
+        db_path: Option<String>,
     },
     /// Launch the operator TUI
     Tui,
@@ -58,12 +62,17 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Serve { host, port, tui } => {
+        Commands::Serve {
+            host,
+            port,
+            tui,
+            db_path,
+        } => {
             let config = ServerConfig {
                 host,
                 port,
                 enable_tui: tui,
-                db_path: None,
+                db_path,
             };
             rook::server::run(config).await?;
         }

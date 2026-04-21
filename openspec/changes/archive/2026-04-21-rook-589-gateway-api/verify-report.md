@@ -129,8 +129,8 @@ Evidence:
 - happy-path integration test checks account becomes healthy after success
 
 Warning:
-- spec says health feedback MUST happen after response or concurrently and MUST NOT block the
-  client response. Implementation awaits `mark_success` / `mark_failure` before returning.
+- health feedback now runs in background tasks after response construction, but the tests still
+  verify eventual consistency rather than immediate inline completion.
 
 ### Server wiring / NFR-4 backward compatibility
 

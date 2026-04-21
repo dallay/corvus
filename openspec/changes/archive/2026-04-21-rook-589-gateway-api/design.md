@@ -329,16 +329,14 @@ use crate::domain::{ProviderAccount, ProviderVendor};
 ///
 /// These are the production endpoints. Accounts may override via
 /// `api_base_override`.
-pub fn default_base_url(vendor: &ProviderVendor) -> &'static str {
+pub fn default_base_url(vendor: &ProviderVendor) -> Option<&'static str> {
     match vendor {
-        ProviderVendor::OpenAi      => "https://api.openai.com",
-        ProviderVendor::Anthropic   => "https://api.anthropic.com",
-        ProviderVendor::Google      => "https://generativelanguage.googleapis.com",
-        ProviderVendor::OpenRouter  => "https://openrouter.ai/api",
-        ProviderVendor::DeepSeek    => "https://api.deepseek.com",
-        // Unknown vendors: use OpenAI-compatible endpoint as a reasonable
-        // default. Accounts should set api_base_override for non-standard vendors.
-        ProviderVendor::Other(_)    => "https://api.openai.com",
+        ProviderVendor::OpenAi      => Some("https://api.openai.com"),
+        ProviderVendor::Anthropic   => None,
+        ProviderVendor::Google      => None,
+        ProviderVendor::OpenRouter  => Some("https://openrouter.ai/api"),
+        ProviderVendor::DeepSeek    => Some("https://api.deepseek.com"),
+        ProviderVendor::Other(_)    => None,
     }
 }
 
@@ -346,12 +344,15 @@ pub fn default_base_url(vendor: &ProviderVendor) -> &'static str {
 ///
 /// Precedence: `api_base_override` > `default_base_url(vendor)`.
 /// Trailing slashes are stripped for consistent URL joining.
-pub fn effective_base_url(account: &ProviderAccount) -> String {
-    let base = account
+pub fn effective_base_url(account: &ProviderAccount) -> Option<String> {
+    account
         .api_base_override
         .as_deref()
-        .unwrap_or_else(|| default_base_url(&account.vendor));
-    base.trim_end_matches('/').to_string()
+        .map(|base| base.trim_end_matches('/').to_string())
+        .or_else(|| {
+            default_base_url(&account.vendor)
+                .map(|base| base.trim_end_matches('/').to_string())
+        })
 }
 
 /// Auth header name and value for a vendor.
@@ -368,8 +369,8 @@ pub fn auth_header(vendor: &ProviderVendor, api_key: &str) -> (&'static str, Str
 ```
 
 **Public API**:
-- `default_base_url(&ProviderVendor) -> &'static str`
-- `effective_base_url(&ProviderAccount) -> String`
+- `default_base_url(&ProviderVendor) -> Option<&'static str>`
+- `effective_base_url(&ProviderAccount) -> Option<String>`
 - `auth_header(&ProviderVendor, &str) -> (&'static str, String)`
 
 **Dependencies**: `crate::domain`
@@ -379,11 +380,11 @@ pub fn auth_header(vendor: &ProviderVendor, api_key: &str) -> (&'static str, Str
 | ProviderVendor  | Default Base URL                                  |
 |-----------------|---------------------------------------------------|
 | `OpenAi`        | `https://api.openai.com`                          |
-| `Anthropic`     | `https://api.anthropic.com`                       |
-| `Google`        | `https://generativelanguage.googleapis.com`       |
+| `Anthropic`     | none by default; requires `api_base_override`     |
+| `Google`        | none by default; requires `api_base_override`     |
 | `OpenRouter`    | `https://openrouter.ai/api`                       |
 | `DeepSeek`      | `https://api.deepseek.com`                        |
-| `Other(_)`      | `https://api.openai.com` (override recommended)   |
+| `Other(_)`      | none by default; requires `api_base_override`     |
 
 **Auth header mapping**:
 
@@ -421,23 +422,25 @@ pub struct UpstreamResponse {
 pub async fn proxy_chat_completion(
     client: &reqwest::Client,
     account: &ProviderAccount,
-    api_key: &str,
     raw_body: bytes::Bytes,
 ) -> Result<UpstreamResponse, RookError> {
-    let base = vendor::effective_base_url(account);
+    let base = vendor::effective_base_url(account)
+        .ok_or_else(|| RookError::Gateway("missing upstream base URL".into()))?;
     let url = format!("{base}/v1/chat/completions");
-    let (header_name, header_value) = vendor::auth_header(&account.vendor, api_key);
 
-    let response = client
+    let mut request = client
         .post(&url)
         .header("content-type", "application/json")
-        .header(header_name, &header_value)
-        .body(raw_body)
-        .send()
-        .await
-        .map_err(|e| RookError::Gateway(format!(
-            "upstream request to {url} failed: {e}"
-        )))?;
+        .body(raw_body);
+
+    if let Some(api_key) = account.api_key.as_deref() {
+        let (header_name, header_value) = vendor::auth_header(&account.vendor, api_key);
+        request = request.header(header_name, &header_value);
+    }
+
+    let response = request.send().await.map_err(|e| {
+        RookError::Gateway(format!("upstream request to {url} failed: {e}"))
+    })?;
 
     let status = response.status();
     let content_type = response
@@ -460,7 +463,7 @@ pub async fn proxy_chat_completion(
 
 **Public API**:
 - `UpstreamResponse` struct
-- `proxy_chat_completion(client, account, api_key, body) -> Result<UpstreamResponse, RookError>`
+- `proxy_chat_completion(client, account, body) -> Result<UpstreamResponse, RookError>`
 
 **Dependencies**: `crate::domain`, `crate::gateway::vendor`, `reqwest`, `bytes`
 
@@ -491,8 +494,7 @@ const FAILURE_COOLDOWN_SECS: u64 = 60;
 /// 1. Read raw body bytes (kept for upstream forwarding).
 /// 2. Parse into ChatCompletionRequest (extract `model` + validate `stream`).
 /// 3. Resolve routing via RoutingEngine.
-/// 4. Extract api_key from the resolved account.
-/// 5. Forward raw body to upstream.
+/// 4. Forward raw body to upstream, attaching auth only if `api_key` exists.
 /// 6. Mark health success/failure.
 /// 7. Return upstream response or structured error.
 pub async fn handle_chat_completions(
@@ -536,28 +538,11 @@ pub async fn handle_chat_completions(
         }
     };
 
-    // 4. Extract API key
-    let api_key = match &decision.account.api_key {
-        Some(key) if !key.is_empty() => key.clone(),
-        _ => {
-            return error_response(
-                StatusCode::BAD_GATEWAY,
-                &format!(
-                    "account '{}' has no API key configured",
-                    decision.account.display_name
-                ),
-                "gateway_error",
-                Some("missing_api_key"),
-            );
-        }
-    };
-
-    // 5. Forward to upstream
+    // 4. Forward to upstream
     let account_id = decision.account.id;
     match upstream::proxy_chat_completion(
         &state.http_client,
         &decision.account,
-        &api_key,
         body,
     )
     .await

@@ -21,9 +21,9 @@ upstream calls.
 
 ### In Scope
 
-1. **`api_key` field on `ProviderAccount`** — new encrypted-at-rest column + migration + domain
-   struct update + DB layer CRUD updates. This is the critical cross-cutting prerequisite: without
-   credentials the gateway literally cannot authenticate upstream.
+1. **`api_key` field on `ProviderAccount`** — new plaintext-in-M1 column + migration + domain
+    struct update + DB layer CRUD updates. This is the critical cross-cutting prerequisite: without
+    credentials the gateway literally cannot authenticate upstream.
 
 2. **`reqwest` dependency** — add `reqwest` with `json` + `rustls-tls` features to `Cargo.toml`
    for upstream HTTP calls.
