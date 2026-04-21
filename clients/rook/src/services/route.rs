@@ -19,16 +19,10 @@ pub trait RouteService: Send + Sync {
 
     /// Resolve a logical model name to its active route, or `None` if no route
     /// is configured for that model.
-    fn resolve(
-        &self,
-        logical_model: &str,
-    ) -> impl Future<Output = Option<ModelRoute>> + Send;
+    fn resolve(&self, logical_model: &str) -> impl Future<Output = Option<ModelRoute>> + Send;
 
     /// Persist a new route and return its assigned [`RouteId`].
-    fn create(
-        &self,
-        route: ModelRoute,
-    ) -> impl Future<Output = Result<RouteId, RookError>> + Send;
+    fn create(&self, route: ModelRoute) -> impl Future<Output = Result<RouteId, RookError>> + Send;
 
     /// Overwrite an existing route.
     ///
@@ -79,7 +73,11 @@ impl RouteService for InMemoryRouteService {
             .collect();
 
         // Only return a route if exactly one is found
-        if matches.len() == 1 { Some(matches[0].clone()) } else { None }
+        if matches.len() == 1 {
+            Some(matches[0].clone())
+        } else {
+            None
+        }
     }
 
     async fn create(&self, route: ModelRoute) -> Result<RouteId, RookError> {
@@ -109,8 +107,10 @@ impl RouteService for InMemoryRouteService {
     }
 
     async fn update(&self, route: ModelRoute) -> Result<(), RookError> {
-        let mut guard =
-            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard = self
+            .store
+            .lock()
+            .map_err(|e| RookError::Registry(e.to_string()))?;
 
         // Verify route exists
         if !guard.contains_key(&route.id) {
@@ -132,8 +132,10 @@ impl RouteService for InMemoryRouteService {
     }
 
     async fn delete(&self, id: RouteId) -> Result<(), RookError> {
-        let mut guard =
-            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard = self
+            .store
+            .lock()
+            .map_err(|e| RookError::Registry(e.to_string()))?;
         if guard.remove(&id).is_none() {
             return Err(RookError::Registry(format!("route {id} not found")));
         }
@@ -168,7 +170,11 @@ impl RouteService for SqliteRouteService {
     }
 
     async fn resolve(&self, logical_model: &str) -> Option<ModelRoute> {
-        self.db.find_route_by_model(logical_model).await.ok().flatten()
+        self.db
+            .find_route_by_model(logical_model)
+            .await
+            .ok()
+            .flatten()
     }
 
     async fn create(&self, route: ModelRoute) -> Result<RouteId, RookError> {

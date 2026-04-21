@@ -1,7 +1,7 @@
 //! CRUD operations for [`ModelRoute`] backed by the `model_routes` table.
 
 use crate::db::SqliteDb;
-use crate::domain::{ModelRoute, PoolId, RouteId, RookError};
+use crate::domain::{ModelRoute, PoolId, RookError, RouteId};
 use chrono::Utc;
 use sqlx::Row;
 use uuid::Uuid;
@@ -37,9 +37,7 @@ fn row_to_route(row: &sqlx::sqlite::SqliteRow) -> Result<ModelRoute, RookError> 
         .map_err(|e| RookError::Registry(format!("missing target_pool_id: {e}")))?;
     let target_pool_id = PoolId::new(
         Uuid::parse_str(&target_str)
-            .map_err(|e| {
-                RookError::Registry(format!("invalid target_pool_id UUID: {e}"))
-            })?,
+            .map_err(|e| RookError::Registry(format!("invalid target_pool_id UUID: {e}")))?,
     );
 
     let fallback_str: Option<String> = row
@@ -49,17 +47,18 @@ fn row_to_route(row: &sqlx::sqlite::SqliteRow) -> Result<ModelRoute, RookError> 
         .map(|s| {
             Uuid::parse_str(&s)
                 .map(RouteId::new)
-                .map_err(|e| {
-                    RookError::Registry(format!("invalid fallback_route_id UUID: {e}"))
-                })
+                .map_err(|e| RookError::Registry(format!("invalid fallback_route_id UUID: {e}")))
         })
         .transpose()?;
 
     let policy_json: String = row
         .try_get("policy")
         .map_err(|e| RookError::Registry(format!("missing policy: {e}")))?;
-    let policy: StoredPolicy = serde_json::from_str(&policy_json)
-        .map_err(|e| RookError::Registry(format!("invalid policy JSON: {e}; policy_json={policy_json}")))?;
+    let policy: StoredPolicy = serde_json::from_str(&policy_json).map_err(|e| {
+        RookError::Registry(format!(
+            "invalid policy JSON: {e}; policy_json={policy_json}"
+        ))
+    })?;
 
     Ok(ModelRoute {
         id,
@@ -85,7 +84,9 @@ impl SqliteDb {
                 .bind(fallback_id.to_string())
                 .fetch_optional(self.pool())
                 .await
-                .map_err(|e| RookError::Registry(format!("failed to validate fallback_route_id: {e}")))?;
+                .map_err(|e| {
+                    RookError::Registry(format!("failed to validate fallback_route_id: {e}"))
+                })?;
 
             if exists.is_none() {
                 return Err(RookError::Registry(format!(
@@ -176,14 +177,42 @@ impl SqliteDb {
     pub async fn delete_route(&self, id: &RouteId) -> Result<bool, RookError> {
         let id_str = id.to_string();
 
-        // Check if any routes reference this one as a fallback
-        let referencing: Option<(String,)> = sqlx::query_as(
-            "SELECT id FROM model_routes WHERE fallback_route_id = ? LIMIT 1"
+        let result = sqlx::query(
+            "DELETE FROM model_routes \
+             WHERE id = ? \
+               AND NOT EXISTS (SELECT 1 FROM model_routes WHERE fallback_route_id = ?)",
         )
         .bind(&id_str)
-        .fetch_optional(self.pool())
+        .bind(&id_str)
+        .execute(self.pool())
         .await
-        .map_err(|e| RookError::Registry(format!("failed to check route references: {e}")))?;
+        .map_err(|e| RookError::Registry(format!("delete_route failed: {e}")))?;
+
+        if result.rows_affected() > 0 {
+            return Ok(true);
+        }
+
+        let exists: Option<(String,)> =
+            sqlx::query_as("SELECT id FROM model_routes WHERE id = ? LIMIT 1")
+                .bind(&id_str)
+                .fetch_optional(self.pool())
+                .await
+                .map_err(|e| {
+                    RookError::Registry(format!("failed to verify route existence: {e}"))
+                })?;
+
+        if exists.is_none() {
+            return Ok(false);
+        }
+
+        let referencing: Option<(String,)> =
+            sqlx::query_as("SELECT id FROM model_routes WHERE fallback_route_id = ? LIMIT 1")
+                .bind(&id_str)
+                .fetch_optional(self.pool())
+                .await
+                .map_err(|e| {
+                    RookError::Registry(format!("failed to check route references: {e}"))
+                })?;
 
         if let Some((referring_id,)) = referencing {
             return Err(RookError::Registry(format!(
@@ -192,13 +221,7 @@ impl SqliteDb {
             )));
         }
 
-        let result = sqlx::query("DELETE FROM model_routes WHERE id = ?")
-            .bind(&id_str)
-            .execute(self.pool())
-            .await
-            .map_err(|e| RookError::Registry(format!("delete_route failed: {e}")))?;
-
-        Ok(result.rows_affected() > 0)
+        Ok(false)
     }
 }
 

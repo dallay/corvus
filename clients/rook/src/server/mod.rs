@@ -3,12 +3,13 @@
 //! [`run`] binds the unified axum [`Router`] (API + dashboard assets) to the
 //! configured address and blocks until a graceful shutdown signal is received.
 
+use crate::admin;
 use crate::dashboard;
 use crate::domain::RookError;
 use crate::gateway::{self, GatewayState};
 use crate::registry::RookRegistry;
 use crate::routing::RoutingEngine;
-use axum::{Router, routing::get};
+use axum::Router;
 use std::net::SocketAddr;
 use tracing::info;
 
@@ -52,15 +53,6 @@ impl ServerConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Admin stub router
-// ---------------------------------------------------------------------------
-
-/// Minimal `/api` router — a placeholder for the full admin API (M2+).
-fn api_stub_router() -> Router {
-    Router::new().route("/health", get(|| async { "ok" }))
-}
-
 async fn build_app(config: ServerConfig) -> Result<Router, RookError> {
     let registry = RookRegistry::open(config.effective_db_path()).await?;
     build_app_with_registry(config, registry).await
@@ -77,13 +69,13 @@ async fn build_app_with_registry(
         .map_err(|e| RookError::Gateway(format!("failed to build HTTP client: {e}")))?;
 
     let gateway_state = GatewayState {
-        registry,
+        registry: registry.clone(),
         engine,
         client,
     };
 
     Ok(Router::new()
-        .nest("/api", api_stub_router())
+        .nest("/api", admin::build_router(registry))
         .nest("/v1", gateway::build_router(gateway_state))
         .merge(dashboard::router()))
 }
@@ -141,6 +133,27 @@ mod tests {
     use serde_json::json;
     use tower::util::ServiceExt;
 
+    async fn request_json(app: axum::Router, path: &str) -> (StatusCode, serde_json::Value) {
+        let response = app
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
+        (status, json)
+    }
+
+    async fn request_text(app: axum::Router, path: &str) -> (StatusCode, Vec<u8>) {
+        let response = app
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (status, body.to_vec())
+    }
+
     #[test]
     fn server_config_default_values() {
         let cfg = ServerConfig::default();
@@ -181,8 +194,8 @@ mod tests {
     async fn composed_server_router_keeps_api_health_route() {
         let registry = RookRegistry::open_in_memory().await.unwrap();
         let app = build_app_with_registry(ServerConfig::default(), registry)
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         let response = app
             .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
@@ -192,6 +205,30 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert_eq!(&body[..], b"ok");
+    }
+
+    #[tokio::test]
+    async fn composed_server_router_mounts_real_admin_usage_endpoint() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let app = build_app_with_registry(ServerConfig::default(), registry)
+            .await
+            .unwrap();
+
+        let response = app
+            .oneshot(Request::get("/api/usage").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json_body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json_body,
+            json!({
+                "available": false,
+                "reason": "usage accounting is not implemented in M1"
+            })
+        );
     }
 
     #[tokio::test]
@@ -210,5 +247,47 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json_body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json_body, json!({"object":"list","data":[]}));
+    }
+
+    #[tokio::test]
+    async fn composed_server_router_preserves_dashboard_root_route() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let app = build_app_with_registry(ServerConfig::default(), registry)
+            .await
+            .unwrap();
+
+        let response = app
+            .oneshot(Request::get("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body_text.contains("Corvus Rook"));
+    }
+
+    #[tokio::test]
+    async fn composed_server_router_preserves_api_gateway_root_and_assets() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let app = build_app_with_registry(ServerConfig::default(), registry)
+            .await
+            .unwrap();
+
+        let (health_status, health_body) = request_text(app.clone(), "/api/health").await;
+        assert_eq!(health_status, StatusCode::OK);
+        assert_eq!(health_body, b"ok");
+
+        let (models_status, models_json) = request_json(app.clone(), "/v1/models").await;
+        assert_eq!(models_status, StatusCode::OK);
+        assert_eq!(models_json, json!({"object":"list","data":[]}));
+
+        let (root_status, root_body) = request_text(app.clone(), "/").await;
+        assert_eq!(root_status, StatusCode::OK);
+        assert!(String::from_utf8_lossy(&root_body).contains("Corvus Rook"));
+
+        let (asset_status, asset_body) = request_text(app, "/assets/index.html").await;
+        assert_eq!(asset_status, StatusCode::OK);
+        assert!(String::from_utf8_lossy(&asset_body).contains("Corvus Rook"));
     }
 }

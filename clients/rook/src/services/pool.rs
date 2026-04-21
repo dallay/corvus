@@ -18,10 +18,7 @@ pub trait PoolService: Send + Sync {
     fn get(&self, id: PoolId) -> impl Future<Output = Option<ProviderPool>> + Send;
 
     /// Persist a new pool and return its assigned [`PoolId`].
-    fn create(
-        &self,
-        pool: ProviderPool,
-    ) -> impl Future<Output = Result<PoolId, RookError>> + Send;
+    fn create(&self, pool: ProviderPool) -> impl Future<Output = Result<PoolId, RookError>> + Send;
 
     /// Overwrite an existing pool.
     ///
@@ -98,8 +95,10 @@ impl PoolService for InMemoryPoolService {
     }
 
     async fn update(&self, pool: ProviderPool) -> Result<(), RookError> {
-        let mut guard =
-            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard = self
+            .store
+            .lock()
+            .map_err(|e| RookError::Registry(e.to_string()))?;
         if !guard.contains_key(&pool.id) {
             return Err(RookError::Registry(format!("pool {} not found", pool.id)));
         }
@@ -108,8 +107,10 @@ impl PoolService for InMemoryPoolService {
     }
 
     async fn delete(&self, id: PoolId) -> Result<(), RookError> {
-        let mut guard =
-            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard = self
+            .store
+            .lock()
+            .map_err(|e| RookError::Registry(e.to_string()))?;
         if guard.remove(&id).is_none() {
             return Err(RookError::Registry(format!("pool {id} not found")));
         }
@@ -117,8 +118,10 @@ impl PoolService for InMemoryPoolService {
     }
 
     async fn add_member(&self, pool_id: PoolId, account_id: AccountId) -> Result<(), RookError> {
-        let mut guard =
-            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard = self
+            .store
+            .lock()
+            .map_err(|e| RookError::Registry(e.to_string()))?;
         let pool = guard
             .get_mut(&pool_id)
             .ok_or_else(|| RookError::Registry(format!("pool {pool_id} not found")))?;
@@ -128,18 +131,19 @@ impl PoolService for InMemoryPoolService {
         Ok(())
     }
 
-    async fn remove_member(
-        &self,
-        pool_id: PoolId,
-        account_id: AccountId,
-    ) -> Result<(), RookError> {
-        let mut guard =
-            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+    async fn remove_member(&self, pool_id: PoolId, account_id: AccountId) -> Result<(), RookError> {
+        let mut guard = self
+            .store
+            .lock()
+            .map_err(|e| RookError::Registry(e.to_string()))?;
         let pool = guard
             .get_mut(&pool_id)
             .ok_or_else(|| RookError::Registry(format!("pool {pool_id} not found")))?;
-        let pos =
-            pool.members.iter().position(|m| m == &account_id).ok_or_else(|| {
+        let pos = pool
+            .members
+            .iter()
+            .position(|m| m == &account_id)
+            .ok_or_else(|| {
                 RookError::Registry(format!(
                     "account {account_id} is not a member of pool {pool_id}"
                 ))
@@ -182,23 +186,29 @@ impl PoolService for SqlitePoolService {
     }
 
     async fn update(&self, pool: ProviderPool) -> Result<(), RookError> {
-        // No update_pool in db layer — implement as delete + re-insert.
-        let pool_id_str = pool.id.to_string();
-        sqlx::query("DELETE FROM provider_pools WHERE id = ?")
-            .bind(&pool_id_str)
-            .execute(self.db.pool())
-            .await
-            .map_err(|e| RookError::Registry(format!("delete_pool failed: {e}")))?;
-        self.db.insert_pool(&pool).await
+        self.db.replace_pool(&pool).await
     }
 
     async fn delete(&self, id: PoolId) -> Result<(), RookError> {
+        if self.db.is_pool_referenced_as_fallback(&id).await? {
+            return Err(RookError::Registry(format!(
+                "cannot delete pool {}: referenced by one or more fallback pools",
+                id
+            )));
+        }
+
         let id_str = id.to_string();
         sqlx::query("DELETE FROM provider_pools WHERE id = ?")
             .bind(&id_str)
             .execute(self.db.pool())
             .await
-            .map(|_| ())
+            .and_then(|result| {
+                if result.rows_affected() == 0 {
+                    Err(sqlx::Error::RowNotFound)
+                } else {
+                    Ok(())
+                }
+            })
             .map_err(|e| RookError::Registry(format!("delete_pool failed: {e}")))
     }
 
@@ -206,11 +216,7 @@ impl PoolService for SqlitePoolService {
         self.db.add_pool_member(&pool_id, &account_id).await
     }
 
-    async fn remove_member(
-        &self,
-        pool_id: PoolId,
-        account_id: AccountId,
-    ) -> Result<(), RookError> {
+    async fn remove_member(&self, pool_id: PoolId, account_id: AccountId) -> Result<(), RookError> {
         self.db.remove_pool_member(&pool_id, &account_id).await
     }
 }
@@ -315,8 +321,10 @@ mod tests {
     #[tokio::test]
     async fn add_member_to_nonexistent_pool_errors() {
         let svc = InMemoryPoolService::new();
-        let err =
-            svc.add_member(PoolId::generate(), AccountId::generate()).await.unwrap_err();
+        let err = svc
+            .add_member(PoolId::generate(), AccountId::generate())
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("not found"));
     }
 

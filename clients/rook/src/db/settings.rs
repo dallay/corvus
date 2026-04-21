@@ -144,11 +144,15 @@ mod tests {
     async fn save_and_load_round_trip() {
         let db = SqliteDb::open_in_memory().await.unwrap();
 
-        let mut s = RookSettings::default();
-        s.gateway_port = 9090;
-        s.log_json = true;
-        s.log_level = "debug".to_owned();
-        s.default_routing_policy.max_retries = 5;
+        let s = RookSettings {
+            gateway_port: 9090,
+            default_routing_policy: crate::domain::RoutingPolicy {
+                max_retries: 5,
+                ..RookSettings::default().default_routing_policy
+            },
+            log_json: true,
+            log_level: "debug".to_owned(),
+        };
 
         db.save_settings(s).await.unwrap();
 
@@ -163,12 +167,16 @@ mod tests {
     async fn save_twice_upserts() {
         let db = SqliteDb::open_in_memory().await.unwrap();
 
-        let mut s1 = RookSettings::default();
-        s1.gateway_port = 8080;
+        let s1 = RookSettings {
+            gateway_port: 8080,
+            ..RookSettings::default()
+        };
         db.save_settings(s1).await.unwrap();
 
-        let mut s2 = RookSettings::default();
-        s2.gateway_port = 9999;
+        let s2 = RookSettings {
+            gateway_port: 9999,
+            ..RookSettings::default()
+        };
         db.save_settings(s2).await.unwrap();
 
         let loaded = db.load_settings().await.unwrap();

@@ -10,8 +10,8 @@
 //! Gateway authentication is deferred to #591. Until then, the server must keep
 //! the listener bound to loopback by default before any external exposure.
 
-pub mod types;
 pub mod handlers;
+pub mod types;
 pub mod upstream;
 pub mod vendor;
 
