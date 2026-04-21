@@ -1,5 +1,83 @@
 # Changelog
 
+## [3.3.0](https://github.com/dallay/corvus/compare/v3.2.0...v3.3.0) (2026-04-21)
+
+
+### Features
+
+* Add and archive slash session commands with SQLite persistence ([#532](https://github.com/dallay/corvus/issues/532)) ([ba6bd0b](https://github.com/dallay/corvus/commit/ba6bd0b3dbb630b154cc33ede2c249062c6cd003))
+* **agent-runtime:** add session inspect and list commands ([bac9596](https://github.com/dallay/corvus/commit/bac95961d8e08fa9685b0931ac65a6c19f546a22))
+* **agent-runtime:** add session inspect and list commands ([768a5df](https://github.com/dallay/corvus/commit/768a5dfda6aa155e0af33b87adcf3a1232bf424b))
+* **agent-runtime:** add settings, mcp, and tool management slash commands ([#544](https://github.com/dallay/corvus/issues/544)) ([29ea635](https://github.com/dallay/corvus/commit/29ea6357da563c8978e0f358e4644094b810cef6))
+* **agent-runtime:** add slash command registry core ([#545](https://github.com/dallay/corvus/issues/545)) ([72d1eff](https://github.com/dallay/corvus/commit/72d1eff9c238ae60da43cd7428eef8a348f55ddb))
+* **agent-runtime:** add slash tools listing ([#544](https://github.com/dallay/corvus/issues/544)) ([cd3569d](https://github.com/dallay/corvus/commit/cd3569d4cb20970cacefdcfeac337b32b729faf7))
+* **agent-runtime:** add slash tools listing ([#544](https://github.com/dallay/corvus/issues/544)) ([fb993c4](https://github.com/dallay/corvus/commit/fb993c499dec24d62a6a9e7af41135217bddfa38))
+* **agent-runtime:** add task tools and session discoverability ([8758858](https://github.com/dallay/corvus/commit/8758858e5c5a14d58c3eb46f0c13fa8088c8fcae))
+* **agent-runtime:** add task tools and session discoverability ([6f2f5b9](https://github.com/dallay/corvus/commit/6f2f5b9f9c257bf2e3b27f20b90162bdbe6e772c))
+* **agent-runtime:** add tooling parity search and fetch tools ([#536](https://github.com/dallay/corvus/issues/536)) ([238fd09](https://github.com/dallay/corvus/commit/238fd09525d51c69a563223956d35eb73dabb7d1))
+* **agent-runtime:** add typed slash command contract ([#546](https://github.com/dallay/corvus/issues/546)) ([63e1acd](https://github.com/dallay/corvus/commit/63e1acd6dce738758df4828bd7fa0e3e9a1a1fde))
+* **agent-runtime:** unify slash command transport handling ([#541](https://github.com/dallay/corvus/issues/541)) ([#549](https://github.com/dallay/corvus/issues/549)) ([dbee48b](https://github.com/dallay/corvus/commit/dbee48b1db30f6a6e53a844fe5e89394cd77be99))
+* **coordinator:** add foundational components for coordinator functionality and update timeout durations ([6961e8c](https://github.com/dallay/corvus/commit/6961e8c40b42611012f4d65474d192790ce0a563))
+* **coordinator:** complete track 4 slice 1 foundations ([753cd53](https://github.com/dallay/corvus/commit/753cd53d2650d121c5a80cfeff4e8dbc88431faf))
+* **coordinator:** finalize track 4 slice 1 foundations ([c876dd9](https://github.com/dallay/corvus/commit/c876dd9fb5ac2ce856f5dd9fec66f671786dfe4e))
+* **coordinator:** update verify-report with test results and clarifications ([f2c6e17](https://github.com/dallay/corvus/commit/f2c6e17fd1e123c106384798dfda4a3fb4c709cc))
+* implement supervised child lifecycle for Track 4 Slice 2 ([92d591c](https://github.com/dallay/corvus/commit/92d591c1168ba0e1a0833d7a1d6cb52c6b21f250))
+* introduce in-process coordinator foundations for Track 4 orchestration ([29bf8c3](https://github.com/dallay/corvus/commit/29bf8c3caffd77c6a99a89a5efd43888039e61d5))
+* **orchestration:** add mailbox-backed slice 3 delivery ([0f811dc](https://github.com/dallay/corvus/commit/0f811dcfc71bc8bbc871be13fba6ef6a2b88a51c))
+* **orchestration:** add mailbox-backed slice 3 delivery ([1a566eb](https://github.com/dallay/corvus/commit/1a566ebeb9261eaaa59312bc251ffda8f939f1d1))
+* **orchestration:** supervised child lifecycle tools and coordinator (Slice 2) ([5c8e23b](https://github.com/dallay/corvus/commit/5c8e23bf192e2bef6e0df3d2656ced9c059dd1ba))
+* **rook:** add SQLite persistence for ProviderAccount, ProviderPool, ModelRoute, and RoutingPolicy ([c6d1b82](https://github.com/dallay/corvus/commit/c6d1b82adf01cf1359c4dbea00c239ea017b7a44))
+* **rook:** add SQLite persistence for ProviderAccount, ProviderPool, ModelRoute, and RoutingPolicy ([b99530a](https://github.com/dallay/corvus/commit/b99530a811775dc9b55d93f5f92d08b7c02e54ce)), closes [#583](https://github.com/dallay/corvus/issues/583)
+* **rook:** build registry services for account, pool, route, and settings ([ec1ee5f](https://github.com/dallay/corvus/commit/ec1ee5f2f12ad505b8a6db5fdbc34c75ba08823e))
+* **rook:** build registry services for account, pool, route, and settings ([9bc818e](https://github.com/dallay/corvus/commit/9bc818e147751735deda12ea83e5187d9116cc3f)), closes [#584](https://github.com/dallay/corvus/issues/584)
+* **rook:** embed dashboard assets and coordinate single-binary startup flows ([264bfa1](https://github.com/dallay/corvus/commit/264bfa19929d2e60af7cf36631431a4d94bc91de))
+* **rook:** embed dashboard assets and coordinate single-binary startup flows ([4a7cba2](https://github.com/dallay/corvus/commit/4a7cba29a1327c4dd0b5d103fc24183ed12cdc67)), closes [#582](https://github.com/dallay/corvus/issues/582)
+* **rook:** implement routing engine with strategy dispatch and fallback chains ([d634ae1](https://github.com/dallay/corvus/commit/d634ae16e3a95cece392695c3804a4a1f28be45c))
+* **rook:** implement routing engine with strategy dispatch and fallback chains ([9a96954](https://github.com/dallay/corvus/commit/9a9695458daf90ff8d62ff5a7499f990314085e6)), closes [#586](https://github.com/dallay/corvus/issues/586)
+* **rook:** implement shared domain services for accounts, pools, routes, and health ([08e3bc8](https://github.com/dallay/corvus/commit/08e3bc877dea15666f29d305ee72f1193e8367cb))
+* **rook:** implement shared domain services for accounts, pools, routes, and health ([7b763f8](https://github.com/dallay/corvus/commit/7b763f8132206fb6a5e640155c400826e22c2383)), closes [#581](https://github.com/dallay/corvus/issues/581)
+* **rook:** scaffold package layout with domain types, CLI, and module stubs ([a9ee3a7](https://github.com/dallay/corvus/commit/a9ee3a73575a0f60847eb5c67460647f3e519b23))
+* **rook:** scaffold package layout with domain types, CLI, and module stubs ([c723f32](https://github.com/dallay/corvus/commit/c723f325fcd2ec98d1ffa6b009a4715d771caba1)), closes [#580](https://github.com/dallay/corvus/issues/580)
+* settings mcp tool commands ([53a50a8](https://github.com/dallay/corvus/commit/53a50a86a51ad6f760dc42ae9e5d5c53f3581b18))
+* **vite:** configure server file system access for repository root ([e7d1f78](https://github.com/dallay/corvus/commit/e7d1f784e5009187e477299923ec3c58fbd5f087))
+
+
+### Bug Fixes
+
+* address PR [#602](https://github.com/dallay/corvus/issues/602) inline review comments ([687bb84](https://github.com/dallay/corvus/commit/687bb847225b5b2e9ba51feec828c14a616c3ed2))
+* **agent-runtime:** address slash-session code review findings ([a4157da](https://github.com/dallay/corvus/commit/a4157da814642583b8aefc8114d798af26353d89))
+* **agent-runtime:** block localhost subdomains in http tools ([623b7ef](https://github.com/dallay/corvus/commit/623b7ef6335b46216452377e7e91a7009eb152bb))
+* **agent-runtime:** box handled session command success ([4665653](https://github.com/dallay/corvus/commit/46656535623426dfec71b6b62bf2379d21a486ae))
+* **agent-runtime:** reduce session command clippy footprint ([ce64ee1](https://github.com/dallay/corvus/commit/ce64ee1d93a6fa380982ab36b639597e41601e6b))
+* apply CodeRabbit auto-fixes ([895527c](https://github.com/dallay/corvus/commit/895527c3f97eda5d7eba6d7fd36f6a724918e541))
+* apply CodeRabbit auto-fixes ([445a2d0](https://github.com/dallay/corvus/commit/445a2d03f2a428960cc473a466fef954593f71c1))
+* apply CodeRabbit auto-fixes ([2fd8667](https://github.com/dallay/corvus/commit/2fd86674ffd1f6f5a4ca0d1b230d499526bd7295))
+* apply CodeRabbit auto-fixes ([9230e94](https://github.com/dallay/corvus/commit/9230e942164a06a66710519011663849e94e645e))
+* bind gateway to 0.0.0.0, lift ChatWorkspace state, fix Spanish docs, harden mobile-smoke-test.sh ([948974a](https://github.com/dallay/corvus/commit/948974a2fed851e07e48f78cfd0133d724b36571))
+* bind gateway to 0.0.0.0, lift ChatWorkspace state, fix Spanish docs, harden mobile-smoke-test.sh ([a04f4ee](https://github.com/dallay/corvus/commit/a04f4ee5717a096468f7535b458ba4d046229993))
+* **cerebro:** reject blank memory update fields ([a391cfc](https://github.com/dallay/corvus/commit/a391cfc7189dabbee73de5d7ed08ef91f2d89e8c))
+* **cerebro:** reject blank memory update fields ([9a46505](https://github.com/dallay/corvus/commit/9a465056d46942ec39a006008b9de8359d6177f6))
+* **ci:** separate docs stable deploy from preview artifacts ([8a777b9](https://github.com/dallay/corvus/commit/8a777b93490cca449cd8a9abe39620aacc684ed8))
+* **dashboard:** enable explicit Playwright fs allow mode ([19f6d3e](https://github.com/dallay/corvus/commit/19f6d3ee5e2e5dce6968da84f048301971df7947))
+* rook 583 apply ([721302f](https://github.com/dallay/corvus/commit/721302f09b8967fb7926a86c3c485cbedc4e4a66))
+* **rook:** add ID newtype accessors and ProviderVendor near-miss deserialization ([40315f3](https://github.com/dallay/corvus/commit/40315f328152c22ec591a00c7fb1be3abe16631f))
+* **rook:** address code review findings for routing engine ([b2d551c](https://github.com/dallay/corvus/commit/b2d551c911e1166b90ac9a6ee206d56ed072d935)), closes [#586](https://github.com/dallay/corvus/issues/586)
+* **rook:** address inline review findings for routing engine ([5dad006](https://github.com/dallay/corvus/commit/5dad006f63281ebf5532423294b60059155a2087))
+* **rook:** address PR [#605](https://github.com/dallay/corvus/issues/605) review comments ([e19f2a5](https://github.com/dallay/corvus/commit/e19f2a51b8a11f48fa08b370e2a6c27c3544641a))
+* **rook:** clean up merge conflict files, re-apply fixes ([192cdb3](https://github.com/dallay/corvus/commit/192cdb3b7ade06ab2911042e870d7260eda6fdc4))
+* **rook:** fix ProviderVendor::Other serde and add serialization tests ([4eaeac2](https://github.com/dallay/corvus/commit/4eaeac2150c9a18df7469996d62b219eecee7ef9))
+* **test:** update slash-session tests to use SqliteMemory and fix service.rs issues ([fe13190](https://github.com/dallay/corvus/commit/fe1319070ace3110287615f2403b444894bf80fd))
+* verify findings from track-4-slice-1 verify-report ([0ef9b53](https://github.com/dallay/corvus/commit/0ef9b53bd2f9412f5eee55b623d6db7d5cc97b91))
+* **workflows:** update dallay/common-actions to v2.0.0 (pinned SHA) ([d7427d7](https://github.com/dallay/corvus/commit/d7427d723f73cf121cd7957b7f01d38104f1affc))
+* **workflows:** update dallay/common-actions to v2.0.0 (pinned SHA) ([2bc7ae5](https://github.com/dallay/corvus/commit/2bc7ae5c56ce39129e23abc5decf5b0e12591fb5))
+* **workflows:** update dallay/common-actions to v2.0.0 (pinned SHA) ([643f370](https://github.com/dallay/corvus/commit/643f370d7d63de44533cf8a9ee1e1fe7da2c91d0))
+* **workflow:** use v1.2.0 tag for pr-size-labeler reusable workflow ([91d9a05](https://github.com/dallay/corvus/commit/91d9a051758fa207385dfc0ef9b00f2fb54bdd0a))
+
+
+### Performance Improvements
+
+* **compose:** optimize UI rendering with Brush memoization ([4de741c](https://github.com/dallay/corvus/commit/4de741cee3f61b97e1688dae43c35bf0aac5d5a2))
+
 ## [3.2.0](https://github.com/dallay/corvus/compare/v3.1.0...v3.2.0) (2026-04-13)
 
 
