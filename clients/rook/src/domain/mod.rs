@@ -243,6 +243,9 @@ pub struct ProviderAccount {
     pub display_name: String,
     /// Override the vendor's default API base URL (e.g., for local proxies).
     pub api_base_override: Option<String>,
+    /// API key for authenticating with the upstream provider.
+    /// Stored as plaintext in M1; encryption-at-rest is #591.
+    pub api_key: Option<String>,
     /// Whether this account is eligible for routing.
     pub enabled: bool,
     /// Relative weight used by [`SelectionStrategy::Weighted`].

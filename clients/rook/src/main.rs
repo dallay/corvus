@@ -63,6 +63,7 @@ async fn main() -> Result<()> {
                 host,
                 port,
                 enable_tui: tui,
+                db_path: None,
             };
             rook::server::run(config).await?;
         }

@@ -50,6 +50,9 @@ fn row_to_account(row: &sqlx::sqlite::SqliteRow) -> Result<ProviderAccount, Rook
     let api_base: Option<String> = row
         .try_get("api_base")
         .map_err(|e| RookError::Registry(format!("missing api_base: {e}")))?;
+    let api_key: Option<String> = row
+        .try_get("api_key")
+        .map_err(|e| RookError::Registry(format!("missing api_key: {e}")))?;
     let enabled: i64 = row
         .try_get("enabled")
         .map_err(|e| RookError::Registry(format!("missing enabled: {e}")))?;
@@ -82,6 +85,7 @@ fn row_to_account(row: &sqlx::sqlite::SqliteRow) -> Result<ProviderAccount, Rook
         display_name,
         vendor,
         api_base_override: api_base,
+        api_key,
         enabled: enabled != 0,
         weight,
         priority,
@@ -113,14 +117,15 @@ impl SqliteDb {
 
         sqlx::query(
             "INSERT INTO provider_accounts \
-             (id, display_name, vendor, api_base, enabled, weight, priority, \
+             (id, display_name, vendor, api_base, api_key, enabled, weight, priority, \
               tags, capabilities, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&account.display_name)
         .bind(&vendor_str)
         .bind(&account.api_base_override)
+        .bind(&account.api_key)
         .bind(enabled)
         .bind(weight)
         .bind(priority)
@@ -141,9 +146,9 @@ impl SqliteDb {
     pub async fn get_account(&self, id: &AccountId) -> Result<Option<ProviderAccount>, RookError> {
         let id_str = id.to_string();
         let row = sqlx::query(
-            "SELECT id, display_name, vendor, api_base, enabled, weight, priority, \
+            "SELECT id, display_name, vendor, api_base, api_key, enabled, weight, priority, \
              tags, capabilities, created_at, updated_at \
-             FROM provider_accounts WHERE id = ?",
+              FROM provider_accounts WHERE id = ?",
         )
         .bind(&id_str)
         .fetch_optional(self.pool())
@@ -156,9 +161,9 @@ impl SqliteDb {
     /// Return all [`ProviderAccount`]s ordered by priority then display name.
     pub async fn list_accounts(&self) -> Result<Vec<ProviderAccount>, RookError> {
         let rows = sqlx::query(
-            "SELECT id, display_name, vendor, api_base, enabled, weight, priority, \
+            "SELECT id, display_name, vendor, api_base, api_key, enabled, weight, priority, \
              tags, capabilities, created_at, updated_at \
-             FROM provider_accounts ORDER BY priority ASC, display_name ASC",
+              FROM provider_accounts ORDER BY priority ASC, display_name ASC",
         )
         .fetch_all(self.pool())
         .await
@@ -194,6 +199,7 @@ mod tests {
             display_name: "Test OpenAI".to_string(),
             vendor: ProviderVendor::OpenAi,
             api_base_override: None,
+            api_key: None,
             enabled: true,
             weight: 100,
             priority: 0,
@@ -214,10 +220,34 @@ mod tests {
         assert_eq!(fetched.display_name, account.display_name);
         assert_eq!(fetched.vendor, account.vendor);
         assert_eq!(fetched.enabled, account.enabled);
+        assert_eq!(fetched.api_key, account.api_key);
         assert_eq!(fetched.weight, account.weight);
         assert_eq!(fetched.priority, account.priority);
         assert_eq!(fetched.tags, account.tags);
         assert_eq!(fetched.capabilities, account.capabilities);
+    }
+
+    #[tokio::test]
+    async fn insert_and_get_account_round_trips_api_key() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+        let mut account = make_account();
+        account.api_key = Some("sk-test-123".to_string());
+
+        db.insert_account(&account).await.unwrap();
+
+        let fetched = db.get_account(&account.id).await.unwrap().unwrap();
+        assert_eq!(fetched.api_key, Some("sk-test-123".to_string()));
+    }
+
+    #[tokio::test]
+    async fn insert_and_get_account_preserves_none_api_key() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+        let account = make_account();
+
+        db.insert_account(&account).await.unwrap();
+
+        let fetched = db.get_account(&account.id).await.unwrap().unwrap();
+        assert_eq!(fetched.api_key, None);
     }
 
     #[tokio::test]
@@ -238,6 +268,7 @@ mod tests {
             display_name: "Anthropic Acc".to_string(),
             vendor: ProviderVendor::Anthropic,
             api_base_override: Some("https://proxy.example.com".to_string()),
+            api_key: None,
             enabled: false,
             weight: 50,
             priority: 1,
@@ -254,6 +285,7 @@ mod tests {
         let ids: Vec<_> = list.iter().map(|a| a.id).collect();
         assert!(ids.contains(&a1.id));
         assert!(ids.contains(&a2.id));
+        assert!(list.iter().all(|account| account.api_key.is_none()));
     }
 
     #[tokio::test]
@@ -286,6 +318,7 @@ mod tests {
             display_name: "Mistral".to_string(),
             vendor: ProviderVendor::Other("mistral".to_string()),
             api_base_override: None,
+            api_key: None,
             enabled: true,
             weight: 100,
             priority: 0,
@@ -305,6 +338,7 @@ mod tests {
             display_name: "Weird Vendor".to_string(),
             vendor: ProviderVendor::Other("weird\"name".to_string()),
             api_base_override: None,
+            api_key: None,
             enabled: true,
             weight: 100,
             priority: 0,

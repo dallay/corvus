@@ -220,6 +220,7 @@ mod tests {
             display_name: "OpenAI".to_string(),
             vendor: ProviderVendor::OpenAi,
             api_base_override: None,
+            api_key: None,
             enabled: true,
             weight: 100,
             priority: 0,
