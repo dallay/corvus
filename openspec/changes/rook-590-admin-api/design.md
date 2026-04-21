@@ -784,8 +784,7 @@ pub async fn handle_remove_pool_member(
   - `registry.pools().get(pool_id).await`
 - Errors:
   - unknown pool → `404`
-  - unknown membership → `404` or `409` depending on final service behavior; M1 should prefer `404`
-    because the target membership resource does not exist
+  - unknown membership → `409`
 
 ### Route handlers
 

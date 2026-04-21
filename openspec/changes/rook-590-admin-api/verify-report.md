@@ -2,7 +2,7 @@
 
 ## status
 
-PASS WITH WARNINGS
+PASS
 
 ## executive_summary
 
@@ -15,12 +15,7 @@ dashboard routes.
 Behavioral verification is strong: the full `clients/rook` test suite passes, including targeted
 coverage for composition, redaction, CRUD, membership, and deletion/reference-integrity behavior.
 
-However, the verification gate is not completely clean because:
-
-- `cargo fmt --check` fails due to formatting drift in the Rook crate
-- `cargo clippy --all-targets -- -D warnings` fails on test-code lint issues
-
-So this change is not a FAIL on functional/spec correctness, but it is not a clean PASS either.
+The verification gate is now clean: formatting, clippy, and the full Rook test suite all pass.
 
 ## artifacts_reviewed
 
@@ -153,12 +148,10 @@ Strong behavioral evidence exists.
    - 162 tests passed in `src/lib.rs`
 
 2. `cargo fmt --manifest-path "clients/rook/Cargo.toml" --all -- --check`
-   - FAIL
-   - formatting drift detected in Rook files
+   - PASS
 
 3. `cargo clippy --manifest-path "clients/rook/Cargo.toml" --all-targets -- -D warnings`
-   - FAIL
-   - test-code warnings promoted to errors
+   - PASS
 
 ### Previously executed targeted evidence in apply slices
 

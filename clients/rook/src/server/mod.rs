@@ -133,6 +133,27 @@ mod tests {
     use serde_json::json;
     use tower::util::ServiceExt;
 
+    async fn request_json(app: axum::Router, path: &str) -> (StatusCode, serde_json::Value) {
+        let response = app
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
+        (status, json)
+    }
+
+    async fn request_text(app: axum::Router, path: &str) -> (StatusCode, Vec<u8>) {
+        let response = app
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (status, body.to_vec())
+    }
+
     #[test]
     fn server_config_default_values() {
         let cfg = ServerConfig::default();
@@ -244,5 +265,29 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body_text = String::from_utf8(body.to_vec()).unwrap();
         assert!(body_text.contains("Corvus Rook"));
+    }
+
+    #[tokio::test]
+    async fn composed_server_router_preserves_api_gateway_root_and_assets() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let app = build_app_with_registry(ServerConfig::default(), registry)
+            .await
+            .unwrap();
+
+        let (health_status, health_body) = request_text(app.clone(), "/api/health").await;
+        assert_eq!(health_status, StatusCode::OK);
+        assert_eq!(health_body, b"ok");
+
+        let (models_status, models_json) = request_json(app.clone(), "/v1/models").await;
+        assert_eq!(models_status, StatusCode::OK);
+        assert_eq!(models_json, json!({"object":"list","data":[]}));
+
+        let (root_status, root_body) = request_text(app.clone(), "/").await;
+        assert_eq!(root_status, StatusCode::OK);
+        assert!(String::from_utf8_lossy(&root_body).contains("Corvus Rook"));
+
+        let (asset_status, asset_body) = request_text(app, "/assets/index.html").await;
+        assert_eq!(asset_status, StatusCode::OK);
+        assert!(String::from_utf8_lossy(&asset_body).contains("Corvus Rook"));
     }
 }

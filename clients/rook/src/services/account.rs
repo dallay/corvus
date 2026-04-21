@@ -147,18 +147,18 @@ impl AccountService for SqliteAccountService {
     }
 
     async fn delete(&self, id: AccountId) -> Result<(), RookError> {
-        if self.db.is_account_referenced_by_pool(&id).await? {
-            return Err(RookError::Registry(format!(
-                "cannot delete account {}: referenced by one or more pools",
-                id
-            )));
+        match self.db.delete_account_if_not_referenced(&id).await? {
+            crate::db::account::DeleteAccountResult::Deleted => Ok(()),
+            crate::db::account::DeleteAccountResult::Referenced => {
+                Err(RookError::Registry(format!(
+                    "cannot delete account {}: referenced by one or more pools",
+                    id
+                )))
+            }
+            crate::db::account::DeleteAccountResult::NotFound => {
+                Err(RookError::Registry(format!("account {id} not found")))
+            }
         }
-
-        if !self.db.delete_account(&id).await? {
-            return Err(RookError::Registry(format!("account {id} not found")));
-        }
-
-        Ok(())
     }
 }
 

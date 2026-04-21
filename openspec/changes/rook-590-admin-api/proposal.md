@@ -52,9 +52,9 @@ the already-shipped `/v1` gateway router and dashboard asset routes. The admin l
 expose domain structs directly. Instead, it should translate between transport DTOs and existing
 service/domain models through dedicated modules:
 
-- `clients/agent-runtime/src/gateway/admin/mod.rs`
-- `clients/agent-runtime/src/gateway/admin/types.rs`
-- `clients/agent-runtime/src/gateway/admin/handlers.rs`
+- `clients/rook/src/admin/mod.rs`
+- `clients/rook/src/admin/types.rs`
+- `clients/rook/src/admin/handlers.rs`
 
 The admin handlers should share application state through `RookRegistry`, treating the registry as
 the boundary to existing account, pool, route, health, and settings services. This keeps the new

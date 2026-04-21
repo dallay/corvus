@@ -88,6 +88,27 @@ impl SqliteDb {
             .await
             .map_err(|e| RookError::Registry(format!("failed to begin transaction: {e}")))?;
 
+        if let Some(fallback_id) = &pool.fallback_pool_id {
+            let fallback_str = fallback_id.to_string();
+            let exists: Option<(i64,)> =
+                sqlx::query_as("SELECT 1 FROM provider_pools WHERE id = ? LIMIT 1")
+                    .bind(&fallback_str)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        RookError::Registry(format!(
+                            "failed to validate fallback_pool_id existence: {e}"
+                        ))
+                    })?;
+
+            if exists.is_none() {
+                return Err(RookError::Registry(format!(
+                    "fallback pool {} does not exist",
+                    fallback_id
+                )));
+            }
+        }
+
         // Insert pool
         sqlx::query(
             "INSERT INTO provider_pools \
@@ -116,6 +137,90 @@ impl SqliteDb {
         }
 
         // Commit transaction
+        tx.commit()
+            .await
+            .map_err(|e| RookError::Registry(format!("failed to commit transaction: {e}")))?;
+
+        Ok(())
+    }
+
+    pub async fn replace_pool(&self, pool: &ProviderPool) -> Result<(), RookError> {
+        let pool_id = pool.id.to_string();
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| RookError::Registry(format!("failed to begin transaction: {e}")))?;
+
+        let exists: Option<(i64,)> =
+            sqlx::query_as("SELECT 1 FROM provider_pools WHERE id = ? LIMIT 1")
+                .bind(&pool_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| {
+                    RookError::Registry(format!("failed to verify pool existence: {e}"))
+                })?;
+
+        if exists.is_none() {
+            return Err(RookError::Registry(format!("pool {} not found", pool.id)));
+        }
+
+        if let Some(fallback_id) = &pool.fallback_pool_id {
+            let fallback_str = fallback_id.to_string();
+            let fallback_exists: Option<(i64,)> =
+                sqlx::query_as("SELECT 1 FROM provider_pools WHERE id = ? LIMIT 1")
+                    .bind(&fallback_str)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        RookError::Registry(format!(
+                            "failed to validate fallback_pool_id existence: {e}"
+                        ))
+                    })?;
+
+            if fallback_exists.is_none() {
+                return Err(RookError::Registry(format!(
+                    "fallback pool {} does not exist",
+                    fallback_id
+                )));
+            }
+        }
+
+        sqlx::query("DELETE FROM provider_pools WHERE id = ?")
+            .bind(&pool_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RookError::Registry(format!("delete_pool failed: {e}")))?;
+
+        let strategy_str = strategy_to_db_str(&pool.strategy)?;
+        let fallback = pool.fallback_pool_id.as_ref().map(|p| p.to_string());
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "INSERT INTO provider_pools \
+             (id, name, strategy, fallback_pool_id, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&pool_id)
+        .bind(&pool.name)
+        .bind(&strategy_str)
+        .bind(&fallback)
+        .bind(&now)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RookError::Registry(format!("insert_pool failed: {e}")))?;
+
+        for account_id in &pool.members {
+            let acct_str = account_id.to_string();
+            sqlx::query("INSERT OR IGNORE INTO pool_members (pool_id, account_id) VALUES (?, ?)")
+                .bind(&pool_id)
+                .bind(&acct_str)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RookError::Registry(format!("insert pool member failed: {e}")))?;
+        }
+
         tx.commit()
             .await
             .map_err(|e| RookError::Registry(format!("failed to commit transaction: {e}")))?;

@@ -12,11 +12,15 @@ use crate::services::{
 };
 use axum::{
     extract::Json as ExtractJson,
-    extract::{Path, State},
+    extract::{
+        rejection::{JsonRejection, PathRejection},
+        Path, State,
+    },
     http::StatusCode,
     Json,
 };
 use serde_json::{Map, Value};
+use tracing::error;
 
 type AdminJson<T> = Result<Json<T>, (StatusCode, Json<AdminErrorResponse>)>;
 type AdminCreated<T> = Result<(StatusCode, Json<T>), (StatusCode, Json<AdminErrorResponse>)>;
@@ -32,10 +36,10 @@ fn bad_request(message: impl Into<String>) -> (StatusCode, Json<AdminErrorRespon
 fn classify_rook_error(error: RookError) -> (StatusCode, Json<AdminErrorResponse>) {
     match error {
         RookError::Registry(message) => classify_registry_message(message),
-        other => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(admin_error_response("internal_error", other.to_string())),
-        ),
+        other => {
+            error!(error = %other, "unhandled admin rook error");
+            internal_error_response()
+        }
     }
 }
 
@@ -62,10 +66,36 @@ fn classify_registry_message(message: String) -> (StatusCode, Json<AdminErrorRes
             Json(admin_error_response("reference_conflict", message)),
         );
     }
+    error!(message = %message, "unclassified registry error in admin handler");
+    internal_error_response()
+}
+
+fn internal_error_response() -> (StatusCode, Json<AdminErrorResponse>) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(admin_error_response("internal_error", message)),
+        Json(admin_error_response(
+            "internal_error",
+            "Internal server error",
+        )),
     )
+}
+
+fn parse_json<T>(
+    result: Result<ExtractJson<T>, JsonRejection>,
+) -> Result<T, (StatusCode, Json<AdminErrorResponse>)> {
+    result.map(|ExtractJson(value)| value).map_err(|rejection| {
+        error!(error = %rejection, "admin json extraction failed");
+        bad_request("invalid JSON request body")
+    })
+}
+
+fn parse_path<T>(
+    result: Result<Path<T>, PathRejection>,
+) -> Result<T, (StatusCode, Json<AdminErrorResponse>)> {
+    result.map(|Path(value)| value).map_err(|rejection| {
+        error!(error = %rejection, "admin path extraction failed");
+        bad_request("invalid path parameter")
+    })
 }
 
 fn validate_display_name(name: &str) -> Result<(), (StatusCode, Json<AdminErrorResponse>)> {
@@ -140,8 +170,9 @@ pub async fn handle_get_usage() -> Json<UsageStatusView> {
 
 pub async fn handle_create_account(
     State(registry): State<RookRegistry>,
-    ExtractJson(req): ExtractJson<CreateAccountRequest>,
+    req: Result<ExtractJson<CreateAccountRequest>, JsonRejection>,
 ) -> AdminCreated<AccountView> {
+    let req = parse_json(req)?;
     validate_display_name(&req.display_name)?;
     let account = account_from_request(crate::domain::AccountId::generate(), req);
     registry
@@ -153,10 +184,12 @@ pub async fn handle_create_account(
 }
 
 pub async fn handle_update_account(
-    Path(account_id): Path<crate::domain::AccountId>,
+    account_id: Result<Path<crate::domain::AccountId>, PathRejection>,
     State(registry): State<RookRegistry>,
-    ExtractJson(req): ExtractJson<UpdateAccountRequest>,
+    req: Result<ExtractJson<UpdateAccountRequest>, JsonRejection>,
 ) -> AdminJson<AccountView> {
+    let account_id = parse_path(account_id)?;
+    let req = parse_json(req)?;
     validate_display_name(&req.display_name)?;
     if registry.accounts().get(account_id).await.is_none() {
         return Err(not_found("account", account_id));
@@ -171,9 +204,10 @@ pub async fn handle_update_account(
 }
 
 pub async fn handle_delete_account(
-    Path(account_id): Path<crate::domain::AccountId>,
+    account_id: Result<Path<crate::domain::AccountId>, PathRejection>,
     State(registry): State<RookRegistry>,
 ) -> AdminEmpty {
+    let account_id = parse_path(account_id)?;
     if registry.accounts().get(account_id).await.is_none() {
         return Err(not_found("account", account_id));
     }
@@ -198,9 +232,10 @@ pub async fn handle_list_accounts(State(registry): State<RookRegistry>) -> Json<
 }
 
 pub async fn handle_get_account(
-    Path(account_id): Path<crate::domain::AccountId>,
+    account_id: Result<Path<crate::domain::AccountId>, PathRejection>,
     State(registry): State<RookRegistry>,
 ) -> AdminJson<AccountView> {
+    let account_id = parse_path(account_id)?;
     match registry.accounts().get(account_id).await {
         Some(account) => Ok(Json(AccountView::from(account))),
         None => Err(not_found("account", account_id)),
@@ -220,9 +255,10 @@ pub async fn handle_list_pools(State(registry): State<RookRegistry>) -> Json<Vec
 }
 
 pub async fn handle_get_pool(
-    Path(pool_id): Path<crate::domain::PoolId>,
+    pool_id: Result<Path<crate::domain::PoolId>, PathRejection>,
     State(registry): State<RookRegistry>,
 ) -> AdminJson<PoolView> {
+    let pool_id = parse_path(pool_id)?;
     match registry.pools().get(pool_id).await {
         Some(pool) => Ok(Json(PoolView::from(pool))),
         None => Err(not_found("pool", pool_id)),
@@ -231,8 +267,9 @@ pub async fn handle_get_pool(
 
 pub async fn handle_create_pool(
     State(registry): State<RookRegistry>,
-    ExtractJson(req): ExtractJson<CreatePoolRequest>,
+    req: Result<ExtractJson<CreatePoolRequest>, JsonRejection>,
 ) -> AdminCreated<PoolView> {
+    let req = parse_json(req)?;
     validate_name(&req.name, "name")?;
     let pool = pool_from_request(crate::domain::PoolId::generate(), req);
     registry
@@ -244,10 +281,12 @@ pub async fn handle_create_pool(
 }
 
 pub async fn handle_update_pool(
-    Path(pool_id): Path<crate::domain::PoolId>,
+    pool_id: Result<Path<crate::domain::PoolId>, PathRejection>,
     State(registry): State<RookRegistry>,
-    ExtractJson(req): ExtractJson<UpdatePoolRequest>,
+    req: Result<ExtractJson<UpdatePoolRequest>, JsonRejection>,
 ) -> AdminJson<PoolView> {
+    let pool_id = parse_path(pool_id)?;
+    let req = parse_json(req)?;
     validate_name(&req.name, "name")?;
     if registry.pools().get(pool_id).await.is_none() {
         return Err(not_found("pool", pool_id));
@@ -262,9 +301,10 @@ pub async fn handle_update_pool(
 }
 
 pub async fn handle_delete_pool(
-    Path(pool_id): Path<crate::domain::PoolId>,
+    pool_id: Result<Path<crate::domain::PoolId>, PathRejection>,
     State(registry): State<RookRegistry>,
 ) -> AdminEmpty {
+    let pool_id = parse_path(pool_id)?;
     if registry.pools().get(pool_id).await.is_none() {
         return Err(not_found("pool", pool_id));
     }
@@ -277,10 +317,12 @@ pub async fn handle_delete_pool(
 }
 
 pub async fn handle_add_pool_member(
-    Path(pool_id): Path<crate::domain::PoolId>,
+    pool_id: Result<Path<crate::domain::PoolId>, PathRejection>,
     State(registry): State<RookRegistry>,
-    ExtractJson(req): ExtractJson<AddPoolMemberRequest>,
+    req: Result<ExtractJson<AddPoolMemberRequest>, JsonRejection>,
 ) -> AdminJson<PoolView> {
+    let pool_id = parse_path(pool_id)?;
+    let req = parse_json(req)?;
     if registry.pools().get(pool_id).await.is_none() {
         return Err(not_found("pool", pool_id));
     }
@@ -299,9 +341,10 @@ pub async fn handle_add_pool_member(
 }
 
 pub async fn handle_remove_pool_member(
-    Path((pool_id, account_id)): Path<(crate::domain::PoolId, crate::domain::AccountId)>,
+    ids: Result<Path<(crate::domain::PoolId, crate::domain::AccountId)>, PathRejection>,
     State(registry): State<RookRegistry>,
 ) -> AdminJson<PoolView> {
+    let (pool_id, account_id) = parse_path(ids)?;
     match registry.pools().get(pool_id).await {
         Some(pool) => {
             if !pool.members.contains(&account_id) {
@@ -341,9 +384,10 @@ pub async fn handle_list_routes(State(registry): State<RookRegistry>) -> Json<Ve
 }
 
 pub async fn handle_get_route(
-    Path(route_id): Path<crate::domain::RouteId>,
+    route_id: Result<Path<crate::domain::RouteId>, PathRejection>,
     State(registry): State<RookRegistry>,
 ) -> AdminJson<RouteView> {
+    let route_id = parse_path(route_id)?;
     match registry.routes().get(route_id).await {
         Some(route) => Ok(Json(RouteView::from(route))),
         None => Err(not_found("route", route_id)),
@@ -352,8 +396,9 @@ pub async fn handle_get_route(
 
 pub async fn handle_create_route(
     State(registry): State<RookRegistry>,
-    ExtractJson(req): ExtractJson<CreateRouteRequest>,
+    req: Result<ExtractJson<CreateRouteRequest>, JsonRejection>,
 ) -> AdminCreated<RouteView> {
+    let req = parse_json(req)?;
     validate_name(&req.logical_model, "logical_model")?;
     let route = crate::domain::ModelRoute {
         id: crate::domain::RouteId::generate(),
@@ -371,10 +416,12 @@ pub async fn handle_create_route(
 }
 
 pub async fn handle_update_route(
-    Path(route_id): Path<crate::domain::RouteId>,
+    route_id: Result<Path<crate::domain::RouteId>, PathRejection>,
     State(registry): State<RookRegistry>,
-    ExtractJson(req): ExtractJson<UpdateRouteRequest>,
+    req: Result<ExtractJson<UpdateRouteRequest>, JsonRejection>,
 ) -> AdminJson<RouteView> {
+    let route_id = parse_path(route_id)?;
+    let req = parse_json(req)?;
     validate_name(&req.logical_model, "logical_model")?;
     if registry.routes().get(route_id).await.is_none() {
         return Err(not_found("route", route_id));
@@ -395,9 +442,10 @@ pub async fn handle_update_route(
 }
 
 pub async fn handle_delete_route(
-    Path(route_id): Path<crate::domain::RouteId>,
+    route_id: Result<Path<crate::domain::RouteId>, PathRejection>,
     State(registry): State<RookRegistry>,
 ) -> AdminEmpty {
+    let route_id = parse_path(route_id)?;
     if registry.routes().get(route_id).await.is_none() {
         return Err(not_found("route", route_id));
     }
@@ -415,8 +463,9 @@ pub async fn handle_get_settings(State(registry): State<RookRegistry>) -> Json<S
 
 pub async fn handle_put_settings(
     State(registry): State<RookRegistry>,
-    ExtractJson(req): ExtractJson<UpdateSettingsRequest>,
+    req: Result<ExtractJson<UpdateSettingsRequest>, JsonRejection>,
 ) -> AdminJson<SettingsView> {
+    let req = parse_json(req)?;
     if req.gateway_port == 0 {
         return Err(bad_request("gateway_port must be greater than 0"));
     }

@@ -7,6 +7,12 @@ use chrono::Utc;
 use sqlx::Row;
 use uuid::Uuid;
 
+pub enum DeleteAccountResult {
+    Deleted,
+    Referenced,
+    NotFound,
+}
+
 // ── Vendor serialization helpers ──────────────────────────────────────────────
 
 /// Convert a `ProviderVendor` to its canonical database string representation.
@@ -172,9 +178,47 @@ impl SqliteDb {
         rows.iter().map(row_to_account).collect()
     }
 
-    /// Delete a [`ProviderAccount`] by ID.
+    pub async fn delete_account_if_not_referenced(
+        &self,
+        id: &AccountId,
+    ) -> Result<DeleteAccountResult, RookError> {
+        let id_str = id.to_string();
+        let result = sqlx::query(
+            "DELETE FROM provider_accounts \
+             WHERE id = ? \
+               AND NOT EXISTS (SELECT 1 FROM pool_members WHERE account_id = ?)",
+        )
+        .bind(&id_str)
+        .bind(&id_str)
+        .execute(self.pool())
+        .await
+        .map_err(|e| {
+            RookError::Registry(format!("delete_account_if_not_referenced failed: {e}"))
+        })?;
+
+        if result.rows_affected() > 0 {
+            return Ok(DeleteAccountResult::Deleted);
+        }
+
+        let exists: Option<(i64,)> =
+            sqlx::query_as("SELECT 1 FROM provider_accounts WHERE id = ? LIMIT 1")
+                .bind(&id_str)
+                .fetch_optional(self.pool())
+                .await
+                .map_err(|e| {
+                    RookError::Registry(format!("failed to check account existence: {e}"))
+                })?;
+
+        if exists.is_none() {
+            return Ok(DeleteAccountResult::NotFound);
+        }
+
+        Ok(DeleteAccountResult::Referenced)
+    }
+
+    /// Delete a [`ProviderAccount`] by ID without reference protection.
     ///
-    /// Returns `true` if a row was deleted, `false` if the ID was not found.
+    /// Used by update flows that intentionally replace an already-verified row.
     pub async fn delete_account(&self, id: &AccountId) -> Result<bool, RookError> {
         let id_str = id.to_string();
         let result = sqlx::query("DELETE FROM provider_accounts WHERE id = ?")
@@ -184,21 +228,6 @@ impl SqliteDb {
             .map_err(|e| RookError::Registry(format!("delete_account failed: {e}")))?;
 
         Ok(result.rows_affected() > 0)
-    }
-
-    /// Returns true if the account participates in any pool membership.
-    pub async fn is_account_referenced_by_pool(&self, id: &AccountId) -> Result<bool, RookError> {
-        let id_str = id.to_string();
-        let row: Option<(i64,)> =
-            sqlx::query_as("SELECT 1 FROM pool_members WHERE account_id = ? LIMIT 1")
-                .bind(&id_str)
-                .fetch_optional(self.pool())
-                .await
-                .map_err(|e| {
-                    RookError::Registry(format!("failed to check account pool references: {e}"))
-                })?;
-
-        Ok(row.is_some())
     }
 }
 
