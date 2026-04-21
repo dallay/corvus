@@ -7,4 +7,34 @@
 //!
 //! FIXME: implement `build_router()` returning an `axum::Router`.
 //! FIXME: add request/response tracing middleware.
-//! FIXME: enforce API key authentication at the router level.
+//! Gateway authentication is deferred to #591. Until then, the server must keep
+//! the listener bound to loopback by default before any external exposure.
+
+pub mod types;
+pub mod handlers;
+pub mod upstream;
+pub mod vendor;
+
+use axum::{
+    extract::DefaultBodyLimit,
+    routing::{get, post},
+    Router,
+};
+
+use crate::registry::RookRegistry;
+use crate::routing::RoutingEngine;
+
+#[derive(Clone)]
+pub struct GatewayState {
+    pub registry: RookRegistry,
+    pub engine: RoutingEngine,
+    pub client: reqwest::Client,
+}
+
+pub fn build_router(state: GatewayState) -> Router {
+    Router::new()
+        .route("/chat/completions", post(handlers::handle_chat_completions))
+        .route("/models", get(handlers::handle_list_models))
+        .layer(DefaultBodyLimit::max(1024 * 1024))
+        .with_state(state)
+}

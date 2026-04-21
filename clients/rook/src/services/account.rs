@@ -160,6 +160,7 @@ mod tests {
             vendor: ProviderVendor::OpenAi,
             display_name: name.to_owned(),
             api_base_override: None,
+            api_key: None,
             enabled: true,
             weight: 1,
             priority: 0,

@@ -14,6 +14,8 @@ use crate::domain::RookError;
 use chrono::Utc;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
+#[cfg(unix)]
+use std::{fs, os::unix::fs::PermissionsExt};
 
 /// Migration SQL embedded at compile time so the binary is self-contained.
 const MIGRATION_SQL: &str = include_str!(concat!(
@@ -24,6 +26,11 @@ const MIGRATION_SQL: &str = include_str!(concat!(
 const MIGRATION_SQL_0002: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/0002_settings.sql"
+));
+
+const MIGRATION_SQL_0003: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/0003_account_api_key.sql"
 ));
 
 /// A handle to the Rook SQLite database.
@@ -52,6 +59,9 @@ impl SqliteDb {
             .map_err(|e| {
                 RookError::Registry(format!("failed to open database at {path}: {e}"))
             })?;
+
+        #[cfg(unix)]
+        tighten_db_permissions(path)?;
 
         Self::run_migrations(&pool).await?;
         Ok(Self { pool })
@@ -112,22 +122,7 @@ impl SqliteDb {
         .map_err(|e| RookError::Registry(format!("failed to check migration status: {e}")))?;
 
         if row.is_none() {
-            // Apply the migration
-            sqlx::raw_sql(MIGRATION_SQL)
-                .execute(pool)
-                .await
-                .map_err(|e| RookError::Registry(format!("migration failed: {e}")))?;
-
-            // Record that it was applied
-            let now = chrono::Utc::now().to_rfc3339();
-            sqlx::query(
-                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)"
-            )
-            .bind(version)
-            .bind(&now)
-            .execute(pool)
-            .await
-            .map_err(|e| RookError::Registry(format!("failed to record migration: {e}")))?;
+            apply_migration(pool, version, MIGRATION_SQL).await?;
         }
 
         // ── Migration 0002: settings ──────────────────────────────────────────
@@ -141,24 +136,101 @@ impl SqliteDb {
         .map_err(|e| RookError::Registry(format!("failed to check migration 0002 status: {e}")))?;
 
         if row_0002.is_none() {
-            sqlx::raw_sql(MIGRATION_SQL_0002)
-                .execute(pool)
-                .await
-                .map_err(|e| RookError::Registry(format!("migration 0002 failed: {e}")))?;
+            apply_migration(pool, version_0002, MIGRATION_SQL_0002).await?;
+        }
 
-            let now = Utc::now().to_rfc3339();
-            sqlx::query(
-                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)"
-            )
-            .bind(version_0002)
-            .bind(&now)
-            .execute(pool)
-            .await
-            .map_err(|e| {
-                RookError::Registry(format!("failed to record migration 0002: {e}"))
-            })?;
+        // ── Migration 0003: account_api_key ───────────────────────────────────
+        let version_0003 = "0003_account_api_key";
+        let row_0003: Option<(String,)> = sqlx::query_as(
+            "SELECT version FROM schema_migrations WHERE version = ?",
+        )
+        .bind(version_0003)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            RookError::Registry(format!("failed to check migration 0003 status: {e}"))
+        })?;
+
+        if row_0003.is_none() {
+            apply_migration(pool, version_0003, MIGRATION_SQL_0003).await?;
         }
 
         Ok(())
+    }
+}
+
+async fn apply_migration(pool: &SqlitePool, version: &str, sql: &str) -> Result<(), RookError> {
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| RookError::Registry(format!("failed to begin migration {version}: {e}")))?;
+
+    sqlx::raw_sql(sql)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RookError::Registry(format!("migration {version} failed: {e}")))?;
+
+    let now = Utc::now().to_rfc3339();
+    sqlx::query("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+        .bind(version)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RookError::Registry(format!("failed to record migration {version}: {e}")))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| RookError::Registry(format!("failed to commit migration {version}: {e}")))?;
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn tighten_db_permissions(path: &str) -> Result<(), RookError> {
+    if path == ":memory:" {
+        return Ok(());
+    }
+
+    let permissions = fs::Permissions::from_mode(0o600);
+    fs::set_permissions(path, permissions)
+        .map_err(|e| RookError::Registry(format!("failed to set database permissions on {path}: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::Row;
+
+    #[tokio::test]
+    async fn open_in_memory_applies_account_api_key_migration() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+
+        let columns = sqlx::query("PRAGMA table_info(provider_accounts)")
+            .fetch_all(db.pool())
+            .await
+            .unwrap();
+
+        let has_api_key = columns.iter().any(|row| {
+            row.try_get::<String, _>("name")
+                .map(|name| name == "api_key")
+                .unwrap_or(false)
+        });
+
+        assert!(has_api_key, "provider_accounts should include api_key column");
+    }
+
+    #[tokio::test]
+    async fn open_in_memory_records_account_api_key_migration_version() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT version FROM schema_migrations WHERE version = ?",
+        )
+        .bind("0003_account_api_key")
+        .fetch_optional(db.pool())
+        .await
+        .unwrap();
+
+        assert_eq!(row.map(|(version,)| version), Some("0003_account_api_key".to_string()));
     }
 }
