@@ -13,10 +13,7 @@ use crate::services::{health::HealthService as _, route::RouteService as _};
 
 const FAILURE_COOLDOWN_SECS: u64 = 60;
 
-pub async fn handle_chat_completions(
-    State(state): State<GatewayState>,
-    body: Bytes,
-) -> Response {
+pub async fn handle_chat_completions(State(state): State<GatewayState>, body: Bytes) -> Response {
     let request: ChatCompletionRequest = match serde_json::from_slice(&body) {
         Ok(request) => request,
         Err(_) => {
@@ -315,7 +312,10 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        assert_eq!(serde_json::from_slice::<Value>(&body).unwrap(), json!({"id":"chatcmpl-123"}));
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"id":"chatcmpl-123"})
+        );
         let health = tokio::time::timeout(std::time::Duration::from_secs(1), async {
             loop {
                 let health = registry.health().get(account_id).await;
@@ -327,7 +327,10 @@ mod tests {
         })
         .await
         .unwrap();
-        assert_eq!(health.status, crate::services::health::HealthStatus::Healthy);
+        assert_eq!(
+            health.status,
+            crate::services::health::HealthStatus::Healthy
+        );
     }
 
     #[tokio::test]
@@ -354,7 +357,8 @@ mod tests {
 
     #[tokio::test]
     async fn chat_completions_missing_api_key_still_proxies_upstream() {
-        let (_server, upstream) = mock_upstream(StatusCode::OK, json!({"id":"chatcmpl-no-auth"})).await;
+        let (_server, upstream) =
+            mock_upstream(StatusCode::OK, json!({"id":"chatcmpl-no-auth"})).await;
         let (app, registry) = test_app().await;
         seed_route(
             &registry,

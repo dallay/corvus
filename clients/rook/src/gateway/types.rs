@@ -278,7 +278,10 @@ mod tests {
 
         let json = serde_json::to_value(&response).unwrap();
 
-        assert_eq!(json["error"]["message"], json!("no route configured for model 'unknown-model'"));
+        assert_eq!(
+            json["error"]["message"],
+            json!("no route configured for model 'unknown-model'")
+        );
         assert_eq!(json["error"]["type"], json!("server_error"));
         assert_eq!(json["error"]["code"], json!("model_not_found"));
     }

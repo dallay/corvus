@@ -14,16 +14,27 @@ pub struct UpstreamResponse {
 
 #[derive(Debug)]
 pub enum UpstreamError {
-    MissingBaseUrl { account_id: String, vendor: String },
-    MissingAuthHeader { vendor: String },
+    MissingBaseUrl {
+        account_id: String,
+        vendor: String,
+    },
+    MissingAuthHeader {
+        vendor: String,
+    },
     UpstreamStatus {
         status: StatusCode,
         body: Bytes,
         content_type: Option<String>,
     },
-    Timeout { message: String },
-    Transport { message: String },
-    ReadBody { message: String },
+    Timeout {
+        message: String,
+    },
+    Transport {
+        message: String,
+    },
+    ReadBody {
+        message: String,
+    },
 }
 
 pub async fn proxy_chat_completion(
@@ -31,10 +42,11 @@ pub async fn proxy_chat_completion(
     account: &ProviderAccount,
     raw_body: Bytes,
 ) -> Result<UpstreamResponse, UpstreamError> {
-    let base = vendor::effective_base_url(account).ok_or_else(|| UpstreamError::MissingBaseUrl {
-        account_id: account.id.to_string(),
-        vendor: format!("{:?}", account.vendor),
-    })?;
+    let base =
+        vendor::effective_base_url(account).ok_or_else(|| UpstreamError::MissingBaseUrl {
+            account_id: account.id.to_string(),
+            vendor: format!("{:?}", account.vendor),
+        })?;
     let url = format!("{base}/v1/chat/completions");
 
     let mut request = client
@@ -75,9 +87,12 @@ pub async fn proxy_chat_completion(
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
 
-    let body = response.bytes().await.map_err(|error| UpstreamError::ReadBody {
-        message: format!("failed to read upstream response body: {error}"),
-    })?;
+    let body = response
+        .bytes()
+        .await
+        .map_err(|error| UpstreamError::ReadBody {
+            message: format!("failed to read upstream response body: {error}"),
+        })?;
 
     if !status.is_success() {
         return Err(UpstreamError::UpstreamStatus {
@@ -117,6 +132,8 @@ mod tests {
         body: Value,
     }
 
+    type MockState = (StatusCode, Value, Arc<Mutex<Vec<CapturedRequest>>>);
+
     fn make_account(vendor: ProviderVendor) -> ProviderAccount {
         ProviderAccount {
             id: AccountId::generate(),
@@ -138,15 +155,15 @@ mod tests {
         captured: Arc<Mutex<Vec<CapturedRequest>>>,
     ) -> (String, tokio::task::JoinHandle<()>) {
         async fn handler(
-            State((status, body, captured)): State<(StatusCode, Value, Arc<Mutex<Vec<CapturedRequest>>>)>,
+            State((status, body, captured)): State<MockState>,
             headers: HeaderMap,
             raw_body: AxumBytes,
         ) -> (StatusCode, Json<Value>) {
             let parsed: Value = serde_json::from_slice(&raw_body).unwrap();
-            captured
-                .lock()
-                .unwrap()
-                .push(CapturedRequest { headers, body: parsed });
+            captured.lock().unwrap().push(CapturedRequest {
+                headers,
+                body: parsed,
+            });
             (status, Json(body))
         }
 
@@ -176,17 +193,30 @@ mod tests {
         let mut account = make_account(ProviderVendor::OpenAi);
         account.api_base_override = Some(base_url);
 
-        let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build().unwrap();
-        let body = Bytes::from_static(br#"{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}"#);
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let body = Bytes::from_static(
+            br#"{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}"#,
+        );
 
-        let response = proxy_chat_completion(&client, &account, body.clone()).await.unwrap();
+        let response = proxy_chat_completion(&client, &account, body.clone())
+            .await
+            .unwrap();
 
         assert_eq!(response.status, reqwest::StatusCode::OK);
-        assert_eq!(response.body, Bytes::from_static(br#"{"id":"chatcmpl-123","object":"chat.completion"}"#));
+        assert_eq!(
+            response.body,
+            Bytes::from_static(br#"{"id":"chatcmpl-123","object":"chat.completion"}"#)
+        );
 
         let requests = captured.lock().unwrap();
         assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].body, json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}));
+        assert_eq!(
+            requests[0].body,
+            json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]})
+        );
         assert_eq!(
             requests[0]
                 .headers
@@ -199,21 +229,24 @@ mod tests {
     #[tokio::test]
     async fn proxy_chat_completion_uses_override_base_url_and_anthropic_auth() {
         let captured = Arc::new(Mutex::new(Vec::new()));
-        let (base_url, _handle) = mock_upstream(
-            StatusCode::OK,
-            json!({"ok":true}),
-            captured.clone(),
-        )
-        .await;
+        let (base_url, _handle) =
+            mock_upstream(StatusCode::OK, json!({"ok":true}), captured.clone()).await;
 
         let mut account = make_account(ProviderVendor::Anthropic);
         account.api_base_override = Some(format!("{base_url}/"));
         account.api_key = Some("sk-ant-123".to_string());
 
-        let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build().unwrap();
-        let body = Bytes::from_static(br#"{"model":"claude-proxy","messages":[{"role":"user","content":"Hi"}]}"#);
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let body = Bytes::from_static(
+            br#"{"model":"claude-proxy","messages":[{"role":"user","content":"Hi"}]}"#,
+        );
 
-        let response = proxy_chat_completion(&client, &account, body).await.unwrap();
+        let response = proxy_chat_completion(&client, &account, body)
+            .await
+            .unwrap();
         assert_eq!(response.status, reqwest::StatusCode::OK);
 
         let requests = captured.lock().unwrap();
@@ -230,18 +263,17 @@ mod tests {
     #[tokio::test]
     async fn proxy_chat_completion_without_api_key_still_forwards_request() {
         let captured = Arc::new(Mutex::new(Vec::new()));
-        let (base_url, _handle) = mock_upstream(
-            StatusCode::OK,
-            json!({"ok":true}),
-            captured.clone(),
-        )
-        .await;
+        let (base_url, _handle) =
+            mock_upstream(StatusCode::OK, json!({"ok":true}), captured.clone()).await;
 
         let mut account = make_account(ProviderVendor::OpenAi);
         account.api_base_override = Some(base_url);
         account.api_key = None;
 
-        let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build().unwrap();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
 
         let response = proxy_chat_completion(&client, &account, Bytes::from_static(br#"{}"#))
             .await
@@ -257,7 +289,10 @@ mod tests {
 
     #[tokio::test]
     async fn proxy_chat_completion_returns_local_error_for_missing_base_url() {
-        let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build().unwrap();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
         let account = make_account(ProviderVendor::Other("mistral".to_string()));
 
         let error = proxy_chat_completion(&client, &account, Bytes::from_static(br#"{}"#))
@@ -279,7 +314,10 @@ mod tests {
 
         let mut account = make_account(ProviderVendor::OpenAi);
         account.api_base_override = Some(base_url);
-        let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build().unwrap();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
 
         let error = proxy_chat_completion(&client, &account, Bytes::from_static(br#"{}"#))
             .await
@@ -296,7 +334,10 @@ mod tests {
 
     #[tokio::test]
     async fn proxy_chat_completion_maps_transport_failures() {
-        let client = reqwest::Client::builder().timeout(Duration::from_millis(200)).build().unwrap();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(200))
+            .build()
+            .unwrap();
         let mut account = make_account(ProviderVendor::OpenAi);
         account.api_base_override = Some("http://127.0.0.1:9".to_string());
 
@@ -304,6 +345,9 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(matches!(error, UpstreamError::Transport { .. } | UpstreamError::Timeout { .. }));
+        assert!(matches!(
+            error,
+            UpstreamError::Transport { .. } | UpstreamError::Timeout { .. }
+        ));
     }
 }

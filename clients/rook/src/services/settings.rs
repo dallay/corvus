@@ -45,8 +45,10 @@ impl SettingsService for InMemorySettingsService {
     }
 
     async fn save(&self, settings: RookSettings) -> Result<(), RookError> {
-        let mut guard =
-            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard = self
+            .store
+            .lock()
+            .map_err(|e| RookError::Registry(e.to_string()))?;
         *guard = Some(settings);
         Ok(())
     }
@@ -98,10 +100,12 @@ mod tests {
     #[tokio::test]
     async fn save_and_load_round_trip() {
         let svc = InMemorySettingsService::new();
-        let mut s = RookSettings::default();
-        s.gateway_port = 9090;
-        s.log_json = true;
-        s.log_level = "debug".to_owned();
+        let s = RookSettings {
+            gateway_port: 9090,
+            log_json: true,
+            log_level: "debug".to_owned(),
+            ..RookSettings::default()
+        };
 
         svc.save(s.clone()).await.unwrap();
 
@@ -115,12 +119,16 @@ mod tests {
     async fn save_overwrites_previous() {
         let svc = InMemorySettingsService::new();
 
-        let mut s1 = RookSettings::default();
-        s1.gateway_port = 8080;
+        let s1 = RookSettings {
+            gateway_port: 8080,
+            ..RookSettings::default()
+        };
         svc.save(s1).await.unwrap();
 
-        let mut s2 = RookSettings::default();
-        s2.gateway_port = 9999;
+        let s2 = RookSettings {
+            gateway_port: 9999,
+            ..RookSettings::default()
+        };
         svc.save(s2).await.unwrap();
 
         assert_eq!(svc.load().await.gateway_port, 9999);

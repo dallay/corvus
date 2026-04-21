@@ -9,11 +9,11 @@
 //! - Everything else     → 404
 
 use axum::{
-    Router,
     body::Body,
-    http::{Response, StatusCode, header},
+    http::{header, Response, StatusCode},
     response::IntoResponse,
     routing::get,
+    Router,
 };
 use rust_embed::RustEmbed;
 
@@ -89,7 +89,10 @@ mod tests {
     #[test]
     fn index_html_is_embedded() {
         let file = DashboardAssets::get("index.html");
-        assert!(file.is_some(), "index.html must be embedded in DashboardAssets");
+        assert!(
+            file.is_some(),
+            "index.html must be embedded in DashboardAssets"
+        );
         let asset = file.unwrap();
         let content = std::str::from_utf8(&asset.data).expect("valid UTF-8");
         assert!(

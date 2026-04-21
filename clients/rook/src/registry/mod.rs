@@ -23,11 +23,8 @@
 use crate::db::SqliteDb;
 use crate::domain::RookError;
 use crate::services::{
-    account::SqliteAccountService,
-    health::InMemoryHealthService,
-    pool::SqlitePoolService,
-    route::SqliteRouteService,
-    settings::SqliteSettingsService,
+    account::SqliteAccountService, health::InMemoryHealthService, pool::SqlitePoolService,
+    route::SqliteRouteService, settings::SqliteSettingsService,
 };
 
 /// Composition root — holds all service singletons for a Rook instance.
@@ -114,9 +111,7 @@ mod tests {
     use super::*;
     use crate::domain::RookSettings;
     use crate::services::{
-        account::AccountService as _,
-        pool::PoolService as _,
-        route::RouteService as _,
+        account::AccountService as _, pool::PoolService as _, route::RouteService as _,
         settings::SettingsService as _,
     };
 
@@ -155,8 +150,10 @@ mod tests {
     #[tokio::test]
     async fn registry_settings_round_trip() {
         let r = registry().await;
-        let mut s = RookSettings::default();
-        s.gateway_port = 7777;
+        let s = RookSettings {
+            gateway_port: 7777,
+            ..RookSettings::default()
+        };
         r.settings().save(s).await.unwrap();
         assert_eq!(r.settings().load().await.gateway_port, 7777);
     }
