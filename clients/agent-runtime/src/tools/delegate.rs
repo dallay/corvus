@@ -85,10 +85,11 @@ impl SessionCoordinatorExecutor for DefaultSessionCoordinatorExecutor {
 ///
 /// ## Scope
 ///
-/// In-process only. Child agents run as Tokio tasks within the same process and are
-/// not distributed across machines or containers.
+/// Process-local only. Child agents may exchange internal envelopes through the
+/// mailbox-backed transport, but remote bridge delivery and recovery remain out of scope.
 struct SupervisedSessionCoordinatorExecutor {
     service: Arc<SupervisedOrchestrationService>,
+    runner: Arc<dyn CoordinatorChildRunner>,
 }
 
 #[async_trait]
@@ -96,17 +97,12 @@ impl SessionCoordinatorExecutor for SupervisedSessionCoordinatorExecutor {
     async fn execute(
         &self,
         request: CoordinatorLaunchRequest,
-        base_config: Arc<Config>,
-        agents: Arc<HashMap<String, DelegateAgentConfig>>,
-        fallback_credential: Option<String>,
+        _base_config: Arc<Config>,
+        _agents: Arc<HashMap<String, DelegateAgentConfig>>,
+        _fallback_credential: Option<String>,
     ) -> Result<CoordinatorOutcome, anyhow::Error> {
-        let runner: Arc<dyn CoordinatorChildRunner> = Arc::new(DelegatedAgentRunner::new(
-            base_config,
-            agents,
-            fallback_credential,
-        ));
         self.service
-            .run_to_completion(request, runner)
+            .run_to_completion(request, self.runner.clone())
             .await
             .map_err(Into::into)
     }
@@ -190,13 +186,15 @@ impl DelegateTool {
     ///
     /// ## Scope
     ///
-    /// In-process only — child agents run as Tokio tasks within the same process.
+    /// Process-local only — child agents may use mailbox-backed internal delivery,
+    /// but remote transport and recovery remain unsupported.
     pub fn with_supervised_executor(
         agents: HashMap<String, DelegateAgentConfig>,
         fallback_credential: Option<String>,
         security: Arc<SecurityPolicy>,
         base_config: Arc<Config>,
         service: Arc<SupervisedOrchestrationService>,
+        runner: Arc<dyn CoordinatorChildRunner>,
     ) -> Self {
         Self {
             agents: Arc::new(agents),
@@ -204,7 +202,7 @@ impl DelegateTool {
             fallback_credential,
             depth: 0,
             base_config,
-            session_executor: Arc::new(SupervisedSessionCoordinatorExecutor { service }),
+            session_executor: Arc::new(SupervisedSessionCoordinatorExecutor { service, runner }),
         }
     }
 
@@ -529,6 +527,11 @@ impl Tool for DelegateTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::coordinator::{
+        ChildExecutionResult, ChildLaunchRequest, ChildTerminalStatus, CoordinatorChildRunner,
+        CoordinatorError, CoordinatorMessage, CoordinatorTransport, EnvelopeMeta, MessageEnvelope,
+    };
+    use crate::agent::mailbox::{MailboxBackedChildRunner, MailboxWakeupHub, SqliteMailboxStore};
     use crate::config::{Config, DelegateExecutionMode};
     use crate::security::{AutonomyLevel, SecurityPolicy};
     use tempfile::TempDir;
@@ -1133,6 +1136,98 @@ mod tests {
         assert_eq!(result.output, expected.output);
         assert_eq!(result.error, expected.error);
         assert_eq!(result.structured, expected.structured);
+    }
+
+    struct SuccessfulRunner;
+
+    #[async_trait]
+    impl CoordinatorChildRunner for SuccessfulRunner {
+        async fn run_child(
+            &self,
+            request: ChildLaunchRequest,
+            dispatch: MessageEnvelope<CoordinatorMessage>,
+            _cancellation: tokio_util::sync::CancellationToken,
+        ) -> Result<MessageEnvelope<CoordinatorMessage>, CoordinatorError> {
+            Ok(MessageEnvelope {
+                meta: EnvelopeMeta {
+                    coordinator_id: dispatch.meta.coordinator_id.clone(),
+                    child_id: Some(request.child_id.clone()),
+                    sequence: dispatch.meta.sequence,
+                    message_id: format!("reply-{}", request.child_id.0),
+                    correlation_id: dispatch.meta.correlation_id.clone(),
+                    sender: crate::agent::mailbox::LogicalEndpoint::child(
+                        dispatch.meta.coordinator_id.clone(),
+                        request.child_id.clone(),
+                    ),
+                    recipient: crate::agent::mailbox::LogicalEndpoint::coordinator_child(
+                        dispatch.meta.coordinator_id.clone(),
+                        request.child_id.clone(),
+                    ),
+                    sent_at: chrono::Utc::now(),
+                    transport: CoordinatorTransport::Mailbox,
+                },
+                payload: CoordinatorMessage::ChildCompleted {
+                    result: ChildExecutionResult {
+                        session_id: format!("session-{}", request.child_id.0),
+                        tool_result: ToolResult {
+                            success: true,
+                            output: "mailbox-session-ok".to_string(),
+                            error: None,
+                            structured: Some(json!({"mode": "mailbox"})),
+                        },
+                        status: ChildTerminalStatus::Succeeded,
+                    },
+                },
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn supervised_session_mode_keeps_delegate_contract_with_mailbox_runner() {
+        let tmp = TempDir::new().unwrap();
+        let mut agents = HashMap::new();
+        agents.insert(
+            "code_agent".to_string(),
+            DelegateAgentConfig {
+                provider: "openrouter".to_string(),
+                model: "anthropic/claude-sonnet-4-20250514".to_string(),
+                system_prompt: None,
+                api_key: Some("test-key".to_string()),
+                temperature: None,
+                max_depth: 3,
+                execution_mode: DelegateExecutionMode::Session,
+                max_iterations: None,
+                timeout_ms: None,
+            },
+        );
+
+        let service = Arc::new(SupervisedOrchestrationService::new());
+        let mailbox = Arc::new(
+            SqliteMailboxStore::from_db_path(tmp.path().join("state/orchestration/mailbox.db"))
+                .unwrap(),
+        );
+        let runner: Arc<dyn CoordinatorChildRunner> = Arc::new(MailboxBackedChildRunner::new(
+            mailbox,
+            Arc::new(SuccessfulRunner),
+            Arc::new(MailboxWakeupHub::default()),
+        ));
+        let tool = DelegateTool::with_supervised_executor(
+            agents,
+            None,
+            test_security(),
+            test_base_config(&tmp),
+            service,
+            runner,
+        );
+
+        let result = tool
+            .execute(json!({"agent": "code_agent", "prompt": "write tests"}))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.output, "mailbox-session-ok");
+        assert_eq!(result.structured, Some(json!({"mode": "mailbox"})));
     }
 
     #[tokio::test]

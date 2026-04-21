@@ -6,9 +6,9 @@
 //!
 //! ## Scope
 //!
-//! This slice is **in-process only**. Peer messaging, remote transport,
-//! cross-node isolation, and escalation are **not** supported and will be
-//! rejected with a validation error.
+//! This slice is **process-local only**. Mailbox-backed delivery may cross process
+//! boundaries internally, but peer messaging, remote transport, restart recovery,
+//! and escalation remain out of scope and validation errors for callers.
 
 use super::traits::{Tool, ToolResult};
 use crate::agent::coordinator::{
@@ -62,8 +62,9 @@ impl Tool for DelegateLaunchTool {
 
     fn description(&self) -> &str {
         "Launch a supervised multi-child orchestration run. Returns a handle and initial snapshot \
-         usable with delegate_inspect and delegate_cancel. In-process only — peer messaging, \
-         remote transport, isolation, and escalation are not supported."
+         usable with delegate_inspect and delegate_cancel. Process-local only — mailbox-backed \
+         internal delivery is supported, but remote transport, recovery, isolation, and \
+         escalation are not supported."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -129,6 +130,15 @@ impl Tool for DelegateLaunchTool {
             std::collections::HashSet::with_capacity(children_arr.len());
 
         for (launch_index, item) in children_arr.iter().enumerate() {
+            if item.get("stream").is_some()
+                || item.get("stream_results").is_some()
+                || item.get("stream_tool_progress").is_some()
+            {
+                return Ok(Self::validation_error(
+                    "streaming payloads remain out of scope for this slice",
+                ));
+            }
+
             let child_id = match item.get("child_id").and_then(|v| v.as_str()) {
                 Some(s) if !s.trim().is_empty() => s.trim().to_string(),
                 _ => {
@@ -215,8 +225,10 @@ mod tests {
         ChildExecutionResult, ChildLaunchRequest, ChildTerminalStatus, CoordinatorChildRunner,
         CoordinatorError, CoordinatorMessage, CoordinatorTransport, EnvelopeMeta, MessageEnvelope,
     };
+    use crate::agent::mailbox::{MailboxBackedChildRunner, MailboxWakeupHub, SqliteMailboxStore};
     use async_trait::async_trait;
     use chrono::Utc;
+    use tempfile::TempDir;
 
     // Minimal no-op runner for validation tests (launch never runs children in
     // these tests because all tests exercise validation paths that return before
@@ -233,10 +245,19 @@ mod tests {
         ) -> Result<MessageEnvelope<CoordinatorMessage>, CoordinatorError> {
             Ok(MessageEnvelope {
                 meta: EnvelopeMeta {
-                    coordinator_id: dispatch.meta.coordinator_id,
+                    coordinator_id: dispatch.meta.coordinator_id.clone(),
                     child_id: Some(request.child_id.clone()),
                     sequence: dispatch.meta.sequence,
-                    correlation_id: dispatch.meta.correlation_id,
+                    message_id: format!("{}:launch", dispatch.meta.message_id),
+                    correlation_id: dispatch.meta.correlation_id.clone(),
+                    sender: crate::agent::mailbox::LogicalEndpoint::child(
+                        dispatch.meta.coordinator_id.clone(),
+                        request.child_id.clone(),
+                    ),
+                    recipient: crate::agent::mailbox::LogicalEndpoint::coordinator_child(
+                        dispatch.meta.coordinator_id.clone(),
+                        request.child_id.clone(),
+                    ),
                     sent_at: Utc::now(),
                     transport: CoordinatorTransport::InProcess,
                 },
@@ -315,6 +336,73 @@ mod tests {
             .unwrap();
         assert!(!result.success);
         assert!(result.error.is_some());
+    }
+
+    #[tokio::test]
+    async fn mailbox_backed_launch_keeps_handle_and_snapshot_contract() {
+        let tmp = TempDir::new().unwrap();
+        let service = Arc::new(SupervisedOrchestrationService::new());
+        let mailbox = Arc::new(
+            SqliteMailboxStore::from_db_path(tmp.path().join("state/orchestration/mailbox.db"))
+                .unwrap(),
+        );
+        let runner: Arc<dyn CoordinatorChildRunner> = Arc::new(MailboxBackedChildRunner::new(
+            mailbox,
+            Arc::new(NoOpRunner),
+            Arc::new(MailboxWakeupHub::default()),
+        ));
+        let tool = DelegateLaunchTool::new(service, runner);
+
+        let result = tool
+            .execute(serde_json::json!({
+                "children": [
+                    { "child_id": "a", "agent_name": "AgentA", "prompt": "p" }
+                ]
+            }))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        let structured = result.structured.expect("structured payload");
+        assert!(structured["handle"].is_string());
+        assert!(structured["snapshot"].is_object());
+    }
+
+    #[tokio::test]
+    async fn rejects_streaming_payload_requests_as_out_of_scope() {
+        let tmp = TempDir::new().unwrap();
+        let service = Arc::new(SupervisedOrchestrationService::new());
+        let mailbox = Arc::new(
+            SqliteMailboxStore::from_db_path(tmp.path().join("state/orchestration/mailbox.db"))
+                .unwrap(),
+        );
+        let runner: Arc<dyn CoordinatorChildRunner> = Arc::new(MailboxBackedChildRunner::new(
+            mailbox,
+            Arc::new(NoOpRunner),
+            Arc::new(MailboxWakeupHub::default()),
+        ));
+        let tool = DelegateLaunchTool::new(service, runner);
+
+        let result = tool
+            .execute(serde_json::json!({
+                "children": [
+                    {
+                        "child_id": "a",
+                        "agent_name": "AgentA",
+                        "prompt": "p",
+                        "stream": true
+                    }
+                ]
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("streaming payloads remain out of scope"));
     }
 
     #[tokio::test]

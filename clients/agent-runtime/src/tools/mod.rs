@@ -89,6 +89,7 @@ pub use web_fetch::WebFetchTool;
 pub use web_search_tool::WebSearchTool;
 
 use crate::agent::coordinator::SupervisedOrchestrationService;
+use crate::agent::mailbox::{MailboxBackedChildRunner, MailboxWakeupHub, SqliteMailboxStore};
 use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
@@ -241,6 +242,7 @@ fn add_delegate_tool(
     agents: &HashMap<String, DelegateAgentConfig>,
     fallback_api_key: Option<&str>,
     base_config: Arc<Config>,
+    workspace_dir: &std::path::Path,
 ) {
     if agents.is_empty() {
         return;
@@ -253,6 +255,25 @@ fn add_delegate_tool(
     });
 
     let service = Arc::new(SupervisedOrchestrationService::new());
+    let mailbox_store = match SqliteMailboxStore::from_db_path(SqliteMailboxStore::default_db_path(
+        workspace_dir,
+    )) {
+        Ok(store) => Arc::new(store),
+        Err(error) => {
+            tracing::warn!(error = %error, "delegate tools disabled: mailbox init failed closed");
+            return;
+        }
+    };
+    let wakeups = Arc::new(MailboxWakeupHub::default());
+    let delegated_runner: Arc<dyn crate::agent::coordinator::CoordinatorChildRunner> =
+        Arc::new(crate::agent::coordinator::DelegatedAgentRunner::new(
+            base_config.clone(),
+            Arc::new(agents.clone()),
+            delegate_fallback_credential.clone(),
+        ));
+    let mailbox_runner: Arc<dyn crate::agent::coordinator::CoordinatorChildRunner> = Arc::new(
+        MailboxBackedChildRunner::new(mailbox_store, delegated_runner, wakeups),
+    );
 
     tools.push(Box::new(DelegateTool::with_supervised_executor(
         delegate_agents,
@@ -260,15 +281,13 @@ fn add_delegate_tool(
         security.clone(),
         base_config.clone(),
         service.clone(),
+        mailbox_runner.clone(),
     )));
 
-    let runner = Arc::new(crate::agent::coordinator::DelegatedAgentRunner::new(
-        base_config,
-        Arc::new(agents.clone()),
-        delegate_fallback_credential,
-    ));
-
-    tools.push(Box::new(DelegateLaunchTool::new(service.clone(), runner)));
+    tools.push(Box::new(DelegateLaunchTool::new(
+        service.clone(),
+        mailbox_runner,
+    )));
     tools.push(Box::new(DelegateCancelTool::new(service.clone())));
     tools.push(Box::new(DelegateInspectTool::new(service)));
 }
@@ -458,6 +477,7 @@ pub fn all_tools_with_runtime(
         agents,
         fallback_api_key,
         config.clone(),
+        workspace_dir,
     );
 
     #[cfg(feature = "mcp-runtime")]

@@ -5,8 +5,9 @@
 //!
 //! ## Scope
 //!
-//! This slice is **in-process only**. Peer messaging, remote transport,
-//! cross-node isolation, and escalation are **not** supported.
+//! This slice is **process-local only**. Mailbox-backed child delivery may cross
+//! process boundaries internally, but remote transport, restart recovery,
+//! cross-node isolation, and escalation remain unsupported.
 
 use super::traits::{Tool, ToolResult};
 use crate::agent::coordinator::{OrchestrationHandle, SupervisedOrchestrationService};
@@ -50,8 +51,9 @@ impl Tool for DelegateCancelTool {
 
     fn description(&self) -> &str {
         "Cancel an active supervised orchestration run. \
-         Requires the handle returned by delegate_launch. In-process only — \
-         peer messaging, remote transport, isolation, and escalation are not supported."
+         Requires the handle returned by delegate_launch. Process-local only — \
+         mailbox-backed internal delivery is supported, but remote transport, recovery, \
+         isolation, and escalation are not supported."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -117,9 +119,11 @@ mod tests {
         ChildTerminalStatus, CoordinatorChildRunner, CoordinatorError, CoordinatorLaunchRequest,
         CoordinatorMessage, CoordinatorTransport, EnvelopeMeta, FanInPolicy, MessageEnvelope,
     };
+    use crate::agent::mailbox::{MailboxBackedChildRunner, MailboxWakeupHub, SqliteMailboxStore};
     use async_trait::async_trait;
     use chrono::Utc;
     use std::sync::Arc;
+    use tempfile::TempDir;
 
     /// Immediately completes the child with a successful result.
     struct NoOpRunner;
@@ -134,10 +138,19 @@ mod tests {
         ) -> Result<MessageEnvelope<CoordinatorMessage>, CoordinatorError> {
             Ok(MessageEnvelope {
                 meta: EnvelopeMeta {
-                    coordinator_id: dispatch.meta.coordinator_id,
+                    coordinator_id: dispatch.meta.coordinator_id.clone(),
                     child_id: Some(request.child_id.clone()),
                     sequence: dispatch.meta.sequence,
-                    correlation_id: dispatch.meta.correlation_id,
+                    message_id: format!("{}:complete", dispatch.meta.message_id),
+                    correlation_id: dispatch.meta.correlation_id.clone(),
+                    sender: crate::agent::mailbox::LogicalEndpoint::child(
+                        dispatch.meta.coordinator_id.clone(),
+                        request.child_id.clone(),
+                    ),
+                    recipient: crate::agent::mailbox::LogicalEndpoint::coordinator_child(
+                        dispatch.meta.coordinator_id.clone(),
+                        request.child_id.clone(),
+                    ),
                     sent_at: Utc::now(),
                     transport: CoordinatorTransport::InProcess,
                 },
@@ -171,10 +184,19 @@ mod tests {
             cancellation.cancelled().await;
             Ok(MessageEnvelope {
                 meta: EnvelopeMeta {
-                    coordinator_id: dispatch.meta.coordinator_id,
+                    coordinator_id: dispatch.meta.coordinator_id.clone(),
                     child_id: Some(request.child_id.clone()),
                     sequence: dispatch.meta.sequence,
-                    correlation_id: dispatch.meta.correlation_id,
+                    message_id: format!("{}:cancel", dispatch.meta.message_id),
+                    correlation_id: dispatch.meta.correlation_id.clone(),
+                    sender: crate::agent::mailbox::LogicalEndpoint::child(
+                        dispatch.meta.coordinator_id.clone(),
+                        request.child_id.clone(),
+                    ),
+                    recipient: crate::agent::mailbox::LogicalEndpoint::coordinator_child(
+                        dispatch.meta.coordinator_id.clone(),
+                        request.child_id.clone(),
+                    ),
                     sent_at: Utc::now(),
                     transport: CoordinatorTransport::InProcess,
                 },
@@ -265,6 +287,72 @@ mod tests {
             disposition.as_str().unwrap_or(""),
             "accepted",
             "expected accepted disposition"
+        );
+    }
+
+    #[tokio::test]
+    async fn mailbox_backed_cancel_does_not_recover_across_services() {
+        let tmp = TempDir::new().unwrap();
+        let mailbox = Arc::new(
+            SqliteMailboxStore::from_db_path(tmp.path().join("state/orchestration/mailbox.db"))
+                .unwrap(),
+        );
+        let runner: Arc<dyn CoordinatorChildRunner> = Arc::new(MailboxBackedChildRunner::new(
+            mailbox,
+            Arc::new(WaitForCancellationRunner),
+            Arc::new(MailboxWakeupHub::default()),
+        ));
+
+        let original_service = Arc::new(SupervisedOrchestrationService::new());
+        let receipt = original_service
+            .launch(one_child_request(), runner)
+            .await
+            .unwrap();
+
+        let other_service = Arc::new(SupervisedOrchestrationService::new());
+        let result = tool(other_service)
+            .execute(serde_json::json!({ "handle": receipt.handle.0 }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("No orchestration run found"));
+    }
+
+    #[tokio::test]
+    async fn mailbox_backed_cancel_active_run_returns_accepted() {
+        let tmp = TempDir::new().unwrap();
+        let mailbox = Arc::new(
+            SqliteMailboxStore::from_db_path(tmp.path().join("state/orchestration/mailbox.db"))
+                .unwrap(),
+        );
+        let runner: Arc<dyn CoordinatorChildRunner> = Arc::new(MailboxBackedChildRunner::new(
+            mailbox,
+            Arc::new(WaitForCancellationRunner),
+            Arc::new(MailboxWakeupHub::default()),
+        ));
+
+        let svc = Arc::new(SupervisedOrchestrationService::new());
+        let receipt = svc.launch(one_child_request(), runner).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let result = tool(Arc::clone(&svc))
+            .execute(serde_json::json!({ "handle": receipt.handle.0 }))
+            .await
+            .unwrap();
+
+        assert!(result.success, "expected success, got: {:?}", result.error);
+        let structured = result.structured.unwrap();
+        assert_eq!(
+            structured["cancel_result"]["disposition"]
+                .as_str()
+                .unwrap_or(""),
+            "accepted"
         );
     }
 

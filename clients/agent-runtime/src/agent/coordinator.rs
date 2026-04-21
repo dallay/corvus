@@ -5,11 +5,13 @@
 //! escalation flows remain deferred to later Track 4 slices.
 
 use crate::agent::code_session::{CodeSessionResult, CodeSessionStatus};
+use crate::agent::mailbox::LogicalEndpoint;
 use crate::agent::{Agent, AgentExecutionError};
 use crate::config::{Config, DelegateAgentConfig};
 use crate::tools::ToolResult;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -53,17 +55,18 @@ impl CoordinatorState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CoordinatorTransport {
     InProcess,
+    Mailbox,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FanInPolicy {
     AllMustSucceed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ChildAgentId(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,13 +84,13 @@ impl ChildState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CancellationReason {
     ParentRequested,
     SiblingFailed { child_id: ChildAgentId },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChildTerminationReason {
     Completed,
     Failed(String),
@@ -106,12 +109,15 @@ pub struct ChildRecord {
     pub summary: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnvelopeMeta {
     pub coordinator_id: String,
     pub child_id: Option<ChildAgentId>,
     pub sequence: u64,
+    pub message_id: String,
     pub correlation_id: String,
+    pub sender: LogicalEndpoint,
+    pub recipient: LogicalEndpoint,
     pub sent_at: DateTime<Utc>,
     pub transport: CoordinatorTransport,
 }
@@ -122,14 +128,14 @@ pub struct MessageEnvelope<T> {
     pub payload: T,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CoordinatorLaunchRequest {
     pub parent_session_id: Option<String>,
     pub children: Vec<ChildLaunchRequest>,
     pub fan_in: FanInPolicy,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChildLaunchRequest {
     pub child_id: ChildAgentId,
     pub agent_name: String,
@@ -138,28 +144,28 @@ pub struct ChildLaunchRequest {
     pub launch_index: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChildTerminalStatus {
     Succeeded,
     Failed,
     Cancelled,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChildExecutionResult {
     pub session_id: String,
     pub tool_result: ToolResult,
     pub status: ChildTerminalStatus,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChildExecutionError {
     pub session_id: Option<String>,
     pub error: String,
     pub tool_result: Option<ToolResult>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CoordinatorMessage {
     DispatchChild(ChildLaunchRequest),
     CancelChild { reason: CancellationReason },
@@ -468,10 +474,19 @@ impl CoordinatorChildRunner for DelegatedAgentRunner {
 
         Ok(MessageEnvelope {
             meta: EnvelopeMeta {
-                coordinator_id: dispatch.meta.coordinator_id,
-                child_id: Some(request.child_id),
+                coordinator_id: dispatch.meta.coordinator_id.clone(),
+                child_id: Some(request.child_id.clone()),
                 sequence: dispatch.meta.sequence,
-                correlation_id: dispatch.meta.correlation_id,
+                message_id: Uuid::new_v4().to_string(),
+                correlation_id: dispatch.meta.correlation_id.clone(),
+                sender: LogicalEndpoint::child(
+                    dispatch.meta.coordinator_id.clone(),
+                    request.child_id.clone(),
+                ),
+                recipient: LogicalEndpoint::coordinator_child(
+                    dispatch.meta.coordinator_id.clone(),
+                    request.child_id.clone(),
+                ),
                 sent_at: Utc::now(),
                 transport: CoordinatorTransport::InProcess,
             },
@@ -485,6 +500,7 @@ pub struct Coordinator {
     state: Arc<Mutex<CoordinatorState>>,
     registry: Arc<Mutex<SupervisionRegistry>>,
     outcomes: Arc<Mutex<BTreeMap<ChildAgentId, CoordinatorChildOutcome>>>,
+    applied_messages: Arc<Mutex<HashMap<(ChildAgentId, String), String>>>,
     next_sequence: AtomicU64,
 }
 
@@ -509,6 +525,7 @@ impl Coordinator {
             state: Arc::new(Mutex::new(CoordinatorState::Initialized)),
             registry: Arc::new(Mutex::new(BTreeMap::new())),
             outcomes: Arc::new(Mutex::new(BTreeMap::new())),
+            applied_messages: Arc::new(Mutex::new(HashMap::new())),
             next_sequence: AtomicU64::new(1),
         }
     }
@@ -611,6 +628,9 @@ impl Coordinator {
         MessageEnvelope {
             meta: EnvelopeMeta {
                 coordinator_id: self.coordinator_id.clone(),
+                message_id: Uuid::new_v4().to_string(),
+                sender: self.sender_for(child_id.as_ref(), &payload),
+                recipient: self.recipient_for(child_id.as_ref(), &payload),
                 child_id,
                 sequence: self.next_sequence.fetch_add(1, Ordering::SeqCst),
                 correlation_id: correlation_id.into(),
@@ -645,6 +665,24 @@ impl Coordinator {
             .child_id
             .clone()
             .ok_or_else(|| CoordinatorError::InvalidEnvelope("missing child id".to_string()))?;
+
+        let payload_digest = serde_json::to_string(&envelope.payload).map_err(|error| {
+            CoordinatorError::FailedClosed(format!("failed to serialize envelope payload: {error}"))
+        })?;
+        let duplicate_key = (child_id.clone(), envelope.meta.message_id.clone());
+
+        let mut applied_messages = self.applied_messages.lock().map_err(|_| {
+            CoordinatorError::FailedClosed("applied message lock poisoned".to_string())
+        })?;
+        if let Some(existing_digest) = applied_messages.get(&duplicate_key) {
+            if existing_digest == &payload_digest {
+                return Ok(());
+            }
+            return Err(CoordinatorError::InvalidEnvelope(format!(
+                "conflicting duplicate message {} for child {}",
+                envelope.meta.message_id, child_id.0
+            )));
+        }
 
         let mut registry = self
             .registry
@@ -739,7 +777,51 @@ impl Coordinator {
             }
         }
 
+        applied_messages.insert(duplicate_key, payload_digest);
         Ok(())
+    }
+
+    fn sender_for(
+        &self,
+        child_id: Option<&ChildAgentId>,
+        payload: &CoordinatorMessage,
+    ) -> LogicalEndpoint {
+        match payload {
+            CoordinatorMessage::DispatchChild(_) | CoordinatorMessage::CancelChild { .. } => {
+                LogicalEndpoint::coordinator(self.coordinator_id.clone())
+            }
+            CoordinatorMessage::ChildStarted { .. }
+            | CoordinatorMessage::ChildProgress { .. }
+            | CoordinatorMessage::ChildCompleted { .. }
+            | CoordinatorMessage::ChildFailed { .. }
+            | CoordinatorMessage::ChildCancelled { .. } => child_id
+                .cloned()
+                .map(|value| LogicalEndpoint::child(self.coordinator_id.clone(), value))
+                .unwrap_or_else(|| LogicalEndpoint::coordinator(self.coordinator_id.clone())),
+        }
+    }
+
+    fn recipient_for(
+        &self,
+        child_id: Option<&ChildAgentId>,
+        payload: &CoordinatorMessage,
+    ) -> LogicalEndpoint {
+        match payload {
+            CoordinatorMessage::DispatchChild(_) | CoordinatorMessage::CancelChild { .. } => {
+                child_id
+                    .cloned()
+                    .map(|value| LogicalEndpoint::child(self.coordinator_id.clone(), value))
+                    .unwrap_or_else(|| LogicalEndpoint::coordinator(self.coordinator_id.clone()))
+            }
+            CoordinatorMessage::ChildStarted { .. }
+            | CoordinatorMessage::ChildProgress { .. }
+            | CoordinatorMessage::ChildCompleted { .. }
+            | CoordinatorMessage::ChildFailed { .. }
+            | CoordinatorMessage::ChildCancelled { .. } => child_id
+                .cloned()
+                .map(|value| LogicalEndpoint::coordinator_child(self.coordinator_id.clone(), value))
+                .unwrap_or_else(|| LogicalEndpoint::coordinator(self.coordinator_id.clone())),
+        }
     }
 
     fn record_terminal(
@@ -779,7 +861,10 @@ impl Coordinator {
                 "missing correlation id".to_string(),
             ));
         }
-        if envelope.meta.transport != CoordinatorTransport::InProcess {
+        if !matches!(
+            envelope.meta.transport,
+            CoordinatorTransport::InProcess | CoordinatorTransport::Mailbox
+        ) {
             return Err(CoordinatorError::InvalidEnvelope(
                 "unsupported transport".to_string(),
             ));
@@ -788,6 +873,58 @@ impl Coordinator {
             return Err(CoordinatorError::InvalidEnvelope(
                 "missing child id".to_string(),
             ));
+        }
+        let Some(child_id) = envelope.meta.child_id.as_ref() else {
+            return Err(CoordinatorError::InvalidEnvelope(
+                "missing child id".to_string(),
+            ));
+        };
+
+        match &envelope.payload {
+            CoordinatorMessage::DispatchChild(_) | CoordinatorMessage::CancelChild { .. } => {
+                match (&envelope.meta.sender, &envelope.meta.recipient) {
+                    (
+                        LogicalEndpoint::Coordinator { coordinator_id, .. },
+                        LogicalEndpoint::Child {
+                            coordinator_id: recipient_id,
+                            child_id: recipient_child,
+                        },
+                    ) if coordinator_id == &self.coordinator_id
+                        && recipient_id == &self.coordinator_id
+                        && recipient_child == child_id => {}
+                    _ => {
+                        return Err(CoordinatorError::InvalidEnvelope(
+                            "misaddressed coordinator dispatch envelope".to_string(),
+                        ))
+                    }
+                }
+            }
+            CoordinatorMessage::ChildStarted { .. }
+            | CoordinatorMessage::ChildProgress { .. }
+            | CoordinatorMessage::ChildCompleted { .. }
+            | CoordinatorMessage::ChildFailed { .. }
+            | CoordinatorMessage::ChildCancelled { .. } => {
+                match (&envelope.meta.sender, &envelope.meta.recipient) {
+                    (
+                        LogicalEndpoint::Child {
+                            coordinator_id: sender_id,
+                            child_id: sender_child,
+                        },
+                        LogicalEndpoint::Coordinator {
+                            coordinator_id: recipient_id,
+                            child_id: recipient_child,
+                        },
+                    ) if sender_id == &self.coordinator_id
+                        && recipient_id == &self.coordinator_id
+                        && sender_child == child_id
+                        && recipient_child.as_ref() == Some(child_id) => {}
+                    _ => {
+                        return Err(CoordinatorError::InvalidEnvelope(
+                            "misaddressed child response envelope".to_string(),
+                        ))
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -1667,10 +1804,19 @@ mod tests {
                     let response_correlation = dispatch.meta.correlation_id.clone();
                     let response = MessageEnvelope {
                         meta: EnvelopeMeta {
-                            coordinator_id: dispatch.meta.coordinator_id,
+                            coordinator_id: dispatch.meta.coordinator_id.clone(),
                             child_id: Some(request.child_id.clone()),
                             sequence: dispatch.meta.sequence,
+                            message_id: format!("{}:success", dispatch.meta.message_id),
                             correlation_id: response_correlation.clone(),
+                            sender: LogicalEndpoint::child(
+                                dispatch.meta.coordinator_id.clone(),
+                                request.child_id.clone(),
+                            ),
+                            recipient: LogicalEndpoint::coordinator_child(
+                                dispatch.meta.coordinator_id.clone(),
+                                request.child_id.clone(),
+                            ),
                             sent_at: Utc::now(),
                             transport: CoordinatorTransport::InProcess,
                         },
@@ -1706,10 +1852,19 @@ mod tests {
                     let response_correlation = dispatch.meta.correlation_id.clone();
                     let response = MessageEnvelope {
                         meta: EnvelopeMeta {
-                            coordinator_id: dispatch.meta.coordinator_id,
+                            coordinator_id: dispatch.meta.coordinator_id.clone(),
                             child_id: Some(request.child_id.clone()),
                             sequence: dispatch.meta.sequence,
+                            message_id: format!("{}:gated", dispatch.meta.message_id),
                             correlation_id: response_correlation.clone(),
+                            sender: LogicalEndpoint::child(
+                                dispatch.meta.coordinator_id.clone(),
+                                request.child_id.clone(),
+                            ),
+                            recipient: LogicalEndpoint::coordinator_child(
+                                dispatch.meta.coordinator_id.clone(),
+                                request.child_id.clone(),
+                            ),
                             sent_at: Utc::now(),
                             transport: CoordinatorTransport::InProcess,
                         },
@@ -1740,10 +1895,19 @@ mod tests {
                     let response_correlation = dispatch.meta.correlation_id.clone();
                     let response = MessageEnvelope {
                         meta: EnvelopeMeta {
-                            coordinator_id: dispatch.meta.coordinator_id,
+                            coordinator_id: dispatch.meta.coordinator_id.clone(),
                             child_id: Some(request.child_id.clone()),
                             sequence: dispatch.meta.sequence,
+                            message_id: format!("{}:failure", dispatch.meta.message_id),
                             correlation_id: response_correlation.clone(),
+                            sender: LogicalEndpoint::child(
+                                dispatch.meta.coordinator_id.clone(),
+                                request.child_id.clone(),
+                            ),
+                            recipient: LogicalEndpoint::coordinator_child(
+                                dispatch.meta.coordinator_id.clone(),
+                                request.child_id.clone(),
+                            ),
                             sent_at: Utc::now(),
                             transport: CoordinatorTransport::InProcess,
                         },
@@ -1778,10 +1942,19 @@ mod tests {
                     let response_correlation = dispatch.meta.correlation_id.clone();
                     let response = MessageEnvelope {
                         meta: EnvelopeMeta {
-                            coordinator_id: dispatch.meta.coordinator_id,
+                            coordinator_id: dispatch.meta.coordinator_id.clone(),
                             child_id: Some(request.child_id.clone()),
                             sequence: dispatch.meta.sequence,
+                            message_id: format!("{}:cancelled", dispatch.meta.message_id),
                             correlation_id: response_correlation.clone(),
+                            sender: LogicalEndpoint::child(
+                                dispatch.meta.coordinator_id.clone(),
+                                request.child_id.clone(),
+                            ),
+                            recipient: LogicalEndpoint::coordinator_child(
+                                dispatch.meta.coordinator_id.clone(),
+                                request.child_id.clone(),
+                            ),
                             sent_at: Utc::now(),
                             transport: CoordinatorTransport::InProcess,
                         },
@@ -1957,6 +2130,334 @@ mod tests {
     }
 
     #[test]
+    fn mailbox_transport_response_is_accepted_for_owning_run() {
+        let coordinator = Coordinator::new();
+        let child_id = ChildAgentId("child-a".to_string());
+        coordinator.admit_child(&child("child-a", 0)).unwrap();
+
+        let dispatch = coordinator.next_envelope(
+            Some(child_id.clone()),
+            "corr-mailbox",
+            CoordinatorMessage::DispatchChild(child("child-a", 0)),
+        );
+        coordinator.apply_envelope(&dispatch).unwrap();
+
+        let started = coordinator.next_envelope(
+            Some(child_id.clone()),
+            "corr-mailbox",
+            CoordinatorMessage::ChildStarted { session_id: None },
+        );
+        coordinator.apply_envelope(&started).unwrap();
+
+        let envelope = MessageEnvelope {
+            meta: EnvelopeMeta {
+                coordinator_id: coordinator.coordinator_id().to_string(),
+                child_id: Some(child_id.clone()),
+                sequence: started.meta.sequence + 1,
+                message_id: "mailbox-msg-1".to_string(),
+                correlation_id: "corr-mailbox".to_string(),
+                sender: crate::agent::mailbox::LogicalEndpoint::Child {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: child_id.clone(),
+                },
+                recipient: crate::agent::mailbox::LogicalEndpoint::Coordinator {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: Some(child_id.clone()),
+                },
+                sent_at: Utc::now(),
+                transport: CoordinatorTransport::Mailbox,
+            },
+            payload: CoordinatorMessage::ChildCompleted {
+                result: ChildExecutionResult {
+                    session_id: "session-a".to_string(),
+                    tool_result: ToolResult {
+                        success: true,
+                        output: "done".to_string(),
+                        error: None,
+                        structured: None,
+                    },
+                    status: ChildTerminalStatus::Succeeded,
+                },
+            },
+        };
+
+        coordinator.apply_envelope(&envelope).unwrap();
+        assert_eq!(
+            coordinator.child_record(&child_id).unwrap().unwrap().state,
+            ChildState::Succeeded
+        );
+    }
+
+    #[test]
+    fn misaddressed_mailbox_envelope_is_rejected() {
+        let coordinator = Coordinator::new();
+        let child_id = ChildAgentId("child-a".to_string());
+        coordinator.admit_child(&child("child-a", 0)).unwrap();
+
+        let error = coordinator
+            .apply_envelope(&MessageEnvelope {
+                meta: EnvelopeMeta {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: Some(child_id.clone()),
+                    sequence: 1,
+                    message_id: "mailbox-msg-bad".to_string(),
+                    correlation_id: "corr-bad".to_string(),
+                    sender: crate::agent::mailbox::LogicalEndpoint::Child {
+                        coordinator_id: coordinator.coordinator_id().to_string(),
+                        child_id: child_id.clone(),
+                    },
+                    recipient: crate::agent::mailbox::LogicalEndpoint::Child {
+                        coordinator_id: coordinator.coordinator_id().to_string(),
+                        child_id: child_id.clone(),
+                    },
+                    sent_at: Utc::now(),
+                    transport: CoordinatorTransport::Mailbox,
+                },
+                payload: CoordinatorMessage::ChildCompleted {
+                    result: ChildExecutionResult {
+                        session_id: "session-a".to_string(),
+                        tool_result: ToolResult {
+                            success: true,
+                            output: "done".to_string(),
+                            error: None,
+                            structured: None,
+                        },
+                        status: ChildTerminalStatus::Succeeded,
+                    },
+                },
+            })
+            .unwrap_err();
+
+        assert!(matches!(error, CoordinatorError::InvalidEnvelope(_)));
+    }
+
+    #[test]
+    fn duplicate_terminal_mailbox_envelope_is_idempotent() {
+        let coordinator = Coordinator::new();
+        let child_id = ChildAgentId("child-a".to_string());
+        coordinator.admit_child(&child("child-a", 0)).unwrap();
+        coordinator
+            .apply_envelope(&coordinator.next_envelope(
+                Some(child_id.clone()),
+                "corr-dup",
+                CoordinatorMessage::DispatchChild(child("child-a", 0)),
+            ))
+            .unwrap();
+        coordinator
+            .apply_envelope(&coordinator.next_envelope(
+                Some(child_id.clone()),
+                "corr-dup",
+                CoordinatorMessage::ChildStarted { session_id: None },
+            ))
+            .unwrap();
+
+        let terminal = MessageEnvelope {
+            meta: EnvelopeMeta {
+                coordinator_id: coordinator.coordinator_id().to_string(),
+                child_id: Some(child_id.clone()),
+                sequence: 3,
+                message_id: "msg-dup".to_string(),
+                correlation_id: "corr-dup".to_string(),
+                sender: crate::agent::mailbox::LogicalEndpoint::Child {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: child_id.clone(),
+                },
+                recipient: crate::agent::mailbox::LogicalEndpoint::Coordinator {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: Some(child_id.clone()),
+                },
+                sent_at: Utc::now(),
+                transport: CoordinatorTransport::Mailbox,
+            },
+            payload: CoordinatorMessage::ChildCompleted {
+                result: ChildExecutionResult {
+                    session_id: "session-a".to_string(),
+                    tool_result: ToolResult {
+                        success: true,
+                        output: "done".to_string(),
+                        error: None,
+                        structured: None,
+                    },
+                    status: ChildTerminalStatus::Succeeded,
+                },
+            },
+        };
+
+        coordinator.apply_envelope(&terminal).unwrap();
+        coordinator.apply_envelope(&terminal).unwrap();
+
+        let outcomes = coordinator.ordered_outcomes().unwrap();
+        assert_eq!(child_outcome_ids(&outcomes), vec!["child-a"]);
+    }
+
+    #[test]
+    fn conflicting_mailbox_replay_fails_closed() {
+        let coordinator = Coordinator::new();
+        let child_id = ChildAgentId("child-a".to_string());
+        coordinator.admit_child(&child("child-a", 0)).unwrap();
+        coordinator
+            .apply_envelope(&coordinator.next_envelope(
+                Some(child_id.clone()),
+                "corr-conflict",
+                CoordinatorMessage::DispatchChild(child("child-a", 0)),
+            ))
+            .unwrap();
+        coordinator
+            .apply_envelope(&coordinator.next_envelope(
+                Some(child_id.clone()),
+                "corr-conflict",
+                CoordinatorMessage::ChildStarted { session_id: None },
+            ))
+            .unwrap();
+
+        let completed = MessageEnvelope {
+            meta: EnvelopeMeta {
+                coordinator_id: coordinator.coordinator_id().to_string(),
+                child_id: Some(child_id.clone()),
+                sequence: 3,
+                message_id: "msg-conflict".to_string(),
+                correlation_id: "corr-conflict".to_string(),
+                sender: crate::agent::mailbox::LogicalEndpoint::Child {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: child_id.clone(),
+                },
+                recipient: crate::agent::mailbox::LogicalEndpoint::Coordinator {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: Some(child_id.clone()),
+                },
+                sent_at: Utc::now(),
+                transport: CoordinatorTransport::Mailbox,
+            },
+            payload: CoordinatorMessage::ChildCompleted {
+                result: ChildExecutionResult {
+                    session_id: "session-a".to_string(),
+                    tool_result: ToolResult {
+                        success: true,
+                        output: "done".to_string(),
+                        error: None,
+                        structured: None,
+                    },
+                    status: ChildTerminalStatus::Succeeded,
+                },
+            },
+        };
+        coordinator.apply_envelope(&completed).unwrap();
+
+        let conflicting = MessageEnvelope {
+            payload: CoordinatorMessage::ChildFailed {
+                error: ChildExecutionError {
+                    session_id: Some("session-a".to_string()),
+                    error: "boom".to_string(),
+                    tool_result: None,
+                },
+            },
+            ..completed.clone()
+        };
+
+        let error = coordinator.apply_envelope(&conflicting).unwrap_err();
+        assert!(matches!(error, CoordinatorError::InvalidEnvelope(_)));
+    }
+
+    #[test]
+    fn duplicate_mailbox_delivery_does_not_change_aggregate_ordering() {
+        let coordinator = Coordinator::new();
+        let first_child = ChildAgentId("child-a".to_string());
+        let second_child = ChildAgentId("child-b".to_string());
+        coordinator.admit_child(&child("child-a", 0)).unwrap();
+        coordinator.admit_child(&child("child-b", 1)).unwrap();
+
+        for child_id in [first_child.clone(), second_child.clone()] {
+            coordinator
+                .apply_envelope(&coordinator.next_envelope(
+                    Some(child_id.clone()),
+                    format!("dispatch:{}", child_id.0),
+                    CoordinatorMessage::DispatchChild(child(
+                        &child_id.0,
+                        if child_id == first_child { 0 } else { 1 },
+                    )),
+                ))
+                .unwrap();
+            coordinator
+                .apply_envelope(&coordinator.next_envelope(
+                    Some(child_id.clone()),
+                    format!("dispatch:{}", child_id.0),
+                    CoordinatorMessage::ChildStarted { session_id: None },
+                ))
+                .unwrap();
+        }
+
+        let second_terminal = MessageEnvelope {
+            meta: EnvelopeMeta {
+                coordinator_id: coordinator.coordinator_id().to_string(),
+                child_id: Some(second_child.clone()),
+                sequence: 5,
+                message_id: "msg-second".to_string(),
+                correlation_id: "corr-second".to_string(),
+                sender: crate::agent::mailbox::LogicalEndpoint::Child {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: second_child.clone(),
+                },
+                recipient: crate::agent::mailbox::LogicalEndpoint::Coordinator {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: Some(second_child.clone()),
+                },
+                sent_at: Utc::now(),
+                transport: CoordinatorTransport::Mailbox,
+            },
+            payload: CoordinatorMessage::ChildCompleted {
+                result: ChildExecutionResult {
+                    session_id: "session-b".to_string(),
+                    tool_result: ToolResult {
+                        success: true,
+                        output: "done-b".to_string(),
+                        error: None,
+                        structured: None,
+                    },
+                    status: ChildTerminalStatus::Succeeded,
+                },
+            },
+        };
+        let first_terminal = MessageEnvelope {
+            meta: EnvelopeMeta {
+                coordinator_id: coordinator.coordinator_id().to_string(),
+                child_id: Some(first_child.clone()),
+                sequence: 6,
+                message_id: "msg-first".to_string(),
+                correlation_id: "corr-first".to_string(),
+                sender: crate::agent::mailbox::LogicalEndpoint::Child {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: first_child.clone(),
+                },
+                recipient: crate::agent::mailbox::LogicalEndpoint::Coordinator {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: Some(first_child.clone()),
+                },
+                sent_at: Utc::now(),
+                transport: CoordinatorTransport::Mailbox,
+            },
+            payload: CoordinatorMessage::ChildCompleted {
+                result: ChildExecutionResult {
+                    session_id: "session-a".to_string(),
+                    tool_result: ToolResult {
+                        success: true,
+                        output: "done-a".to_string(),
+                        error: None,
+                        structured: None,
+                    },
+                    status: ChildTerminalStatus::Succeeded,
+                },
+            },
+        };
+
+        coordinator.apply_envelope(&second_terminal).unwrap();
+        coordinator.apply_envelope(&first_terminal).unwrap();
+        coordinator.apply_envelope(&second_terminal).unwrap();
+
+        let outcomes = coordinator.ordered_outcomes().unwrap();
+        assert_eq!(child_outcome_ids(&outcomes), vec!["child-a", "child-b"]);
+    }
+
+    #[test]
     fn envelope_sequence_and_correlation_are_monotonic() {
         let coordinator = Coordinator::new();
         let first = coordinator.next_envelope(
@@ -1974,22 +2475,23 @@ mod tests {
         assert_eq!(second.meta.correlation_id, first.meta.correlation_id);
     }
 
-    /// Compile-time assertion: CoordinatorTransport must ONLY contain InProcess for this slice.
-    /// RemoteBridge, CrossProcess, MailboxPersistence, WorktreeIsolation are deferred to Track 4.
+    /// Compile-time assertion: Slice 3 transport remains limited to in-process and mailbox.
+    /// Remote bridge, worktree isolation, and other deferred transports must stay out of scope.
     #[test]
-    fn coordinator_slice_defers_non_in_process_transport_and_deferred_scope() {
-        // Exhaustive match ensures CI fails if new transport variants are added.
-        // This is a compile-time guard - if CoordinatorTransport gets a new variant,
-        // the match below will fail to compile, alerting developers that Track 4
-        // deferral assumptions need updating.
-        fn assert_only_in_process(t: CoordinatorTransport) -> Option<()> {
-            match t {
-                CoordinatorTransport::InProcess => Some(()),
-            }
+    fn coordinator_slice_limits_transport_to_in_process_and_mailbox() {
+        fn assert_allowed_transport(t: CoordinatorTransport) -> bool {
+            matches!(
+                t,
+                CoordinatorTransport::InProcess | CoordinatorTransport::Mailbox
+            )
         }
         assert!(
-            assert_only_in_process(CoordinatorTransport::InProcess).is_some(),
-            "CoordinatorTransport must only have InProcess for this slice"
+            assert_allowed_transport(CoordinatorTransport::InProcess),
+            "CoordinatorTransport must allow in-process transport"
+        );
+        assert!(
+            assert_allowed_transport(CoordinatorTransport::Mailbox),
+            "CoordinatorTransport must allow mailbox transport"
         );
     }
 
@@ -2003,7 +2505,12 @@ mod tests {
                     coordinator_id: coordinator.coordinator_id().to_string(),
                     child_id: None,
                     sequence: 2,
+                    message_id: "invalid-envelope".to_string(),
                     correlation_id: String::new(),
+                    sender: LogicalEndpoint::coordinator(coordinator.coordinator_id().to_string()),
+                    recipient: LogicalEndpoint::coordinator(
+                        coordinator.coordinator_id().to_string(),
+                    ),
                     sent_at: Utc::now(),
                     transport: CoordinatorTransport::InProcess,
                 },
