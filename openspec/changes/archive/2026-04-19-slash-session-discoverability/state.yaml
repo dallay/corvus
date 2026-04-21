@@ -1,0 +1,13 @@
+change: slash-session-discoverability
+current_phase: archive
+completed:
+  - explore
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+  - archive
+next: none
+updated: 2026-04-19T10:44:40+02:00

@@ -220,3 +220,53 @@ async fn deleted_fetch_without_record_returns_not_found() {
     let error = response.error.expect("expected not_found error");
     assert_eq!(error.code, -32005);
 }
+
+#[tokio::test]
+async fn mem_update_rejects_blank_topic_key() {
+    let storage = InMemoryStorage::new();
+    let config = CerebroConfig {
+        auth_token: Some(SecretString::new("secret".to_string().into())),
+        ..CerebroConfig::default()
+    };
+    let service = CerebroService::new(config, storage);
+
+    let save = call_tool(
+        &service,
+        Some("Bearer secret"),
+        "mem_save",
+        json!({
+            "input": {
+                "scope": "shared",
+                "topic_key": "topic",
+                "observation": { "content": "Hello" }
+            }
+        }),
+    )
+    .await;
+    assert!(save.error.is_none());
+    let memory_id = save
+        .result
+        .as_ref()
+        .and_then(|value| value.get("output"))
+        .and_then(|value| value.get("memory_id"))
+        .and_then(|value| value.as_str())
+        .expect("mem_save should return memory_id")
+        .to_string();
+
+    let update = call_tool(
+        &service,
+        Some("Bearer secret"),
+        "mem_update",
+        json!({
+            "input": {
+                "memory_id": memory_id,
+                "topic_key": "   "
+            }
+        }),
+    )
+    .await;
+
+    let error = update.error.expect("expected validation error");
+    assert_eq!(error.code, -32000);
+    assert!(error.message.contains("topic_key must be non-empty"));
+}

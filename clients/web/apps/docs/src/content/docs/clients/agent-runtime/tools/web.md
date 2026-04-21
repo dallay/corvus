@@ -81,3 +81,16 @@ Performs structured HTTP requests (REST/JSON) to external APIs.
 | `method` | `string` | HTTP method (GET, POST, PUT, DELETE, etc.). Default: `GET`. |
 | `headers` | `object` | Optional key-value pairs for headers. |
 | `body` | `string` | Optional payload for POST/PUT requests. |
+
+---
+
+## `WebFetch`
+
+Read-only fetch-and-extract parity tool for allowlisted web content.
+
+- **Security Tier:** Read-Only (Safe).
+- **Execution:** Uses the same outbound URL-policy boundary as `http_request` for host allowlists, private-host blocking, and redirect-denial behavior.
+- **Contract:** Requires `url` and `prompt`; returns extracted textual content, HTTP status metadata, and the final fetched URL.
+- **Scope boundary:** `WebFetch` remains the read-only web parity surface. Persistent task lifecycle
+  parity (`TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, `TaskStop`) is now documented
+  separately and remains distinct from web/search behavior.

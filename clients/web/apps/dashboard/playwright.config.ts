@@ -8,7 +8,7 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   webServer: {
-    command: "pnpm dev --host 127.0.0.1 --port 4324",
+    command: "PLAYWRIGHT=true pnpm dev --host 127.0.0.1 --port 4324",
     url: "http://127.0.0.1:4324",
     reuseExistingServer: true,
     timeout: 60_000,

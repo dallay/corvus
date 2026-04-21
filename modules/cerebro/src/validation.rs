@@ -8,3 +8,10 @@ pub fn require_non_empty(field: &str, value: &str) -> Result<(), CerebroError> {
     }
     Ok(())
 }
+
+pub fn require_optional_non_empty(field: &str, value: Option<&str>) -> Result<(), CerebroError> {
+    if let Some(value) = value {
+        require_non_empty(field, value)?;
+    }
+    Ok(())
+}

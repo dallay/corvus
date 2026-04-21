@@ -7,7 +7,8 @@
 //! - Request timeouts (30s) to prevent slow-loris attacks
 //! - Header sanitization (handled by axum/hyper)
 
-use crate::agent::dispatcher::{evaluate_tool_risk, DispatchAction};
+// DISPATCH_ACTION_REMOVED: intentionally removed unused imports
+// use crate::agent::dispatcher::{evaluate_tool_risk, DispatchAction};
 use crate::bootstrap;
 use crate::channels::{Channel, SendMessage, WhatsAppChannel};
 use crate::config::{Config, ExecutionMode};
@@ -26,7 +27,7 @@ use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, Multipart, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{
-        sse::{Event, Sse},
+        sse::{Event, KeepAlive, Sse},
         IntoResponse, Json,
     },
     routing::{get, post},
@@ -673,7 +674,7 @@ fn loop_event_name(event: &crate::agent::unified_loop::LoopEvent) -> &'static st
             "tool_dispatch_completed"
         }
         crate::agent::unified_loop::LoopEvent::CompactionTriggered => "compaction_triggered",
-        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_) => "approval_required",
+        crate::agent::unified_loop::LoopEvent::ApprovalRequired(..) => "approval_required",
         crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
         crate::agent::unified_loop::LoopEvent::Error(_) => "error",
     }
@@ -685,9 +686,11 @@ fn loop_event_payload(event: &crate::agent::unified_loop::LoopEvent) -> String {
         crate::agent::unified_loop::LoopEvent::LLMProgress(text)
         | crate::agent::unified_loop::LoopEvent::ToolDispatchStarted(text)
         | crate::agent::unified_loop::LoopEvent::ToolDispatchCompleted(text)
-        | crate::agent::unified_loop::LoopEvent::ApprovalRequired(text)
         | crate::agent::unified_loop::LoopEvent::Complete(text)
         | crate::agent::unified_loop::LoopEvent::Error(text) => scrub_sensitive_boundary_text(text),
+        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_, description) => {
+            scrub_sensitive_boundary_text(description)
+        }
         crate::agent::unified_loop::LoopEvent::CompactionTriggered => {
             "compaction_triggered".to_string()
         }
@@ -802,6 +805,7 @@ fn log_webhook_terminal_outcome(session_id: &str, runtime_path: &str, outcome: &
 fn webhook_outcome_label(outcome: &webhook_dispatch::WebhookTerminalOutcome) -> &'static str {
     match outcome {
         webhook_dispatch::WebhookTerminalOutcome::Completed => "completed",
+        webhook_dispatch::WebhookTerminalOutcome::Failed => "failed",
         webhook_dispatch::WebhookTerminalOutcome::BudgetExceeded { .. } => "budget_exceeded",
         webhook_dispatch::WebhookTerminalOutcome::ApprovalRequired { .. } => "approval_required",
         webhook_dispatch::WebhookTerminalOutcome::PlanModeBlocked { .. } => "plan_mode_blocked",
@@ -1757,29 +1761,62 @@ fn parse_webhook_body(body: WebhookJsonBody) -> Result<WebhookBody, WebhookRespo
     }
 }
 
-async fn canonical_outcome_early_response(
+async fn maybe_handle_http_ingress(
     state: &AppState,
     session_id: &str,
+    session_source: crate::session_commands::CommandSessionSource,
     scrubbed_message: &str,
+    caller_token_hash: Option<&str>,
 ) -> Option<(WebhookResponse, bool)> {
-    let canonical = crate::pre_execution::evaluate(session_id.to_string(), scrubbed_message).await;
+    let config = state.config.lock().clone();
+    let tool_snapshot = crate::bootstrap::slash_tool_snapshot_from_config(&config).ok()?;
+    let context = crate::session_commands::CommandContext::for_gateway_http(
+        session_id,
+        session_source,
+        config.agent.execution_mode,
+        caller_token_hash.map(str::to_string),
+    );
 
-    if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
-        match blocking {
-            crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
-                let denial_reason = match evaluate_tool_risk(&tool) {
-                    DispatchAction::ApprovalRequired(reason) => {
-                        if reason.trim().is_empty() {
-                            format!("approval required before executing `{tool}`")
-                        } else {
-                            reason
-                        }
-                    }
-                    DispatchAction::Execute | DispatchAction::Blocked { .. } => {
-                        format!("approval required for `{tool}`")
-                    }
-                };
-                let denial = crate::approval::structured_denial_payload(&tool, &denial_reason);
+    match crate::pre_execution::adapt_handled_ingress(
+        crate::pre_execution::evaluate_ingress(
+            state.mem.as_ref(),
+            &tool_snapshot,
+            context,
+            scrubbed_message,
+            true,
+        )
+        .await,
+    ) {
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
+        ) => {
+            let body = serde_json::json!({
+                "response": success.message.clone(),
+                "model": state.model,
+                "session_id": session_id,
+            });
+            return Some(((StatusCode::OK, Json(body)), true));
+        }
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandFailure {
+                class: _,
+                failure,
+            },
+        ) => {
+            let error_body = serde_json::json!({
+                "error": {
+                    "code": map_session_command_failure_code(&failure.kind),
+                    "message": failure.message,
+                },
+                "session_id": session_id,
+            });
+            return Some(((StatusCode::UNPROCESSABLE_ENTITY, Json(error_body)), false));
+        }
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::Blocking(blocking),
+        ) => match blocking {
+            crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => {
+                let denial = crate::approval::structured_denial_payload(&tool, &reason);
                 let err = serde_json::json!({
                     "error": denial,
                     "session_id": session_id,
@@ -1805,10 +1842,33 @@ async fn canonical_outcome_early_response(
                 });
                 return Some(((StatusCode::OK, Json(body)), true));
             }
-        }
+        },
+        crate::pre_execution::HandledIngress::NotHandled => {}
     }
 
     None
+}
+
+fn map_session_command_failure_code(
+    kind: &crate::session_commands::SessionCommandFailureKind,
+) -> &'static str {
+    match kind {
+        crate::session_commands::SessionCommandFailureKind::UnsupportedBackend => {
+            "unsupported_backend"
+        }
+        crate::session_commands::SessionCommandFailureKind::UnknownSession => "unknown_session",
+        crate::session_commands::SessionCommandFailureKind::InvalidState => "invalid_state",
+        crate::session_commands::SessionCommandFailureKind::MissingSnapshot => "missing_snapshot",
+        crate::session_commands::SessionCommandFailureKind::InvalidResumeTarget => {
+            "invalid_resume_target"
+        }
+        crate::session_commands::SessionCommandFailureKind::InvalidArguments => "invalid_arguments",
+        crate::session_commands::SessionCommandFailureKind::MissingCallerScope => {
+            "missing_caller_scope"
+        }
+        crate::session_commands::SessionCommandFailureKind::PermissionDenied => "permission_denied",
+        crate::session_commands::SessionCommandFailureKind::StorageFailure => "storage_failure",
+    }
 }
 
 fn webhook_response_from_dispatch_result(
@@ -1829,6 +1889,20 @@ fn webhook_response_from_dispatch_result(
                 body["events_sse"] = serde_json::json!(result.event_frames);
             }
             ((StatusCode::OK, Json(body)), true)
+        }
+        webhook_dispatch::WebhookTerminalOutcome::Failed => {
+            let response_text = result
+                .response_text
+                .map(|text| scrub_sensitive_boundary_text(&text))
+                .unwrap_or_default();
+            let body = serde_json::json!({
+                "error": {
+                    "code": "session_command_failed",
+                    "message": response_text,
+                },
+                "session_id": result.session_id,
+            });
+            ((StatusCode::UNPROCESSABLE_ENTITY, Json(body)), false)
         }
         webhook_dispatch::WebhookTerminalOutcome::BudgetExceeded {
             current_usd,
@@ -1928,8 +2002,14 @@ async fn handle_webhook(
         Ok(resolved) => resolved,
         Err(response) => return response,
     };
+    let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
+    let config = state.config.lock().clone();
+    let server_execution_mode = config.agent.execution_mode;
+    let dispatcher_enabled = webhook_dispatcher_enabled(&config);
+    let token_hash = utils::extract_bearer_token(&headers).map(|t| compute_token_hash(&t));
 
-    // Idempotency guard: reject duplicates before any side-effects.
+    // Idempotency guard BEFORE preview short-circuit to ensure duplicate suppression
+    // applies to preview slash-command requests.
     let reserved_idempotency_key = if let Some(idempotency_key) = webhook_idempotency_key(&headers)
     {
         if !state.idempotency_store.record_if_new(idempotency_key) {
@@ -1940,11 +2020,33 @@ async fn handle_webhook(
         None
     };
 
+    if is_preview && !dispatcher_enabled {
+        let http_source = match session_source {
+            webhook_dispatch::WebhookSessionSource::Explicit => {
+                crate::session_commands::CommandSessionSource::Explicit
+            }
+            webhook_dispatch::WebhookSessionSource::Generated => {
+                crate::session_commands::CommandSessionSource::Generated
+            }
+        };
+        if let Some((response, persist_idempotency)) = maybe_handle_http_ingress(
+            &state,
+            &session_id,
+            http_source,
+            &scrubbed_message,
+            token_hash.as_deref(),
+        )
+        .await
+        {
+            release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+            return response;
+        }
+    }
+
     // Track session lifecycle: create or touch session record.
     // When a bearer token is present, session tracking is required for
     // token-scoped ownership — fail the request if upsert fails.
     // Without a token, tracking is best-effort/observational.
-    let token_hash = utils::extract_bearer_token(&headers).map(|t| compute_token_hash(&t));
     if let Err(e) = state
         .mem
         .upsert_session(&session_id, token_hash.as_deref())
@@ -1961,10 +2063,6 @@ async fn handle_webhook(
         tracing::debug!("session upsert best-effort failed: {e}");
     }
 
-    let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
-    let config = state.config.lock().clone();
-    let server_execution_mode = config.agent.execution_mode;
-    let dispatcher_enabled = webhook_dispatcher_enabled(&config);
     if dispatcher_enabled {
         log_webhook_runtime_path(&session_id, true, "dispatcher_flag_enabled");
         let dispatch_result = webhook_dispatch::execute(
@@ -1977,6 +2075,7 @@ async fn handle_webhook(
             webhook_dispatch::WebhookTurnRequest {
                 session_id: session_id.clone(),
                 session_source,
+                caller_token_hash: token_hash.clone(),
                 message: message.clone(),
                 execution_mode: resolve_webhook_execution_mode(
                     server_execution_mode,
@@ -1993,6 +2092,36 @@ async fn handle_webhook(
         );
         let (response, persist_idempotency) =
             webhook_response_from_dispatch_result(dispatch_result);
+        release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+        update_session_activity_if_persisted(
+            &state,
+            &session_id,
+            token_hash.as_deref(),
+            persist_idempotency,
+        )
+        .await;
+        return response;
+    }
+
+    // Intercept shared handled-ingress commands before plan/cost guards so they can
+    // short-circuit without being blocked by execution-mode or cost checks.
+    let http_source = match session_source {
+        webhook_dispatch::WebhookSessionSource::Explicit => {
+            crate::session_commands::CommandSessionSource::Explicit
+        }
+        webhook_dispatch::WebhookSessionSource::Generated => {
+            crate::session_commands::CommandSessionSource::Generated
+        }
+    };
+    if let Some((response, persist_idempotency)) = maybe_handle_http_ingress(
+        &state,
+        &session_id,
+        http_source,
+        &scrubbed_message,
+        token_hash.as_deref(),
+    )
+    .await
+    {
         release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
         update_session_activity_if_persisted(
             &state,
@@ -2041,22 +2170,6 @@ async fn handle_webhook(
         return response;
     }
 
-    if !is_preview {
-        if let Some((response, persist_idempotency)) =
-            canonical_outcome_early_response(&state, &session_id, &scrubbed_message).await
-        {
-            release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
-            update_session_activity_if_persisted(
-                &state,
-                &session_id,
-                token_hash.as_deref(),
-                persist_idempotency,
-            )
-            .await;
-            return response;
-        }
-    }
-
     if state.auto_save {
         let key = webhook_memory_key();
         let _ = state
@@ -2095,10 +2208,7 @@ async fn handle_chat_stream(
     ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     body: WebhookJsonBody,
-) -> Result<
-    Sse<impl futures::stream::Stream<Item = Result<Event, std::convert::Infallible>>>,
-    WebhookResponse,
-> {
+) -> Result<axum::response::Response, WebhookResponse> {
     // ── Auth (same as /webhook) ──────────────────────────
     if let Some(rejection) = webhook_auth_rejection(&state, peer_addr, &headers) {
         return Err(rejection);
@@ -2132,11 +2242,150 @@ async fn handle_chat_stream(
     let config = state.config.lock().clone();
     let server_execution_mode = config.agent.execution_mode;
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
+    let tool_snapshot =
+        crate::bootstrap::slash_tool_snapshot_from_config(&config).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to derive effective tool snapshot"})),
+            )
+        })?;
 
     // ── Process message via existing dispatch ────────────
     enum StreamProcessingOutcome {
         Success(String, Vec<String>),
         Error(serde_json::Value),
+    }
+
+    let ingress_context = crate::session_commands::CommandContext::for_gateway_stream(
+        &session_id,
+        match session_source {
+            webhook_dispatch::WebhookSessionSource::Explicit => {
+                crate::session_commands::CommandSessionSource::Explicit
+            }
+            webhook_dispatch::WebhookSessionSource::Generated => {
+                crate::session_commands::CommandSessionSource::Generated
+            }
+        },
+        server_execution_mode,
+        token_hash.clone(),
+    );
+    let handled_ingress = crate::pre_execution::adapt_handled_ingress(
+        crate::pre_execution::evaluate_ingress(
+            state.mem.as_ref(),
+            &tool_snapshot,
+            ingress_context,
+            &scrubbed_message,
+            true,
+        )
+        .await,
+    );
+
+    if let crate::pre_execution::HandledIngress::Handled(handled) = &handled_ingress {
+        // Update session activity before returning early
+        if let Err(e) = state
+            .mem
+            .update_session_activity(&session_id, token_hash.as_deref())
+            .await
+        {
+            tracing::debug!("session activity update best-effort failed: {e}");
+        }
+
+        let sid = session_id.clone();
+        let (events, status) =
+            match handled {
+                crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success) => {
+                    let message_id = Uuid::new_v4().to_string();
+                    (
+                        vec![
+                            Ok::<Event, std::convert::Infallible>(
+                                Event::default()
+                                    .event("chunk")
+                                    .data(success.message.clone()),
+                            ),
+                            Ok::<Event, std::convert::Infallible>(
+                                Event::default()
+                                    .event("done")
+                                    .json_data(serde_json::json!({
+                                        "message_id": message_id,
+                                        "session_id": sid,
+                                        "tools_called": [],
+                                    }))
+                                    .expect("serializable done event"),
+                            ),
+                        ],
+                        StatusCode::OK,
+                    )
+                }
+                crate::pre_execution::HandledIngressOutcome::SessionCommandFailure {
+                    class: _,
+                    failure,
+                } => (
+                    vec![Ok::<Event, std::convert::Infallible>(
+                        Event::default()
+                            .event("error")
+                            .json_data(serde_json::json!({
+                                "code": map_session_command_failure_code(&failure.kind),
+                                "message": failure.message,
+                            }))
+                            .expect("serializable error event"),
+                    )],
+                    StatusCode::OK,
+                ),
+                crate::pre_execution::HandledIngressOutcome::Blocking(blocking) => match blocking {
+                    crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => (
+                        vec![Ok::<Event, std::convert::Infallible>(Event::default()
+                            .event("error")
+                            .json_data(serde_json::json!({
+                                "code": "approval_required",
+                                "tool": tool,
+                                "reason": reason,
+                                "message": format!("Approval required for tool `{tool}`: {reason}"),
+                            }))
+                            .expect("serializable error event"))],
+                        StatusCode::OK,
+                    ),
+                    crate::pre_execution::BlockingOutcome::TimeoutAborted => (
+                        vec![Ok::<Event, std::convert::Infallible>(
+                            Event::default()
+                                .event("error")
+                                .json_data(serde_json::json!({
+                                    "code": "timeout",
+                                    "message": "Request timed out",
+                                }))
+                                .expect("serializable error event"),
+                        )],
+                        StatusCode::OK,
+                    ),
+                    crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                        let message_id = Uuid::new_v4().to_string();
+                        (
+                            vec![
+                                Ok::<Event, std::convert::Infallible>(
+                                    Event::default()
+                                        .event("chunk")
+                                        .data(scrub_sensitive_boundary_text(response)),
+                                ),
+                                Ok::<Event, std::convert::Infallible>(
+                                    Event::default()
+                                        .event("done")
+                                        .json_data(serde_json::json!({
+                                            "message_id": message_id,
+                                            "session_id": sid,
+                                            "tools_called": [],
+                                        }))
+                                        .expect("serializable done event"),
+                                ),
+                            ],
+                            StatusCode::OK,
+                        )
+                    }
+                },
+            };
+        let mut response = Sse::new(futures::stream::iter(events))
+            .keep_alive(KeepAlive::default())
+            .into_response();
+        *response.status_mut() = status;
+        return Ok(response);
     }
 
     let stream_outcome = if dispatcher_enabled {
@@ -2151,6 +2400,7 @@ async fn handle_chat_stream(
             webhook_dispatch::WebhookTurnRequest {
                 session_id: session_id.clone(),
                 session_source,
+                caller_token_hash: token_hash.clone(),
                 message: message.clone(),
                 execution_mode: resolve_webhook_execution_mode(
                     server_execution_mode,
@@ -2219,14 +2469,90 @@ async fn handle_chat_stream(
                 "execution_mode": execution_mode,
                 "message": format!("Plan mode blocked tool `{tool}`: {reason}"),
             })),
+            webhook_dispatch::WebhookTerminalOutcome::Failed => {
+                let message = result
+                    .response_text
+                    .map(|t| scrub_sensitive_boundary_text(&t))
+                    .unwrap_or_else(|| "session command failed".to_string());
+                StreamProcessingOutcome::Error(serde_json::json!({
+                    "code": "session_command_failed",
+                    "message": message,
+                }))
+            }
         }
     } else {
         log_webhook_runtime_path(&session_id, false, "stream_legacy");
+        // Deny-by-default: reject plan mode when dispatcher is disabled
+        let effective_mode = resolve_webhook_execution_mode(
+            config.agent.execution_mode,
+            webhook_body.execution_mode,
+        );
+        if effective_mode == ExecutionMode::Plan {
+            return Ok(Sse::new(futures::stream::iter(vec![Ok::<Event, std::convert::Infallible>(Event::default()
+                .event("error")
+                .data(serde_json::json!({
+                    "code": "plan_mode_blocked",
+                    "reason": "Plan mode requires dispatcher; dispatcher is not enabled on this server",
+                    "execution_mode": "plan",
+                }).to_string()))]))
+            .keep_alive(KeepAlive::default())
+            .into_response());
+        }
+
         if config.cost.enabled {
             StreamProcessingOutcome::Error(serde_json::json!({
                 "code": "cost_governance_requires_dispatcher",
                 "message": "Cost governance requires the webhook dispatcher path when cost.enabled=true",
             }))
+        } else if let crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::Blocking(blocking),
+        ) = &handled_ingress
+        {
+            let payload = match blocking {
+                crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => {
+                    serde_json::json!({
+                        "code": "approval_required",
+                        "tool": tool,
+                        "reason": reason,
+                        "message": "Approval required",
+                    })
+                }
+                crate::pre_execution::BlockingOutcome::TimeoutAborted => serde_json::json!({
+                    "code": "timeout",
+                    "message": "Request timed out",
+                }),
+                crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                    // Update session activity before returning early
+                    if let Err(e) = state
+                        .mem
+                        .update_session_activity(&session_id, token_hash.as_deref())
+                        .await
+                    {
+                        tracing::debug!("session activity update best-effort failed: {e}");
+                    }
+
+                    return Ok(Sse::new(futures::stream::iter(vec![
+                        Ok::<Event, std::convert::Infallible>(
+                            Event::default()
+                                .event("chunk")
+                                .data(scrub_sensitive_boundary_text(response)),
+                        ),
+                        Ok::<Event, std::convert::Infallible>(
+                            Event::default()
+                                .event("done")
+                                .json_data(serde_json::json!({
+                                    "message_id": Uuid::new_v4().to_string(),
+                                    "session_id": session_id,
+                                    "tools_called": [],
+                                }))
+                                .expect("serializable done event"),
+                        ),
+                    ]))
+                    .keep_alive(KeepAlive::default())
+                    .into_response());
+                }
+            };
+            StreamProcessingOutcome::Error(payload)
         } else {
             if state.auto_save {
                 let key = webhook_memory_key();
@@ -2290,7 +2616,9 @@ async fn handle_chat_stream(
         }
     };
 
-    Ok(Sse::new(futures::stream::iter(events)))
+    Ok(Sse::new(futures::stream::iter(events))
+        .keep_alive(KeepAlive::default())
+        .into_response())
 }
 
 // ── Audio gateway handler types and helpers ──────────────────────────────────
@@ -3347,7 +3675,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -3392,7 +3720,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -3457,7 +3785,7 @@ mod tests {
 
     #[test]
     fn rate_limiter_sweep_removes_stale_entries() {
-        let limiter = SlidingWindowRateLimiter::new(10, Duration::from_secs(60), 100);
+        let limiter = SlidingWindowRateLimiter::new(10, Duration::from_mins(1), 100);
         // Add entries for multiple IPs
         assert!(limiter.allow("ip-1"));
         assert!(limiter.allow("ip-2"));
@@ -3491,7 +3819,7 @@ mod tests {
 
     #[test]
     fn rate_limiter_zero_limit_always_allows() {
-        let limiter = SlidingWindowRateLimiter::new(0, Duration::from_secs(60), 10);
+        let limiter = SlidingWindowRateLimiter::new(0, Duration::from_mins(1), 10);
         for _ in 0..100 {
             assert!(limiter.allow("any-key"));
         }
@@ -3507,7 +3835,7 @@ mod tests {
 
     #[test]
     fn rate_limiter_bounded_cardinality_evicts_oldest_key() {
-        let limiter = SlidingWindowRateLimiter::new(5, Duration::from_secs(60), 2);
+        let limiter = SlidingWindowRateLimiter::new(5, Duration::from_mins(1), 2);
         assert!(limiter.allow("ip-1"));
         assert!(limiter.allow("ip-2"));
         assert!(limiter.allow("ip-3"));
@@ -3520,7 +3848,7 @@ mod tests {
 
     #[test]
     fn idempotency_store_bounded_cardinality_evicts_oldest_key() {
-        let store = IdempotencyStore::new(Duration::from_secs(300), 2);
+        let store = IdempotencyStore::new(Duration::from_mins(5), 2);
         assert!(store.record_if_new("k1"));
         std::thread::sleep(Duration::from_millis(2));
         assert!(store.record_if_new("k2"));
@@ -3761,6 +4089,259 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok("ok".into())
         }
+    }
+
+    async fn seed_resumable_session(
+        memory: &crate::memory::SqliteMemory,
+        session_id: &str,
+        token_hash: &str,
+    ) {
+        memory
+            .upsert_session(session_id, Some(token_hash))
+            .await
+            .unwrap();
+        let snapshot = memory
+            .create_session_snapshot(
+                session_id,
+                crate::memory::SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "resume me",
+                    "summary": "resume me",
+                    "resume_context": "resume me",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+        memory
+            .apply_session_state_patch(crate::memory::SessionStatePatch {
+                session_id: session_id.to_string(),
+                lifecycle: Some(crate::memory::SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: crate::memory::SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: crate::memory::SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: crate::memory::SessionFieldPatch::Clear,
+                suspended_at: crate::memory::SessionFieldPatch::Set("now".to_string()),
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn maybe_handle_http_ingress_intercepts_compact_through_shared_ingress() {
+        // Use SqliteMemory to test real slash-session behavior with actual storage
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: true,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = maybe_handle_http_ingress(
+            &state,
+            "session-1",
+            crate::session_commands::CommandSessionSource::Explicit,
+            "/compact",
+            None,
+        )
+        .await
+        .expect("compact should short-circuit through shared ingress");
+        let ((status, Json(body)), _persist) = response;
+
+        // Slash-session lookup failures still return 422 with a stable error code.
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body["session_id"], "session-1");
+        assert_eq!(body["error"]["code"], "unknown_session");
+    }
+
+    #[tokio::test]
+    async fn maybe_handle_http_ingress_ignores_unknown_slash_like_input() {
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: true,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = maybe_handle_http_ingress(
+            &state,
+            "session-1",
+            crate::session_commands::CommandSessionSource::Explicit,
+            "/resume-later",
+            None,
+        )
+        .await;
+
+        assert!(response.is_none());
+    }
+
+    #[tokio::test]
+    async fn maybe_handle_http_ingress_preserves_resume_success_for_authorized_scope() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
+        seed_resumable_session(mem.as_ref(), "session-target", "caller-hash").await;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: true,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = maybe_handle_http_ingress(
+            &state,
+            "session-control",
+            crate::session_commands::CommandSessionSource::Explicit,
+            "/resume session-target",
+            Some("caller-hash"),
+        )
+        .await
+        .expect("authorized resume should short-circuit");
+        let ((status, Json(body)), persist) = response;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(persist);
+        assert_eq!(body["session_id"], "session-control");
+        assert_eq!(
+            body["response"],
+            "[session:session-target] resumed from persisted compact snapshot"
+        );
+    }
+
+    #[tokio::test]
+    async fn maybe_handle_http_ingress_preserves_permission_denied_for_resume_target() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
+        seed_resumable_session(mem.as_ref(), "session-target", "owner-hash").await;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: true,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = maybe_handle_http_ingress(
+            &state,
+            "session-control",
+            crate::session_commands::CommandSessionSource::Explicit,
+            "/resume session-target",
+            Some("other-hash"),
+        )
+        .await
+        .expect("denied resume should short-circuit");
+        let ((status, Json(body)), persist) = response;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(!persist);
+        assert_eq!(body["session_id"], "session-control");
+        assert_eq!(body["error"]["code"], "permission_denied");
+        assert_eq!(
+            body["error"]["message"],
+            "[session:session-target] permission denied"
+        );
+    }
+
+    #[tokio::test]
+    async fn maybe_handle_http_ingress_handles_tools_listing_through_shared_ingress() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: true,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = maybe_handle_http_ingress(
+            &state,
+            "session-1",
+            crate::session_commands::CommandSessionSource::Explicit,
+            "/tools",
+            None,
+        )
+        .await
+        .expect("/tools should short-circuit through shared ingress");
+        let ((status, Json(body)), persist) = response;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(persist);
+        assert_eq!(body["session_id"], "session-1");
+        assert!(body["response"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("Available tools ("));
     }
 
     #[derive(Default)]
@@ -4036,7 +4617,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4069,7 +4650,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4112,7 +4693,7 @@ mod tests {
             pairing,
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4268,7 +4849,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4294,13 +4875,69 @@ mod tests {
         .await
         .into_response();
 
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(payload["session_id"], "session-e2e");
+        assert_eq!(payload["aborted"], true);
         assert!(payload.get("events_sse").is_none());
+    }
+
+    #[tokio::test]
+    async fn legacy_webhook_preview_intercepts_slash_session_commands() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
+        let provider_impl = Arc::new(MockProvider::default());
+        // Use SqliteMemory for realistic slash-session behavior
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: provider_impl.clone(),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("preview-slash"));
+
+        let _preview = EnvVarGuard::set("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "1");
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(WebhookBody {
+                message: "/tldr".to_string(),
+                execution_mode: None,
+            })),
+        )
+        .await
+        .into_response();
+
+        // SqliteMemory returns 422 for missing session
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(payload["session_id"], "preview-slash");
+        assert_eq!(payload["error"]["code"], "unknown_session");
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -4319,7 +4956,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4372,7 +5009,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4415,7 +5052,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4465,7 +5102,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4529,7 +5166,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4598,7 +5235,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4641,7 +5278,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4678,7 +5315,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4712,7 +5349,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4747,7 +5384,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4790,7 +5427,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4851,7 +5488,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -4934,7 +5571,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5002,7 +5639,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5059,7 +5696,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5139,7 +5776,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5202,7 +5839,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5249,7 +5886,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5297,7 +5934,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5373,7 +6010,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5456,7 +6093,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5531,7 +6168,7 @@ always_ask = []
                 pairing: Arc::new(PairingGuard::new(false, &[])),
                 trust_forwarded_headers: false,
                 rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-                idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+                idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
                 whatsapp: None,
                 whatsapp_app_secret: None,
                 channel_runtime_handle: None,
@@ -5619,7 +6256,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5686,7 +6323,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5763,7 +6400,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5800,6 +6437,449 @@ always_ask = []
     }
 
     #[tokio::test]
+    async fn web_chat_stream_preserves_sse_contract_for_approval_required_blocking() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("should not run".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(r#"{"message":"needs-approval"}"#))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: error"));
+        assert!(body_str.contains(r#""code":"approval_required""#));
+        assert!(body_str.contains(r#""tool":"tool-1""#));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn web_chat_stream_preserves_sse_contract_for_timeout_blocking() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("should not run".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(r#"{"message":"timeout"}"#))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: error"));
+        assert!(body_str.contains(r#""code":"timeout""#));
+        assert!(body_str.contains("Request timed out"));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn web_chat_stream_returns_deterministic_slash_session_sse_without_provider_execution() {
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("should not run".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        // Use SqliteMemory for realistic slash-session behavior in streaming
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
+        let state = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(r#"{"message":"/tldr"}"#))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        // `/tldr` without persisted transcript returns a deterministic SSE success payload
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: chunk"));
+        assert!(body_str.contains("No persisted session transcript is available yet."));
+        assert!(body_str.contains("event: done"));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn web_chat_stream_returns_slash_session_error_sse_without_provider_execution() {
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("should not run".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let mut config = temp_config();
+        config.memory.backend = "none".into();
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(r#"{"message":"/tldr"}"#))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: error"));
+        assert!(body_str.contains("unsupported_backend"));
+        assert!(body_str.contains("require sqlite"));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn web_chat_stream_preserves_permission_denied_for_resume_target() {
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("should not run".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(tmp.path()).unwrap());
+        seed_resumable_session(
+            mem.as_ref(),
+            "session-target",
+            &compute_token_hash("owner-token"),
+        )
+        .await;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .header("authorization", "Bearer caller-token")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(
+                r#"{"message":"/resume session-target"}"#,
+            ))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: error"));
+        assert!(body_str.contains(r#""code":"permission_denied""#));
+        assert!(body_str.contains("[session:session-target] permission denied"));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn web_chat_stream_preserves_invalid_arguments_for_tldr_extra_args() {
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("should not run".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(r#"{"message":"/tldr extra args"}"#))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: error"));
+        assert!(body_str.contains(r#""code":"invalid_arguments""#));
+        assert!(body_str.contains("does not accept trailing arguments"));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn web_chat_stream_handles_recognized_slash_commands_in_plan_mode() {
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("should not run".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let mut config = temp_config();
+        config.agent.execution_mode = ExecutionMode::Plan;
+        config.memory.backend = "none".into();
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(
+                r#"{"message":"/tldr","execution_mode":"plan"}"#,
+            ))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: error"));
+        assert!(body_str.contains(r#""code":"unsupported_backend""#));
+        assert!(!body_str.contains(r#""code":"plan_mode_blocked""#));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn web_chat_stream_unknown_slash_like_input_falls_through_to_provider_execution() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![ChatResponse {
+            text: Some("provider ran".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/stream")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(r#"{"message":"/resume-later"}"#))
+            .unwrap();
+
+        let resp = build_stream_router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+
+        assert!(body_str.contains("event: chunk"));
+        assert!(body_str.contains("legacy"));
+        assert!(body_str.contains("event: done"));
+        assert!(!body_str.contains("session_command_failed"));
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn webhook_dispatcher_returns_machine_readable_budget_exceeded_payload() {
         let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
 
@@ -5832,7 +6912,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5885,7 +6965,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5935,7 +7015,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -5982,7 +7062,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -6034,7 +7114,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -6083,7 +7163,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -6127,7 +7207,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -6183,7 +7263,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -6248,7 +7328,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -6317,7 +7397,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: Some(Arc::new(WhatsAppChannel::new(
                 "token".into(),
                 "phone-id".into(),
@@ -6363,7 +7443,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: Some(Arc::new(WhatsAppChannel::new(
                 "token".into(),
                 "phone-id".into(),
@@ -6435,7 +7515,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: Some(Arc::new(WhatsAppChannel::new(
                 "token".into(),
                 "phone-id".into(),
@@ -6511,7 +7591,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: Some(Arc::new(WhatsAppChannel::new(
                 "token".into(),
                 "phone-id".into(),
@@ -6562,7 +7642,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -6627,7 +7707,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -6704,7 +7784,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -6748,7 +7828,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -6795,7 +7875,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -6843,7 +7923,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -7429,7 +8509,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(10_000, 10_000, 10_000)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
@@ -7868,7 +8948,7 @@ always_ask = []
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(10_000, 10_000, 10_000)),
-            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
             channel_runtime_handle: None,

@@ -1,3 +1,4 @@
+pub(crate) mod content;
 pub(crate) mod discovery;
 pub(crate) mod index;
 pub(crate) mod sqlite;

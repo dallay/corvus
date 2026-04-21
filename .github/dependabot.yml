@@ -1,2 +1,121 @@
 version: 2
-updates: []
+updates:
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "type|dependency-upgrade"
+      - "pr|deps"
+      - "pr|infra"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # npm / pnpm Workspace (Astro, Vue, Tools)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    versioning-strategy: increase
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "type|dependency-upgrade"
+      - "pr|deps"
+      - "module|code"
+    open-pull-requests-limit: 10
+    groups:
+      web-dependencies:
+        patterns: ["*"]
+        exclude-patterns: ["@corvus/*"]
+
+  # Gradle (KMP, Android, Compose)
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "type|dependency-upgrade"
+      - "pr|deps"
+      - "module|code"
+    open-pull-requests-limit: 10
+    groups:
+      androidx:
+        patterns: ["androidx.*", "org.jetbrains.androidx.*"]
+      compose:
+        patterns:
+          ["org.jetbrains.compose.*", "compose.*", "com.android.compose.*"]
+      kotlin:
+        patterns:
+          ["org.jetbrains.kotlin.*", "kotlin-*", "org.jetbrains.kotlinx.*"]
+      junit:
+        patterns: ["org.junit.jupiter.*", "org.junit.vintage.*"]
+      network-tools:
+        patterns: ["io.netty.*", "com.google.protobuf.*", "io.ktor.*"]
+      jackson:
+        patterns: ["tools.jackson.*", "com.fasterxml.jackson.*"]
+
+  # Rust Runtime - Agent Runtime
+  - package-ecosystem: "cargo"
+    directory: "/clients/agent-runtime"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "type|dependency-upgrade"
+      - "pr|deps"
+      - "module|code"
+    open-pull-requests-limit: 5
+    groups:
+      rust-runtime-dependencies:
+        patterns: ["*"]
+
+  # Rust Runtime - Cerebro Module
+  - package-ecosystem: "cargo"
+    directory: "/modules/cerebro"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "type|dependency-upgrade"
+      - "pr|deps"
+      - "module|code"
+    open-pull-requests-limit: 5
+    groups:
+      rust-cerebro-dependencies:
+        patterns: ["*"]
+
+  # Docker - Dev Environment
+  - package-ecosystem: "docker"
+    directory: "/dev"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "type|dependency-upgrade"
+      - "pr|deps"
+      - "module|containers"
+    open-pull-requests-limit: 3
+
+  # Docker - Agent Runtime
+  - package-ecosystem: "docker"
+    directory: "/clients/agent-runtime"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "type|dependency-upgrade"
+      - "pr|deps"
+      - "module|containers"
+    open-pull-requests-limit: 3

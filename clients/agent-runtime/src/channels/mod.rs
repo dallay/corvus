@@ -43,7 +43,7 @@ use crate::agent::prompt::{
     COMPACT_CONTEXT_BOOTSTRAP_MAX_CHARS,
 };
 use crate::bootstrap;
-use crate::config::Config;
+use crate::config::{Config, ExecutionMode};
 use crate::memory::Memory;
 use crate::observability::Observer;
 use crate::providers::{ChatMessage, ChatRequest, ConversationMessage, Provider};
@@ -156,13 +156,27 @@ fn conversation_memory_key(msg: &traits::ChannelMessage) -> String {
 }
 
 fn channel_session_id(msg: &traits::ChannelMessage) -> String {
-    format!("{}-{}", msg.channel, msg.id)
+    // Include reply_target to distinguish different conversations/threads from the same sender
+    let reply_placeholder = if msg.reply_target.is_empty() {
+        "-"
+    } else {
+        &msg.reply_target
+    };
+    format!("{}_{}_{}", msg.channel, msg.sender, reply_placeholder)
 }
 
 fn channel_timeout_abort_text(session_id: &str) -> String {
     format!(
         "[session:{session_id}] ⚠️ Request timed out while waiting for the model and was aborted. Please try again."
     )
+}
+
+struct ChannelIngressRequest<'a> {
+    session_id: &'a str,
+    sender: &'a str,
+    reply_target: &'a str,
+    content: &'a str,
+    execution_mode: ExecutionMode,
 }
 
 fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
@@ -324,7 +338,7 @@ fn map_loop_event_to_channel_content(
         crate::agent::unified_loop::LoopEvent::CompactionTriggered => {
             Some(format!("{prefix}Context compacted for stability."))
         }
-        crate::agent::unified_loop::LoopEvent::ApprovalRequired(tool) => {
+        crate::agent::unified_loop::LoopEvent::ApprovalRequired(tool, _) => {
             Some(format!("{prefix}Approval required for `{tool}`"))
         }
         crate::agent::unified_loop::LoopEvent::Error(message) => {
@@ -694,7 +708,27 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
     };
 
     let user_text = extract_user_text(&msg);
-    let enriched_message = enrich_with_memory(&ctx, &msg, &user_text).await;
+    let tool_snapshot =
+        crate::bootstrap::slash_tool_snapshot_from_tools(ctx.tools_registry.as_ref())
+            .unwrap_or_default();
+
+    if maybe_handle_channel_ingress(
+        target_channel.as_ref(),
+        ctx.memory.as_ref(),
+        &tool_snapshot,
+        ChannelIngressRequest {
+            session_id: &session_id,
+            sender: &msg.sender,
+            reply_target: &msg.reply_target,
+            content: &user_text,
+            execution_mode: ctx.config.agent.execution_mode,
+        },
+    )
+    .await
+    .is_some()
+    {
+        return;
+    }
 
     if update_visibility_enabled(ctx.config.as_ref()) {
         let _ = crate::update::maybe_send_opportunistic_update_notice(
@@ -706,17 +740,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
         .await;
     }
 
-    if handle_canonical_blocking_outcome(
-        target_channel.as_ref(),
-        &session_id,
-        &msg.reply_target,
-        &user_text,
-    )
-    .await
-    .is_some()
-    {
-        return;
-    }
+    let enriched_message = enrich_with_memory(&ctx, &msg, &user_text).await;
 
     let (image_route_metadata, staged_guard) =
         match prepare_image_turn(ctx.as_ref(), &msg, &session_id, target_channel.as_ref()).await {
@@ -736,7 +760,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
     // ── Provider dispatch ────────────────────────────────
     println!("  ⏳ Processing message...");
 
-    let history_key = format!("{}_{}", msg.channel, msg.sender);
+    let history_key = channel_session_id(&msg);
     let prior_turns = ctx
         .conversation_histories
         .lock()
@@ -1841,35 +1865,89 @@ fn build_history(
     history
 }
 
-async fn handle_canonical_blocking_outcome(
+async fn maybe_handle_channel_ingress(
     channel: Option<&Arc<dyn Channel>>,
-    session_id: &str,
-    reply_target: &str,
-    content: &str,
+    memory: &dyn Memory,
+    tool_snapshot: &[crate::session_commands::SessionCommandToolEntry],
+    request: ChannelIngressRequest<'_>,
 ) -> Option<()> {
-    let canonical = crate::pre_execution::evaluate(session_id.to_string(), content).await;
+    let caller_scope = channel.map(|ch| {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(ch.name().as_bytes());
+        hasher.update(b":");
+        hasher.update(request.sender.as_bytes());
+        hex::encode(hasher.finalize())
+    });
 
-    if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
-        if let Some(ch) = channel {
-            let text = match blocking {
-                crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
-                    format!(
-                        "[session:{session_id}] approval required for `{tool}`; request blocked"
-                    )
-                }
-                crate::pre_execution::BlockingOutcome::TimeoutAborted => {
-                    channel_timeout_abort_text(session_id)
-                }
-                crate::pre_execution::BlockingOutcome::Fallback { response } => {
-                    format!("[session:{session_id}] {response}")
-                }
-            };
-            let _ = ch.send(&SendMessage::new(text, reply_target)).await;
+    let ingress_context = crate::session_commands::CommandContext::for_channel(
+        request.session_id,
+        crate::session_commands::CommandSessionSource::Existing,
+        request.execution_mode,
+        channel.map(|ch| ch.name()).unwrap_or("channel"),
+        caller_scope,
+    );
+
+    match crate::pre_execution::adapt_handled_ingress(
+        crate::pre_execution::evaluate_ingress(
+            memory,
+            tool_snapshot,
+            ingress_context,
+            request.content,
+            true,
+        )
+        .await,
+    ) {
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
+        ) => {
+            if let Some(ch) = channel {
+                let _ = ch
+                    .send(&SendMessage::new(
+                        success.message.clone(),
+                        request.reply_target,
+                    ))
+                    .await;
+            }
+            Some(())
         }
-        return Some(());
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandFailure {
+                class: _,
+                failure,
+            },
+        ) => {
+            if let Some(ch) = channel {
+                let _ = ch
+                    .send(&SendMessage::new(failure.message, request.reply_target))
+                    .await;
+            }
+            Some(())
+        }
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::Blocking(blocking),
+        ) => {
+            if let Some(ch) = channel {
+                let text = match blocking {
+                    crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, .. } => {
+                        format!(
+                            "[session:{}] approval required for `{tool}`; request blocked",
+                            request.session_id,
+                        )
+                    }
+                    crate::pre_execution::BlockingOutcome::TimeoutAborted => {
+                        channel_timeout_abort_text(request.session_id)
+                    }
+                    crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                        format!("[session:{}] {response}", request.session_id)
+                    }
+                };
+                let _ = ch.send(&SendMessage::new(text, request.reply_target)).await;
+            }
+            Some(())
+        }
+        crate::pre_execution::HandledIngress::NotHandled => None,
     }
-
-    None
 }
 
 async fn setup_streaming(
@@ -3060,7 +3138,7 @@ mod tests {
     use super::*;
     use crate::agent::prompt::DEFAULT_BOOTSTRAP_MAX_CHARS;
     use crate::config::{SlackConfig, StreamMode, TelegramConfig};
-    use crate::memory::{Memory, MemoryCategory, SqliteMemory};
+    use crate::memory::{Memory, MemoryCategory, NoneMemory, SqliteMemory};
     use crate::observability::{ImageIngressEvent, ImageIngressOutcome, NoopObserver, Observer};
     use crate::providers::traits::ProviderCapabilities;
     use crate::providers::{ChatMessage, ChatRequest, ChatResponse, Provider, ToolCall};
@@ -3189,6 +3267,294 @@ mod tests {
         async fn stop_typing(&self, _recipient: &str) -> anyhow::Result<()> {
             self.stop_typing_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
+        }
+    }
+
+    fn channel_caller_scope(channel_name: &str, sender: &str) -> String {
+        use sha2::{Digest, Sha256};
+
+        let mut hasher = Sha256::new();
+        hasher.update(channel_name.as_bytes());
+        hasher.update(b":");
+        hasher.update(sender.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+
+    async fn seed_resumable_session(memory: &SqliteMemory, session_id: &str, token_hash: &str) {
+        memory
+            .upsert_session(session_id, Some(token_hash))
+            .await
+            .unwrap();
+        let snapshot = memory
+            .create_session_snapshot(
+                session_id,
+                crate::memory::SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "resume me",
+                    "summary": "resume me",
+                    "resume_context": "resume me",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+        memory
+            .apply_session_state_patch(crate::memory::SessionStatePatch {
+                session_id: session_id.to_string(),
+                lifecycle: Some(crate::memory::SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: crate::memory::SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: crate::memory::SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: crate::memory::SessionFieldPatch::Clear,
+                suspended_at: crate::memory::SessionFieldPatch::Set("now".to_string()),
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn ingress_outcome_handles_tldr_through_shared_ingress_before_memory_enrichment() {
+        let channel = Arc::new(RecordingChannel::default());
+        let channel_dyn: Arc<dyn Channel> = channel.clone();
+        let memory = CountingMemory::default();
+
+        let handled = maybe_handle_channel_ingress(
+            Some(&channel_dyn),
+            &memory,
+            &[],
+            ChannelIngressRequest {
+                session_id: "session-1",
+                sender: "tester",
+                reply_target: "reply-target",
+                content: "/tldr",
+                execution_mode: ExecutionMode::Standard,
+            },
+        )
+        .await;
+
+        assert_eq!(handled, Some(()));
+        let sent = channel.sent_messages.lock().await.clone();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("require sqlite"));
+        // Verify that memory enrichment (recall/store) was NOT called — handled ingress
+        // short-circuits before memory enrichment, so counters must remain zero.
+        assert_eq!(
+            memory.recall_calls.load(Ordering::SeqCst),
+            0,
+            "memory.recall should not be called for handled ingress commands"
+        );
+        assert_eq!(
+            memory.store_calls.load(Ordering::SeqCst),
+            0,
+            "memory.store should not be called for handled ingress commands"
+        );
+    }
+
+    #[tokio::test]
+    async fn ingress_outcome_preserves_unknown_slash_like_input() {
+        let channel = Arc::new(RecordingChannel::default());
+        let channel_dyn: Arc<dyn Channel> = channel.clone();
+        let memory = CountingMemory::default();
+
+        let handled = maybe_handle_channel_ingress(
+            Some(&channel_dyn),
+            &memory,
+            &[],
+            ChannelIngressRequest {
+                session_id: "session-1",
+                sender: "tester",
+                reply_target: "reply-target",
+                content: "/resume-later",
+                execution_mode: ExecutionMode::Standard,
+            },
+        )
+        .await;
+
+        assert_eq!(handled, None);
+        assert!(channel.sent_messages.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn ingress_outcome_handles_slash_commands_in_plan_mode() {
+        let channel = Arc::new(RecordingChannel::default());
+        let channel_dyn: Arc<dyn Channel> = channel.clone();
+        let memory = CountingMemory::default();
+
+        // Verify slash commands work in Plan mode too
+        let handled = maybe_handle_channel_ingress(
+            Some(&channel_dyn),
+            &memory,
+            &[],
+            ChannelIngressRequest {
+                session_id: "session-plan",
+                sender: "tester",
+                reply_target: "reply-target",
+                content: "/tldr",
+                execution_mode: ExecutionMode::Plan,
+            },
+        )
+        .await;
+
+        assert_eq!(handled, Some(()));
+        let sent = channel.sent_messages.lock().await.clone();
+        assert_eq!(sent.len(), 1);
+        // Should still handle in Plan mode
+        assert!(sent[0].contains("require sqlite"));
+    }
+
+    #[tokio::test]
+    async fn ingress_outcome_preserves_resume_success_for_authorized_scope() {
+        let channel = Arc::new(RecordingChannel::default());
+        let channel_dyn: Arc<dyn Channel> = channel.clone();
+        let tmp = tempfile::TempDir::new().unwrap();
+        let memory = SqliteMemory::new(tmp.path()).unwrap();
+        let scope = channel_caller_scope(channel_dyn.name(), "tester");
+        seed_resumable_session(&memory, "session-target", &scope).await;
+
+        let handled = maybe_handle_channel_ingress(
+            Some(&channel_dyn),
+            &memory,
+            &[],
+            ChannelIngressRequest {
+                session_id: "session-control",
+                sender: "tester",
+                reply_target: "reply-target",
+                content: "/resume session-target",
+                execution_mode: ExecutionMode::Standard,
+            },
+        )
+        .await;
+
+        assert_eq!(handled, Some(()));
+        let sent = channel.sent_messages.lock().await.clone();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(
+            sent[0],
+            "reply-target:[session:session-target] resumed from persisted compact snapshot"
+        );
+    }
+
+    #[tokio::test]
+    async fn ingress_outcome_preserves_permission_denied_for_resume_target() {
+        let channel = Arc::new(RecordingChannel::default());
+        let channel_dyn: Arc<dyn Channel> = channel.clone();
+        let tmp = tempfile::TempDir::new().unwrap();
+        let memory = SqliteMemory::new(tmp.path()).unwrap();
+        seed_resumable_session(&memory, "session-target", "other-scope").await;
+
+        let handled = maybe_handle_channel_ingress(
+            Some(&channel_dyn),
+            &memory,
+            &[],
+            ChannelIngressRequest {
+                session_id: "session-control",
+                sender: "tester",
+                reply_target: "reply-target",
+                content: "/resume session-target",
+                execution_mode: ExecutionMode::Standard,
+            },
+        )
+        .await;
+
+        assert_eq!(handled, Some(()));
+        let sent = channel.sent_messages.lock().await.clone();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(
+            sent[0],
+            "reply-target:[session:session-target] permission denied"
+        );
+    }
+
+    #[tokio::test]
+    async fn ingress_outcome_handles_tools_listing_through_shared_ingress() {
+        let channel = Arc::new(RecordingChannel::default());
+        let channel_dyn: Arc<dyn Channel> = channel.clone();
+        let memory = CountingMemory::default();
+        let tool_snapshot = vec![crate::session_commands::SessionCommandToolEntry {
+            name: "shell".to_string(),
+            description: "Execute shell commands".to_string(),
+            source_kind: crate::session_commands::SessionCommandToolSourceKind::Native,
+            source_label: None,
+        }];
+
+        let handled = maybe_handle_channel_ingress(
+            Some(&channel_dyn),
+            &memory,
+            &tool_snapshot,
+            ChannelIngressRequest {
+                session_id: "session-tools",
+                sender: "tester",
+                reply_target: "reply-target",
+                content: "/tools",
+                execution_mode: ExecutionMode::Standard,
+            },
+        )
+        .await;
+
+        assert_eq!(handled, Some(()));
+        let sent = channel.sent_messages.lock().await.clone();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("Available tools (1):"));
+    }
+
+    /// Instrumented memory wrapper that counts recall/store invocations for testing.
+    #[derive(Default)]
+    struct CountingMemory {
+        recall_calls: std::sync::atomic::AtomicUsize,
+        store_calls: std::sync::atomic::AtomicUsize,
+        inner: NoneMemory,
+    }
+
+    #[async_trait::async_trait]
+    impl Memory for CountingMemory {
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: usize,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            self.recall_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.recall(_query, _limit, _session_id).await
+        }
+
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: crate::memory::MemoryCategory,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<()> {
+            self.store_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner
+                .store(_key, _content, _category, _session_id)
+                .await
+        }
+
+        fn name(&self) -> &str {
+            self.inner.name()
+        }
+
+        async fn get(&self, key: &str) -> anyhow::Result<Option<crate::memory::MemoryEntry>> {
+            self.inner.get(key).await
+        }
+
+        async fn list(
+            &self,
+            category: Option<&crate::memory::MemoryCategory>,
+            session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            self.inner.list(category, session_id).await
+        }
+
+        async fn forget(&self, key: &str) -> anyhow::Result<bool> {
+            self.inner.forget(key).await
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            self.inner.count().await
+        }
+
+        async fn health_check(&self) -> bool {
+            self.inner.health_check().await
         }
     }
 
@@ -4519,7 +4885,10 @@ mod tests {
     fn loop_event_mapping_surfaces_approval_request() {
         let mapped = map_loop_event_to_channel_content(
             "session-123",
-            &crate::agent::unified_loop::LoopEvent::ApprovalRequired("shell".to_string()),
+            &crate::agent::unified_loop::LoopEvent::ApprovalRequired(
+                "shell".to_string(),
+                "approval required for `shell`".to_string(),
+            ),
         )
         .unwrap();
 
@@ -4638,7 +5007,8 @@ mod tests {
         let sent_messages = channel_impl.sent_messages.lock().await;
         assert_eq!(sent_messages.len(), 1);
         assert!(sent_messages[0].contains("request blocked"));
-        assert!(sent_messages[0].contains("[session:test-channel-approval-1]"));
+        // Session ID now includes reply_target: test-channel_alice_chat-1
+        assert!(sent_messages[0].contains("[session:test-channel_alice_chat-1]"));
     }
 
     #[tokio::test]

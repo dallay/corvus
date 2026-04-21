@@ -6,6 +6,7 @@ use crate::observability::{self, Observer};
 use crate::providers::{self, Provider, ProviderRuntimeOptions};
 use crate::runtime::{self, RuntimeAdapter};
 use crate::security::SecurityPolicy;
+use crate::session_commands::{SessionCommandToolEntry, SessionCommandToolSourceKind};
 use crate::tools::{self, Tool};
 use anyhow::bail;
 use std::path::PathBuf;
@@ -33,10 +34,21 @@ enum ToolCapability {
 const LITE_TOOL_ALLOWLIST: &[&str] = &["shell", "file_read", "file_write"];
 
 const CODE_TOOL_ALLOWLIST: &[&str] = &[
+    "Glob",
+    "Grep",
+    "TaskCreate",
+    "TaskGet",
+    "TaskList",
+    "TaskUpdate",
+    "TaskStop",
+    "WebFetch",
     "browser",
     "browser_open",
     "code_search",
     "delegate",
+    "delegate_cancel",
+    "delegate_inspect",
+    "delegate_launch",
     "file_read",
     "file_write",
     "git_operations",
@@ -333,6 +345,43 @@ pub fn create_memory_and_observer(
     init_memory_and_observer(config, profile)
 }
 
+pub fn slash_tool_snapshot_from_tools(
+    tools: &[Box<dyn Tool>],
+) -> anyhow::Result<Vec<SessionCommandToolEntry>> {
+    let capability_registry = build_registry_from_tools(tools)?;
+    Ok(slash_tool_snapshot_from_registry(&capability_registry))
+}
+
+pub fn slash_tool_snapshot_from_config(
+    config: &Config,
+) -> anyhow::Result<Vec<SessionCommandToolEntry>> {
+    let ctx = BootstrapContext::from_config(config)?;
+    Ok(slash_tool_snapshot_from_registry(&ctx.capability_registry))
+}
+
+fn slash_tool_snapshot_from_registry(
+    capability_registry: &CapabilityRegistry,
+) -> Vec<SessionCommandToolEntry> {
+    capability_registry
+        .iter()
+        .map(|descriptor| SessionCommandToolEntry {
+            name: descriptor.id.clone(),
+            description: descriptor.metadata.description.clone(),
+            source_kind: match descriptor.namespace.as_str() {
+                "mcp.tool" => SessionCommandToolSourceKind::McpTool,
+                "mcp.resource" => SessionCommandToolSourceKind::McpResource,
+                "mcp.prompt" => SessionCommandToolSourceKind::McpPrompt,
+                _ => SessionCommandToolSourceKind::Native,
+            },
+            source_label: descriptor
+                .metadata
+                .mcp
+                .as_ref()
+                .map(|mcp| mcp.server.clone()),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,12 +449,16 @@ mod tests {
         let mut config = test_config(&tmp);
         config.agent.profile = "code".into();
         config.agent.execution_mode = ExecutionMode::Plan;
+        config.http_request.enabled = true;
 
         let ctx = BootstrapContext::from_config(&config).unwrap();
         let names: HashSet<&str> = ctx.tools.iter().map(|tool| tool.name()).collect();
 
         assert!(names.contains("file_read"));
         assert!(names.contains("code_search"));
+        assert!(names.contains("Glob"));
+        assert!(names.contains("Grep"));
+        assert!(names.contains("WebFetch"));
         assert!(names.contains("memory_recall"));
         assert!(!names.contains("file_write"));
         assert!(!names.contains("shell"));
@@ -637,6 +690,51 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_code_profile_includes_parity_tools_for_first_slice() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.agent.profile = "code".into();
+        config.http_request.enabled = true;
+
+        let ctx = BootstrapContext::from_config(&config).unwrap();
+        let names: HashSet<&str> = ctx.tools.iter().map(|tool| tool.name()).collect();
+
+        assert!(names.contains("Glob"));
+        assert!(names.contains("Grep"));
+        assert!(names.contains("WebFetch"));
+        assert!(names.contains("code_search"));
+        assert!(names.contains("http_request"));
+    }
+
+    #[test]
+    fn bootstrap_code_profile_only_exposes_task_tools_when_backend_supports_them() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut sqlite_config = test_config(&tmp);
+        sqlite_config.agent.profile = "code".into();
+        sqlite_config.memory.backend = "sqlite".into();
+
+        let sqlite_ctx = BootstrapContext::from_config(&sqlite_config).unwrap();
+        let sqlite_names: HashSet<&str> = sqlite_ctx.tools.iter().map(|tool| tool.name()).collect();
+        assert!(sqlite_names.contains("TaskCreate"));
+        assert!(sqlite_names.contains("TaskGet"));
+        assert!(sqlite_names.contains("TaskList"));
+        assert!(sqlite_names.contains("TaskUpdate"));
+        assert!(sqlite_names.contains("TaskStop"));
+
+        let mut lucid_config = test_config(&tmp);
+        lucid_config.agent.profile = "code".into();
+        lucid_config.memory.backend = "lucid".into();
+
+        let lucid_ctx = BootstrapContext::from_config(&lucid_config).unwrap();
+        let lucid_names: HashSet<&str> = lucid_ctx.tools.iter().map(|tool| tool.name()).collect();
+        assert!(!lucid_names.contains("TaskCreate"));
+        assert!(!lucid_names.contains("TaskGet"));
+        assert!(!lucid_names.contains("TaskList"));
+        assert!(!lucid_names.contains("TaskUpdate"));
+        assert!(!lucid_names.contains("TaskStop"));
+    }
+
+    #[test]
     fn gateway_bootstrap_reuses_canonical_mcp_tool_registry() {
         let tmp = tempfile::TempDir::new().unwrap();
         let mut config = test_config(&tmp);
@@ -729,5 +827,49 @@ mod tests {
                 assert_eq!(source_kind_for_tool(id), ToolSourceKind::Native);
             }
         }
+    }
+
+    #[test]
+    fn slash_tool_snapshot_matches_effective_runtime_inventory() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.agent.profile = "lite".into();
+        config.mcp.enabled = true;
+        config.mcp.servers = vec![mock_mcp_server("docs", "search")];
+
+        let snapshot = slash_tool_snapshot_from_config(&config).unwrap();
+        let names = snapshot
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["shell", "file_read", "file_write"]);
+        assert!(!snapshot.iter().any(|entry| entry.name.starts_with("mcp.")));
+    }
+
+    #[test]
+    fn slash_tool_snapshot_keeps_effective_mcp_entries_when_active() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.agent.profile = "code".into();
+        config.http_request.enabled = true;
+        config.mcp.enabled = true;
+        config.mcp.servers = vec![mock_mcp_server("docs", "search")];
+
+        let snapshot = slash_tool_snapshot_from_config(&config).unwrap();
+        let snapshot_names = snapshot
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+        let mcp_entry = snapshot
+            .iter()
+            .find(|entry| entry.name == "mcp.docs.search")
+            .expect("active MCP tool should be visible in slash snapshot");
+
+        assert!(snapshot_names.contains(&"Glob"));
+        assert!(snapshot_names.contains(&"Grep"));
+        assert!(snapshot_names.contains(&"WebFetch"));
+        assert_eq!(mcp_entry.source_kind, SessionCommandToolSourceKind::McpTool);
+        assert_eq!(mcp_entry.source_label.as_deref(), Some("docs"));
     }
 }

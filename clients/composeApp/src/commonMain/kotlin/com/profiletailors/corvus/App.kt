@@ -7,6 +7,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.tooling.preview.Preview
 import com.profiletailors.corvus.runtime.MobileRuntimeCoordinator
@@ -123,6 +124,8 @@ private fun AppOnboardingContent(
 
 @Composable
 private fun AppChatContent(platform: Platform, bindings: ChatBindings) {
+  var query by remember { mutableStateOf("") }
+  var showConfig by rememberSaveable { mutableStateOf(false) }
   ChatWorkspace(
     state = ChatWorkspaceDefaults.state(modelName = AGENT_NAME),
     content =
@@ -134,6 +137,8 @@ private fun AppChatContent(platform: Platform, bindings: ChatBindings) {
         pendingApproval = bindings.coordinatorState.pendingApproval,
         targetLabel = bindings.coordinatorState.targetLabel,
         activeSessionId = bindings.coordinatorState.activeSessionId?.value,
+        query = query,
+        showConfig = showConfig,
       ),
     bridgeActions =
       BridgeActions(
@@ -146,6 +151,8 @@ private fun AppChatContent(platform: Platform, bindings: ChatBindings) {
         onDeny = bindings.onDeny,
       ),
     onSendMessage = bindings.onSendMessage,
+    onQueryChange = { query = it },
+    onShowConfigChange = { showConfig = it },
   )
 }
 
