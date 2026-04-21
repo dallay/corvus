@@ -368,14 +368,26 @@ mod tests {
     /// Unit variants must serialize as snake_case strings.
     #[test]
     fn provider_vendor_unit_variants_serialize_as_snake_case() {
-        assert_eq!(serde_json::to_string(&ProviderVendor::OpenAi).unwrap(), r#""open_ai""#);
-        assert_eq!(serde_json::to_string(&ProviderVendor::Anthropic).unwrap(), r#""anthropic""#);
-        assert_eq!(serde_json::to_string(&ProviderVendor::Google).unwrap(), r#""google""#);
+        assert_eq!(
+            serde_json::to_string(&ProviderVendor::OpenAi).unwrap(),
+            r#""open_ai""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ProviderVendor::Anthropic).unwrap(),
+            r#""anthropic""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ProviderVendor::Google).unwrap(),
+            r#""google""#
+        );
         assert_eq!(
             serde_json::to_string(&ProviderVendor::OpenRouter).unwrap(),
             r#""open_router""#
         );
-        assert_eq!(serde_json::to_string(&ProviderVendor::DeepSeek).unwrap(), r#""deep_seek""#);
+        assert_eq!(
+            serde_json::to_string(&ProviderVendor::DeepSeek).unwrap(),
+            r#""deep_seek""#
+        );
     }
 
     /// `Other` must serialize as a bare string, NOT as `{"other":"…"}`.
@@ -421,8 +433,8 @@ mod tests {
             "OPENAI",    // all-caps
             "Anthropic", // wrong casing
             "ANTHROPIC",
-            "deepseek",  // missing underscore
-            "DeepSeek",  // wrong casing
+            "deepseek", // missing underscore
+            "DeepSeek", // wrong casing
             "deep-seek",
             "openrouter",
             "OpenRouter",

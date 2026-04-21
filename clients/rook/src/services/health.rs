@@ -104,7 +104,9 @@ impl InMemoryHealthService {
     fn lock(
         &self,
     ) -> Result<std::sync::MutexGuard<'_, HashMap<AccountId, AccountHealth>>, RookError> {
-        self.store.lock().map_err(|e| RookError::Registry(e.to_string()))
+        self.store
+            .lock()
+            .map_err(|e| RookError::Registry(e.to_string()))
     }
 }
 
@@ -123,8 +125,9 @@ impl HealthService for InMemoryHealthService {
     async fn mark_success(&self, account_id: AccountId) {
         match self.lock() {
             Ok(mut guard) => {
-                let entry =
-                    guard.entry(account_id).or_insert_with(|| AccountHealth::new(account_id));
+                let entry = guard
+                    .entry(account_id)
+                    .or_insert_with(|| AccountHealth::new(account_id));
                 entry.status = HealthStatus::Healthy;
                 entry.last_checked = Some(Utc::now());
                 entry.consecutive_failures = 0;
@@ -143,14 +146,14 @@ impl HealthService for InMemoryHealthService {
     async fn mark_failure(&self, account_id: AccountId, cooldown_seconds: u64) {
         match self.lock() {
             Ok(mut guard) => {
-                let entry =
-                    guard.entry(account_id).or_insert_with(|| AccountHealth::new(account_id));
+                let entry = guard
+                    .entry(account_id)
+                    .or_insert_with(|| AccountHealth::new(account_id));
                 entry.consecutive_failures = entry.consecutive_failures.saturating_add(1);
                 entry.last_checked = Some(Utc::now());
                 entry.status = HealthStatus::Unhealthy;
                 let cooldown_secs = i64::try_from(cooldown_seconds).unwrap_or(i64::MAX);
-                entry.cooldown_until =
-                    Some(Utc::now() + chrono::Duration::seconds(cooldown_secs));
+                entry.cooldown_until = Some(Utc::now() + chrono::Duration::seconds(cooldown_secs));
             }
             Err(e) => {
                 tracing::warn!(

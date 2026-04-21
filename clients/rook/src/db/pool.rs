@@ -56,9 +56,7 @@ fn row_to_pool(
         .map(|s| {
             Uuid::parse_str(&s)
                 .map(PoolId::new)
-                .map_err(|e| {
-                    RookError::Registry(format!("invalid fallback_pool_id UUID: {e}"))
-                })
+                .map_err(|e| RookError::Registry(format!("invalid fallback_pool_id UUID: {e}")))
         })
         .transpose()?;
 
@@ -84,7 +82,8 @@ impl SqliteDb {
         let now = Utc::now().to_rfc3339();
 
         // Start transaction to make pool + members insertion atomic
-        let mut tx = self.pool()
+        let mut tx = self
+            .pool()
             .begin()
             .await
             .map_err(|e| RookError::Registry(format!("failed to begin transaction: {e}")))?;
@@ -108,14 +107,12 @@ impl SqliteDb {
         // Insert members
         for account_id in &pool.members {
             let acct_str = account_id.to_string();
-            sqlx::query(
-                "INSERT OR IGNORE INTO pool_members (pool_id, account_id) VALUES (?, ?)",
-            )
-            .bind(&id)
-            .bind(&acct_str)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| RookError::Registry(format!("add_pool_member failed: {e}")))?;
+            sqlx::query("INSERT OR IGNORE INTO pool_members (pool_id, account_id) VALUES (?, ?)")
+                .bind(&id)
+                .bind(&acct_str)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RookError::Registry(format!("add_pool_member failed: {e}")))?;
         }
 
         // Commit transaction
@@ -176,7 +173,11 @@ impl SqliteDb {
 
         // Query all members in one go
         let pool_id_strings: Vec<String> = pool_ids.iter().map(|id| id.to_string()).collect();
-        let placeholders = pool_id_strings.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let placeholders = pool_id_strings
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(", ");
         let query_str = format!(
             "SELECT pool_id, account_id FROM pool_members WHERE pool_id IN ({}) ORDER BY pool_id, account_id",
             placeholders
@@ -236,14 +237,12 @@ impl SqliteDb {
         let pool_str = pool_id.to_string();
         let acct_str = account_id.to_string();
 
-        sqlx::query(
-            "INSERT OR IGNORE INTO pool_members (pool_id, account_id) VALUES (?, ?)",
-        )
-        .bind(&pool_str)
-        .bind(&acct_str)
-        .execute(self.pool())
-        .await
-        .map_err(|e| RookError::Registry(format!("add_pool_member failed: {e}")))?;
+        sqlx::query("INSERT OR IGNORE INTO pool_members (pool_id, account_id) VALUES (?, ?)")
+            .bind(&pool_str)
+            .bind(&acct_str)
+            .execute(self.pool())
+            .await
+            .map_err(|e| RookError::Registry(format!("add_pool_member failed: {e}")))?;
 
         Ok(())
     }
@@ -257,14 +256,12 @@ impl SqliteDb {
         let pool_str = pool_id.to_string();
         let acct_str = account_id.to_string();
 
-        sqlx::query(
-            "DELETE FROM pool_members WHERE pool_id = ? AND account_id = ?",
-        )
-        .bind(&pool_str)
-        .bind(&acct_str)
-        .execute(self.pool())
-        .await
-        .map_err(|e| RookError::Registry(format!("remove_pool_member failed: {e}")))?;
+        sqlx::query("DELETE FROM pool_members WHERE pool_id = ? AND account_id = ?")
+            .bind(&pool_str)
+            .bind(&acct_str)
+            .execute(self.pool())
+            .await
+            .map_err(|e| RookError::Registry(format!("remove_pool_member failed: {e}")))?;
 
         Ok(())
     }
@@ -291,6 +288,21 @@ impl SqliteDb {
                     .map_err(|e| RookError::Registry(format!("invalid member UUID: {e}")))
             })
             .collect()
+    }
+
+    /// Returns true if another pool references this pool as its fallback.
+    pub async fn is_pool_referenced_as_fallback(&self, id: &PoolId) -> Result<bool, RookError> {
+        let id_str = id.to_string();
+        let row: Option<(i64,)> =
+            sqlx::query_as("SELECT 1 FROM provider_pools WHERE fallback_pool_id = ? LIMIT 1")
+                .bind(&id_str)
+                .fetch_optional(self.pool())
+                .await
+                .map_err(|e| {
+                    RookError::Registry(format!("failed to check fallback pool references: {e}"))
+                })?;
+
+        Ok(row.is_some())
     }
 }
 

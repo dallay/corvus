@@ -185,6 +185,21 @@ impl SqliteDb {
 
         Ok(result.rows_affected() > 0)
     }
+
+    /// Returns true if the account participates in any pool membership.
+    pub async fn is_account_referenced_by_pool(&self, id: &AccountId) -> Result<bool, RookError> {
+        let id_str = id.to_string();
+        let row: Option<(i64,)> =
+            sqlx::query_as("SELECT 1 FROM pool_members WHERE account_id = ? LIMIT 1")
+                .bind(&id_str)
+                .fetch_optional(self.pool())
+                .await
+                .map_err(|e| {
+                    RookError::Registry(format!("failed to check account pool references: {e}"))
+                })?;
+
+        Ok(row.is_some())
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -347,6 +362,9 @@ mod tests {
         };
         db.insert_account(&account).await.unwrap();
         let fetched = db.get_account(&account.id).await.unwrap().unwrap();
-        assert_eq!(fetched.vendor, ProviderVendor::Other("weird\"name".to_string()));
+        assert_eq!(
+            fetched.vendor,
+            ProviderVendor::Other("weird\"name".to_string())
+        );
     }
 }
