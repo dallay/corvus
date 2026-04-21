@@ -748,17 +748,25 @@ Rules:
 ```json
 {
   "account_id": "account-uuid-1",
+  "display_name": "Primary OpenAI",
+  "vendor": "open_ai",
+  "enabled": true,
   "status": "unknown",
   "last_checked": null,
   "consecutive_failures": 0,
-  "cooldown_until": null
+  "cooldown_until": null,
+  "is_available": false
 }
 ```
 
 Rules:
 
 - one item MUST correspond to one known account
+- `display_name` MUST be a string
+- `vendor` MUST be a serialized provider vendor string
+- `enabled` MUST be a boolean
 - `last_checked` and `cooldown_until` MUST be RFC 3339 timestamps when present
+- `is_available` MUST be a boolean derived from current health/cooldown state
 
 ### `HealthSummaryView`
 
@@ -837,10 +845,10 @@ Rules:
 {
   "error": {
     "code": "resource_in_use",
-    "message": "pool 123 cannot be deleted because it is referenced by one or more routes",
+    "message": "pool 550e8400-e29b-41d4-a716-446655440000 cannot be deleted because it is referenced by one or more routes",
     "details": {
       "resource": "pool",
-      "id": "123"
+      "id": "550e8400-e29b-41d4-a716-446655440000"
     }
   }
 }

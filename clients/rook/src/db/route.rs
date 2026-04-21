@@ -177,7 +177,34 @@ impl SqliteDb {
     pub async fn delete_route(&self, id: &RouteId) -> Result<bool, RookError> {
         let id_str = id.to_string();
 
-        // Check if any routes reference this one as a fallback
+        let result = sqlx::query(
+            "DELETE FROM model_routes \
+             WHERE id = ? \
+               AND NOT EXISTS (SELECT 1 FROM model_routes WHERE fallback_route_id = ?)",
+        )
+        .bind(&id_str)
+        .bind(&id_str)
+        .execute(self.pool())
+        .await
+        .map_err(|e| RookError::Registry(format!("delete_route failed: {e}")))?;
+
+        if result.rows_affected() > 0 {
+            return Ok(true);
+        }
+
+        let exists: Option<(String,)> =
+            sqlx::query_as("SELECT id FROM model_routes WHERE id = ? LIMIT 1")
+                .bind(&id_str)
+                .fetch_optional(self.pool())
+                .await
+                .map_err(|e| {
+                    RookError::Registry(format!("failed to verify route existence: {e}"))
+                })?;
+
+        if exists.is_none() {
+            return Ok(false);
+        }
+
         let referencing: Option<(String,)> =
             sqlx::query_as("SELECT id FROM model_routes WHERE fallback_route_id = ? LIMIT 1")
                 .bind(&id_str)
@@ -194,13 +221,7 @@ impl SqliteDb {
             )));
         }
 
-        let result = sqlx::query("DELETE FROM model_routes WHERE id = ?")
-            .bind(&id_str)
-            .execute(self.pool())
-            .await
-            .map_err(|e| RookError::Registry(format!("delete_route failed: {e}")))?;
-
-        Ok(result.rows_affected() > 0)
+        Ok(false)
     }
 }
 

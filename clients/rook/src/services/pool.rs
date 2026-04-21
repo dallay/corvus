@@ -186,14 +186,7 @@ impl PoolService for SqlitePoolService {
     }
 
     async fn update(&self, pool: ProviderPool) -> Result<(), RookError> {
-        // No update_pool in db layer — implement as delete + re-insert.
-        let pool_id_str = pool.id.to_string();
-        sqlx::query("DELETE FROM provider_pools WHERE id = ?")
-            .bind(&pool_id_str)
-            .execute(self.db.pool())
-            .await
-            .map_err(|e| RookError::Registry(format!("delete_pool failed: {e}")))?;
-        self.db.insert_pool(&pool).await
+        self.db.replace_pool(&pool).await
     }
 
     async fn delete(&self, id: PoolId) -> Result<(), RookError> {
