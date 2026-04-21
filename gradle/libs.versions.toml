@@ -66,7 +66,7 @@ net-ltgt-nullaway = { id = "net.ltgt.nullaway", version = "3.0.0" }
 org-jetbrains-compose = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
 org-jetbrains-compose-hot-reload = { id = "org.jetbrains.compose.hot-reload", version.ref = "compose-hot-reload" }
 org-jetbrains-kotlin-plugin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-com-gradle-develocity = { id = "com.gradle.develocity", version = "4.3.2" }
+com-gradle-develocity = { id = "com.gradle.develocity", version = "4.4.1" }
 org-ec4j-editorconfig = { id = "org.ec4j.editorconfig", version = "0.1.0" }
 com-diffplug-spotless = { id = "com.diffplug.spotless", version = "8.4.0" }
 com-github-node-gradle-node = { id = "com.github.node-gradle.node", version = "7.1.0" }
