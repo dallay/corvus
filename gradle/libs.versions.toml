@@ -82,7 +82,7 @@ com-gradle-plugin-publish = { id = "com.gradle.plugin-publish", version = "2.1.1
 com-vanniktech-maven-publish = { id = "com.vanniktech.maven.publish", version = "0.36.0" }
 com-autonomousapps-dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version = "3.6.1" }
 io-fuchs-gradle-classpath-collision-detector = { id = "io.fuchs.gradle.classpath-collision-detector", version = "1.0.0" }
-org-cyclonedx-bom = { id = "org.cyclonedx.bom", version = "3.1.0" }
+org-cyclonedx-bom = { id = "org.cyclonedx.bom", version = "3.2.4" }
 com-github-spotbugs = { id = "com.github.spotbugs", version = "6.4.8" }
 org-jetbrains-kotlinx-kover = { id = "org.jetbrains.kotlinx.kover", version = "0.9.8" }
 com-google-devtools-ksp = { id = "com.google.devtools.ksp", version = "2.3.5" }
