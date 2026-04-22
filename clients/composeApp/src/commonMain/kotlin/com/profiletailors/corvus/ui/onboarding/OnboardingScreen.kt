@@ -83,6 +83,11 @@ enum class OnboardingIcon {
 }
 
 object OnboardingDefaults {
+  private const val STEP_INDEX_RUNTIME_AVAILABLE = 0
+  private const val STEP_INDEX_LINK_SURFACE = 1
+  private const val STEP_INDEX_CONNECT_RUNTIME = 2
+  private const val STEP_INDEX_RESUME_SESSION = 3
+
   val steps: List<OnboardingStep> =
     listOf(
       OnboardingStep(
@@ -90,21 +95,21 @@ object OnboardingDefaults {
         descriptionRes = Res.string.onboarding_desc_runtime_available,
         status = MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED,
         icon = OnboardingIcon.RUNTIME,
-        progressIndex = 0,
+        progressIndex = STEP_INDEX_RUNTIME_AVAILABLE,
       ),
       OnboardingStep(
         titleRes = Res.string.onboarding_title_link_surface,
         descriptionRes = Res.string.onboarding_desc_link_surface,
         status = MobileOnboardingStatus.TRUST_PENDING,
         icon = OnboardingIcon.LINK,
-        progressIndex = 1,
+        progressIndex = STEP_INDEX_LINK_SURFACE,
       ),
       OnboardingStep(
         titleRes = Res.string.onboarding_title_connect_runtime,
         descriptionRes = Res.string.onboarding_desc_connect_runtime,
         status = MobileOnboardingStatus.TRANSPORT_CONNECTING,
         icon = OnboardingIcon.SYNC,
-        progressIndex = 2,
+        progressIndex = STEP_INDEX_CONNECT_RUNTIME,
       ),
       OnboardingStep(
         titleRes = Res.string.onboarding_title_resume_session,
@@ -112,7 +117,7 @@ object OnboardingDefaults {
         status = MobileOnboardingStatus.SESSION_PENDING,
         icon = OnboardingIcon.SESSION,
         actionLabel = Res.string.button_start,
-        progressIndex = 3,
+        progressIndex = STEP_INDEX_RESUME_SESSION,
         isTerminal = true,
       ),
     )
@@ -193,6 +198,7 @@ private fun rememberOnboardingLayoutModifier(): Modifier {
     .padding(horizontal = 24.dp, vertical = 32.dp)
 }
 
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
 @Composable
 private fun OnboardingSkipButton(onSkip: () -> Unit) {
   val colors = MaterialTheme.colorScheme
@@ -211,6 +217,7 @@ private fun OnboardingSkipButton(onSkip: () -> Unit) {
   }
 }
 
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
 @Composable
 private fun ColumnScope.OnboardingMainContent(step: OnboardingStep) {
   val colors = MaterialTheme.colorScheme
@@ -254,6 +261,7 @@ private fun ColumnScope.OnboardingMainContent(step: OnboardingStep) {
   }
 }
 
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
 @Composable
 private fun OnboardingFooter(
   currentStep: Int,

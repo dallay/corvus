@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.profiletailors.corvus.runtime.RuntimeSession
 import com.profiletailors.corvus.ui.theme.CorvusTheme
 
+@Suppress("LongParameterList") // Composable parameters are not reducible without losing clarity
 @Composable
 internal fun ConfigPanel(
   bridgeState: MobileBridgeUiState,

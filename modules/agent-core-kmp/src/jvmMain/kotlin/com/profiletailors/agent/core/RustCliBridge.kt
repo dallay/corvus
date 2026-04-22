@@ -11,6 +11,9 @@ data class RustCliBridgeConfig(
   val workingDirectory: String? = null,
 )
 
+@Suppress(
+  "TooManyFunctions"
+) // Implements full AgentCoreBridge + MobileRuntimeFacade; split would be artificial
 class RustCliBridge(private val config: RustCliBridgeConfig = RustCliBridgeConfig()) :
   AgentCoreBridge, MobileRuntimeFacade {
   override val capabilities: MobileRuntimeCapabilities =
@@ -108,7 +111,7 @@ class RustCliBridge(private val config: RustCliBridgeConfig = RustCliBridgeConfi
       .map { line ->
         val encoded = line.substringAfter("session=")
         val parts = encoded.split('|')
-        require(parts.size >= 3) { "Malformed session list output: '$line'" }
+        require(parts.size >= SESSION_FORMAT_MIN_PARTS) { "Malformed session list output: '$line'" }
         MobileRuntimeSession(
           id = SessionId(parts[0]),
           title = parts[1].ifBlank { null },
@@ -135,12 +138,12 @@ class RustCliBridge(private val config: RustCliBridgeConfig = RustCliBridgeConfi
     requestId: String,
     decision: MobileApprovalDecision,
     sessionId: SessionId,
-  ): MobileRuntimeTurnResult =
-    runTurnCommand(
-      sessionId = sessionId,
-      prompt =
-        "$MOBILE_SUBMIT_APPROVAL_PROMPT${sessionId.value}$COMMAND_DELIMITER$requestId$COMMAND_DELIMITER${decision.name}",
-    )
+  ): MobileRuntimeTurnResult {
+    val prompt =
+      "$MOBILE_SUBMIT_APPROVAL_PROMPT${sessionId.value}" +
+        "$COMMAND_DELIMITER$requestId$COMMAND_DELIMITER${decision.name}"
+    return runTurnCommand(sessionId = sessionId, prompt = prompt)
+  }
 
   private fun runMobileCommand(prompt: String): String {
     val result = invoke(CoreInvocation(prompt = prompt))
@@ -280,6 +283,7 @@ class RustCliBridge(private val config: RustCliBridgeConfig = RustCliBridgeConfi
     private const val MOBILE_SEND_MESSAGE_PROMPT = "__corvus_send_message__"
     private const val MOBILE_SUBMIT_APPROVAL_PROMPT = "__corvus_submit_approval__"
     private const val COMMAND_DELIMITER = "\u001f"
+    private const val SESSION_FORMAT_MIN_PARTS = 3
 
     private fun Map<String, String>.booleanValue(key: String): Boolean =
       when (this[key]?.lowercase()) {
