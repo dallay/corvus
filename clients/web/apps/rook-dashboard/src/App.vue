@@ -8,7 +8,13 @@ import { useRookSession } from "@/lib/session/useRookSession";
 /* biome-ignore lint/correctness/noUnusedImports: used in Vue template */
 import AccountsPage from "./features/accounts/AccountsPage.vue";
 /* biome-ignore lint/correctness/noUnusedImports: used in Vue template */
+import HealthPage from "./features/health/HealthPage.vue";
+/* biome-ignore lint/correctness/noUnusedImports: used in Vue template */
 import OverviewPage from "./features/overview/OverviewPage.vue";
+/* biome-ignore lint/correctness/noUnusedImports: used in Vue template */
+import PoolsPage from "./features/pools/PoolsPage.vue";
+/* biome-ignore lint/correctness/noUnusedImports: used in Vue template */
+import RoutesPage from "./features/routes/RoutesPage.vue";
 
 const { baseUrl, bearerToken, isConfigured } = useRookSession();
 const route = ref<RookRoute>(normalizeHashRoute(window.location.hash));
@@ -77,8 +83,9 @@ onBeforeUnmount(() => {
         <p class="eyebrow">Corvus Rook</p>
         <h1>Dedicated operator dashboard surface</h1>
         <p class="hero-copy">
-          This slice is intentionally narrow: shell, overview, and provider/account administration.
-          It does not expand the legacy Corvus dashboard and it does not absorb #593/#594.
+          This slice extends the dedicated Rook dashboard surface with overview, provider/account,
+          pool, route, and read-only health workflows. It does not expand the legacy Corvus dashboard
+          and it does not absorb #594.
         </p>
       </div>
       <section class="session-card">
@@ -122,17 +129,32 @@ onBeforeUnmount(() => {
       <button :class="['nav-button', { active: route === 'accounts' }]" type="button" @click="navigate('accounts')">
         Providers &amp; accounts
       </button>
+      <button :class="['nav-button', { active: route === 'pools' }]" type="button" @click="navigate('pools')">
+        Pools
+      </button>
+      <button :class="['nav-button', { active: route === 'routes' }]" type="button" @click="navigate('routes')">
+        Routes
+      </button>
+      <button :class="['nav-button', { active: route === 'health' }]" type="button" @click="navigate('health')">
+        Health
+      </button>
       <div class="deferred-card">
         <strong>Deferred areas</strong>
-        <span>Pools, routes, richer health ops (#593) and usage/logs/settings/backups (#594).</span>
+        <span>Usage, logs, settings, and backups remain deferred to #594.</span>
       </div>
     </nav>
 
     <section v-if="!client" class="empty-state setup-state">
       <h2>Connect the dashboard to a Rook admin API</h2>
-      <p>Enter the Rook base URL and bearer token to unlock overview and provider/account workflows.</p>
+      <p>
+        Enter the Rook base URL and bearer token to unlock overview, providers/accounts, pools,
+        routes, and read-only health workflows.
+      </p>
     </section>
     <OverviewPage v-else-if="route === 'overview'" :client="client" />
-    <AccountsPage v-else :client="client" />
+    <AccountsPage v-else-if="route === 'accounts'" :client="client" />
+    <PoolsPage v-else-if="route === 'pools'" :client="client" />
+    <RoutesPage v-else-if="route === 'routes'" :client="client" />
+    <HealthPage v-else :client="client" />
   </main>
 </template>

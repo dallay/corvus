@@ -2,16 +2,35 @@ import { trimTrailingSlashes } from "@corvus/shared";
 
 import type {
   AccountView,
+  AddPoolMemberRequest,
   AdminErrorPayload,
   CreateAccountRequest,
+  CreatePoolRequest,
+  CreateRouteRequest,
   HealthAccountView,
   HealthSummaryView,
+  PoolView,
+  RouteView,
   UpdateAccountRequest,
+  UpdatePoolRequest,
+  UpdateRouteRequest,
 } from "./types";
 
 export interface RookApi {
   listAccounts(): Promise<AccountView[]>;
   getAccount(accountId: string): Promise<AccountView>;
+  listPools(): Promise<PoolView[]>;
+  getPool(poolId: string): Promise<PoolView>;
+  createPool(payload: CreatePoolRequest): Promise<PoolView>;
+  updatePool(poolId: string, payload: UpdatePoolRequest): Promise<PoolView>;
+  deletePool(poolId: string): Promise<void>;
+  addPoolMember(poolId: string, payload: AddPoolMemberRequest): Promise<PoolView>;
+  removePoolMember(poolId: string, accountId: string): Promise<PoolView>;
+  listRoutes(): Promise<RouteView[]>;
+  getRoute(routeId: string): Promise<RouteView>;
+  createRoute(payload: CreateRouteRequest): Promise<RouteView>;
+  updateRoute(routeId: string, payload: UpdateRouteRequest): Promise<RouteView>;
+  deleteRoute(routeId: string): Promise<void>;
   listAccountHealth(): Promise<HealthAccountView[]>;
   getHealthSummary(): Promise<HealthSummaryView>;
   createAccount(payload: CreateAccountRequest): Promise<AccountView>;
@@ -31,6 +50,78 @@ export class RookApiClient implements RookApi {
 
   getAccount(accountId: string): Promise<AccountView> {
     return this.request<AccountView>(`/api/accounts/${encodeURIComponent(accountId)}`);
+  }
+
+  listPools(): Promise<PoolView[]> {
+    return this.request<PoolView[]>("/api/pools");
+  }
+
+  getPool(poolId: string): Promise<PoolView> {
+    return this.request<PoolView>(`/api/pools/${encodeURIComponent(poolId)}`);
+  }
+
+  createPool(payload: CreatePoolRequest): Promise<PoolView> {
+    return this.request<PoolView>("/api/pools", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  updatePool(poolId: string, payload: UpdatePoolRequest): Promise<PoolView> {
+    return this.request<PoolView>(`/api/pools/${encodeURIComponent(poolId)}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  deletePool(poolId: string): Promise<void> {
+    return this.request<void>(`/api/pools/${encodeURIComponent(poolId)}`, {
+      method: "DELETE",
+    });
+  }
+
+  addPoolMember(poolId: string, payload: AddPoolMemberRequest): Promise<PoolView> {
+    return this.request<PoolView>(`/api/pools/${encodeURIComponent(poolId)}/accounts`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  removePoolMember(poolId: string, accountId: string): Promise<PoolView> {
+    return this.request<PoolView>(
+      `/api/pools/${encodeURIComponent(poolId)}/accounts/${encodeURIComponent(accountId)}`,
+      {
+        method: "DELETE",
+      }
+    );
+  }
+
+  listRoutes(): Promise<RouteView[]> {
+    return this.request<RouteView[]>("/api/routes");
+  }
+
+  getRoute(routeId: string): Promise<RouteView> {
+    return this.request<RouteView>(`/api/routes/${encodeURIComponent(routeId)}`);
+  }
+
+  createRoute(payload: CreateRouteRequest): Promise<RouteView> {
+    return this.request<RouteView>("/api/routes", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  updateRoute(routeId: string, payload: UpdateRouteRequest): Promise<RouteView> {
+    return this.request<RouteView>(`/api/routes/${encodeURIComponent(routeId)}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  deleteRoute(routeId: string): Promise<void> {
+    return this.request<void>(`/api/routes/${encodeURIComponent(routeId)}`, {
+      method: "DELETE",
+    });
   }
 
   listAccountHealth(): Promise<HealthAccountView[]> {
