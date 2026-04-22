@@ -40,7 +40,7 @@ a {
 }
 
 code {
-  font-family: "SFMono-Regular", ui-monospace, monospace;
+  font-family: SFMono-Regular, ui-monospace, monospace;
 }
 
 .app-shell {
