@@ -29,7 +29,7 @@ const expanded = ref(false);
     :class="['message-row', role === 'user' ? 'message-row--user' : 'message-row--assistant']"
   >
     <!-- Assistant Avatar -->
-    <div v-if="role === 'assistant'" class="avatar avatar--assistant" aria-hidden="true">
+    <div v-if="role === 'assistant'" v-once class="avatar avatar--assistant" aria-hidden="true">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 3 4.5 7.5V16.5L12 21 19.5 16.5V7.5L12 3Z" />
         <path d="M12 12 19.5 7.5" />
@@ -58,7 +58,7 @@ const expanded = ref(false);
           :aria-label="t('chat.memoryRecallLabel')"
           @click="expanded = !expanded"
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg v-once width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <ellipse cx="12" cy="5" rx="9" ry="3" />
             <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
             <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3" />
@@ -72,7 +72,7 @@ const expanded = ref(false);
     </div>
 
     <!-- User Avatar -->
-    <div v-if="role === 'user'" class="avatar avatar--user" aria-hidden="true">
+    <div v-if="role === 'user'" v-once class="avatar avatar--user" aria-hidden="true">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
         <circle cx="12" cy="7" r="4" />

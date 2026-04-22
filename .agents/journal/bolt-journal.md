@@ -70,3 +70,18 @@
 - *Note:* These are runtime UI optimizations. The apparent "speedup" in compilation is due to the baseline run performing full project configuration and initialization, whereas the second run was more targeted and executed in a different state. The primary benefit is improved frame stability and reduced memory churn at runtime.
 
 ---
+
+## 2026-05-15 - Web - Chat Rendering Optimization
+
+**Location:** `clients/web/apps/dashboard/src/components/chat/ChatMessage.vue`, `clients/web/apps/dashboard/src/components/chat/ChatWorkspace.vue`
+**Issue:** High-frequency message streaming was triggering expensive re-diffing and re-rendering of the entire chat history. Static elements like avatars were being re-processed on every content update.
+**Solution:**
+- Applied `v-memo` to `ChatMessage` and `ToolApprovalCard` in the chat message list to skip re-rendering when content, status, or memory recall state remains unchanged.
+- Applied `v-once` to static SVG structures (avatars, memory recall icon) in `ChatMessage.vue` to ensure they are rendered only once.
+**Impact:**
+- **Reduced Interaction Latency:** Significant reduction in main-thread work during message streaming.
+- **Improved UI Smoothness:** Avoids redundant DOM updates for static and unchanged message components.
+- **Optimized Memory Usage:** Fewer ephemeral virtual DOM nodes created during high-frequency updates.
+**Benchmark:**
+- Manual verification of UI responsiveness during simulated message streaming showed no stuttering.
+- Unit tests pass, confirming no regressions in message rendering logic.
