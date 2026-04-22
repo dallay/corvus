@@ -8,7 +8,7 @@
   "conditions": {
     "ref_name": {
       "exclude": [],
-      "include": ["refs/heads/minor", "refs/heads/develop"]
+      "include": ["refs/heads/minor"]
     }
   },
   "rules": [

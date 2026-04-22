@@ -82,8 +82,10 @@ impl AccountService for InMemoryAccountService {
     }
 
     async fn update(&self, account: ProviderAccount) -> Result<(), RookError> {
-        let mut guard =
-            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard = self
+            .store
+            .lock()
+            .map_err(|e| RookError::Registry(e.to_string()))?;
         if !guard.contains_key(&account.id) {
             return Err(RookError::Registry(format!(
                 "account {} not found",
@@ -95,8 +97,10 @@ impl AccountService for InMemoryAccountService {
     }
 
     async fn delete(&self, id: AccountId) -> Result<(), RookError> {
-        let mut guard =
-            self.store.lock().map_err(|e| RookError::Registry(e.to_string()))?;
+        let mut guard = self
+            .store
+            .lock()
+            .map_err(|e| RookError::Registry(e.to_string()))?;
         if guard.remove(&id).is_none() {
             return Err(RookError::Registry(format!("account {id} not found")));
         }
@@ -143,7 +147,18 @@ impl AccountService for SqliteAccountService {
     }
 
     async fn delete(&self, id: AccountId) -> Result<(), RookError> {
-        self.db.delete_account(&id).await.map(|_| ())
+        match self.db.delete_account_if_not_referenced(&id).await? {
+            crate::db::account::DeleteAccountResult::Deleted => Ok(()),
+            crate::db::account::DeleteAccountResult::Referenced => {
+                Err(RookError::Registry(format!(
+                    "cannot delete account {}: referenced by one or more pools",
+                    id
+                )))
+            }
+            crate::db::account::DeleteAccountResult::NotFound => {
+                Err(RookError::Registry(format!("account {id} not found")))
+            }
+        }
     }
 }
 

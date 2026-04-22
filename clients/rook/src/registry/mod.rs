@@ -23,10 +23,8 @@
 use crate::db::SqliteDb;
 use crate::domain::RookError;
 use crate::services::{
-    account::SqliteAccountService,
-    health::InMemoryHealthService,
-    pool::SqlitePoolService,
-    route::SqliteRouteService,
+    account::SqliteAccountService, health::InMemoryHealthService,
+    idempotency::SqliteIdempotencyService, pool::SqlitePoolService, route::SqliteRouteService,
     settings::SqliteSettingsService,
 };
 
@@ -39,6 +37,7 @@ pub struct RookRegistry {
     pools: SqlitePoolService,
     routes: SqliteRouteService,
     settings: SqliteSettingsService,
+    idempotency: SqliteIdempotencyService,
     health: InMemoryHealthService,
     #[cfg(test)]
     db: SqliteDb,
@@ -66,6 +65,7 @@ impl RookRegistry {
             pools: SqlitePoolService::new(db.clone()),
             routes: SqliteRouteService::new(db.clone()),
             settings: SqliteSettingsService::new(db.clone()),
+            idempotency: SqliteIdempotencyService::new(db.clone()),
             health: InMemoryHealthService::new(),
             #[cfg(test)]
             db,
@@ -101,6 +101,11 @@ impl RookRegistry {
         &self.settings
     }
 
+    /// Idempotency service — keyed replay protection for chat completions.
+    pub fn idempotency(&self) -> &SqliteIdempotencyService {
+        &self.idempotency
+    }
+
     /// Health service — track per-account health state.
     pub fn health(&self) -> &InMemoryHealthService {
         &self.health
@@ -114,9 +119,7 @@ mod tests {
     use super::*;
     use crate::domain::RookSettings;
     use crate::services::{
-        account::AccountService as _,
-        pool::PoolService as _,
-        route::RouteService as _,
+        account::AccountService as _, pool::PoolService as _, route::RouteService as _,
         settings::SettingsService as _,
     };
 
@@ -155,8 +158,10 @@ mod tests {
     #[tokio::test]
     async fn registry_settings_round_trip() {
         let r = registry().await;
-        let mut s = RookSettings::default();
-        s.gateway_port = 7777;
+        let s = RookSettings {
+            gateway_port: 7777,
+            ..RookSettings::default()
+        };
         r.settings().save(s).await.unwrap();
         assert_eq!(r.settings().load().await.gateway_port, 7777);
     }

@@ -1,4 +1,4 @@
-# Gateway API Specification
+# Gateway and Admin API Specification
 
 **Change**: rook-589-gateway-api
 **Issue**: #589
@@ -10,12 +10,16 @@
 
 ## Purpose
 
-Define the contract for Rook's OpenAI-compatible HTTP gateway surface — two endpoints
-(`POST /v1/chat/completions` and `GET /v1/models`) that accept OpenAI-shaped requests,
-resolve routing via the existing `RoutingEngine`, proxy upstream provider calls, and return
-OpenAI-shaped responses. This spec also covers the prerequisite `api_key` credential storage
-on `ProviderAccount`, vendor base URL mapping, vendor-specific auth header construction, and
-health feedback after upstream calls.
+Define the contract for Rook's HTTP control plane in M1: the OpenAI-compatible gateway surface
+under `/v1/*` and the operator-facing admin surface under `/api/*`.
+
+The gateway portion covers `POST /v1/chat/completions` and `GET /v1/models`, including
+OpenAI-shaped transport types, routing via `RoutingEngine`, upstream proxy behavior, vendor auth
+header construction, and health feedback after upstream calls.
+
+The admin portion covers CRUD management for accounts, pools, pool membership, routes, health,
+settings, and the placeholder usage endpoint, including redacted response views and coexistence
+with the dashboard routes.
 
 ---
 
@@ -643,6 +647,1463 @@ dependencies.
 
 ---
 
+### R14: Admin Router Composition Under `/api`
+
+The system MUST compose a dedicated admin router under the `/api` prefix in the Rook server hosted
+from `clients/rook`.
+
+The composed server MUST preserve all of the following at the same time:
+
+- `GET /api/health`
+- all newly defined `/api/*` admin routes in this spec
+- existing `/v1/*` gateway routes
+- dashboard routes served from `/` and `/assets/*`
+
+The admin router MUST NOT shadow or break existing `/v1/*` behavior.
+
+#### Scenario: router composition preserves existing health and gateway routes
+
+- GIVEN a running Rook server with the composed application router
+- WHEN a client requests `GET /api/health`
+- THEN the response MUST succeed
+- AND the route MUST remain mounted under `/api`
+- WHEN a client requests `GET /v1/models`
+- THEN the response MUST also succeed
+- AND the `/v1/models` behavior MUST remain available alongside `/api/*`
+
+#### Scenario: dashboard routes still coexist with admin routes
+
+- GIVEN a running Rook server with dashboard assets enabled
+- WHEN a client requests `GET /`
+- THEN the dashboard response MUST still be served
+- AND admin router composition MUST NOT replace or intercept the dashboard root route
+
+---
+
+### R15: Preserve `GET /api/health`
+
+The system MUST preserve `GET /api/health` as a valid health endpoint for the admin surface.
+
+For M1, `GET /api/health` SHALL remain a lightweight server-health endpoint and MUST NOT be
+redefined to require account-level aggregation semantics.
+
+#### Scenario: base health endpoint remains available
+
+- GIVEN a running Rook server
+- WHEN a client requests `GET /api/health`
+- THEN the server MUST return a successful response
+- AND the route MUST remain available even if no accounts, pools, or routes exist
+
+---
+
+### R16: Account Admin Endpoints
+
+The system MUST expose the following account endpoints:
+
+- `GET /api/accounts`
+- `POST /api/accounts`
+- `GET /api/accounts/{account_id}`
+- `PUT /api/accounts/{account_id}`
+- `DELETE /api/accounts/{account_id}`
+
+These endpoints MUST operate on the existing Rook account service via `RookRegistry` and MUST use
+the redacted `AccountView` response shape defined in this spec.
+
+The service MUST support create, list, fetch, replace-update, and delete semantics.
+
+#### Scenario: listing accounts returns an empty collection
+
+- GIVEN no accounts have been created
+- WHEN a client requests `GET /api/accounts`
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST equal `[]`
+
+#### Scenario: create account happy path
+
+- GIVEN a valid `CreateAccountRequest`
+- WHEN a client submits `POST /api/accounts`
+- THEN the response status MUST be `201 Created`
+- AND the response body MUST be an `AccountView`
+- AND the returned `id` MUST be a server-assigned stable identifier
+- AND the returned `has_api_key` MUST reflect whether the request included `api_key`
+
+#### Scenario: get account happy path
+
+- GIVEN an existing account id
+- WHEN a client requests `GET /api/accounts/{account_id}`
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST be the matching `AccountView`
+
+#### Scenario: update account happy path
+
+- GIVEN an existing account id
+- AND a valid `UpdateAccountRequest`
+- WHEN a client submits `PUT /api/accounts/{account_id}`
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST be the updated `AccountView`
+
+#### Scenario: delete account happy path
+
+- GIVEN an existing account id that is not referenced by any pool
+- WHEN a client submits `DELETE /api/accounts/{account_id}`
+- THEN the response status MUST be `204 No Content`
+- AND subsequent `GET /api/accounts/{account_id}` MUST return `404 Not Found`
+
+#### Scenario: account fetch for unknown id
+
+- GIVEN no account exists for a requested id
+- WHEN a client requests `GET /api/accounts/{account_id}`
+- THEN the response status MUST be `404 Not Found`
+- AND the response body MUST match the admin error response shape
+
+---
+
+### R17: Account Responses MUST Redact Credentials
+
+The system MUST accept `api_key` in create and update requests as a write-only field.
+
+The system MUST NOT return raw `api_key` values in any admin response body.
+
+Every account response MUST expose `has_api_key: boolean` instead of `api_key`.
+
+This redaction rule MUST apply to list responses, get responses, create responses, update
+responses, nested pool member views if any are ever returned, and any error payload metadata.
+
+#### Scenario: account create response redacts api_key
+
+- GIVEN a `CreateAccountRequest` with `api_key = "sk-secret"`
+- WHEN the request succeeds
+- THEN the response body MUST include `has_api_key: true`
+- AND the response body MUST NOT include an `api_key` field
+- AND the raw submitted credential MUST NOT be echoed back
+
+#### Scenario: account update response redacts api_key
+
+- GIVEN an existing account without a key
+- WHEN a client submits `PUT /api/accounts/{account_id}` with a new `api_key`
+- THEN the response body MUST include `has_api_key: true`
+- AND the response body MUST NOT include an `api_key` field
+
+#### Scenario: account list response remains redacted
+
+- GIVEN one or more stored accounts with API keys
+- WHEN a client requests `GET /api/accounts`
+- THEN every item in the response MUST include `has_api_key`
+- AND no item in the response MUST expose raw credential material
+
+---
+
+### R18: Pool Admin Endpoints
+
+The system MUST expose the following pool endpoints:
+
+- `GET /api/pools`
+- `POST /api/pools`
+- `GET /api/pools/{pool_id}`
+- `PUT /api/pools/{pool_id}`
+- `DELETE /api/pools/{pool_id}`
+
+These endpoints MUST operate on the existing Rook pool service via `RookRegistry`.
+
+Pool responses MUST use the `PoolView` contract defined in this spec.
+
+#### Scenario: listing pools returns an empty collection
+
+- GIVEN no pools have been created
+- WHEN a client requests `GET /api/pools`
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST equal `[]`
+
+#### Scenario: create pool happy path
+
+- GIVEN a valid `CreatePoolRequest`
+- WHEN a client submits `POST /api/pools`
+- THEN the response status MUST be `201 Created`
+- AND the response body MUST be a `PoolView`
+- AND the new pool MUST initially contain the members specified by the request, if any
+
+#### Scenario: update pool happy path
+
+- GIVEN an existing pool id
+- WHEN a client submits `PUT /api/pools/{pool_id}` with updated metadata
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST reflect the updated pool values
+
+#### Scenario: delete pool happy path
+
+- GIVEN an existing pool id that is not referenced by any route and is not referenced as another
+  pool's fallback pool
+- WHEN a client submits `DELETE /api/pools/{pool_id}`
+- THEN the response status MUST be `204 No Content`
+
+#### Scenario: delete referenced pool fails
+
+- GIVEN a pool is referenced by at least one route or fallback pool reference
+- WHEN a client submits `DELETE /api/pools/{pool_id}`
+- THEN the response status MUST be `409 Conflict`
+- AND the response body MUST match the admin error response shape
+- AND the error code MUST identify the resource as still referenced
+
+---
+
+### R19: Pool Membership Endpoints
+
+The system MUST expose pool membership mutation endpoints:
+
+- `POST /api/pools/{pool_id}/accounts`
+- `DELETE /api/pools/{pool_id}/accounts/{account_id}`
+
+`POST /api/pools/{pool_id}/accounts` MUST accept `AddPoolMemberRequest`.
+
+Adding an account to a pool MUST be idempotent: if the account is already a member, the operation
+MUST still succeed without creating a duplicate membership.
+
+Removing a member MUST fail when the account is not currently a member of the pool.
+
+Adding a member MUST fail when the account does not exist.
+
+#### Scenario: add member happy path
+
+- GIVEN an existing pool and an existing account that is not yet a member
+- WHEN a client submits `POST /api/pools/{pool_id}/accounts`
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST be the updated `PoolView`
+- AND the `members` list MUST now include that account id exactly once
+
+#### Scenario: add member is idempotent
+
+- GIVEN an existing pool that already contains the requested account id
+- WHEN a client submits `POST /api/pools/{pool_id}/accounts` for the same account again
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST contain the account id exactly once in `members`
+
+#### Scenario: remove member happy path
+
+- GIVEN an existing pool that contains an account id
+- WHEN a client submits `DELETE /api/pools/{pool_id}/accounts/{account_id}`
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST be the updated `PoolView`
+- AND the removed account id MUST no longer appear in `members`
+
+#### Scenario: remove non-member fails
+
+- GIVEN an existing pool that does not contain the requested account id
+- WHEN a client submits `DELETE /api/pools/{pool_id}/accounts/{account_id}`
+- THEN the response status MUST be `409 Conflict`
+- AND the response body MUST match the admin error response shape
+
+#### Scenario: add nonexistent account to pool fails
+
+- GIVEN an existing pool
+- AND no account exists for the requested account id
+- WHEN a client submits `POST /api/pools/{pool_id}/accounts`
+- THEN the response status MUST be `404 Not Found`
+- AND the response body MUST match the admin error response shape
+
+---
+
+### R20: Route Admin Endpoints
+
+The system MUST expose the following route endpoints:
+
+- `GET /api/routes`
+- `POST /api/routes`
+- `GET /api/routes/{route_id}`
+- `PUT /api/routes/{route_id}`
+- `DELETE /api/routes/{route_id}`
+
+These endpoints MUST operate on the existing Rook route service via `RookRegistry`.
+
+Route responses MUST use the `RouteView` contract defined in this spec.
+
+#### Scenario: listing routes returns an empty collection
+
+- GIVEN no routes have been created
+- WHEN a client requests `GET /api/routes`
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST equal `[]`
+
+#### Scenario: create route happy path
+
+- GIVEN a valid `CreateRouteRequest` referencing an existing pool
+- WHEN a client submits `POST /api/routes`
+- THEN the response status MUST be `201 Created`
+- AND the response body MUST be a `RouteView`
+
+#### Scenario: update route happy path
+
+- GIVEN an existing route id
+- AND a valid `UpdateRouteRequest`
+- WHEN a client submits `PUT /api/routes/{route_id}`
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST reflect the updated route
+
+#### Scenario: delete route happy path
+
+- GIVEN an existing route id that is not referenced as another route's fallback route
+- WHEN a client submits `DELETE /api/routes/{route_id}`
+- THEN the response status MUST be `204 No Content`
+
+#### Scenario: delete referenced route fails
+
+- GIVEN a route is referenced by another route's `fallback_route_id`
+- WHEN a client submits `DELETE /api/routes/{route_id}`
+- THEN the response status MUST be `409 Conflict`
+- AND the response body MUST match the admin error response shape
+- AND the error code MUST identify the route as still referenced
+
+#### Scenario: create route with duplicate logical model fails
+
+- GIVEN a route already exists for a logical model name
+- WHEN a client submits `POST /api/routes` with the same `logical_model`
+- THEN the response status MUST be `409 Conflict`
+- AND the response body MUST match the admin error response shape
+
+---
+
+### R21: Referenced Resource Deletion Safeguards
+
+The system MUST fail closed when a delete operation would violate current resource references.
+
+At minimum, the following failure behavior MUST be defined:
+
+- deleting an account referenced by a pool membership MUST fail
+- deleting a pool referenced by a route target MUST fail
+- deleting a pool referenced by another pool's `fallback_pool_id` MUST fail
+- deleting a route referenced by another route's `fallback_route_id` MUST fail
+
+These failures MUST return `409 Conflict` and MUST use the standard admin error response shape.
+
+#### Scenario: delete account referenced by pool fails
+
+- GIVEN an account is a member of at least one pool
+- WHEN a client submits `DELETE /api/accounts/{account_id}`
+- THEN the response status MUST be `409 Conflict`
+- AND the account MUST remain unchanged
+
+#### Scenario: delete pool referenced by route fails
+
+- GIVEN a route targets a pool
+- WHEN a client submits `DELETE /api/pools/{pool_id}`
+- THEN the response status MUST be `409 Conflict`
+- AND the pool MUST remain unchanged
+
+#### Scenario: delete fallback route target fails
+
+- GIVEN route B references route A as `fallback_route_id`
+- WHEN a client submits `DELETE /api/routes/{route_a_id}`
+- THEN the response status MUST be `409 Conflict`
+- AND route A MUST remain unchanged
+
+---
+
+### R22: Health Account List Endpoint
+
+The system MUST expose `GET /api/health/accounts`.
+
+The response MUST be a JSON array of `HealthAccountView` records representing runtime health state
+for known accounts.
+
+For M1, health data is runtime-scoped and in-memory only. It MUST reflect current process state and
+MUST NOT imply durable historical health storage.
+
+When an account exists but has never been probed, its health status MUST be `"unknown"`.
+
+#### Scenario: health account list returns empty collection when no accounts exist
+
+- GIVEN no accounts exist
+- WHEN a client requests `GET /api/health/accounts`
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST equal `[]`
+
+#### Scenario: health account list reports unknown state for unprobed account
+
+- GIVEN an existing account with no health probes recorded in the current runtime
+- WHEN a client requests `GET /api/health/accounts`
+- THEN the corresponding item MUST include `status: "unknown"`
+- AND `last_checked` MUST be `null`
+
+#### Scenario: health account list reports healthy and unhealthy states
+
+- GIVEN one account has been marked healthy in runtime state
+- AND another account has been marked unhealthy in runtime state
+- WHEN a client requests `GET /api/health/accounts`
+- THEN the response MUST include one item with `status: "healthy"`
+- AND one item with `status: "unhealthy"`
+
+---
+
+### R23: Health Summary Endpoint
+
+The system MUST expose `GET /api/health/summary`.
+
+The response MUST be a `HealthSummaryView` object summarizing known account health state for the
+current runtime.
+
+The summary MUST include counts for `healthy`, `degraded`, `unhealthy`, `unknown`, and `total`.
+
+#### Scenario: health summary for empty system
+
+- GIVEN no accounts exist
+- WHEN a client requests `GET /api/health/summary`
+- THEN the response status MUST be `200 OK`
+- AND the body MUST report `total: 0`
+- AND all status counters MUST be `0`
+
+#### Scenario: health summary counts unknown and healthy states
+
+- GIVEN one existing account has never been probed
+- AND one existing account is healthy
+- WHEN a client requests `GET /api/health/summary`
+- THEN the body MUST report `unknown: 1`
+- AND `healthy: 1`
+- AND `total: 2`
+
+#### Scenario: health summary counts unhealthy states
+
+- GIVEN one existing account is unhealthy in runtime state
+- WHEN a client requests `GET /api/health/summary`
+- THEN the body MUST report `unhealthy: 1`
+- AND `total` MUST include that account
+
+---
+
+### R24: Settings Endpoints and MVP Update Semantics
+
+The system MUST expose:
+
+- `GET /api/settings`
+- `PUT /api/settings`
+
+The system MUST NOT require `PATCH /api/settings` for M1.
+
+For M1, full replace-update semantics via `PUT /api/settings` are sufficient and SHALL be the only
+documented write contract. If `PATCH /api/settings` is not implemented, requests to that route MUST
+return `404 Not Found` or `405 Method Not Allowed`; it MUST NOT be part of the supported MVP
+contract.
+
+The settings endpoints MUST operate on the existing Rook settings service via `RookRegistry`.
+
+`GET /api/settings` MUST return persisted settings if present, otherwise defaults derived from the
+current settings service.
+
+#### Scenario: settings read returns defaults before any save
+
+- GIVEN no settings have been persisted yet
+- WHEN a client requests `GET /api/settings`
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST equal the service default settings values
+
+#### Scenario: settings update persists replacement values
+
+- GIVEN the server is running
+- WHEN a client submits `PUT /api/settings` with a valid `UpdateSettingsRequest`
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST be the persisted `SettingsView`
+- AND a subsequent `GET /api/settings` MUST return the same values
+
+#### Scenario: patch settings is not part of MVP
+
+- GIVEN the M1 admin API contract
+- WHEN a client submits `PATCH /api/settings`
+- THEN the route MUST NOT be treated as a supported MVP requirement
+- AND clients MUST rely on `PUT /api/settings` for updates
+
+---
+
+### R25: Usage Placeholder Endpoint
+
+The system MUST expose `GET /api/usage`.
+
+Because no real usage or cost-accounting backend exists in M1, this endpoint MUST return a stable
+placeholder response using `UsageStatusView` with `available: false`.
+
+The endpoint MUST NOT invent fake usage totals or provider billing details.
+
+#### Scenario: usage placeholder response
+
+- GIVEN the M1 runtime with no backing usage subsystem
+- WHEN a client requests `GET /api/usage`
+- THEN the response status MUST be `200 OK`
+- AND the response body MUST equal the documented placeholder contract
+- AND `available` MUST be `false`
+
+---
+
+### R26: Admin Error Response Contract
+
+All non-success admin API responses defined by this spec MUST use a consistent JSON error shape.
+
+The shape MUST distinguish at least:
+
+- not found failures
+- validation failures
+- conflict/reference failures
+- internal server failures
+
+#### Scenario: not found uses admin error response
+
+- GIVEN a request targets a nonexistent admin resource
+- WHEN the API returns an error
+- THEN the response body MUST match the admin error response shape
+- AND the HTTP status MUST be `404 Not Found`
+
+#### Scenario: conflict uses admin error response
+
+- GIVEN a delete operation fails because the resource is still referenced
+- WHEN the API returns an error
+- THEN the response body MUST match the admin error response shape
+- AND the HTTP status MUST be `409 Conflict`
+
+---
+
+### R27: Loopback-First and No-Auth M1 Safety Posture
+
+Rook MUST preserve the current loopback-first deployment posture for M1, but authentication for
+protected `/api/*` and `/v1/*` entrypoints is no longer entirely out of scope.
+
+This change replaces the previous "no auth" posture for those protected entrypoints with the
+inbound bearer-token boundary defined in change `rook-591-inbound-auth-boundary`.
+
+Dashboard routes outside `/api/*` and `/v1/*` remain outside this slice unless a later change says
+otherwise.
+
+Inbound auth for protected Rook routes MUST remain independent from runtime trust flows, pairing
+state, webhook secrets, and outbound provider auth.
+
+#### Scenario: protected surfaces no longer use unauthenticated M1 contract
+
+- GIVEN the gateway domain after applying change `rook-591-inbound-auth-boundary`
+- WHEN a client interacts with `/api/*` or `/v1/*`
+- THEN the contract MUST require the inbound auth behavior defined by this delta spec
+- AND the spec MUST NOT describe those protected surfaces as unauthenticated
+
+#### Scenario: runtime trust flows remain out of scope for Rook inbound auth
+
+- GIVEN the inbound auth boundary for protected Rook routes
+- WHEN the design reuses ideas from `clients/agent-runtime/src/gateway/utils.rs`
+- THEN it MUST adapt only general patterns such as bearer extraction or defensive request filtering
+- AND it MUST NOT import runtime-specific pairing or onboarding trust requirements into this contract
+
+---
+
+### R28: Inbound Auth Protected Surfaces
+
+Rook MUST enforce an inbound authentication boundary for the HTTP entrypoints mounted under
+`/api/*` and `/v1/*`.
+
+For this slice, every request whose effective route is under `/api/*` or `/v1/*` MUST be treated as
+protected unless a later requirement in this spec explicitly marks it public.
+
+This slice MUST cover at least the following already-documented surfaces:
+
+- `GET /api/health`
+- all admin routes under `/api/*`
+- `POST /v1/chat/completions`
+- `GET /v1/models`
+
+Dashboard routes outside those prefixes, including `/` and dashboard asset routes, MUST remain out
+of scope for this inbound auth boundary.
+
+Inbound route authentication MUST be enforced before the matched admin or gateway handler performs
+its business logic.
+
+#### Scenario: authenticated request reaches protected gateway route
+
+- GIVEN the server is configured with inbound auth enabled for this slice
+- AND a client sends `Authorization: Bearer valid-inbound-token`
+- WHEN the client requests `GET /v1/models`
+- THEN the request MUST be evaluated against the inbound auth boundary before the route handler runs
+- AND the request MAY proceed to normal route handling only after the token is accepted
+
+#### Scenario: authenticated request reaches protected admin route
+
+- GIVEN the server is configured with inbound auth enabled for this slice
+- AND a client sends `Authorization: Bearer valid-inbound-token`
+- WHEN the client requests `GET /api/health`
+- THEN the request MUST be evaluated against the inbound auth boundary before the route handler runs
+- AND the request MAY proceed to normal route handling only after the token is accepted
+
+#### Scenario: dashboard route remains outside inbound auth scope
+
+- GIVEN the server hosts dashboard routes at `/` alongside `/api/*` and `/v1/*`
+- WHEN a client requests `/`
+- THEN this inbound auth boundary spec MUST NOT require bearer-token enforcement for that route
+
+---
+
+### R29: Inbound Bearer-Token Contract
+
+Protected inbound requests MUST present credentials using the HTTP `Authorization` header with the
+exact scheme `Bearer` followed by a single configured token value.
+
+The inbound auth boundary MUST treat this credential as a Rook client-to-Rook transport credential.
+It MUST NOT be reused as, derived from, or forwarded as outbound provider authentication.
+
+Validation for this slice MUST compare the presented bearer token against Rook inbound auth
+configuration and MUST produce a deterministic allow/deny outcome.
+
+Requests to protected routes MUST be rejected when:
+
+- the `Authorization` header is missing
+- the auth scheme is not `Bearer`
+- the bearer token value is empty after parsing
+- more than one bearer credential is presented in a way the server cannot interpret deterministically
+- the bearer token does not match the configured inbound credential
+
+#### Scenario: valid bearer token is accepted
+
+- GIVEN inbound auth is configured with the token `rook-inbound-secret`
+- WHEN the client sends `Authorization: Bearer rook-inbound-secret` to `GET /v1/models`
+- THEN the inbound auth boundary MUST accept the credential
+- AND the request MUST continue to normal route handling
+
+#### Scenario: missing authorization header is rejected
+
+- GIVEN inbound auth is configured with the token `rook-inbound-secret`
+- WHEN the client sends `GET /v1/models` without an `Authorization` header
+- THEN the inbound auth boundary MUST reject the request
+
+#### Scenario: non-bearer authorization scheme is rejected
+
+- GIVEN inbound auth is configured with the token `rook-inbound-secret`
+- WHEN the client sends `Authorization: Basic abc123` to `GET /api/health`
+- THEN the inbound auth boundary MUST reject the request
+
+#### Scenario: wrong bearer token is rejected
+
+- GIVEN inbound auth is configured with the token `rook-inbound-secret`
+- WHEN the client sends `Authorization: Bearer wrong-token` to `POST /v1/chat/completions`
+- THEN the inbound auth boundary MUST reject the request
+
+---
+
+### R30: Unauthorized and Forbidden Error Semantics
+
+When a protected request fails inbound authentication because credentials are missing, malformed, or
+invalid, Rook MUST return `401 Unauthorized`.
+
+`401 Unauthorized` responses produced by the inbound auth boundary MUST be returned before admin or
+gateway business logic executes.
+
+For protected `/v1/*` routes, the response body MUST use the documented gateway error response
+shape, with:
+
+- `error.type` set to `invalid_request_error`
+- `error.code` set to `unauthorized`
+- `error.message` describing that a valid inbound bearer token is required
+
+For protected `/api/*` routes, the response body MUST use the standard admin error response shape
+defined by the gateway domain, and the body MUST clearly indicate that authentication failed.
+
+When a request presents a valid inbound bearer token but the route is disallowed by an explicit
+server-side policy added by this slice or a compatible follow-on slice, the server MUST return
+`403 Forbidden` instead of `401 Unauthorized`.
+
+This slice SHOULD NOT introduce `403 Forbidden` behavior unless a concrete policy beyond token
+validity is configured.
+
+#### Scenario: gateway route missing token returns 401 gateway error
+
+- GIVEN inbound auth is configured with the token `rook-inbound-secret`
+- WHEN the client sends `GET /v1/models` without credentials
+- THEN the server MUST return `401 Unauthorized`
+- AND the response body MUST use the gateway error response shape
+- AND `error.code` MUST be `unauthorized`
+
+#### Scenario: admin route invalid token returns 401 admin error
+
+- GIVEN inbound auth is configured with the token `rook-inbound-secret`
+- WHEN the client sends `GET /api/health` with `Authorization: Bearer wrong-token`
+- THEN the server MUST return `401 Unauthorized`
+- AND the response body MUST use the standard admin error response shape
+
+#### Scenario: explicit deny policy returns 403
+
+- GIVEN inbound auth accepts the presented bearer token
+- AND an explicit server-side authorization policy denies access to the requested protected route
+- WHEN the client sends the request
+- THEN the server MUST return `403 Forbidden`
+- AND the response MUST identify that the request was authenticated but not permitted
+
+---
+
+### R31: Inbound Auth Configuration Contract
+
+This slice MUST define explicit configuration required for inbound auth enforcement.
+
+At minimum, Rook configuration for this slice MUST provide:
+
+- a boolean or equivalent explicit switch that determines whether inbound auth enforcement is active
+- a bearer-token value or secret reference used to validate inbound client credentials
+
+When inbound auth enforcement is active, startup or config loading MUST fail closed if the inbound
+bearer token is absent, empty, or not resolvable.
+
+When inbound auth enforcement is inactive, the server MAY retain the existing loopback-first M1
+behavior until a stricter default is adopted by a later slice.
+
+The configuration contract for inbound auth MUST remain separate from provider account credentials,
+vendor API keys, and outbound header construction in `clients/rook/src/gateway/vendor.rs`.
+
+#### Scenario: enabled auth without token fails closed
+
+- GIVEN server configuration enables inbound auth enforcement
+- AND the inbound bearer token value is missing or empty
+- WHEN the server loads configuration for startup
+- THEN startup or configuration initialization MUST fail
+- AND the server MUST NOT start in a partially protected state
+
+#### Scenario: enabled auth with token is valid configuration
+
+- GIVEN server configuration enables inbound auth enforcement
+- AND the inbound bearer token value is present and non-empty
+- WHEN the server loads configuration for startup
+- THEN configuration validation MUST succeed for this slice
+
+#### Scenario: inbound config is separate from vendor auth config
+
+- GIVEN a provider account has an outbound `api_key`
+- AND inbound auth is configured with a different bearer token
+- WHEN the server validates inbound auth configuration
+- THEN it MUST NOT treat the provider account `api_key` as the inbound credential source
+
+---
+
+### R32: Coexistence with Loopback-First Posture
+
+This slice MUST preserve Rook's loopback-first posture as a deployment default while making clear
+that loopback binding is not a substitute for inbound authentication on protected routes.
+
+The spec MUST treat loopback binding as an exposure-reduction measure and inbound bearer validation
+as the transport authentication control for `/api/*` and `/v1/*`.
+
+If the server is bound only to loopback, protected routes MUST still honor the same inbound auth
+contract whenever inbound auth enforcement is active.
+
+This slice MUST NOT rely on browser-origin checks, local-network assumptions, pairing state, or
+runtime onboarding trust flows as the primary authenticator for protected Rook routes.
+
+#### Scenario: loopback binding does not bypass active auth
+
+- GIVEN the server is bound only to `127.0.0.1` or equivalent loopback interfaces
+- AND inbound auth enforcement is active
+- WHEN the client requests `GET /api/health` without credentials
+- THEN the server MUST still return `401 Unauthorized`
+
+#### Scenario: loopback posture remains an additional safety layer
+
+- GIVEN the server is configured for loopback-first binding
+- WHEN inbound auth for this slice is enabled
+- THEN the effective protection model MUST combine loopback exposure reduction with inbound bearer validation
+- AND the spec MUST NOT describe loopback binding as sufficient authentication by itself
+
+---
+
+### R33: Non-Goals and Deferred Security Concerns
+
+This slice MUST remain narrow.
+
+The inbound auth boundary defined here MUST NOT require or imply implementation of:
+
+- outbound provider authentication changes in `clients/rook/src/gateway/vendor.rs`
+- shared trust state with `clients/agent-runtime`
+- pairing-code or onboarding recovery flows
+- TLS termination or reverse-proxy certificate policy
+- RBAC, scopes, multi-tenant authorization, or per-route permission models
+- rate limiting, quotas, abuse prevention, IP allowlists, or WAF controls
+- secret storage redesign beyond the minimal inbound token configuration this slice requires
+
+These concerns MAY be specified in later changes, but MUST NOT be prerequisites for satisfying this
+slice.
+
+#### Scenario: slice acceptance does not require outbound auth changes
+
+- GIVEN this inbound auth slice is implemented
+- WHEN `clients/rook/src/gateway/vendor.rs` constructs outbound provider headers
+- THEN its outbound auth behavior MUST remain governed by the existing vendor auth requirements
+- AND compliance with this slice MUST NOT depend on changing that behavior
+
+---
+
+### R34: Transport Middleware Covered Surfaces
+
+Rook MUST apply this transport middleware baseline to every inbound HTTP request whose effective
+route is mounted under `/api/*` or `/v1/*` before the matched admin or gateway handler executes
+business logic.
+
+This slice MUST cover at least the following transport surfaces:
+
+- `GET /api/health`
+- all other admin routes under `/api/*`
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+
+The baseline defined by this slice MUST be limited to request ID handling, tracing/logging hooks,
+header sanitation, and forwarded-header trust policy.
+
+Routes outside `/api/*` and `/v1/*`, including dashboard routes at `/` and dashboard asset routes,
+MUST remain out of scope for this slice.
+
+This slice MUST remain distinct from the archived `rook-591-inbound-auth-boundary` change.
+Meeting this slice MUST NOT require changing inbound bearer-auth semantics.
+
+#### Scenario: middleware baseline applies to protected gateway route
+
+- GIVEN the server hosts routes under `/v1/*`
+- WHEN a client sends `GET /v1/models`
+- THEN the transport middleware baseline MUST execute before the matched handler's business logic
+- AND request ID, sanitation, and transport observability behavior MUST be available to the route
+
+#### Scenario: middleware baseline applies to protected admin route
+
+- GIVEN the server hosts routes under `/api/*`
+- WHEN a client sends `GET /api/health`
+- THEN the transport middleware baseline MUST execute before the matched handler's business logic
+
+#### Scenario: dashboard routes remain out of scope
+
+- GIVEN the server also hosts dashboard routes outside `/api/*` and `/v1/*`
+- WHEN a client requests `/`
+- THEN this slice MUST NOT require the transport middleware baseline defined here to govern that route
+
+---
+
+### R35: Request ID Generation and Propagation Contract
+
+Every inbound request covered by this slice MUST have exactly one transport request identifier for
+the lifetime of that request.
+
+If the inbound request already contains a syntactically valid request ID in the configured inbound
+request ID header, Rook MUST adopt that value as the request's transport request ID.
+
+If the inbound request does not contain a valid request ID in the configured inbound request ID
+header, Rook MUST generate a new request ID before invoking downstream handlers.
+
+Rook MUST make the effective request ID available to downstream middleware, handlers, and transport
+observability hooks as request-scoped metadata.
+
+Rook MUST return the effective request ID to the client in the configured response request ID
+header on both success and error responses for covered routes.
+
+Request ID handling in this slice MUST be transport-scoped only. The request ID MUST NOT be used
+as an authentication credential, authorization decision input, or substitute for provider account
+identity.
+
+#### Scenario: server generates request ID when absent
+
+- GIVEN a covered inbound request without the configured request ID header
+- WHEN the request enters the transport middleware baseline
+- THEN Rook MUST generate a request ID before handler execution
+- AND the same request ID MUST be exposed to downstream request context
+- AND the response MUST include that request ID in the configured response header
+
+#### Scenario: server propagates valid inbound request ID
+
+- GIVEN a covered inbound request with a syntactically valid request ID in the configured inbound header
+- WHEN the request enters the transport middleware baseline
+- THEN Rook MUST reuse that inbound request ID as the effective request ID
+- AND the response MUST include the same request ID value
+
+#### Scenario: invalid inbound request ID is replaced deterministically
+
+- GIVEN a covered inbound request with a malformed or empty value in the configured inbound request ID header
+- WHEN the request enters the transport middleware baseline
+- THEN Rook MUST reject that value for transport correlation purposes
+- AND Rook MUST generate a new effective request ID
+- AND the response MUST include the generated request ID instead of the malformed inbound value
+
+---
+
+### R36: Transport Tracing and Logging Hooks
+
+Rook MUST emit transport-level tracing or structured logging hooks for every request covered by
+this slice.
+
+At minimum, transport observability hooks for a covered request MUST be able to record:
+
+- the effective request ID
+- the matched route or route template when available
+- the HTTP method
+- the response status code
+- request handling duration
+- whether forwarded metadata was ignored or trusted under the configured policy
+
+Transport observability hooks MUST use structured fields rather than relying only on interpolated
+message strings.
+
+Transport observability hooks MUST execute for both successful and error responses on covered
+routes.
+
+Transport observability hooks MUST NOT log or attach raw secret-bearing header values. At minimum,
+values for `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, and provider or bearer
+token-like credentials MUST be redacted or omitted.
+
+If header metadata is logged for diagnostics, the implementation MUST log only sanitized header
+views consistent with this slice's header sanitation rules.
+
+#### Scenario: successful request emits correlated transport fields
+
+- GIVEN a covered request with an effective request ID
+- WHEN the request completes successfully
+- THEN transport tracing or logging MUST include the request ID, method, route metadata, status code, and duration
+
+#### Scenario: error response still emits transport correlation data
+
+- GIVEN a covered request that terminates with an error response
+- WHEN the response is produced
+- THEN transport tracing or logging MUST still include the effective request ID and response status code
+
+#### Scenario: secret-bearing headers are redacted from observability output
+
+- GIVEN a covered request containing `Authorization` and `Cookie` headers
+- WHEN transport tracing or logging hooks capture header-related diagnostics
+- THEN the raw values of those headers MUST NOT appear in logs or spans
+- AND only redacted or omitted representations MAY be emitted
+
+---
+
+### R37: Inbound Header Sanitation Rules
+
+Before downstream handlers rely on inbound transport metadata, Rook MUST sanitize inbound
+transport-layer and proxy-related headers for every request covered by this slice.
+
+For this slice, sanitation MUST apply at least to:
+
+- the configured request ID header when used for request correlation
+- `X-Forwarded-For`
+- `X-Forwarded-Host`
+- `X-Forwarded-Proto`
+- `X-Forwarded-Port`
+- `X-Real-IP`
+- `Via` (diagnostic-only; never trusted as canonical client/host/proto metadata)
+
+Sanitation for these headers MUST reject empty values and syntactically malformed values from
+security-sensitive interpretation.
+
+When a covered header is rejected for security-sensitive interpretation, Rook MUST prevent
+downstream transport consumers from treating the rejected value as trusted transport metadata.
+
+Header sanitation in this slice MUST NOT rewrite or remove unrelated application headers outside
+the transport/proxy concerns listed here unless another requirement explicitly defines that
+behavior.
+
+#### Scenario: empty forwarded header value is sanitized out of trusted view
+
+- GIVEN a covered request with `X-Forwarded-Proto: ` as an empty value
+- WHEN header sanitation runs
+- THEN the empty value MUST be rejected for trusted transport interpretation
+- AND downstream transport context MUST NOT expose it as trusted forwarded metadata
+
+#### Scenario: malformed request ID header does not survive as effective correlation ID
+
+- GIVEN a covered request with a malformed configured request ID header value
+- WHEN header sanitation runs
+- THEN that value MUST be rejected for request ID adoption
+- AND the effective request ID MUST come from generated server-side correlation data instead
+
+#### Scenario: unrelated application headers remain outside this sanitation contract
+
+- GIVEN a covered request with both `X-Forwarded-For` and a domain-specific application header
+- WHEN header sanitation runs
+- THEN this slice MUST govern the `X-Forwarded-For` handling
+- AND it MUST NOT require rewriting the unrelated application header
+
+---
+
+### R38: Strict-by-Default Forwarded Header Trust Policy
+
+Rook MUST treat inbound forwarded metadata as untrusted by default.
+
+Unless explicit trusted-proxy configuration is enabled for this slice, Rook MUST NOT trust
+`X-Forwarded-*`, `X-Real-IP`, or similar proxy-provided metadata for security-sensitive or
+canonical transport interpretation.
+
+When trusted-proxy configuration is not enabled, Rook MUST derive canonical transport context from
+the direct connection context and server-local request properties instead of forwarded headers.
+
+When forwarded metadata is ignored under the default strict posture, observability hooks SHOULD be
+able to indicate that forwarded metadata was present but not trusted.
+
+This strict default MUST apply equally to `/api/*` and `/v1/*` surfaces covered by this slice.
+
+#### Scenario: default policy ignores untrusted forwarded host and proto
+
+- GIVEN trusted-proxy configuration is not enabled
+- AND a client sends `X-Forwarded-Host: public.example.com` and `X-Forwarded-Proto: https`
+- WHEN a covered request is processed
+- THEN Rook MUST NOT treat those headers as canonical host or scheme metadata
+- AND downstream transport context MUST rely on direct connection or server-local request metadata
+
+#### Scenario: default policy ignores untrusted client IP metadata
+
+- GIVEN trusted-proxy configuration is not enabled
+- AND a client sends `X-Forwarded-For: 203.0.113.9` and `X-Real-IP: 203.0.113.9`
+- WHEN a covered request is processed
+- THEN Rook MUST NOT treat those values as trusted client address metadata for this slice
+
+---
+
+### R39: Explicit Trusted-Proxy Opt-In Behavior
+
+Rook MAY honor supported forwarded metadata only when an explicit trusted-proxy policy is
+configured for this slice.
+
+The trusted-proxy policy MUST be explicit enough to distinguish trusted proxy paths from untrusted
+clients; a bare assumption that the deployment is "behind a proxy" is insufficient.
+
+When trusted-proxy behavior is enabled, Rook MUST honor only the supported forwarded header
+families for this slice (`X-Forwarded-*` and `X-Real-IP`) and only for proxy sources covered by the
+configured policy.
+
+If a covered request arrives from a source that does not satisfy the trusted-proxy policy, Rook
+MUST fall back to the strict default behavior and ignore forwarded metadata for canonical transport
+interpretation.
+
+The standard `Forwarded` header is explicitly out of scope for this slice and MAY be specified in a
+later change.
+
+Trusted-proxy opt-in for this slice MUST affect only inbound transport interpretation. It MUST NOT,
+by itself, change auth policy, rate limiting, TLS policy, or outbound provider authentication.
+
+#### Scenario: trusted proxy policy allows configured forwarded metadata
+
+- GIVEN trusted-proxy configuration is enabled for a covered request path
+- AND the connection source satisfies the configured trusted-proxy policy
+- AND the request includes allowed forwarded metadata
+- WHEN the request is processed
+- THEN Rook MAY use that forwarded metadata for canonical transport interpretation within the configured scope
+
+#### Scenario: opt-in policy does not trust headers from non-trusted source
+
+- GIVEN trusted-proxy configuration is enabled
+- AND a covered request includes forwarded headers
+- AND the connection source does not satisfy the trusted-proxy policy
+- WHEN the request is processed
+- THEN Rook MUST ignore the forwarded headers for canonical transport interpretation
+- AND the request MUST fall back to the strict default behavior
+
+#### Scenario: trusted-proxy opt-in does not widen unrelated security behavior
+
+- GIVEN trusted-proxy configuration is enabled
+- WHEN a covered request is processed
+- THEN this slice MUST NOT treat that opt-in as enabling rate limiting, TLS termination policy, or outbound provider auth changes
+
+---
+
+### R40: Transport Middleware Configuration Contract
+
+This slice MUST define explicit configuration for transport middleware behavior on covered Rook
+HTTP entrypoints.
+
+At minimum, the configuration contract for this slice MUST provide:
+
+- whether the transport middleware baseline is enabled for covered `/api/*` and `/v1/*` surfaces if the implementation makes it configurable
+- the inbound request ID header name used for request ID adoption checks
+- the response request ID header name used to return the effective request ID
+- the strict forwarded-header trust posture as the default behavior when no trusted-proxy policy is configured
+- an explicit trusted-proxy policy shape or equivalent configuration entry required before forwarded metadata MAY be honored
+- any validation constraints necessary so invalid trusted-proxy configuration cannot silently weaken the strict default posture
+
+If trusted-proxy behavior is enabled but the trusted-proxy policy is missing, malformed, or not
+resolvable, configuration loading or startup MUST fail closed, or the server MUST deterministically
+fall back to the strict default behavior without partially trusting forwarded metadata.
+
+Configuration for this slice MUST remain separate from inbound bearer-auth secrets, provider
+account API keys, and outbound vendor authentication settings.
+
+#### Scenario: strict default requires no proxy trust configuration
+
+- GIVEN no trusted-proxy policy is configured
+- WHEN the server loads configuration for this slice
+- THEN the effective behavior MUST remain strict by default
+- AND forwarded metadata MUST remain untrusted
+
+#### Scenario: malformed trusted-proxy configuration cannot enable partial trust
+
+- GIVEN trusted-proxy behavior is configured with an invalid or incomplete policy
+- WHEN the server loads configuration for this slice
+- THEN the server MUST fail closed or deterministically revert to strict default behavior
+- AND it MUST NOT start in a partially trusted forwarded-header state
+
+#### Scenario: transport configuration is separate from auth and provider credentials
+
+- GIVEN inbound auth and provider account credentials are also configured
+- WHEN transport middleware configuration is loaded
+- THEN request ID and trusted-proxy settings MUST be validated independently from bearer-auth and provider API key settings
+
+---
+
+### R41: Non-Goals and Deferred Concerns for Transport Middleware Baseline
+
+This slice MUST remain narrow and MUST NOT require or imply implementation of:
+
+- rate limiting, quotas, or abuse controls
+- idempotency keys or replay protection
+- streaming request or streaming response transport behavior
+- TLS termination, certificate handling, or mTLS policy
+- RBAC, scopes, or multi-tenant authorization models
+- outbound provider authentication changes
+- changes to the archived `rook-591-inbound-auth-boundary` scope
+
+These concerns MAY be specified later, but compliance with this slice MUST NOT depend on them.
+
+#### Scenario: baseline acceptance does not require rate limiting or TLS work
+
+- GIVEN this transport middleware baseline slice is implemented
+- WHEN acceptance is evaluated
+- THEN the slice MUST be satisfiable without adding rate limiting, idempotency, streaming, or TLS policy changes
+
+---
+
+### R42: Global Surface Rate-Limit Coverage and Scope
+
+Rook MUST define this slice as a transport-boundary, global-by-surface admission-control policy for
+the following HTTP entrypoints only:
+
+- all routes whose effective path is under `/api/*`
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+
+For this slice, each covered surface MUST consume from its own independent global budget. The
+`/api/*` surface MUST NOT share a budget with `/v1/models`, and `/v1/models` MUST NOT share a
+budget with `/v1/chat/completions`.
+
+Routes outside those surfaces, including dashboard routes and assets outside `/api/*` and `/v1/*`,
+MUST remain out of scope for this slice.
+
+This slice MUST remain limited to transport-level surface protection. It MUST NOT define or imply
+per-client, per-IP, per-identity, per-token, or per-session limit partitioning.
+
+#### Scenario: covered surfaces are limited independently
+
+- GIVEN Rook is configured with a global rate-limit policy for `/api/*`, `/v1/models`, and `/v1/chat/completions`
+- WHEN traffic reaches each covered surface
+- THEN Rook MUST evaluate each request against the budget for that exact covered surface
+- AND exhausting one covered surface MUST NOT, by itself, exhaust either of the other covered surfaces
+
+#### Scenario: out-of-scope routes remain unaffected by this slice
+
+- GIVEN Rook also serves routes outside `/api/*`, `/v1/models`, and `/v1/chat/completions`
+- WHEN a client sends a request to an out-of-scope route
+- THEN this slice MUST NOT require global surface rate-limit evaluation for that route
+
+---
+
+### R43: Global Rate-Limit Contract by Surface
+
+For each covered surface, Rook MUST support an explicit operator-controlled policy with a bounded
+request budget and a bounded time window.
+
+When a covered request arrives, Rook MUST evaluate that request against the configured global budget
+for the covered surface before auth middleware or business handler execution proceeds.
+
+If the covered surface still has capacity within the active window, the request MUST be admitted and
+allowed to proceed normally.
+
+If the covered surface has exhausted its budget for the active window, Rook MUST reject the request
+at the transport boundary without invoking the downstream admin or gateway business handler.
+
+This slice MAY use an in-memory, process-local implementation for the global-by-surface budget.
+
+#### Scenario: request within surface budget proceeds
+
+- GIVEN a covered surface still has remaining capacity in the active window
+- WHEN a request reaches that covered surface
+- THEN Rook MUST admit the request
+- AND downstream auth and business handler execution MAY continue
+
+#### Scenario: request over surface budget is rejected at the boundary
+
+- GIVEN a covered surface has exhausted its configured budget for the active window
+- WHEN another request reaches that covered surface
+- THEN Rook MUST reject the request before downstream auth or business handler execution
+
+---
+
+### R44: Surface Rate-Limit Rejection Semantics
+
+When a covered request is rejected because its surface budget is exhausted, Rook MUST return:
+
+- HTTP status `429 Too Many Requests`
+- a `Retry-After` response header
+
+The rejection body MUST preserve the existing error-envelope style for the affected surface:
+
+- `/api/*` rejections MUST use the admin/API error response contract
+- `/v1/*` rejections MUST use the gateway/OpenAI-style error response contract
+
+`Retry-After` MUST reflect the remaining wait time until the next admission opportunity for the
+covered surface according to the configured budget window.
+
+#### Scenario: admin surface rejection uses admin envelope plus Retry-After
+
+- GIVEN the `/api/*` surface has exhausted its budget
+- WHEN another request reaches `/api/health` or another `/api/*` route
+- THEN Rook MUST return `429`
+- AND the response MUST include `Retry-After`
+- AND the response body MUST follow the admin/API error envelope
+
+#### Scenario: gateway surface rejection uses gateway envelope plus Retry-After
+
+- GIVEN the `GET /v1/models` or `POST /v1/chat/completions` surface has exhausted its budget
+- WHEN another request reaches that covered route
+- THEN Rook MUST return `429`
+- AND the response MUST include `Retry-After`
+- AND the response body MUST follow the gateway/OpenAI-style error envelope
+
+---
+
+### R45: Surface Rate-Limit Startup and Configuration Contract
+
+Rook MUST expose startup/config-driven inputs for all three covered surface policies in this slice:
+
+- `/api/*`
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+
+For each covered surface, the operator-facing configuration MUST provide, at minimum:
+
+- a request budget value
+- a time-window value
+
+The startup/config path for this slice MUST fail closed when any required covered-surface policy is
+missing, malformed, zero-valued where prohibited, or otherwise invalid for safe enforcement.
+
+This configuration contract MUST remain separate from:
+
+- inbound auth token configuration
+- transport request-ID / trusted-proxy configuration
+- outbound provider credential configuration
+
+#### Scenario: startup fails closed on incomplete surface configuration
+
+- GIVEN Rook is started with a missing or invalid rate-limit policy for any required covered surface
+- WHEN startup/config validation runs
+- THEN startup/config initialization MUST fail closed
+- AND Rook MUST NOT proceed with partially-applied surface rate limiting
+
+#### Scenario: explicit startup configuration controls each covered surface independently
+
+- GIVEN the operator provides explicit startup/config values for `/api/*`, `/v1/models`, and `/v1/chat/completions`
+- WHEN Rook initializes successfully
+- THEN each covered surface MUST use the policy configured for that exact surface
+- AND one covered surface's policy MUST NOT silently overwrite or inherit another's
+
+---
+
+### R46: Composition Boundaries with Existing Transport Slices
+
+This slice MUST remain separate from the archived inbound-auth-boundary and transport-middleware-baseline slices.
+
+For covered routes, the rate-limit boundary MUST compose at the transport/router layer without
+changing the contract of:
+
+- inbound auth enforcement
+- request ID propagation
+- tracing/logging hooks
+- trusted-proxy / header sanitation behavior
+
+This slice MUST NOT require implementing or altering:
+
+- per-client or per-IP throttling
+- idempotency
+- streaming support
+- TLS configuration
+- RBAC
+- outbound provider authentication behavior
+
+#### Scenario: rate-limit rejection occurs without replacing auth and middleware responsibilities
+
+- GIVEN a covered request reaches a surface whose budget is exhausted
+- WHEN Rook rejects the request with `429`
+- THEN the rejection MUST come from the rate-limit boundary for that surface
+- AND this slice MUST NOT require changing the already-defined auth or transport-middleware contracts
+
+#### Scenario: acceptance does not require streaming or idempotency work
+
+- GIVEN this slice is implemented as specified
+- WHEN rate-limit behavior is verified for the covered surfaces
+- THEN acceptance for this slice MUST NOT depend on adding streaming or idempotency functionality
+
+---
+
+### R47: Chat Completions Idempotency Surface
+
+The system MUST apply this idempotency slice only to `POST /v1/chat/completions`.
+
+The system MUST NOT apply this slice to `/api/*`, `GET /v1/models`, or any other route.
+
+The system MUST scope idempotency records by the authenticated inbound principal established by the
+existing inbound-auth boundary, so the same raw idempotency key used by different authenticated
+principals SHALL NOT collide.
+
+#### Scenario: Idempotency applies only to chat completions create
+
+- GIVEN a valid authenticated request to `POST /v1/chat/completions`
+- WHEN the request includes a valid idempotency header
+- THEN the gateway MUST evaluate the request under this idempotency slice
+
+#### Scenario: Admin API remains out of scope
+
+- GIVEN a valid authenticated request to `/api/accounts` with an `Idempotency-Key` header
+- WHEN the request is handled
+- THEN this slice MUST NOT create, read, or reject against a chat-completions idempotency record
+
+#### Scenario: Model listing remains out of scope
+
+- GIVEN a valid authenticated request to `GET /v1/models` with an `Idempotency-Key` header
+- WHEN the request is handled
+- THEN this slice MUST NOT create, read, or reject against a chat-completions idempotency record
+
+---
+
+### R48: Idempotency Request and Replay Contract
+
+The system MUST use `Idempotency-Key` as the request contract for this slice.
+
+When a valid idempotency key is present on `POST /v1/chat/completions`, the system MUST evaluate
+whether a prior keyed request for the same authenticated principal and equivalent canonical request
+body already exists within the replay window.
+
+If a keyed equivalent completed request exists, the system MUST return the stored terminal response
+deterministically and mark the replay response with `Idempotency-Replayed: true`.
+
+If the same keyed logical request is already in progress, the system MUST reject the duplicate with
+a conflict response and MUST NOT invoke the downstream handler a second time.
+
+If the same key is reused with materially different canonical request content, the system MUST
+reject the request as a key reuse mismatch.
+
+#### Scenario: completed equivalent request is replayed deterministically
+
+- GIVEN a valid keyed `POST /v1/chat/completions` request has already completed
+- WHEN an equivalent keyed request is retried within the replay window
+- THEN the system MUST return the stored terminal response
+- AND the response MUST include `Idempotency-Replayed: true`
+
+#### Scenario: in-progress duplicate is rejected without second execution
+
+- GIVEN a valid keyed `POST /v1/chat/completions` request is already in progress
+- WHEN an equivalent keyed request is retried before the first completes
+- THEN the system MUST reject the duplicate request
+- AND it MUST NOT invoke the downstream handler a second time
+
+#### Scenario: mismatched keyed request is rejected
+
+- GIVEN a previously seen idempotency key for `POST /v1/chat/completions`
+- WHEN the same key is reused with materially different canonical request content
+- THEN the system MUST reject the request as an idempotency mismatch
+
+---
+
+### R49: Idempotency Availability, Retention, and Boundaries
+
+This slice MUST define a bounded replay-retention window sufficient for meaningful client retries.
+
+Requests without `Idempotency-Key` MUST continue to behave as ordinary non-idempotent chat
+completion requests.
+
+If replay state is unavailable for a keyed request, the system MUST fail closed with an
+idempotency-unavailable server error rather than silently executing without replay protection.
+
+This slice MUST remain separate from rate limiting, streaming, TLS, RBAC, and outbound provider
+authentication behavior.
+
+#### Scenario: missing key does not enable replay protection
+
+- GIVEN a `POST /v1/chat/completions` request without `Idempotency-Key`
+- WHEN the request is handled
+- THEN the request MUST proceed without replay protection from this slice
+
+#### Scenario: acceptance does not require streaming or unrelated route idempotency
+
+- GIVEN this slice is implemented as specified
+- WHEN idempotency behavior is verified
+- THEN acceptance for this slice MUST NOT depend on adding streaming support or idempotency to `/api/*` or `GET /v1/models`
+
+#### Scenario: baseline acceptance remains separate from archived inbound auth work
+
+- GIVEN the archived `rook-591-inbound-auth-boundary` change already defines inbound bearer-auth behavior
+- WHEN this slice is accepted
+- THEN it MUST remain valid without changing that archived auth contract
+
+---
+
+### R50: Chat Completions Streaming Surface and Request Contract
+
+The system MUST apply this streaming slice only to `POST /v1/chat/completions` when the request body
+sets `stream: true`.
+
+The system MUST NOT apply this slice to `/api/*`, `GET /v1/models`, or non-streaming
+`POST /v1/chat/completions` requests.
+
+#### Scenario: streaming applies only to chat completions with stream true
+
+- GIVEN a request to `POST /v1/chat/completions`
+- WHEN the request body sets `stream: true`
+- THEN the gateway MUST use the streaming transport path for this slice
+
+#### Scenario: non-streaming chat completions remain on buffered path
+
+- GIVEN a request to `POST /v1/chat/completions`
+- WHEN the request body does not set `stream: true`
+- THEN this slice MUST NOT require streaming transport behavior
+
+---
+
+### R51: OpenAI-Compatible SSE Response Contract
+
+For covered streaming requests, the gateway MUST respond using OpenAI-compatible server-sent events
+(SSE).
+
+The response MUST use the SSE content type and emit ordered `data:` frames compatible with OpenAI
+chat-completions streaming clients.
+
+Successful stream completion MUST terminate with a single `[DONE]` sentinel frame.
+
+#### Scenario: streaming response emits SSE frames and done sentinel
+
+- GIVEN a valid covered streaming request
+- WHEN the upstream stream completes normally
+- THEN the gateway MUST emit ordered SSE `data:` frames
+- AND it MUST emit exactly one `[DONE]` sentinel on normal completion
+
+---
+
+### R52: Streaming Failure and Composition Boundaries
+
+If streaming setup fails before the response stream begins, the gateway MUST return the normal JSON
+gateway error response rather than an SSE stream.
+
+If a mid-stream transport failure occurs after streaming has started, the gateway MAY terminate the
+SSE stream without emitting `[DONE]`.
+
+This slice MUST remain separate from existing auth, transport middleware, rate limiting, and
+buffered idempotency behavior. Streaming requests MUST NOT be forced through buffered idempotency
+capture/replay semantics.
+
+#### Scenario: setup failure returns JSON error before stream starts
+
+- GIVEN a covered streaming request
+- WHEN the gateway cannot establish streaming before response emission starts
+- THEN the gateway MUST return a normal JSON gateway error response
+
+#### Scenario: mid-stream failure omits done sentinel
+
+- GIVEN a covered streaming request has already begun emitting SSE frames
+- WHEN a mid-stream transport failure occurs
+- THEN the gateway MAY terminate the stream abnormally
+- AND it MUST NOT emit `[DONE]` for that abnormal termination
+
+#### Scenario: streaming bypasses buffered idempotency replay path
+
+- GIVEN a covered streaming request with `stream: true`
+- WHEN the request is processed
+- THEN this slice MUST NOT require buffered idempotency capture/replay behavior for that response path
+
+---
+
 ## Data Contracts
 
 ### ChatCompletionRequest (Input)
@@ -760,6 +2221,311 @@ dependencies.
 | `upstream_error`      | Upstream returned 4xx or 5xx           |
 | `upstream_timeout`    | Upstream did not respond in time       |
 | `upstream_unreachable`| Connection to upstream failed          |
+
+---
+
+### AccountView
+
+```json
+{
+  "id": "uuid",
+  "vendor": "open_ai",
+  "display_name": "Primary OpenAI",
+  "api_base_override": null,
+  "has_api_key": true,
+  "enabled": true,
+  "weight": 1,
+  "priority": 0,
+  "tags": ["prod"],
+  "capabilities": ["chat", "vision"]
+}
+```
+
+Rules:
+
+- `api_key` MUST NOT appear.
+- `has_api_key` MUST be `true` when a key is stored and `false` otherwise.
+
+### CreateAccountRequest
+
+```json
+{
+  "vendor": "open_ai",
+  "display_name": "Primary OpenAI",
+  "api_base_override": null,
+  "api_key": "sk-secret",
+  "enabled": true,
+  "weight": 1,
+  "priority": 0,
+  "tags": ["prod"],
+  "capabilities": ["chat", "vision"]
+}
+```
+
+Rules:
+
+- `vendor` MUST be required.
+- `display_name` MUST be required.
+- `api_key` MAY be omitted or `null`.
+- `enabled`, `weight`, `priority`, `tags`, and `capabilities` MAY be omitted only if the service
+  defines defaults; if omitted, the returned `AccountView` MUST show the effective stored values.
+
+### UpdateAccountRequest
+
+```json
+{
+  "vendor": "open_ai",
+  "display_name": "Primary OpenAI Updated",
+  "api_base_override": "http://localhost:4000/v1",
+  "api_key": "sk-new-secret",
+  "enabled": true,
+  "weight": 2,
+  "priority": 1,
+  "tags": ["prod", "blue"],
+  "capabilities": ["chat"]
+}
+```
+
+Rules:
+
+- `PUT` semantics MUST be full replacement using the path `account_id` as the target identity.
+- The request body MUST NOT include `id`.
+- `api_key` remains write-only.
+
+---
+
+### PoolView
+
+```json
+{
+  "id": "uuid",
+  "name": "primary",
+  "strategy": "round_robin",
+  "members": ["account-uuid-1", "account-uuid-2"],
+  "fallback_pool_id": null
+}
+```
+
+### CreatePoolRequest
+
+```json
+{
+  "name": "primary",
+  "strategy": "round_robin",
+  "members": ["account-uuid-1"],
+  "fallback_pool_id": null
+}
+```
+
+Rules:
+
+- `name` MUST be required.
+- `strategy` MUST be required.
+- `members` MAY be omitted and default to `[]`.
+- every member id MUST refer to an existing account or the request MUST fail.
+
+### UpdatePoolRequest
+
+```json
+{
+  "name": "primary-updated",
+  "strategy": "priority",
+  "members": ["account-uuid-1", "account-uuid-2"],
+  "fallback_pool_id": "pool-uuid-2"
+}
+```
+
+Rules:
+
+- `PUT` semantics MUST be full replacement using the path `pool_id` as the target identity.
+- The request body MUST NOT include `id`.
+
+### AddPoolMemberRequest
+
+```json
+{
+  "account_id": "account-uuid-1"
+}
+```
+
+Rules:
+
+- `account_id` MUST be required.
+
+---
+
+### RouteView
+
+```json
+{
+  "id": "uuid",
+  "logical_model": "gpt-4o",
+  "target_pool_id": "pool-uuid-1",
+  "fallback_route_id": null,
+  "capability_constraints": ["chat"]
+}
+```
+
+### CreateRouteRequest
+
+```json
+{
+  "logical_model": "gpt-4o",
+  "target_pool_id": "pool-uuid-1",
+  "fallback_route_id": null,
+  "capability_constraints": ["chat"]
+}
+```
+
+Rules:
+
+- `logical_model` MUST be required.
+- `target_pool_id` MUST be required and MUST reference an existing pool.
+
+### UpdateRouteRequest
+
+```json
+{
+  "logical_model": "gpt-4o-mini",
+  "target_pool_id": "pool-uuid-2",
+  "fallback_route_id": "route-uuid-2",
+  "capability_constraints": ["chat", "vision"]
+}
+```
+
+Rules:
+
+- `PUT` semantics MUST be full replacement using the path `route_id` as the target identity.
+- The request body MUST NOT include `id`.
+
+---
+
+### HealthAccountView
+
+```json
+{
+  "account_id": "account-uuid-1",
+  "display_name": "Primary OpenAI",
+  "vendor": "open_ai",
+  "enabled": true,
+  "status": "unknown",
+  "last_checked": null,
+  "consecutive_failures": 0,
+  "cooldown_until": null,
+  "is_available": false
+}
+```
+
+Rules:
+
+- one item MUST correspond to one known account
+- `display_name` MUST be a string
+- `vendor` MUST be a serialized provider vendor string
+- `enabled` MUST be a boolean
+- `last_checked` and `cooldown_until` MUST be RFC 3339 timestamps when present
+- `is_available` MUST be a boolean derived from current health/cooldown state
+
+### HealthSummaryView
+
+```json
+{
+  "total": 3,
+  "healthy": 1,
+  "degraded": 0,
+  "unhealthy": 1,
+  "unknown": 1
+}
+```
+
+Rules:
+
+- `total` MUST equal the sum of all four status counters
+
+---
+
+### SettingsView
+
+```json
+{
+  "gateway_port": 11434,
+  "default_routing_policy": {
+    "strategy": "priority",
+    "max_retries": 3,
+    "cooldown_seconds": 60
+  },
+  "log_json": false,
+  "log_level": "info"
+}
+```
+
+### UpdateSettingsRequest
+
+```json
+{
+  "gateway_port": 4141,
+  "default_routing_policy": {
+    "strategy": "round_robin",
+    "max_retries": 5,
+    "cooldown_seconds": 120
+  },
+  "log_json": true,
+  "log_level": "debug"
+}
+```
+
+Rules:
+
+- `PUT /api/settings` MUST accept the full settings object shape
+- `PATCH /api/settings` is intentionally excluded from the MVP contract
+
+---
+
+### UsageStatusView (placeholder)
+
+```json
+{
+  "available": false,
+  "reason": "usage accounting is not implemented in M1"
+}
+```
+
+Rules:
+
+- `available` MUST be `false` in M1
+- `reason` MUST be a human-readable explanation that usage accounting does not yet exist
+
+---
+
+### Admin Error Response Shape
+
+```json
+{
+  "error": {
+    "code": "resource_in_use",
+    "message": "pool 550e8400-e29b-41d4-a716-446655440000 cannot be deleted because it is referenced by one or more routes",
+    "details": {
+      "resource": "pool",
+      "id": "550e8400-e29b-41d4-a716-446655440000"
+    }
+  }
+}
+```
+
+Rules:
+
+- top-level `error` object MUST exist
+- `error.code` MUST be a machine-readable string
+- `error.message` MUST be a human-readable string
+- `error.details` MAY be omitted; when present it MUST be a JSON object
+- error responses MUST NOT include secrets or raw `api_key` values
+
+Suggested error codes include:
+
+- `not_found`
+- `validation_error`
+- `resource_in_use`
+- `conflict`
+- `internal_error`
 
 ---
 

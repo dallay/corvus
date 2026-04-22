@@ -1,0 +1,40 @@
+{
+  "name": "@corvus/rook-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Corvus Rook embedded operator dashboard",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "portless run --name rook-dashboard vite",
+    "build": "vue-tsc -b --noEmit && vite build",
+    "preview": "portless run --name rook-dashboard vite preview",
+    "format": "biome format --write src package.json tsconfig*.json vite.config.ts playwright.config.ts index.html README.md",
+    "check": "biome check src package.json tsconfig*.json vite.config.ts playwright.config.ts index.html README.md",
+    "test": "vitest --run --environment happy-dom --exclude e2e/**",
+    "test:e2e": "pnpm exec playwright test",
+    "test:e2e:install": "pnpm exec playwright install chromium"
+  },
+  "dependencies": {
+    "@corvus/shared": "workspace:*",
+    "vue": "catalog:"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@playwright/test": "catalog:",
+    "@tsconfig/node22": "catalog:",
+    "@types/node": "catalog:",
+    "@vitejs/plugin-vue": "catalog:",
+    "@vue/compiler-dom": "catalog:",
+    "@vue/test-utils": "catalog:",
+    "@vue/tsconfig": "catalog:",
+    "happy-dom": "catalog:",
+    "portless": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "vue-tsc": "catalog:"
+  }
+}

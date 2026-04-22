@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod chunker;
+pub mod dream;
 pub mod embeddings;
 pub mod hygiene;
 pub mod lucid;
@@ -15,6 +16,12 @@ pub mod vector;
 pub use backend::{
     classify_memory_backend, default_memory_backend_key, memory_backend_profile,
     selectable_memory_backends, MemoryBackendKind, MemoryBackendProfile,
+};
+#[allow(unused_imports)]
+pub use dream::{
+    record_session_completion, run_if_triggered as run_dream_if_triggered,
+    run_now as run_dream_now, DreamLaunchContract, DreamLockState, DreamPhase, DreamPhaseResult,
+    DreamRunStatus, DreamTriggerReason, MemoryConsolidationReport,
 };
 pub use lucid::LucidMemory;
 pub use markdown::MarkdownMemory;
@@ -87,6 +94,9 @@ pub fn create_memory(
     // Best-effort memory hygiene/retention pass (throttled by state file).
     if let Err(e) = hygiene::run_if_due(&effective_config, workspace_dir) {
         tracing::warn!("memory hygiene skipped: {e}");
+    }
+    if let Err(e) = dream::run_if_triggered(workspace_dir) {
+        tracing::warn!("dream consolidation skipped: {e}");
     }
 
     // If snapshot_on_hygiene is enabled, export core memories during hygiene.

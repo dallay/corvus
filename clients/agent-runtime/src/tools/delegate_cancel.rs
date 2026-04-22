@@ -224,6 +224,7 @@ mod tests {
                 prompt: "do it".into(),
                 context: None,
                 launch_index: 0,
+                execution: None,
             }],
             fan_in: FanInPolicy::AllMustSucceed,
         }
@@ -388,5 +389,31 @@ mod tests {
             "already_terminal",
             "expected already_terminal disposition"
         );
+    }
+
+    #[tokio::test]
+    async fn cancel_result_preserves_cancelling_and_terminal_visibility() {
+        let svc = service();
+        let runner = Arc::new(WaitForCancellationRunner);
+        let receipt = svc.launch(one_child_request(), runner).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let result = tool(Arc::clone(&svc))
+            .execute(serde_json::json!({ "handle": receipt.handle.0 }))
+            .await
+            .unwrap();
+
+        assert!(result.success, "expected success, got: {:?}", result.error);
+        let structured = result.structured.unwrap();
+        assert_eq!(
+            structured["cancel_result"]["snapshot"]["children"][0]["state"],
+            "cancelled"
+        );
+        assert!(structured["cancel_result"]["snapshot"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["kind"].as_str().unwrap_or("").contains("cancelling")));
     }
 }

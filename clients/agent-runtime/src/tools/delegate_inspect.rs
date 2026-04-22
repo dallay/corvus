@@ -273,6 +273,7 @@ mod tests {
                 prompt: "do it".into(),
                 context: None,
                 launch_index: 0,
+                execution: None,
             }],
             fan_in: FanInPolicy::AllMustSucceed,
         };
@@ -313,6 +314,7 @@ mod tests {
                 prompt: "do it".into(),
                 context: None,
                 launch_index: 0,
+                execution: None,
             }],
             fan_in: FanInPolicy::AllMustSucceed,
         };
@@ -358,6 +360,7 @@ mod tests {
                 prompt: "do it".into(),
                 context: None,
                 launch_index: 0,
+                execution: None,
             }],
             fan_in: FanInPolicy::AllMustSucceed,
         };
@@ -373,6 +376,56 @@ mod tests {
         assert!(result.success, "expected success, got: {:?}", result.error);
         let structured = result.structured.unwrap();
         assert_eq!(structured["snapshot"]["handle"], receipt.handle.0);
+
+        release.notify_waiters();
+    }
+
+    #[tokio::test]
+    async fn inspect_surfaces_requested_vs_enforced_metadata_and_lifecycle_events() {
+        let svc = Arc::new(SupervisedOrchestrationService::new());
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let runner = Arc::new(GatedRunner {
+            started: started.clone(),
+            release: release.clone(),
+        });
+
+        let request = CoordinatorLaunchRequest {
+            parent_session_id: None,
+            children: vec![ChildLaunchRequest {
+                child_id: ChildAgentId("c1".into()),
+                agent_name: "AgentA".into(),
+                prompt: "do it".into(),
+                context: None,
+                launch_index: 0,
+                execution: Some(crate::agent::coordinator::ChildExecutionSpec {
+                    transport: Some(CoordinatorTransport::Mailbox),
+                    sandbox_mode: Some("workspace_write".into()),
+                    read_only_project_access: true,
+                    ..crate::agent::coordinator::ChildExecutionSpec::default()
+                }),
+            }],
+            fan_in: FanInPolicy::AllMustSucceed,
+        };
+
+        let receipt = svc.launch(request, runner).await.unwrap();
+        started.notified().await;
+
+        let result = tool(Arc::clone(&svc))
+            .execute(serde_json::json!({ "handle": receipt.handle.0.clone() }))
+            .await
+            .unwrap();
+
+        assert!(result.success, "expected success, got: {:?}", result.error);
+        let structured = result.structured.unwrap();
+        let execution = &structured["snapshot"]["children"][0]["execution"];
+        assert_eq!(execution["requested"]["transport"], "mailbox");
+        assert_eq!(execution["enforced"]["transport"], "mailbox");
+        assert_eq!(
+            execution["enforced"]["process_local_handle_authority"],
+            serde_json::json!(true)
+        );
+        assert!(structured["snapshot"]["events"].as_array().unwrap().len() >= 2);
 
         release.notify_waiters();
     }

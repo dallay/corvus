@@ -1,6 +1,15 @@
 use std::collections::BTreeMap;
 
+use axum::{
+    Json,
+    http::{HeaderValue, StatusCode, header::RETRY_AFTER, header::WWW_AUTHENTICATE},
+    response::{IntoResponse, Response},
+};
 use serde::{Deserialize, Serialize};
+
+pub const IDEMPOTENCY_REPLAYED_HEADER: &str = "idempotency-replayed";
+pub const STREAM_CONTENT_TYPE: &str = "text/event-stream";
+pub const STREAM_DONE_SENTINEL: &str = "[DONE]";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -89,10 +98,116 @@ pub struct GatewayErrorBody {
     pub code: Option<String>,
 }
 
+pub fn gateway_unauthorized_response() -> Response {
+    let mut response = (
+        StatusCode::UNAUTHORIZED,
+        Json(GatewayErrorResponse {
+            error: GatewayErrorBody {
+                message: "valid inbound bearer token required".to_string(),
+                error_type: "invalid_request_error".to_string(),
+                code: Some("unauthorized".to_string()),
+            },
+        }),
+    )
+        .into_response();
+    response
+        .headers_mut()
+        .insert(WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+    response
+}
+
+pub fn gateway_rate_limited_response(retry_after_seconds: u64) -> Response {
+    let mut response = (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(GatewayErrorResponse {
+            error: GatewayErrorBody {
+                message: "global rate limit exceeded for this endpoint".to_string(),
+                error_type: "rate_limit_error".to_string(),
+                code: Some("rate_limited".to_string()),
+            },
+        }),
+    )
+        .into_response();
+    response.headers_mut().insert(
+        RETRY_AFTER,
+        HeaderValue::from_str(&retry_after_seconds.to_string())
+            .unwrap_or_else(|_| HeaderValue::from_static("1")),
+    );
+    response
+}
+
+pub fn gateway_idempotency_error_response(
+    status: StatusCode,
+    message: &str,
+    code: &str,
+) -> Response {
+    (
+        status,
+        Json(GatewayErrorResponse {
+            error: GatewayErrorBody {
+                message: message.to_string(),
+                error_type: if status == StatusCode::SERVICE_UNAVAILABLE {
+                    "server_error".to_string()
+                } else {
+                    "invalid_request_error".to_string()
+                },
+                code: Some(code.to_string()),
+            },
+        }),
+    )
+        .into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{header::WWW_AUTHENTICATE, StatusCode};
     use serde_json::json;
+
+    #[test]
+    fn idempotency_helpers_expose_replay_header_constant() {
+        assert_eq!(IDEMPOTENCY_REPLAYED_HEADER, "idempotency-replayed");
+    }
+
+    #[test]
+    fn streaming_helpers_expose_openai_sse_constants() {
+        assert_eq!(STREAM_CONTENT_TYPE, "text/event-stream");
+        assert_eq!(STREAM_DONE_SENTINEL, "[DONE]");
+    }
+
+    #[tokio::test]
+    async fn gateway_idempotency_error_response_uses_gateway_error_shape() {
+        let response = gateway_idempotency_error_response(
+            StatusCode::CONFLICT,
+            "request is already in progress",
+            "idempotency_request_in_progress",
+        );
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
+        assert_eq!(json["error"]["type"], json!("invalid_request_error"));
+        assert_eq!(
+            json["error"]["code"],
+            json!("idempotency_request_in_progress")
+        );
+    }
+
+    #[tokio::test]
+    async fn gateway_idempotency_unavailable_response_uses_server_error_shape() {
+        let response = gateway_idempotency_error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "idempotency storage unavailable",
+            "idempotency_unavailable",
+        );
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
+        assert_eq!(json["error"]["type"], json!("server_error"));
+        assert_eq!(json["error"]["code"], json!("idempotency_unavailable"));
+    }
 
     #[test]
     fn chat_completion_request_deserializes_minimal_payload() {
@@ -278,8 +393,42 @@ mod tests {
 
         let json = serde_json::to_value(&response).unwrap();
 
-        assert_eq!(json["error"]["message"], json!("no route configured for model 'unknown-model'"));
+        assert_eq!(
+            json["error"]["message"],
+            json!("no route configured for model 'unknown-model'")
+        );
         assert_eq!(json["error"]["type"], json!("server_error"));
         assert_eq!(json["error"]["code"], json!("model_not_found"));
+    }
+
+    #[tokio::test]
+    async fn gateway_unauthorized_response_uses_gateway_shape_and_bearer_header() {
+        let response = gateway_unauthorized_response();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()[WWW_AUTHENTICATE], "Bearer");
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["type"], json!("invalid_request_error"));
+        assert_eq!(json["error"]["code"], json!("unauthorized"));
+        assert_eq!(json["error"]["message"], json!("valid inbound bearer token required"));
+    }
+
+    #[tokio::test]
+    async fn gateway_rate_limited_response_uses_gateway_shape_and_retry_after_header() {
+        let response = gateway_rate_limited_response(11);
+
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()["retry-after"], "11");
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["type"], json!("rate_limit_error"));
+        assert_eq!(json["error"]["code"], json!("rate_limited"));
+        assert_eq!(
+            json["error"]["message"],
+            json!("global rate limit exceeded for this endpoint")
+        );
     }
 }

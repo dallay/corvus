@@ -42,13 +42,12 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use crate::domain::{
-    AccountId, ModelRoute, PoolId, ProviderAccount, ProviderPool, RouteId, RookError, SelectionStrategy,
+    AccountId, ModelRoute, PoolId, ProviderAccount, ProviderPool, RookError, RouteId,
+    SelectionStrategy,
 };
 use crate::registry::RookRegistry;
 use crate::services::{
-    account::AccountService as _,
-    health::HealthService as _,
-    pool::PoolService as _,
+    account::AccountService as _, health::HealthService as _, pool::PoolService as _,
     route::RouteService as _,
 };
 
@@ -205,9 +204,15 @@ impl RoutingEngine {
                     .await;
             }
 
-            let account = self.select_from_pool(pool_id, &pool.strategy, &candidates).await?;
+            let account = self
+                .select_from_pool(pool_id, &pool.strategy, &candidates)
+                .await?;
 
-            Ok(RoutingDecision { account, pool_id, route_id })
+            Ok(RoutingDecision {
+                account,
+                pool_id,
+                route_id,
+            })
         })
     }
 
@@ -225,13 +230,7 @@ impl RoutingEngine {
             // Pool-level fallback: the pool itself names another pool.
             if let Some(fallback_pool_id) = pool.fallback_pool_id {
                 return self
-                    .resolve_pool(
-                        fallback_pool_id,
-                        route_id,
-                        route,
-                        depth + 1,
-                        visited_pools,
-                    )
+                    .resolve_pool(fallback_pool_id, route_id, route, depth + 1, visited_pools)
                     .await;
             }
 
@@ -271,7 +270,10 @@ impl RoutingEngine {
         strategy: &SelectionStrategy,
         candidates: &[ProviderAccount],
     ) -> Result<ProviderAccount, RookError> {
-        debug_assert!(!candidates.is_empty(), "select_from_pool called with empty candidates");
+        debug_assert!(
+            !candidates.is_empty(),
+            "select_from_pool called with empty candidates"
+        );
 
         let account = match strategy {
             SelectionStrategy::Priority => self.select_priority(candidates)?,
@@ -286,7 +288,10 @@ impl RoutingEngine {
     // ── Strategy implementations ──────────────────────────────────────────────
 
     /// Pick the candidate with the lowest `priority` value (highest priority).
-    fn select_priority(&self, candidates: &[ProviderAccount]) -> Result<ProviderAccount, RookError> {
+    fn select_priority(
+        &self,
+        candidates: &[ProviderAccount],
+    ) -> Result<ProviderAccount, RookError> {
         candidates
             .iter()
             .min_by_key(|a| a.priority)
@@ -298,7 +303,10 @@ impl RoutingEngine {
     ///
     /// The pool-level fallback chain handles the actual failover; here we
     /// simply return the best available candidate after health filtering.
-    fn select_failover(&self, candidates: &[ProviderAccount]) -> Result<ProviderAccount, RookError> {
+    fn select_failover(
+        &self,
+        candidates: &[ProviderAccount],
+    ) -> Result<ProviderAccount, RookError> {
         // Pick the account with the lowest priority value (highest urgency).
         // This mirrors Priority semantics: if all are healthy, the top-priority
         // account acts as primary; if it fails, the caller marks it unhealthy
@@ -363,9 +371,9 @@ impl RoutingEngine {
         pool_state.retain(|id, _| candidates_ids.contains(id));
 
         let mut total_weight: i64 = 0;
-        let best_account = candidates.first().ok_or_else(|| {
-            RookError::Routing("no candidates for weighted selection".into())
-        })?;
+        let best_account = candidates
+            .first()
+            .ok_or_else(|| RookError::Routing("no candidates for weighted selection".into()))?;
         let mut best_id = best_account.id;
         let mut best_score: i64 = i64::MIN;
 
@@ -574,7 +582,10 @@ mod tests {
         registry.routes().create(route).await.unwrap();
 
         let decision = engine.resolve("claude-3").await.unwrap();
-        assert_eq!(decision.account.id, primary_id, "primary should be selected");
+        assert_eq!(
+            decision.account.id, primary_id,
+            "primary should be selected"
+        );
     }
 
     #[tokio::test]
@@ -606,7 +617,10 @@ mod tests {
         registry.routes().create(route).await.unwrap();
 
         let decision = engine.resolve("gpt-4o-mini").await.unwrap();
-        assert_eq!(decision.account.id, enabled_id, "disabled account must be skipped");
+        assert_eq!(
+            decision.account.id, enabled_id,
+            "disabled account must be skipped"
+        );
     }
 
     #[tokio::test]
@@ -636,7 +650,10 @@ mod tests {
         registry.routes().create(route).await.unwrap();
 
         let decision = engine.resolve("deep-seek-r1").await.unwrap();
-        assert_eq!(decision.account.id, good_id, "unhealthy account must be skipped");
+        assert_eq!(
+            decision.account.id, good_id,
+            "unhealthy account must be skipped"
+        );
     }
 
     #[tokio::test]
@@ -680,7 +697,11 @@ mod tests {
         registry.accounts().create(text_only).await.unwrap();
 
         let all = registry.accounts().list().await;
-        let text_only_id = all.iter().find(|a| a.capabilities == vec!["text".to_owned()]).unwrap().id;
+        let text_only_id = all
+            .iter()
+            .find(|a| a.capabilities == vec!["text".to_owned()])
+            .unwrap()
+            .id;
 
         let pool = ProviderPool {
             id: PoolId::generate(),
@@ -697,7 +718,10 @@ mod tests {
         registry.routes().create(route).await.unwrap();
 
         let decision = engine.resolve("vision-model").await.unwrap();
-        assert_eq!(decision.account.id, vision_id, "must select the vision-capable account");
+        assert_eq!(
+            decision.account.id, vision_id,
+            "must select the vision-capable account"
+        );
     }
 
     // ── Round-robin ───────────────────────────────────────────────────────────
@@ -786,7 +810,7 @@ mod tests {
         // With weights 3:1 over 40 requests we expect ~30 heavy (75%) and ~10 light (25%).
         // Tight bounds: heavy should get 24-32 (60-80%), light must be > 0 and 8-16.
         assert!(
-            heavy_count >= 24 && heavy_count <= 32,
+            (24..=32).contains(&heavy_count),
             "heavy account should get ~75% (60-80%) of traffic, got {heavy_count}/40"
         );
         assert!(
@@ -838,7 +862,10 @@ mod tests {
         registry.routes().create(route).await.unwrap();
 
         let decision = engine.resolve("fallback-model").await.unwrap();
-        assert_eq!(decision.account.id, good_id, "must fall back to healthy account");
+        assert_eq!(
+            decision.account.id, good_id,
+            "must fall back to healthy account"
+        );
     }
 
     #[tokio::test]
@@ -894,7 +921,10 @@ mod tests {
         registry.routes().create(primary_route).await.unwrap();
 
         let decision = engine.resolve("primary-model").await.unwrap();
-        assert_eq!(decision.account.id, good_id, "must use route-level fallback");
+        assert_eq!(
+            decision.account.id, good_id,
+            "must use route-level fallback"
+        );
     }
 
     #[tokio::test]

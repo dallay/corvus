@@ -56,9 +56,11 @@ impl CoordinatorState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CoordinatorTransport {
     InProcess,
     Mailbox,
+    RemoteBridge,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,19 +71,275 @@ pub enum FanInPolicy {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ChildAgentId(pub String);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChildState {
-    Registered,
+    Queued,
+    Starting,
     Running,
-    Succeeded,
+    WaitingOnParent,
+    Cancelling,
+    Completed,
     Failed,
     Cancelled,
 }
 
 impl ChildState {
     fn is_terminal(&self) -> bool {
-        matches!(self, Self::Succeeded | Self::Failed | Self::Cancelled)
+        matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ChildExecutionSpec {
+    #[serde(default)]
+    pub working_directory: Option<String>,
+    #[serde(default)]
+    pub sandbox_mode: Option<String>,
+    #[serde(default)]
+    pub repository_id: Option<String>,
+    #[serde(default)]
+    pub worktree_id: Option<String>,
+    #[serde(default)]
+    pub tool_allowlist: Vec<String>,
+    #[serde(default)]
+    pub tool_denylist: Vec<String>,
+    #[serde(default)]
+    pub provider_override: Option<String>,
+    #[serde(default)]
+    pub model_override: Option<String>,
+    #[serde(default)]
+    pub transport: Option<CoordinatorTransport>,
+    #[serde(default)]
+    pub read_only_project_access: bool,
+    #[serde(default)]
+    pub permission_broker: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NormalizedExecutionRequest {
+    pub transport: CoordinatorTransport,
+    pub sandbox_mode: Option<String>,
+    pub repository_id: Option<String>,
+    pub worktree_id: Option<String>,
+    pub read_only_project_access: bool,
+    pub tool_allowlist: Vec<String>,
+    pub tool_denylist: Vec<String>,
+    pub provider_override: Option<String>,
+    pub model_override: Option<String>,
+    pub working_directory: Option<String>,
+    pub permission_broker: Option<String>,
+}
+
+impl From<&ChildExecutionSpec> for NormalizedExecutionRequest {
+    fn from(value: &ChildExecutionSpec) -> Self {
+        Self {
+            transport: value
+                .transport
+                .clone()
+                .unwrap_or(CoordinatorTransport::InProcess),
+            sandbox_mode: value.sandbox_mode.clone(),
+            repository_id: value.repository_id.clone(),
+            worktree_id: value.worktree_id.clone(),
+            read_only_project_access: value.read_only_project_access,
+            tool_allowlist: value.tool_allowlist.clone(),
+            tool_denylist: value.tool_denylist.clone(),
+            provider_override: value.provider_override.clone(),
+            model_override: value.model_override.clone(),
+            working_directory: value.working_directory.clone(),
+            permission_broker: value.permission_broker.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalBrokerMode {
+    None,
+    ParentOwnedOnly,
+}
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnforcedExecutionGuarantees {
+    pub transport: CoordinatorTransport,
+    pub process_local_handle_authority: bool,
+    pub mailbox_backed_delivery: bool,
+    pub repository_isolation_enforced: bool,
+    pub worktree_isolation_enforced: bool,
+    pub sandbox_clone_enforced: bool,
+    pub remote_bridge_connected: bool,
+    pub approval_broker_mode: ApprovalBrokerMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChildExecutionMetadataView {
+    pub requested: NormalizedExecutionRequest,
+    pub enforced: EnforcedExecutionGuarantees,
+}
+
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LaunchContractRejection {
+    UnsupportedTransport { requested: CoordinatorTransport },
+    UnsupportedIsolation { field: String, requested: String },
+    UnsupportedPermissionBroker { reason: String },
+}
+
+impl std::fmt::Display for LaunchContractRejection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedTransport { requested } => {
+                write!(f, "unsupported transport request: {requested:?}")
+            }
+            Self::UnsupportedIsolation { field, requested } => {
+                write!(f, "unsupported isolation request for {field}: {requested}")
+            }
+            Self::UnsupportedPermissionBroker { reason } => {
+                write!(f, "unsupported permission broker request: {reason}")
+            }
+        }
+    }
+}
+
+fn enforced_execution_guarantees(
+    requested: &NormalizedExecutionRequest,
+) -> EnforcedExecutionGuarantees {
+    EnforcedExecutionGuarantees {
+        transport: match requested.transport {
+            CoordinatorTransport::Mailbox => CoordinatorTransport::Mailbox,
+            CoordinatorTransport::InProcess | CoordinatorTransport::RemoteBridge => {
+                CoordinatorTransport::InProcess
+            }
+        },
+        process_local_handle_authority: true,
+        mailbox_backed_delivery: requested.transport == CoordinatorTransport::Mailbox,
+        repository_isolation_enforced: false,
+        worktree_isolation_enforced: false,
+        sandbox_clone_enforced: false,
+        remote_bridge_connected: false,
+        approval_broker_mode: ApprovalBrokerMode::ParentOwnedOnly,
+    }
+}
+
+fn normalize_execution_metadata(
+    spec: Option<&ChildExecutionSpec>,
+) -> Result<Option<ChildExecutionMetadataView>, LaunchContractRejection> {
+    let Some(spec) = spec else {
+        return Ok(None);
+    };
+
+    let requested = NormalizedExecutionRequest::from(spec);
+
+    if requested.transport == CoordinatorTransport::RemoteBridge {
+        return Err(LaunchContractRejection::UnsupportedTransport {
+            requested: CoordinatorTransport::RemoteBridge,
+        });
+    }
+
+    if let Some(repository_id) = &requested.repository_id {
+        return Err(LaunchContractRejection::UnsupportedIsolation {
+            field: "repository_id".to_string(),
+            requested: repository_id.clone(),
+        });
+    }
+
+    if let Some(worktree_id) = &requested.worktree_id {
+        return Err(LaunchContractRejection::UnsupportedIsolation {
+            field: "worktree_id".to_string(),
+            requested: worktree_id.clone(),
+        });
+    }
+
+    if let Some(sandbox_mode) = &requested.sandbox_mode {
+        let normalized = sandbox_mode.trim().to_ascii_lowercase();
+        if matches!(
+            normalized.as_str(),
+            "clone" | "cloned" | "isolated" | "workspace_clone"
+        ) {
+            return Err(LaunchContractRejection::UnsupportedIsolation {
+                field: "sandbox_mode".to_string(),
+                requested: sandbox_mode.clone(),
+            });
+        }
+    }
+
+    if let Some(permission_broker) = &requested.permission_broker {
+        let normalized = permission_broker.trim().to_ascii_lowercase();
+        if normalized != "parent_owned_only" {
+            return Err(LaunchContractRejection::UnsupportedPermissionBroker {
+                reason: permission_broker.clone(),
+            });
+        }
+    }
+
+    Ok(Some(ChildExecutionMetadataView {
+        enforced: enforced_execution_guarantees(&requested),
+        requested,
+    }))
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ApprovalRequest {
+    pub request_id: String,
+    pub tool_name: String,
+    pub reason: String,
+    #[serde(default)]
+    pub arguments: Option<serde_json::Value>,
+    pub requested_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ApprovalDecision {
+    Approved {
+        request_id: String,
+        decided_at: DateTime<Utc>,
+    },
+    Denied {
+        request_id: String,
+        decided_at: DateTime<Utc>,
+        reason: String,
+    },
+    Cancelled {
+        request_id: String,
+        decided_at: DateTime<Utc>,
+        reason: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ApprovalStatus {
+    #[default]
+    None,
+    Pending {
+        request: ApprovalRequest,
+    },
+    Resolved {
+        decision: ApprovalDecision,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CoordinatorEvent {
+    ChildStateChanged {
+        child_id: String,
+        state: ChildState,
+        summary: Option<String>,
+        sequence: u64,
+    },
+    ApprovalRequested {
+        child_id: String,
+        request: ApprovalRequest,
+        sequence: u64,
+    },
+    ApprovalResolved {
+        child_id: String,
+        decision: ApprovalDecision,
+        sequence: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +362,8 @@ pub struct ChildRecord {
     pub launch_index: u32,
     pub session_id: Option<String>,
     pub state: ChildState,
+    pub execution: Option<ChildExecutionMetadataView>,
+    pub approval: ApprovalStatus,
     pub last_sequence: u64,
     pub terminal_reason: Option<ChildTerminationReason>,
     pub summary: Option<String>,
@@ -142,6 +402,7 @@ pub struct ChildLaunchRequest {
     pub prompt: String,
     pub context: Option<String>,
     pub launch_index: u32,
+    pub execution: Option<ChildExecutionSpec>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,6 +432,8 @@ pub enum CoordinatorMessage {
     CancelChild { reason: CancellationReason },
     ChildStarted { session_id: Option<String> },
     ChildProgress { summary: String },
+    RequestApproval { request: ApprovalRequest },
+    ResolveApproval { decision: ApprovalDecision },
     ChildCompleted { result: ChildExecutionResult },
     ChildFailed { error: ChildExecutionError },
     ChildCancelled { reason: CancellationReason },
@@ -227,6 +490,8 @@ pub enum CoordinatorError {
     InvalidEnvelope(String),
     #[error("coordinator failed closed: {0}")]
     FailedClosed(String),
+    #[error("launch contract rejected: {0}")]
+    LaunchContractRejected(LaunchContractRejection),
 }
 
 #[async_trait]
@@ -288,6 +553,17 @@ impl DelegatedAgentRunner {
             config.api_key = Some(key.clone());
         } else if let Some(key) = &self.fallback_credential {
             config.api_key = Some(key.clone());
+        }
+        if let Some(execution) = &request.execution {
+            if let Some(provider_override) = &execution.provider_override {
+                config.default_provider = Some(provider_override.clone());
+            }
+            if let Some(model_override) = &execution.model_override {
+                config.default_model = Some(model_override.clone());
+            }
+            if let Some(working_directory) = &execution.working_directory {
+                config.workspace_dir = std::path::PathBuf::from(working_directory);
+            }
         }
 
         let timeout_ms = agent_config
@@ -501,6 +777,7 @@ pub struct Coordinator {
     registry: Arc<Mutex<SupervisionRegistry>>,
     outcomes: Arc<Mutex<BTreeMap<ChildAgentId, CoordinatorChildOutcome>>>,
     applied_messages: Arc<Mutex<HashMap<(ChildAgentId, String), String>>>,
+    events: Arc<Mutex<Vec<CoordinatorEvent>>>,
     next_sequence: AtomicU64,
 }
 
@@ -526,6 +803,7 @@ impl Coordinator {
             registry: Arc::new(Mutex::new(BTreeMap::new())),
             outcomes: Arc::new(Mutex::new(BTreeMap::new())),
             applied_messages: Arc::new(Mutex::new(HashMap::new())),
+            events: Arc::new(Mutex::new(Vec::new())),
             next_sequence: AtomicU64::new(1),
         }
     }
@@ -566,6 +844,21 @@ impl Coordinator {
         Ok(state.clone())
     }
 
+    fn log_event(&self, event: CoordinatorEvent) -> Result<(), CoordinatorError> {
+        self.events
+            .lock()
+            .map_err(|_| CoordinatorError::FailedClosed("event log lock poisoned".to_string()))?
+            .push(event);
+        Ok(())
+    }
+
+    pub fn event_log(&self) -> Result<Vec<CoordinatorEvent>, CoordinatorError> {
+        self.events
+            .lock()
+            .map(|events| events.clone())
+            .map_err(|_| CoordinatorError::FailedClosed("event log lock poisoned".to_string()))
+    }
+
     pub fn admit_child(&self, request: &ChildLaunchRequest) -> Result<(), CoordinatorError> {
         let mut registry = self
             .registry
@@ -590,7 +883,10 @@ impl Coordinator {
                 agent_name: request.agent_name.clone(),
                 launch_index: request.launch_index,
                 session_id: None,
-                state: ChildState::Registered,
+                state: ChildState::Queued,
+                execution: normalize_execution_metadata(request.execution.as_ref())
+                    .map_err(CoordinatorError::LaunchContractRejected)?,
+                approval: ApprovalStatus::None,
                 last_sequence: 0,
                 terminal_reason: None,
                 summary: None,
@@ -617,6 +913,30 @@ impl Coordinator {
             .lock()
             .map(|registry| registry.get(child_id).cloned())
             .map_err(|_| CoordinatorError::FailedClosed("registry lock poisoned".to_string()))
+    }
+
+    fn apply_cancellation_visibility(
+        &self,
+        reason: &CancellationReason,
+    ) -> Result<(), CoordinatorError> {
+        for child_id in self.ordered_child_ids()? {
+            let Some(record) = self.child_record(&child_id)? else {
+                continue;
+            };
+            if record.state.is_terminal() || record.state == ChildState::Cancelling {
+                continue;
+            }
+
+            let cancel_envelope = self.next_envelope(
+                Some(child_id.clone()),
+                format!("cancel:{}", record.launch_index),
+                CoordinatorMessage::CancelChild {
+                    reason: reason.clone(),
+                },
+            );
+            self.apply_envelope(&cancel_envelope)?;
+        }
+        Ok(())
     }
 
     pub fn next_envelope(
@@ -702,11 +1022,12 @@ impl Coordinator {
 
         match &envelope.payload {
             CoordinatorMessage::DispatchChild(_) => {
-                record.state = ChildState::Registered;
+                record.state = ChildState::Starting;
+                record.summary = Some("dispatching child".to_string());
             }
             CoordinatorMessage::CancelChild { reason } => {
                 if !record.state.is_terminal() {
-                    record.state = ChildState::Running;
+                    record.state = ChildState::Cancelling;
                     record.summary = Some(format!("cancelling: {reason:?}"));
                 }
             }
@@ -715,6 +1036,7 @@ impl Coordinator {
                     return Err(CoordinatorError::AlreadyTerminalState);
                 }
                 record.state = ChildState::Running;
+                record.approval = ApprovalStatus::None;
                 record.session_id = session_id.clone();
             }
             CoordinatorMessage::ChildProgress { summary } => {
@@ -724,10 +1046,43 @@ impl Coordinator {
                 record.state = ChildState::Running;
                 record.summary = Some(summary.clone());
             }
+            CoordinatorMessage::RequestApproval { request } => {
+                if record.state.is_terminal() {
+                    return Err(CoordinatorError::AlreadyTerminalState);
+                }
+                record.state = ChildState::WaitingOnParent;
+                record.summary = Some(format!(
+                    "awaiting parent approval for {}",
+                    request.tool_name
+                ));
+                record.approval = ApprovalStatus::Pending {
+                    request: request.clone(),
+                };
+                self.log_event(CoordinatorEvent::ApprovalRequested {
+                    child_id: child_id.0.clone(),
+                    request: request.clone(),
+                    sequence: envelope.meta.sequence,
+                })?;
+            }
+            CoordinatorMessage::ResolveApproval { decision } => {
+                if record.state.is_terminal() {
+                    return Err(CoordinatorError::AlreadyTerminalState);
+                }
+                record.state = ChildState::Running;
+                record.summary = Some("approval decision recorded".to_string());
+                record.approval = ApprovalStatus::Resolved {
+                    decision: decision.clone(),
+                };
+                self.log_event(CoordinatorEvent::ApprovalResolved {
+                    child_id: child_id.0.clone(),
+                    decision: decision.clone(),
+                    sequence: envelope.meta.sequence,
+                })?;
+            }
             CoordinatorMessage::ChildCompleted { result } => {
                 self.record_terminal(
                     record,
-                    child_id,
+                    &child_id,
                     TerminalUpdate {
                         outcome: CoordinatorChildOutcome::Succeeded {
                             child_id: record.child_id.clone(),
@@ -735,7 +1090,7 @@ impl Coordinator {
                             result: result.clone(),
                         },
                         session_id: result.session_id.clone(),
-                        state: ChildState::Succeeded,
+                        state: ChildState::Completed,
                         terminal_reason: ChildTerminationReason::Completed,
                         summary: result.tool_result.output.clone(),
                     },
@@ -744,7 +1099,7 @@ impl Coordinator {
             CoordinatorMessage::ChildFailed { error } => {
                 self.record_terminal(
                     record,
-                    child_id,
+                    &child_id,
                     TerminalUpdate {
                         outcome: CoordinatorChildOutcome::Failed {
                             child_id: record.child_id.clone(),
@@ -761,7 +1116,7 @@ impl Coordinator {
             CoordinatorMessage::ChildCancelled { reason } => {
                 self.record_terminal(
                     record,
-                    child_id,
+                    &child_id,
                     TerminalUpdate {
                         outcome: CoordinatorChildOutcome::Cancelled {
                             child_id: record.child_id.clone(),
@@ -777,6 +1132,13 @@ impl Coordinator {
             }
         }
 
+        self.log_event(CoordinatorEvent::ChildStateChanged {
+            child_id: child_id.0.clone(),
+            state: record.state.clone(),
+            summary: record.summary.clone(),
+            sequence: envelope.meta.sequence,
+        })?;
+
         applied_messages.insert(duplicate_key, payload_digest);
         Ok(())
     }
@@ -787,11 +1149,14 @@ impl Coordinator {
         payload: &CoordinatorMessage,
     ) -> LogicalEndpoint {
         match payload {
-            CoordinatorMessage::DispatchChild(_) | CoordinatorMessage::CancelChild { .. } => {
+            CoordinatorMessage::DispatchChild(_)
+            | CoordinatorMessage::CancelChild { .. }
+            | CoordinatorMessage::ResolveApproval { .. } => {
                 LogicalEndpoint::coordinator(self.coordinator_id.clone())
             }
             CoordinatorMessage::ChildStarted { .. }
             | CoordinatorMessage::ChildProgress { .. }
+            | CoordinatorMessage::RequestApproval { .. }
             | CoordinatorMessage::ChildCompleted { .. }
             | CoordinatorMessage::ChildFailed { .. }
             | CoordinatorMessage::ChildCancelled { .. } => child_id
@@ -807,14 +1172,15 @@ impl Coordinator {
         payload: &CoordinatorMessage,
     ) -> LogicalEndpoint {
         match payload {
-            CoordinatorMessage::DispatchChild(_) | CoordinatorMessage::CancelChild { .. } => {
-                child_id
-                    .cloned()
-                    .map(|value| LogicalEndpoint::child(self.coordinator_id.clone(), value))
-                    .unwrap_or_else(|| LogicalEndpoint::coordinator(self.coordinator_id.clone()))
-            }
+            CoordinatorMessage::DispatchChild(_)
+            | CoordinatorMessage::CancelChild { .. }
+            | CoordinatorMessage::ResolveApproval { .. } => child_id
+                .cloned()
+                .map(|value| LogicalEndpoint::child(self.coordinator_id.clone(), value))
+                .unwrap_or_else(|| LogicalEndpoint::coordinator(self.coordinator_id.clone())),
             CoordinatorMessage::ChildStarted { .. }
             | CoordinatorMessage::ChildProgress { .. }
+            | CoordinatorMessage::RequestApproval { .. }
             | CoordinatorMessage::ChildCompleted { .. }
             | CoordinatorMessage::ChildFailed { .. }
             | CoordinatorMessage::ChildCancelled { .. } => child_id
@@ -827,7 +1193,7 @@ impl Coordinator {
     fn record_terminal(
         &self,
         record: &mut ChildRecord,
-        child_id: ChildAgentId,
+        child_id: &ChildAgentId,
         update: TerminalUpdate,
     ) -> Result<(), CoordinatorError> {
         if record.state.is_terminal() {
@@ -843,7 +1209,7 @@ impl Coordinator {
         self.outcomes
             .lock()
             .map_err(|_| CoordinatorError::FailedClosed("outcome lock poisoned".to_string()))?
-            .insert(child_id, update.outcome);
+            .insert(child_id.clone(), update.outcome);
         Ok(())
     }
 
@@ -863,7 +1229,9 @@ impl Coordinator {
         }
         if !matches!(
             envelope.meta.transport,
-            CoordinatorTransport::InProcess | CoordinatorTransport::Mailbox
+            CoordinatorTransport::InProcess
+                | CoordinatorTransport::Mailbox
+                | CoordinatorTransport::RemoteBridge
         ) {
             return Err(CoordinatorError::InvalidEnvelope(
                 "unsupported transport".to_string(),
@@ -881,7 +1249,9 @@ impl Coordinator {
         };
 
         match &envelope.payload {
-            CoordinatorMessage::DispatchChild(_) | CoordinatorMessage::CancelChild { .. } => {
+            CoordinatorMessage::DispatchChild(_)
+            | CoordinatorMessage::CancelChild { .. }
+            | CoordinatorMessage::ResolveApproval { .. } => {
                 match (&envelope.meta.sender, &envelope.meta.recipient) {
                     (
                         LogicalEndpoint::Coordinator { coordinator_id, .. },
@@ -901,6 +1271,7 @@ impl Coordinator {
             }
             CoordinatorMessage::ChildStarted { .. }
             | CoordinatorMessage::ChildProgress { .. }
+            | CoordinatorMessage::RequestApproval { .. }
             | CoordinatorMessage::ChildCompleted { .. }
             | CoordinatorMessage::ChildFailed { .. }
             | CoordinatorMessage::ChildCancelled { .. } => {
@@ -1038,6 +1409,9 @@ impl Coordinator {
                                 }
                                 if !coordinator_cancellation.is_cancelled() {
                                     let _ = self.transition(CoordinatorState::Cancelling);
+                                    if let Some(reason) = &cancel_reason {
+                                        self.apply_cancellation_visibility(reason)?;
+                                    }
                                     coordinator_cancellation.cancel();
                                 }
                             }
@@ -1066,6 +1440,7 @@ impl Coordinator {
             if parent_cancellation.is_cancelled() && !coordinator_cancellation.is_cancelled() {
                 cancel_reason = Some(CancellationReason::ParentRequested);
                 let _ = self.transition(CoordinatorState::Cancelling);
+                self.apply_cancellation_visibility(&CancellationReason::ParentRequested)?;
                 coordinator_cancellation.cancel();
             }
         }
@@ -1142,9 +1517,12 @@ impl From<CoordinatorState> for CoordinatorStateView {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChildStateView {
-    Registered,
+    Queued,
+    Starting,
     Running,
-    Succeeded,
+    WaitingOnParent,
+    Cancelling,
+    Completed,
     Failed,
     Cancelled,
 }
@@ -1152,9 +1530,12 @@ pub enum ChildStateView {
 impl From<ChildState> for ChildStateView {
     fn from(s: ChildState) -> Self {
         match s {
-            ChildState::Registered => Self::Registered,
+            ChildState::Queued => Self::Queued,
+            ChildState::Starting => Self::Starting,
             ChildState::Running => Self::Running,
-            ChildState::Succeeded => Self::Succeeded,
+            ChildState::WaitingOnParent => Self::WaitingOnParent,
+            ChildState::Cancelling => Self::Cancelling,
+            ChildState::Completed => Self::Completed,
             ChildState::Failed => Self::Failed,
             ChildState::Cancelled => Self::Cancelled,
         }
@@ -1200,6 +1581,7 @@ pub struct OrchestrationSnapshot {
     pub parent_session_id: Option<String>,
     pub state: CoordinatorStateView,
     pub children: Vec<ChildLifecycleView>,
+    pub events: Vec<LifecycleEventView>,
     pub outcome: Option<OrchestrationOutcomeView>,
 }
 
@@ -1211,6 +1593,8 @@ pub struct ChildLifecycleView {
     pub launch_index: u32,
     pub session_id: Option<String>,
     pub state: ChildStateView,
+    pub execution: Option<ChildExecutionMetadataView>,
+    pub approval: ApprovalStatus,
     pub summary: Option<String>,
     pub terminal_reason: Option<ChildTerminationView>,
 }
@@ -1223,8 +1607,56 @@ impl From<&ChildRecord> for ChildLifecycleView {
             launch_index: r.launch_index,
             session_id: r.session_id.clone(),
             state: r.state.clone().into(),
+            execution: r.execution.clone(),
+            approval: r.approval.clone(),
             summary: r.summary.clone(),
             terminal_reason: r.terminal_reason.as_ref().map(ChildTerminationView::from),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LifecycleEventView {
+    pub sequence: u64,
+    pub child_id: String,
+    pub kind: String,
+    pub summary: Option<String>,
+}
+
+impl From<&CoordinatorEvent> for LifecycleEventView {
+    fn from(event: &CoordinatorEvent) -> Self {
+        match event {
+            CoordinatorEvent::ChildStateChanged {
+                child_id,
+                state,
+                summary,
+                sequence,
+            } => Self {
+                sequence: *sequence,
+                child_id: child_id.clone(),
+                kind: format!("child_state_changed:{state:?}").to_ascii_lowercase(),
+                summary: summary.clone(),
+            },
+            CoordinatorEvent::ApprovalRequested {
+                child_id,
+                request,
+                sequence,
+            } => Self {
+                sequence: *sequence,
+                child_id: child_id.clone(),
+                kind: "approval_requested".to_string(),
+                summary: Some(request.reason.clone()),
+            },
+            CoordinatorEvent::ApprovalResolved {
+                child_id,
+                decision,
+                sequence,
+            } => Self {
+                sequence: *sequence,
+                child_id: child_id.clone(),
+                kind: "approval_resolved".to_string(),
+                summary: Some(format!("{decision:?}")),
+            },
         }
     }
 }
@@ -1290,7 +1722,7 @@ impl From<&CoordinatorChildOutcome> for ChildOutcomeView {
             } => Self {
                 child_id: child_id.0.clone(),
                 launch_index: *launch_index,
-                state: ChildStateView::Succeeded,
+                state: ChildStateView::Completed,
             },
             CoordinatorChildOutcome::Failed {
                 child_id,
@@ -1403,6 +1835,18 @@ impl SupervisedOrchestrationService {
         }
     }
 
+    fn validate_launch_request(
+        request: &CoordinatorLaunchRequest,
+    ) -> Result<(), OrchestrationServiceError> {
+        let validator = Coordinator::new();
+        for child in &request.children {
+            validator
+                .admit_child(child)
+                .map_err(OrchestrationServiceError::CoordinatorError)?;
+        }
+        Ok(())
+    }
+
     // ── Task 1.4: snapshot helper ─────────────────────────────────────────
 
     fn snapshot_from_coordinator(
@@ -1429,12 +1873,19 @@ impl SupervisedOrchestrationService {
                 children.push(ChildLifecycleView::from(&record));
             }
         }
+        let events = coordinator
+            .event_log()
+            .map_err(OrchestrationServiceError::CoordinatorError)?
+            .iter()
+            .map(LifecycleEventView::from)
+            .collect();
 
         Ok(OrchestrationSnapshot {
             handle: handle.clone(),
             parent_session_id: request.parent_session_id.clone(),
             state,
             children,
+            events,
             outcome,
         })
     }
@@ -1454,7 +1905,14 @@ impl SupervisedOrchestrationService {
         request: CoordinatorLaunchRequest,
         runner: Arc<dyn CoordinatorChildRunner>,
     ) -> Result<OrchestrationLaunchReceipt, OrchestrationServiceError> {
+        Self::validate_launch_request(&request)?;
         let handle = OrchestrationHandle::new();
+        let snapshot_seed = Arc::new(Coordinator::new());
+        for child in &request.children {
+            snapshot_seed
+                .admit_child(child)
+                .map_err(OrchestrationServiceError::CoordinatorError)?;
+        }
         let coordinator = Arc::new(Coordinator::new());
         let cancel_token = CancellationToken::new();
 
@@ -1465,7 +1923,7 @@ impl SupervisedOrchestrationService {
             tokio::spawn(async move { coordinator.run_with_cancellation(req, runner, token).await })
         };
 
-        let snapshot = Self::snapshot_from_coordinator(&handle, &coordinator, &request, None)?;
+        let snapshot = Self::snapshot_from_coordinator(&handle, &snapshot_seed, &request, None)?;
 
         let active = ActiveRun {
             coordinator,
@@ -1717,6 +2175,18 @@ impl SupervisedOrchestrationService {
                 children: children.iter().map(ChildOutcomeView::from).collect(),
             },
         }
+    }
+}
+
+#[cfg(test)]
+impl SupervisedOrchestrationService {
+    pub(crate) fn registered_handles(&self) -> Vec<OrchestrationHandle> {
+        self.registry
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .keys()
+            .cloned()
+            .collect()
     }
 }
 
@@ -1982,7 +2452,18 @@ mod tests {
             prompt: format!("prompt-{child_id}"),
             context: None,
             launch_index,
+            execution: None,
         }
+    }
+
+    fn child_with_execution(
+        child_id: &str,
+        launch_index: u32,
+        execution: ChildExecutionSpec,
+    ) -> ChildLaunchRequest {
+        let mut request = child(child_id, launch_index);
+        request.execution = Some(execution);
+        request
     }
 
     fn child_outcome_ids(children: &[CoordinatorChildOutcome]) -> Vec<String> {
@@ -2184,7 +2665,7 @@ mod tests {
         coordinator.apply_envelope(&envelope).unwrap();
         assert_eq!(
             coordinator.child_record(&child_id).unwrap().unwrap().state,
-            ChildState::Succeeded
+            ChildState::Completed
         );
     }
 
@@ -2475,14 +2956,16 @@ mod tests {
         assert_eq!(second.meta.correlation_id, first.meta.correlation_id);
     }
 
-    /// Compile-time assertion: Slice 3 transport remains limited to in-process and mailbox.
-    /// Remote bridge, worktree isolation, and other deferred transports must stay out of scope.
+    /// Compile-time assertion: coordinator transport remains constrained to the
+    /// explicit local/bridge variants we model today.
     #[test]
-    fn coordinator_slice_limits_transport_to_in_process_and_mailbox() {
+    fn coordinator_transport_limits_surface_to_supported_variants() {
         fn assert_allowed_transport(t: CoordinatorTransport) -> bool {
             matches!(
                 t,
-                CoordinatorTransport::InProcess | CoordinatorTransport::Mailbox
+                CoordinatorTransport::InProcess
+                    | CoordinatorTransport::Mailbox
+                    | CoordinatorTransport::RemoteBridge
             )
         }
         assert!(
@@ -2492,6 +2975,10 @@ mod tests {
         assert!(
             assert_allowed_transport(CoordinatorTransport::Mailbox),
             "CoordinatorTransport must allow mailbox transport"
+        );
+        assert!(
+            assert_allowed_transport(CoordinatorTransport::RemoteBridge),
+            "CoordinatorTransport must allow remote bridge transport"
         );
     }
 
@@ -2530,6 +3017,262 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, CoordinatorError::InvalidEnvelope(_)));
+    }
+
+    #[test]
+    fn admit_child_normalizes_requested_vs_enforced_execution_metadata() {
+        let coordinator = Coordinator::new();
+        coordinator
+            .admit_child(&child_with_execution(
+                "child-a",
+                0,
+                ChildExecutionSpec {
+                    transport: Some(CoordinatorTransport::Mailbox),
+                    sandbox_mode: Some("workspace_write".to_string()),
+                    tool_allowlist: vec!["read".to_string()],
+                    provider_override: Some("anthropic".to_string()),
+                    model_override: Some("claude".to_string()),
+                    working_directory: Some("/tmp/project".to_string()),
+                    read_only_project_access: true,
+                    ..ChildExecutionSpec::default()
+                },
+            ))
+            .unwrap();
+
+        let record = coordinator
+            .child_record(&ChildAgentId("child-a".to_string()))
+            .unwrap()
+            .unwrap();
+        let metadata = record.execution.expect("normalized execution metadata");
+
+        assert_eq!(metadata.requested.transport, CoordinatorTransport::Mailbox);
+        assert_eq!(metadata.enforced.transport, CoordinatorTransport::Mailbox);
+        assert!(metadata.enforced.process_local_handle_authority);
+        assert!(metadata.enforced.mailbox_backed_delivery);
+        assert!(!metadata.enforced.repository_isolation_enforced);
+        assert!(!metadata.enforced.worktree_isolation_enforced);
+        assert!(!metadata.enforced.sandbox_clone_enforced);
+        assert!(!metadata.enforced.remote_bridge_connected);
+        assert_eq!(
+            metadata.enforced.approval_broker_mode,
+            ApprovalBrokerMode::ParentOwnedOnly
+        );
+        assert_eq!(
+            metadata.requested.sandbox_mode.as_deref(),
+            Some("workspace_write")
+        );
+        assert_eq!(
+            metadata.requested.working_directory.as_deref(),
+            Some("/tmp/project")
+        );
+        assert!(metadata.requested.read_only_project_access);
+    }
+
+    #[test]
+    fn admit_child_rejects_remote_bridge_requests_fail_closed() {
+        let coordinator = Coordinator::new();
+
+        let error = coordinator
+            .admit_child(&child_with_execution(
+                "child-a",
+                0,
+                ChildExecutionSpec {
+                    transport: Some(CoordinatorTransport::RemoteBridge),
+                    ..ChildExecutionSpec::default()
+                },
+            ))
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::LaunchContractRejected(
+                LaunchContractRejection::UnsupportedTransport {
+                    requested: CoordinatorTransport::RemoteBridge
+                }
+            )
+        ));
+    }
+
+    #[test]
+    fn admit_child_rejects_unsupported_isolation_requests_fail_closed() {
+        let coordinator = Coordinator::new();
+
+        let repository_error = coordinator
+            .admit_child(&child_with_execution(
+                "child-a",
+                0,
+                ChildExecutionSpec {
+                    repository_id: Some("repo-1".to_string()),
+                    ..ChildExecutionSpec::default()
+                },
+            ))
+            .unwrap_err();
+        assert!(matches!(
+            repository_error,
+            CoordinatorError::LaunchContractRejected(
+                LaunchContractRejection::UnsupportedIsolation { field, requested }
+            ) if field == "repository_id" && requested == "repo-1"
+        ));
+
+        let sandbox_error = coordinator
+            .admit_child(&child_with_execution(
+                "child-b",
+                1,
+                ChildExecutionSpec {
+                    sandbox_mode: Some("clone".to_string()),
+                    ..ChildExecutionSpec::default()
+                },
+            ))
+            .unwrap_err();
+        assert!(matches!(
+            sandbox_error,
+            CoordinatorError::LaunchContractRejected(
+                LaunchContractRejection::UnsupportedIsolation { field, requested }
+            ) if field == "sandbox_mode" && requested == "clone"
+        ));
+    }
+
+    #[test]
+    fn admit_child_rejects_unsupported_permission_broker_requests_fail_closed() {
+        let coordinator = Coordinator::new();
+
+        let error = coordinator
+            .admit_child(&child_with_execution(
+                "child-a",
+                0,
+                ChildExecutionSpec {
+                    permission_broker: Some("child_owned".to_string()),
+                    ..ChildExecutionSpec::default()
+                },
+            ))
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::LaunchContractRejected(
+                LaunchContractRejection::UnsupportedPermissionBroker { reason }
+            ) if reason == "child_owned"
+        ));
+    }
+
+    #[test]
+    fn cancel_envelope_moves_child_into_cancelling_until_terminal_resolution() {
+        let coordinator = Coordinator::new();
+        let child_id = ChildAgentId("child-a".to_string());
+        coordinator.admit_child(&child("child-a", 0)).unwrap();
+        coordinator
+            .apply_envelope(&MessageEnvelope {
+                meta: EnvelopeMeta {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: Some(child_id.clone()),
+                    sequence: 1,
+                    message_id: "dispatch-msg".to_string(),
+                    correlation_id: "corr-a".to_string(),
+                    sender: LogicalEndpoint::coordinator(coordinator.coordinator_id().to_string()),
+                    recipient: LogicalEndpoint::child(
+                        coordinator.coordinator_id().to_string(),
+                        child_id.clone(),
+                    ),
+                    sent_at: Utc::now(),
+                    transport: CoordinatorTransport::InProcess,
+                },
+                payload: CoordinatorMessage::DispatchChild(child("child-a", 0)),
+            })
+            .unwrap();
+
+        coordinator
+            .apply_envelope(&MessageEnvelope {
+                meta: EnvelopeMeta {
+                    coordinator_id: coordinator.coordinator_id().to_string(),
+                    child_id: Some(child_id.clone()),
+                    sequence: 2,
+                    message_id: "cancel-msg".to_string(),
+                    correlation_id: "corr-a".to_string(),
+                    sender: LogicalEndpoint::coordinator(coordinator.coordinator_id().to_string()),
+                    recipient: LogicalEndpoint::child(
+                        coordinator.coordinator_id().to_string(),
+                        child_id.clone(),
+                    ),
+                    sent_at: Utc::now(),
+                    transport: CoordinatorTransport::InProcess,
+                },
+                payload: CoordinatorMessage::CancelChild {
+                    reason: CancellationReason::ParentRequested,
+                },
+            })
+            .unwrap();
+
+        let record = coordinator.child_record(&child_id).unwrap().unwrap();
+        assert_eq!(record.state, ChildState::Cancelling);
+
+        let latest_event = coordinator.event_log().unwrap().pop().unwrap();
+        assert!(matches!(
+            latest_event,
+            CoordinatorEvent::ChildStateChanged {
+                state: ChildState::Cancelling,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn duplicate_redelivery_does_not_duplicate_visible_events() {
+        let coordinator = Coordinator::new();
+        let child_id = ChildAgentId("child-a".to_string());
+        coordinator.admit_child(&child("child-a", 0)).unwrap();
+
+        let completed = MessageEnvelope {
+            meta: EnvelopeMeta {
+                coordinator_id: coordinator.coordinator_id().to_string(),
+                child_id: Some(child_id.clone()),
+                sequence: 5,
+                message_id: "terminal-msg".to_string(),
+                correlation_id: "corr-a".to_string(),
+                sender: LogicalEndpoint::child(
+                    coordinator.coordinator_id().to_string(),
+                    child_id.clone(),
+                ),
+                recipient: LogicalEndpoint::coordinator_child(
+                    coordinator.coordinator_id().to_string(),
+                    child_id.clone(),
+                ),
+                sent_at: Utc::now(),
+                transport: CoordinatorTransport::Mailbox,
+            },
+            payload: CoordinatorMessage::ChildCompleted {
+                result: ChildExecutionResult {
+                    session_id: "session-a".to_string(),
+                    tool_result: ToolResult {
+                        success: true,
+                        output: "done".to_string(),
+                        error: None,
+                        structured: None,
+                    },
+                    status: ChildTerminalStatus::Succeeded,
+                },
+            },
+        };
+
+        coordinator.apply_envelope(&completed).unwrap();
+        let event_count_after_first = coordinator.event_log().unwrap().len();
+        coordinator.apply_envelope(&completed).unwrap();
+        let events = coordinator.event_log().unwrap();
+
+        assert_eq!(events.len(), event_count_after_first);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(
+                    event,
+                    CoordinatorEvent::ChildStateChanged {
+                        state: ChildState::Completed,
+                        child_id,
+                        ..
+                    } if child_id == "child-a"
+                ))
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -2674,7 +3417,7 @@ mod tests {
             .child_record(&ChildAgentId("child-a".to_string()))
             .expect("registry should be readable")
             .expect("child should remain inspectable");
-        assert_eq!(final_record.state, ChildState::Succeeded);
+        assert_eq!(final_record.state, ChildState::Completed);
         assert_eq!(final_record.session_id.as_deref(), Some("session-child-a"));
     }
 
@@ -2829,6 +3572,7 @@ mod tests {
                     prompt: format!("task for {name}"),
                     context: None,
                     launch_index: u32::try_from(i).unwrap_or(u32::MAX),
+                    execution: None,
                 })
                 .collect(),
             fan_in: FanInPolicy::AllMustSucceed,

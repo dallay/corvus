@@ -1,11 +1,13 @@
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{header, HeaderValue, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Response, Sse};
 use axum::Json;
 
+use crate::gateway::streaming::upstream_event_stream;
 use crate::gateway::types::{
     ChatCompletionRequest, GatewayErrorBody, GatewayErrorResponse, ModelListResponse, ModelObject,
+    STREAM_CONTENT_TYPE,
 };
 use crate::gateway::upstream::{self, UpstreamError};
 use crate::gateway::GatewayState;
@@ -13,10 +15,7 @@ use crate::services::{health::HealthService as _, route::RouteService as _};
 
 const FAILURE_COOLDOWN_SECS: u64 = 60;
 
-pub async fn handle_chat_completions(
-    State(state): State<GatewayState>,
-    body: Bytes,
-) -> Response {
+pub async fn handle_chat_completions(State(state): State<GatewayState>, body: Bytes) -> Response {
     let request: ChatCompletionRequest = match serde_json::from_slice(&body) {
         Ok(request) => request,
         Err(_) => {
@@ -30,14 +29,17 @@ pub async fn handle_chat_completions(
     };
 
     if request.stream == Some(true) {
-        return error_response(
-            StatusCode::BAD_REQUEST,
-            "streaming is not yet supported; set stream: false or omit the field",
-            "invalid_request_error",
-            Some("unsupported_stream"),
-        );
+        return handle_streaming_chat_completions(&state, request, body).await;
     }
 
+    handle_buffered_chat_completions(&state, request, body).await
+}
+
+async fn handle_buffered_chat_completions(
+    state: &GatewayState,
+    request: ChatCompletionRequest,
+    body: Bytes,
+) -> Response {
     let decision = match state.engine.resolve(&request.model).await {
         Ok(decision) => decision,
         Err(error) => {
@@ -78,6 +80,54 @@ pub async fn handle_chat_completions(
         Err(error) => {
             let registry = state.registry.clone();
             let account_id = decision.account.id;
+            tokio::spawn(async move {
+                registry
+                    .health()
+                    .mark_failure(account_id, FAILURE_COOLDOWN_SECS)
+                    .await;
+            });
+            map_upstream_error(error)
+        }
+    }
+}
+
+async fn handle_streaming_chat_completions(
+    state: &GatewayState,
+    request: ChatCompletionRequest,
+    body: Bytes,
+) -> Response {
+    let decision = match state.engine.resolve(&request.model).await {
+        Ok(decision) => decision,
+        Err(error) => {
+            tracing::warn!(model = %request.model, error = %error, "routing failed");
+            return error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                &error.to_string(),
+                "server_error",
+                Some("model_not_found"),
+            );
+        }
+    };
+
+    let account_id = decision.account.id;
+    match upstream::open_chat_completion_stream(&state.client, &decision.account, body).await {
+        Ok(upstream_response) => {
+            let registry = state.registry.clone();
+            tokio::spawn(async move {
+                registry.health().mark_success(account_id).await;
+            });
+
+            let stream = upstream_event_stream(upstream_response.response.bytes_stream());
+            let mut response = Sse::new(stream).into_response();
+            *response.status_mut() = StatusCode::OK;
+            response.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static(STREAM_CONTENT_TYPE),
+            );
+            response
+        }
+        Err(error) => {
+            let registry = state.registry.clone();
             tokio::spawn(async move {
                 registry
                     .health()
@@ -179,6 +229,7 @@ mod tests {
         SelectionStrategy,
     };
     use crate::gateway::{build_router, GatewayState};
+    use crate::gateway::types::STREAM_CONTENT_TYPE;
     use crate::registry::RookRegistry;
     use crate::routing::RoutingEngine;
     use crate::services::{
@@ -315,7 +366,10 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        assert_eq!(serde_json::from_slice::<Value>(&body).unwrap(), json!({"id":"chatcmpl-123"}));
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"id":"chatcmpl-123"})
+        );
         let health = tokio::time::timeout(std::time::Duration::from_secs(1), async {
             loop {
                 let health = registry.health().get(account_id).await;
@@ -327,7 +381,10 @@ mod tests {
         })
         .await
         .unwrap();
-        assert_eq!(health.status, crate::services::health::HealthStatus::Healthy);
+        assert_eq!(
+            health.status,
+            crate::services::health::HealthStatus::Healthy
+        );
     }
 
     #[tokio::test]
@@ -354,7 +411,8 @@ mod tests {
 
     #[tokio::test]
     async fn chat_completions_missing_api_key_still_proxies_upstream() {
-        let (_server, upstream) = mock_upstream(StatusCode::OK, json!({"id":"chatcmpl-no-auth"})).await;
+        let (_server, upstream) =
+            mock_upstream(StatusCode::OK, json!({"id":"chatcmpl-no-auth"})).await;
         let (app, registry) = test_app().await;
         seed_route(
             &registry,
@@ -385,8 +443,74 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chat_completions_stream_true_returns_400() {
-        let (app, _) = test_app().await;
+    async fn chat_completions_stream_false_stays_on_buffered_json_path() {
+        let (_server, upstream) = mock_upstream(StatusCode::OK, json!({"id":"chatcmpl-buffered"})).await;
+        let (app, registry) = test_app().await;
+        seed_route(
+            &registry,
+            "gpt-4o",
+            ProviderVendor::OpenAi,
+            Some(upstream),
+            Some("sk-test".to_string()),
+        )
+        .await;
+
+        let response = app
+            .oneshot(
+                Request::post("/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "model":"gpt-4o",
+                            "stream": false,
+                            "messages":[{"role":"user","content":"Hello"}]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(json, json!({"id":"chatcmpl-buffered"}));
+    }
+
+    #[tokio::test]
+    async fn chat_completions_stream_true_returns_sse_chunks_and_done() {
+        use axum::http::header::CONTENT_TYPE;
+        use axum::routing::post;
+        use axum::{response::IntoResponse, Router};
+        use tokio::net::TcpListener;
+
+        async fn sse_handler() -> impl IntoResponse {
+            (
+                [(CONTENT_TYPE, "text/event-stream")],
+                Body::from(
+                    "data: {\"id\":\"chunk-1\"}\n\n\
+                     data: {\"id\":\"chunk-2\"}\n\n\
+                     data: [DONE]\n\n",
+                ),
+            )
+        }
+
+        let upstream = Router::new().route("/v1/chat/completions", post(sse_handler));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+
+        let (app, registry) = test_app().await;
+        seed_route(
+            &registry,
+            "gpt-4o",
+            ProviderVendor::OpenAi,
+            Some(format!("http://{addr}")),
+            Some("sk-test".to_string()),
+        )
+        .await;
+
         let response = app
             .oneshot(
                 Request::post("/chat/completions")
@@ -404,10 +528,81 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some(STREAM_CONTENT_TYPE)
+        );
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let json = serde_json::from_slice::<Value>(&body).unwrap();
-        assert_eq!(json["error"]["code"], json!("unsupported_stream"));
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("data: {\"id\":\"chunk-1\"}"));
+        assert!(text.contains("data: {\"id\":\"chunk-2\"}"));
+        assert_eq!(text.matches("data: [DONE]").count(), 1);
+    }
+
+    #[tokio::test]
+    async fn chat_completions_stream_true_midstream_abort_does_not_emit_done() {
+        use axum::http::header::CONTENT_TYPE;
+        use axum::routing::post;
+        use axum::{response::IntoResponse, Router};
+        use bytes::Bytes;
+        use futures_util::stream;
+        use tokio::net::TcpListener;
+
+        async fn malformed_sse_handler() -> impl IntoResponse {
+            (
+                [(CONTENT_TYPE, "text/event-stream")],
+                Body::from_stream(stream::iter(vec![
+                    Ok::<Bytes, std::convert::Infallible>(Bytes::from_static(
+                        b"data: {\"id\":\"chunk-1\"}\n\n",
+                    )),
+                    Ok::<Bytes, std::convert::Infallible>(Bytes::from_static(
+                        b"event: broken\n\n",
+                    )),
+                ])),
+            )
+        }
+
+        let upstream = Router::new().route("/v1/chat/completions", post(malformed_sse_handler));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+
+        let (app, registry) = test_app().await;
+        seed_route(
+            &registry,
+            "gpt-4o",
+            ProviderVendor::OpenAi,
+            Some(format!("http://{addr}")),
+            Some("sk-test".to_string()),
+        )
+        .await;
+
+        let response = app
+            .oneshot(
+                Request::post("/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "model":"gpt-4o",
+                            "stream": true,
+                            "messages":[{"role":"user","content":"Hello"}]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("data: {\"id\":\"chunk-1\"}"));
+        assert!(!text.contains("data: [DONE]"));
     }
 
     #[tokio::test]

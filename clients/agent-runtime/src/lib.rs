@@ -43,6 +43,7 @@ pub mod agent;
 pub mod approval;
 pub mod auth;
 pub mod bootstrap;
+pub mod bridge;
 pub mod capabilities;
 pub mod channels;
 pub mod config;

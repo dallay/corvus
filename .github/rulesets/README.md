@@ -5,6 +5,7 @@ This directory contains rulesets to protect branches in the repository.
 ## Files
 
 - `main-protection.json` - Strict protection for the main branch
+- `develop-protection.json` - Strong protection for the `develop` integration branch
 - `minor-protection.json` - Moderate protection for minor branches
 
 ## Importing Rulesets
@@ -37,6 +38,14 @@ gh api \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   /repos/dallay/corvus/rulesets \
   --input .github/rulesets/minor-protection.json
+
+# For develop branch
+gh api \
+  --method POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  /repos/dallay/corvus/rulesets \
+  --input .github/rulesets/develop-protection.json
 ```
 
 ## Ruleset Details
@@ -48,13 +57,35 @@ gh api \
 **Rules**:
 
 - ✅ Requires Pull Request with at least 1 approval
-- ✅ Requires CI checks to pass (`core-check`)
+- ✅ Requires CI checks to pass (`pr-checks`)
 - ✅ Requires linear history (no merge commits)
 - ✅ Prevents branch deletion
 - ✅ Blocks force push
 - ✅ Requires signed commits
+- ✅ Uses merge queue
 
-**Bypass**: Only admins can bypass (via PR)
+**Bypass**:
+
+- Organization admins can bypass directly
+- Repository maintainers bypass through pull request
+
+### develop-protection
+
+**Target**: `develop` branch
+
+**Rules**:
+
+- ✅ Requires Pull Request with at least 1 approval
+- ✅ Requires CI checks to pass (`core-check`)
+- ✅ Requires linear history (no merge commits)
+- ✅ Prevents branch deletion
+- ✅ Blocks force push
+- ✅ Uses merge queue
+
+**Bypass**:
+
+- Organization admins can bypass directly
+- Repository maintainers bypass through pull request
 
 ### minor-protection
 
@@ -63,11 +94,15 @@ gh api \
 **Rules**:
 
 - ✅ Pull Request recommended (0 approvals required)
-- ✅ CI checks optional
+- ✅ Requires CI checks to pass (`core-check`)
 - ✅ Prevents branch deletion
 - ✅ Blocks force push
+- ✅ Uses merge queue
 
-**Bypass**: Admins can bypass directly
+**Bypass**:
+
+- Organization admins can bypass directly
+- Repository maintainers bypass through pull request
 
 ## Security Notes
 

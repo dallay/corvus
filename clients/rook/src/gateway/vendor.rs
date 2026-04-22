@@ -48,19 +48,28 @@ mod tests {
 
     #[test]
     fn default_base_url_maps_known_vendors() {
-        assert_eq!(default_base_url(&ProviderVendor::OpenAi), Some("https://api.openai.com"));
+        assert_eq!(
+            default_base_url(&ProviderVendor::OpenAi),
+            Some("https://api.openai.com")
+        );
         assert_eq!(default_base_url(&ProviderVendor::Anthropic), None);
         assert_eq!(default_base_url(&ProviderVendor::Google), None);
         assert_eq!(
             default_base_url(&ProviderVendor::OpenRouter),
             Some("https://openrouter.ai/api")
         );
-        assert_eq!(default_base_url(&ProviderVendor::DeepSeek), Some("https://api.deepseek.com"));
+        assert_eq!(
+            default_base_url(&ProviderVendor::DeepSeek),
+            Some("https://api.deepseek.com")
+        );
     }
 
     #[test]
     fn default_base_url_returns_none_for_other_vendor() {
-        assert_eq!(default_base_url(&ProviderVendor::Other("mistral".to_string())), None);
+        assert_eq!(
+            default_base_url(&ProviderVendor::Other("mistral".to_string())),
+            None
+        );
     }
 
     #[test]
