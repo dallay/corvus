@@ -1232,7 +1232,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn supervised_single_child_delegate_remains_compatible_with_shared_orchestration_contract() {
+    async fn supervised_single_child_delegate_remains_compatible_with_shared_orchestration_contract(
+    ) {
         let tmp = TempDir::new().unwrap();
         let mut agents = HashMap::new();
         agents.insert(
@@ -1276,8 +1277,15 @@ mod tests {
 
         assert!(result.success);
         let handles = service.registered_handles();
-        assert_eq!(handles.len(), 1, "single-child delegate should use one orchestration handle");
-        let snapshot = service.inspect(&handles[0]).unwrap().expect("snapshot for shared handle");
+        assert_eq!(
+            handles.len(),
+            1,
+            "single-child delegate should use one orchestration handle"
+        );
+        let snapshot = service
+            .inspect(&handles[0])
+            .unwrap()
+            .expect("snapshot for shared handle");
         assert_eq!(snapshot.children.len(), 1);
     }
 
