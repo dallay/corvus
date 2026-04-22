@@ -11,6 +11,7 @@
 //! the listener bound to loopback by default before any external exposure.
 
 pub mod handlers;
+pub mod streaming;
 pub mod types;
 pub mod upstream;
 pub mod vendor;
@@ -33,8 +34,17 @@ pub struct GatewayState {
 
 pub fn build_router(state: GatewayState) -> Router {
     Router::new()
-        .route("/chat/completions", post(handlers::handle_chat_completions))
-        .route("/models", get(handlers::handle_list_models))
+        .merge(build_models_router(state.clone()))
+        .merge(build_chat_router(state))
         .layer(DefaultBodyLimit::max(1024 * 1024))
+}
+
+pub fn build_models_router(state: GatewayState) -> Router {
+    Router::new().route("/models", get(handlers::handle_list_models)).with_state(state)
+}
+
+pub fn build_chat_router(state: GatewayState) -> Router {
+    Router::new()
+        .route("/chat/completions", post(handlers::handle_chat_completions))
         .with_state(state)
 }

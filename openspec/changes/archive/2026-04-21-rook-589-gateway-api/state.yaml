@@ -1,5 +1,5 @@
 change: rook-589-gateway-api
-current_phase: verify
+current_phase: archive
 completed:
   - propose
   - spec
@@ -7,5 +7,6 @@ completed:
   - tasks
   - apply
   - verify
-next: archive
+  - archive
+next: none
 updated: 2026-04-21

@@ -23,8 +23,9 @@
 use crate::db::SqliteDb;
 use crate::domain::RookError;
 use crate::services::{
-    account::SqliteAccountService, health::InMemoryHealthService, pool::SqlitePoolService,
-    route::SqliteRouteService, settings::SqliteSettingsService,
+    account::SqliteAccountService, health::InMemoryHealthService,
+    idempotency::SqliteIdempotencyService, pool::SqlitePoolService, route::SqliteRouteService,
+    settings::SqliteSettingsService,
 };
 
 /// Composition root — holds all service singletons for a Rook instance.
@@ -36,6 +37,7 @@ pub struct RookRegistry {
     pools: SqlitePoolService,
     routes: SqliteRouteService,
     settings: SqliteSettingsService,
+    idempotency: SqliteIdempotencyService,
     health: InMemoryHealthService,
     #[cfg(test)]
     db: SqliteDb,
@@ -63,6 +65,7 @@ impl RookRegistry {
             pools: SqlitePoolService::new(db.clone()),
             routes: SqliteRouteService::new(db.clone()),
             settings: SqliteSettingsService::new(db.clone()),
+            idempotency: SqliteIdempotencyService::new(db.clone()),
             health: InMemoryHealthService::new(),
             #[cfg(test)]
             db,
@@ -96,6 +99,11 @@ impl RookRegistry {
     /// Settings service — global runtime configuration.
     pub fn settings(&self) -> &SqliteSettingsService {
         &self.settings
+    }
+
+    /// Idempotency service — keyed replay protection for chat completions.
+    pub fn idempotency(&self) -> &SqliteIdempotencyService {
+        &self.idempotency
     }
 
     /// Health service — track per-account health state.

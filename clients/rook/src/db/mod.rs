@@ -6,6 +6,7 @@
 //! Sub-modules are split by domain entity to keep file sizes manageable.
 
 pub mod account;
+pub mod idempotency;
 pub mod pool;
 pub mod route;
 pub mod settings;
@@ -31,6 +32,11 @@ const MIGRATION_SQL_0002: &str = include_str!(concat!(
 const MIGRATION_SQL_0003: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/0003_account_api_key.sql"
+));
+
+const MIGRATION_SQL_0004: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/0004_chat_completions_idempotency.sql"
 ));
 
 /// A handle to the Rook SQLite database.
@@ -150,6 +156,21 @@ impl SqliteDb {
             apply_migration(pool, version_0003, MIGRATION_SQL_0003).await?;
         }
 
+        // ── Migration 0004: chat completions idempotency ─────────────────────
+        let version_0004 = "0004_chat_completions_idempotency";
+        let row_0004: Option<(String,)> =
+            sqlx::query_as("SELECT version FROM schema_migrations WHERE version = ?")
+                .bind(version_0004)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| {
+                    RookError::Registry(format!("failed to check migration 0004 status: {e}"))
+                })?;
+
+        if row_0004.is_none() {
+            apply_migration(pool, version_0004, MIGRATION_SQL_0004).await?;
+        }
+
         Ok(())
     }
 }
@@ -232,6 +253,44 @@ mod tests {
         assert_eq!(
             row.map(|(version,)| version),
             Some("0003_account_api_key".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn open_in_memory_applies_chat_completion_idempotency_migration() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+
+        let columns = sqlx::query("PRAGMA table_info(chat_completion_idempotency)")
+            .fetch_all(db.pool())
+            .await
+            .unwrap();
+
+        let has_request_hash = columns.iter().any(|row| {
+            row.try_get::<String, _>("name")
+                .map(|name| name == "request_hash")
+                .unwrap_or(false)
+        });
+
+        assert!(
+            has_request_hash,
+            "chat_completion_idempotency should include request_hash column"
+        );
+    }
+
+    #[tokio::test]
+    async fn open_in_memory_records_chat_completion_idempotency_migration_version() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT version FROM schema_migrations WHERE version = ?")
+                .bind("0004_chat_completions_idempotency")
+                .fetch_optional(db.pool())
+                .await
+                .unwrap();
+
+        assert_eq!(
+            row.map(|(version,)| version),
+            Some("0004_chat_completions_idempotency".to_string())
         );
     }
 }

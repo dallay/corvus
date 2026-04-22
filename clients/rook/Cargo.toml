@@ -24,8 +24,9 @@ tokio = { version = "1.42", default-features = false, features = ["rt-multi-thre
 
 # HTTP gateway
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 bytes = "1.0"
+futures-util = "0.3"
 
 # Serialization
 serde = { version = "1.0", default-features = false, features = ["derive"] }
@@ -47,6 +48,7 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-r
 
 # Time
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+sha2 = "0.10"
 
 # Asset embedding
 rust-embed = { version = "8.5", features = ["mime-guess"] }
@@ -57,6 +59,7 @@ tower-http = { version = "0.6", default-features = false, features = ["fs", "tra
 
 # HTTP response helpers
 http = "1.0"
+ipnet = "2.10"
 
 # Shared runtime contracts (no internal corvus binary dependency)
 corvus-traits = { path = "../agent-runtime/crates/corvus-traits" }

@@ -3,6 +3,11 @@ use crate::domain::{
     RouteId, RoutingPolicy, SelectionStrategy,
 };
 use crate::services::health::{AccountHealth, HealthStatus};
+use axum::{
+    Json,
+    http::{HeaderValue, StatusCode, header::RETRY_AFTER, header::WWW_AUTHENTICATE},
+    response::{IntoResponse, Response},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -295,9 +300,44 @@ pub struct AdminErrorBody {
     pub details: Option<Map<String, Value>>,
 }
 
+pub fn admin_unauthorized_response() -> Response {
+    let mut response = (
+        StatusCode::UNAUTHORIZED,
+        Json(AdminErrorResponse::new(
+            "unauthorized",
+            "valid inbound bearer token required",
+        )),
+    )
+        .into_response();
+    response
+        .headers_mut()
+        .insert(WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+    response
+}
+
+pub fn admin_rate_limited_response(retry_after_seconds: u64) -> Response {
+    let mut response = (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(AdminErrorResponse::new(
+            "rate_limited",
+            "global rate limit exceeded for /api surface",
+        )),
+    )
+        .into_response();
+    response.headers_mut().insert(
+        RETRY_AFTER,
+        HeaderValue::from_str(&retry_after_seconds.to_string())
+            .unwrap_or_else(|_| HeaderValue::from_static("1")),
+    );
+    response
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{header::WWW_AUTHENTICATE, StatusCode};
+    use axum::response::IntoResponse;
     use crate::domain::{
         AccountId, PoolId, ProviderAccount, ProviderPool, ProviderVendor, RookSettings, RouteId,
         RoutingPolicy, SelectionStrategy,
@@ -471,5 +511,34 @@ mod tests {
         assert_eq!(json["error"]["code"], json!("not_found"));
         assert_eq!(json["error"]["message"], json!("account missing"));
         assert_eq!(json["error"]["details"]["resource"], json!("account"));
+    }
+
+    #[tokio::test]
+    async fn admin_unauthorized_response_uses_admin_shape_and_bearer_header() {
+        let response = admin_unauthorized_response().into_response();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()[WWW_AUTHENTICATE], "Bearer");
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["code"], json!("unauthorized"));
+        assert_eq!(json["error"]["message"], json!("valid inbound bearer token required"));
+    }
+
+    #[tokio::test]
+    async fn admin_rate_limited_response_uses_admin_shape_and_retry_after_header() {
+        let response = admin_rate_limited_response(17).into_response();
+
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()["retry-after"], "17");
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["code"], json!("rate_limited"));
+        assert_eq!(
+            json["error"]["message"],
+            json!("global rate limit exceeded for /api surface")
+        );
     }
 }

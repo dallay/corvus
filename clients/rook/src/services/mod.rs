@@ -5,6 +5,7 @@
 
 pub mod account;
 pub mod health;
+pub mod idempotency;
 pub mod pool;
 pub mod route;
 pub mod settings;

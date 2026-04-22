@@ -13,6 +13,13 @@ pub struct UpstreamResponse {
 }
 
 #[derive(Debug)]
+pub struct UpstreamStreamingResponse {
+    pub status: StatusCode,
+    pub content_type: Option<String>,
+    pub response: reqwest::Response,
+}
+
+#[derive(Debug)]
 pub enum UpstreamError {
     MissingBaseUrl {
         account_id: String,
@@ -37,48 +44,46 @@ pub enum UpstreamError {
     },
 }
 
+pub async fn open_chat_completion_stream(
+    client: &reqwest::Client,
+    account: &ProviderAccount,
+    raw_body: Bytes,
+) -> Result<UpstreamStreamingResponse, UpstreamError> {
+    let response = send_chat_completion_request(client, account, raw_body).await?;
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+
+    if !status.is_success() {
+        let body = response
+            .bytes()
+            .await
+            .map_err(|error| UpstreamError::ReadBody {
+                message: format!("failed to read upstream response body: {error}"),
+            })?;
+        return Err(UpstreamError::UpstreamStatus {
+            status,
+            body,
+            content_type,
+        });
+    }
+
+    Ok(UpstreamStreamingResponse {
+        status,
+        content_type,
+        response,
+    })
+}
+
 pub async fn proxy_chat_completion(
     client: &reqwest::Client,
     account: &ProviderAccount,
     raw_body: Bytes,
 ) -> Result<UpstreamResponse, UpstreamError> {
-    let base =
-        vendor::effective_base_url(account).ok_or_else(|| UpstreamError::MissingBaseUrl {
-            account_id: account.id.to_string(),
-            vendor: format!("{:?}", account.vendor),
-        })?;
-    let url = format!("{base}/v1/chat/completions");
-
-    let mut request = client
-        .post(&url)
-        .header("content-type", "application/json")
-        .body(raw_body);
-
-    if let Some(api_key) = account.api_key.as_deref() {
-        let (header_name, header_value) = vendor::auth_header(&account.vendor, api_key)
-            .ok_or_else(|| UpstreamError::MissingAuthHeader {
-                vendor: format!("{:?}", account.vendor),
-            })?;
-        request = request.header(header_name, &header_value);
-    } else {
-        warn!(
-            account_id = %account.id,
-            vendor = ?account.vendor,
-            "proxying upstream request without API credentials"
-        );
-    }
-
-    let response = request.send().await.map_err(|error| {
-        if error.is_timeout() {
-            UpstreamError::Timeout {
-                message: format!("upstream request to {url} timed out: {error}"),
-            }
-        } else {
-            UpstreamError::Transport {
-                message: format!("upstream request to {url} failed: {error}"),
-            }
-        }
-    })?;
+    let response = send_chat_completion_request(client, account, raw_body).await?;
 
     let status = response.status();
     let content_type = response
@@ -106,6 +111,56 @@ pub async fn proxy_chat_completion(
         status,
         body,
         content_type,
+    })
+}
+
+async fn send_chat_completion_request(
+    client: &reqwest::Client,
+    account: &ProviderAccount,
+    raw_body: Bytes,
+) -> Result<reqwest::Response, UpstreamError> {
+    let base =
+        vendor::effective_base_url(account).ok_or_else(|| UpstreamError::MissingBaseUrl {
+            account_id: account.id.to_string(),
+            vendor: format!("{:?}", account.vendor),
+        })?;
+    let url = format!("{base}/v1/chat/completions");
+
+    let mut request = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .body(raw_body);
+
+    if let Some(api_key) = account.api_key.as_deref() {
+        if api_key.trim().is_empty() {
+            return Err(UpstreamError::MissingAuthHeader {
+                vendor: format!("{:?}", account.vendor),
+            });
+        }
+
+        let (header_name, header_value) = vendor::auth_header(&account.vendor, api_key)
+            .ok_or_else(|| UpstreamError::MissingAuthHeader {
+                vendor: format!("{:?}", account.vendor),
+            })?;
+        request = request.header(header_name, &header_value);
+    } else {
+        warn!(
+            account_id = %account.id,
+            vendor = ?account.vendor,
+            "proxying upstream request without API credentials"
+        );
+    }
+
+    request.send().await.map_err(|error| {
+        if error.is_timeout() {
+            UpstreamError::Timeout {
+                message: format!("upstream request to {url} timed out: {error}"),
+            }
+        } else {
+            UpstreamError::Transport {
+                message: format!("upstream request to {url} failed: {error}"),
+            }
+        }
     })
 }
 
@@ -349,5 +404,91 @@ mod tests {
             error,
             UpstreamError::Transport { .. } | UpstreamError::Timeout { .. }
         ));
+    }
+
+    #[tokio::test]
+    async fn open_chat_completion_stream_returns_missing_base_url_error() {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let account = make_account(ProviderVendor::Other("mistral".to_string()));
+
+        let error = open_chat_completion_stream(&client, &account, Bytes::from_static(br#"{}"#))
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, UpstreamError::MissingBaseUrl { .. }));
+    }
+
+    #[tokio::test]
+    async fn open_chat_completion_stream_rejects_blank_api_key_when_auth_header_cannot_be_built() {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let (base_url, _handle) =
+            mock_upstream(StatusCode::OK, json!({"ok":true}), captured).await;
+
+        let mut account = make_account(ProviderVendor::OpenAi);
+        account.api_base_override = Some(base_url);
+        account.api_key = Some("   ".to_string());
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+
+        let error = open_chat_completion_stream(&client, &account, Bytes::from_static(br#"{}"#))
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, UpstreamError::MissingAuthHeader { .. }));
+    }
+
+    #[tokio::test]
+    async fn open_chat_completion_stream_maps_transport_failures_before_stream_start() {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(200))
+            .build()
+            .unwrap();
+        let mut account = make_account(ProviderVendor::OpenAi);
+        account.api_base_override = Some("http://127.0.0.1:9".to_string());
+
+        let error = open_chat_completion_stream(&client, &account, Bytes::from_static(br#"{}"#))
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            UpstreamError::Transport { .. } | UpstreamError::Timeout { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn open_chat_completion_stream_maps_upstream_non_success_status_before_stream_start() {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let (base_url, _handle) = mock_upstream(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({"error":{"message":"boom"}}),
+            captured,
+        )
+        .await;
+
+        let mut account = make_account(ProviderVendor::OpenAi);
+        account.api_base_override = Some(base_url);
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+
+        let error = open_chat_completion_stream(&client, &account, Bytes::from_static(br#"{}"#))
+            .await
+            .unwrap_err();
+
+        match error {
+            UpstreamError::UpstreamStatus { status, body, .. } => {
+                assert_eq!(status, reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+                assert_eq!(body, Bytes::from_static(br#"{"error":{"message":"boom"}}"#));
+            }
+            other => panic!("expected UpstreamStatus error, got {other:?}"),
+        }
     }
 }
