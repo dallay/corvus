@@ -177,6 +177,7 @@ pub struct ChildExecutionMetadataView {
     pub enforced: EnforcedExecutionGuarantees,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LaunchContractRejection {
