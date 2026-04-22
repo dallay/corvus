@@ -236,6 +236,8 @@ impl SqliteMailboxStore {
             CoordinatorMessage::CancelChild { .. } => "cancel_child",
             CoordinatorMessage::ChildStarted { .. } => "child_started",
             CoordinatorMessage::ChildProgress { .. } => "child_progress",
+            CoordinatorMessage::RequestApproval { .. } => "request_approval",
+            CoordinatorMessage::ResolveApproval { .. } => "resolve_approval",
             CoordinatorMessage::ChildCompleted { .. } => "child_completed",
             CoordinatorMessage::ChildFailed { .. } => "child_failed",
             CoordinatorMessage::ChildCancelled { .. } => "child_cancelled",
@@ -777,6 +779,7 @@ mod tests {
             prompt: format!("prompt-{child_id}"),
             context: None,
             launch_index,
+            execution: None,
         }
     }
 

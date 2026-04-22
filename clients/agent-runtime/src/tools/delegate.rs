@@ -279,6 +279,7 @@ impl DelegateTool {
                 prompt: prompt.to_string(),
                 context: context.map(ToOwned::to_owned),
                 launch_index: 0,
+                execution: None,
             }],
             fan_in: FanInPolicy::AllMustSucceed,
         };
@@ -1228,6 +1229,56 @@ mod tests {
         assert!(result.success);
         assert_eq!(result.output, "mailbox-session-ok");
         assert_eq!(result.structured, Some(json!({"mode": "mailbox"})));
+    }
+
+    #[tokio::test]
+    async fn supervised_single_child_delegate_remains_compatible_with_shared_orchestration_contract() {
+        let tmp = TempDir::new().unwrap();
+        let mut agents = HashMap::new();
+        agents.insert(
+            "code_agent".to_string(),
+            DelegateAgentConfig {
+                provider: "openrouter".to_string(),
+                model: "anthropic/claude-sonnet-4-20250514".to_string(),
+                system_prompt: None,
+                api_key: Some("test-key".to_string()),
+                temperature: None,
+                max_depth: 3,
+                execution_mode: DelegateExecutionMode::Session,
+                max_iterations: None,
+                timeout_ms: None,
+            },
+        );
+
+        let service = Arc::new(SupervisedOrchestrationService::new());
+        let mailbox = Arc::new(
+            SqliteMailboxStore::from_db_path(tmp.path().join("state/orchestration/mailbox.db"))
+                .unwrap(),
+        );
+        let runner: Arc<dyn CoordinatorChildRunner> = Arc::new(MailboxBackedChildRunner::new(
+            mailbox,
+            Arc::new(SuccessfulRunner),
+            Arc::new(MailboxWakeupHub::default()),
+        ));
+        let tool = DelegateTool::with_supervised_executor(
+            agents,
+            None,
+            test_security(),
+            test_base_config(&tmp),
+            Arc::clone(&service),
+            runner,
+        );
+
+        let result = tool
+            .execute(json!({"agent": "code_agent", "prompt": "write tests"}))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        let handles = service.registered_handles();
+        assert_eq!(handles.len(), 1, "single-child delegate should use one orchestration handle");
+        let snapshot = service.inspect(&handles[0]).unwrap().expect("snapshot for shared handle");
+        assert_eq!(snapshot.children.len(), 1);
     }
 
     #[tokio::test]
