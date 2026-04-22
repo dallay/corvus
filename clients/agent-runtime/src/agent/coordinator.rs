@@ -251,7 +251,10 @@ fn normalize_execution_metadata(
 
     if let Some(sandbox_mode) = &requested.sandbox_mode {
         let normalized = sandbox_mode.trim().to_ascii_lowercase();
-        if matches!(normalized.as_str(), "clone" | "cloned" | "isolated" | "workspace_clone") {
+        if matches!(
+            normalized.as_str(),
+            "clone" | "cloned" | "isolated" | "workspace_clone"
+        ) {
             return Err(LaunchContractRejection::UnsupportedIsolation {
                 field: "sandbox_mode".to_string(),
                 requested: sandbox_mode.clone(),
@@ -1170,12 +1173,10 @@ impl Coordinator {
         match payload {
             CoordinatorMessage::DispatchChild(_)
             | CoordinatorMessage::CancelChild { .. }
-            | CoordinatorMessage::ResolveApproval { .. } => {
-                child_id
-                    .cloned()
-                    .map(|value| LogicalEndpoint::child(self.coordinator_id.clone(), value))
-                    .unwrap_or_else(|| LogicalEndpoint::coordinator(self.coordinator_id.clone()))
-            }
+            | CoordinatorMessage::ResolveApproval { .. } => child_id
+                .cloned()
+                .map(|value| LogicalEndpoint::child(self.coordinator_id.clone(), value))
+                .unwrap_or_else(|| LogicalEndpoint::coordinator(self.coordinator_id.clone())),
             CoordinatorMessage::ChildStarted { .. }
             | CoordinatorMessage::ChildProgress { .. }
             | CoordinatorMessage::RequestApproval { .. }
@@ -3055,8 +3056,14 @@ mod tests {
             metadata.enforced.approval_broker_mode,
             ApprovalBrokerMode::ParentOwnedOnly
         );
-        assert_eq!(metadata.requested.sandbox_mode.as_deref(), Some("workspace_write"));
-        assert_eq!(metadata.requested.working_directory.as_deref(), Some("/tmp/project"));
+        assert_eq!(
+            metadata.requested.sandbox_mode.as_deref(),
+            Some("workspace_write")
+        );
+        assert_eq!(
+            metadata.requested.working_directory.as_deref(),
+            Some("/tmp/project")
+        );
         assert!(metadata.requested.read_only_project_access);
     }
 
@@ -3200,7 +3207,10 @@ mod tests {
         let latest_event = coordinator.event_log().unwrap().pop().unwrap();
         assert!(matches!(
             latest_event,
-            CoordinatorEvent::ChildStateChanged { state: ChildState::Cancelling, .. }
+            CoordinatorEvent::ChildStateChanged {
+                state: ChildState::Cancelling,
+                ..
+            }
         ));
     }
 
