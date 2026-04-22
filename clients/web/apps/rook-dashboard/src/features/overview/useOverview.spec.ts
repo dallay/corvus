@@ -8,16 +8,13 @@ import { buildProviderGroupSummaries, useOverview } from "./useOverview";
 function createClient(overrides?: Partial<RookApiClient>): RookApiClient {
   return {
     listAccounts: vi.fn(async () => [] as AccountView[]),
-    getHealthSummary: vi.fn(
-      async () =>
-        ({
-          total: 0,
-          healthy: 0,
-          degraded: 0,
-          unhealthy: 0,
-          unknown: 0,
-        }) as HealthSummaryView,
-    ),
+    getHealthSummary: vi.fn(async () => ({
+      total: 0,
+      healthy: 0,
+      degraded: 0,
+      unhealthy: 0,
+      unknown: 0,
+    }) as HealthSummaryView),
     listAccountHealth: vi.fn(async () => [] as HealthAccountView[]),
     getAccount: vi.fn(),
     createAccount: vi.fn(),

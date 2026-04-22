@@ -60,16 +60,10 @@ export function useOverview(client: RookApi) {
   const error = ref<string | null>(null);
 
   const totalAccounts = computed(() => accounts.value.length);
-  const enabledAccounts = computed(
-    () => accounts.value.filter((account) => account.enabled).length,
-  );
+  const enabledAccounts = computed(() => accounts.value.filter((account) => account.enabled).length);
   const disabledAccounts = computed(() => totalAccounts.value - enabledAccounts.value);
-  const providerCount = computed(
-    () => new Set(accounts.value.map((account) => account.vendor)).size,
-  );
-  const providerGroups = computed(() =>
-    buildProviderGroupSummaries(accounts.value, healthRows.value),
-  );
+  const providerCount = computed(() => new Set(accounts.value.map((account) => account.vendor)).size);
+  const providerGroups = computed(() => buildProviderGroupSummaries(accounts.value, healthRows.value));
   const isEmpty = computed(() => accounts.value.length === 0);
 
   async function load() {

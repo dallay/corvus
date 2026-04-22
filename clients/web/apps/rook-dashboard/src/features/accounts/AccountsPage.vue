@@ -13,11 +13,14 @@ const props = defineProps<{
 const {
   actionError,
   create,
+  /* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
   error,
   groups,
   load,
+  /* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
   loading,
   remove,
+  /* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
   saving,
   update,
 } = useAccounts(props.client);
@@ -36,8 +39,13 @@ const form = reactive<AccountFormInput>({
   capabilities: ["chat"],
 });
 
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const visibleGroups = computed(() => groups.value);
-const formTitle = computed(() => (mode.value === "create" ? "Create provider account" : "Edit provider account"));
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
+const formTitle = computed(() =>
+  mode.value === "create" ? "Create provider account" : "Edit provider account",
+);
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const credentialHint = computed(() => {
   if (mode.value !== "edit" || !detail.value) {
     return "API keys are write-only. The value you enter is sent once and never shown again.";
@@ -56,6 +64,7 @@ onMounted(() => {
   void ensureLoaded();
 });
 
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 function startCreate() {
   mode.value = "create";
   detail.value = null;
@@ -79,6 +88,7 @@ async function openDetail(accountId: string) {
   }
 }
 
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 async function startEdit(accountId: string) {
   mode.value = "edit";
   await openDetail(accountId);
@@ -98,6 +108,7 @@ function applyDetailToForm(account: AccountView) {
   } satisfies AccountFormInput);
 }
 
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 async function submit() {
   if (mode.value === "create") {
     await create({
@@ -114,7 +125,11 @@ async function submit() {
   }
 
   if (mode.value === "edit" && detail.value) {
-    await update(detail.value, { ...form, tags: [...form.tags], capabilities: [...form.capabilities] });
+    await update(detail.value, {
+      ...form,
+      tags: [...form.tags],
+      capabilities: [...form.capabilities],
+    });
     detail.value = await props.client.getAccount(detail.value.id);
   }
 
@@ -123,6 +138,7 @@ async function submit() {
   }
 }
 
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 async function confirmDelete() {
   if (!pendingDeleteId.value) {
     return;

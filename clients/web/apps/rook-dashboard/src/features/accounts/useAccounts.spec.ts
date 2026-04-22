@@ -174,6 +174,9 @@ describe("useAccounts", () => {
       .mockResolvedValueOnce([
         createAccount({ id: "account-1", enabled: false, display_name: "Disabled Account" }),
       ])
+      .mockResolvedValueOnce([
+        createAccount({ id: "account-1", enabled: false, display_name: "Disabled Account" }),
+      ]);
     const listHealth = vi.fn(async () => [createHealth()]);
     const client = createClient({ listAccounts, listAccountHealth: listHealth });
 
