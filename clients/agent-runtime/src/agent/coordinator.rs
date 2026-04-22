@@ -158,6 +158,7 @@ pub enum ApprovalBrokerMode {
     ParentOwnedOnly,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnforcedExecutionGuarantees {
     pub transport: CoordinatorTransport,
@@ -306,18 +307,17 @@ pub enum ApprovalDecision {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ApprovalStatus {
+    #[default]
     None,
-    Pending { request: ApprovalRequest },
-    Resolved { decision: ApprovalDecision },
-}
-
-impl Default for ApprovalStatus {
-    fn default() -> Self {
-        Self::None
-    }
+    Pending {
+        request: ApprovalRequest,
+    },
+    Resolved {
+        decision: ApprovalDecision,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
