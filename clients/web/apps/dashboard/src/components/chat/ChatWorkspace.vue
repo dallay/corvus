@@ -481,6 +481,7 @@ onUnmounted(() => {
               <template v-for="message in messages" :key="message.id">
                 <ToolApprovalCard
                   v-if="message.approvalId"
+                  v-memo="[message.approvalId, message.toolName, message.reason]"
                   :tool-name="message.toolName ?? ''"
                   :reason="message.reason ?? ''"
                   :approval-id="message.approvalId"
@@ -489,6 +490,7 @@ onUnmounted(() => {
                 />
                 <ChatMessage
                   v-else
+                  v-memo="[message.role, message.content, message.status, message.recalledMemoryKeys?.length]"
                   :role="message.role"
                   :content="message.content"
                   :status="message.status"
