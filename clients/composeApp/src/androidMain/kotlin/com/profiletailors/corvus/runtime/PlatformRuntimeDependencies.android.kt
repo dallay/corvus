@@ -28,7 +28,7 @@ internal fun createAndroidRuntimeFacade(
         } catch (e: IOException) {
           // Fall back to fail-closed if bridge creation fails due to I/O
           FailClosedRuntimeFacade(
-            unavailableReason = "Runtime bridge unavailable: ${e}",
+            unavailableReason = "Runtime bridge unavailable: ${e.message}",
             environmentSupported = true,
             capabilities =
               RuntimeCapabilities(
@@ -40,19 +40,7 @@ internal fun createAndroidRuntimeFacade(
         } catch (e: IllegalStateException) {
           // Fall back to fail-closed if bridge creation fails due to invalid state
           FailClosedRuntimeFacade(
-            unavailableReason = "Runtime bridge unavailable: ${e}",
-            environmentSupported = true,
-            capabilities =
-              RuntimeCapabilities(
-                streamingResponses = false,
-                resumableSessionList = false,
-                approvalRequests = false,
-              ),
-          )
-        } catch (e: RuntimeException) {
-          // Fall back to fail-closed for any other unexpected exceptions
-          FailClosedRuntimeFacade(
-            unavailableReason = "Runtime bridge unavailable: ${e}",
+            unavailableReason = "Runtime bridge unavailable: ${e.message}",
             environmentSupported = true,
             capabilities =
               RuntimeCapabilities(

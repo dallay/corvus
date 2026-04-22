@@ -349,11 +349,15 @@ jobs:
   build-native-binaries:
     if: ${{ inputs.release }}
     needs: publish
+    permissions:
+      contents: read
     uses: ./.github/workflows/_build-native-binaries.yml
 
   build-cerebro-binaries:
     if: ${{ inputs.release }}
     needs: publish
+    permissions:
+      contents: read
     uses: ./.github/workflows/_build-cerebro-binaries.yml
 
   docker-image:
@@ -361,6 +365,9 @@ jobs:
     needs: [publish, build-native-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -432,6 +439,9 @@ jobs:
     needs: [publish, build-cerebro-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -503,6 +513,8 @@ jobs:
     needs: build-native-binaries
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -627,6 +639,8 @@ jobs:
     needs: publish-npm-platforms
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -8,6 +8,8 @@ jobs:
   build-cerebro-binaries:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
