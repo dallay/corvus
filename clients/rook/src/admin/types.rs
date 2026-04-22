@@ -238,7 +238,22 @@ pub struct CreateAccountRequest {
     pub capabilities: Vec<String>,
 }
 
-pub type UpdateAccountRequest = CreateAccountRequest;
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateAccountRequest {
+    pub vendor: ProviderVendor,
+    pub display_name: String,
+    pub api_base_override: Option<String>,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    pub enabled: bool,
+    pub weight: u32,
+    pub priority: u32,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

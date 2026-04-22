@@ -395,6 +395,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn admin_router_update_preserves_existing_api_key_when_omitted() {
+        let registry = test_api_app().await;
+        let account = make_account("Primary OpenAI", Some("sk-secret"));
+        let account_id = account.id;
+        registry.accounts().create(account).await.unwrap();
+
+        let app = axum::Router::new().nest("/api", build_router(registry.clone()));
+
+        let (update_status, update_json) = send_json(
+            app,
+            axum::http::Method::PUT,
+            &format!("/api/accounts/{account_id}"),
+            json!({
+                "vendor": "open_ai",
+                "display_name": "Primary OpenAI Updated",
+                "api_base_override": "http://localhost:4000/v1",
+                "enabled": false,
+                "weight": 3,
+                "priority": 5,
+                "tags": ["prod", "edited"],
+                "capabilities": ["chat", "responses"]
+            }),
+        )
+        .await;
+
+        assert_eq!(update_status, StatusCode::OK);
+        assert_eq!(update_json["display_name"], json!("Primary OpenAI Updated"));
+        assert_eq!(update_json["enabled"], json!(false));
+        assert_eq!(update_json["has_api_key"], json!(true));
+        assert!(update_json.get("api_key").is_none());
+
+        let stored = registry.accounts().get(account_id).await.unwrap();
+        assert_eq!(stored.api_key.as_deref(), Some("sk-secret"));
+        assert_eq!(stored.display_name, "Primary OpenAI Updated");
+        assert!(!stored.enabled);
+    }
+
+    #[tokio::test]
+    async fn admin_router_update_replaces_existing_api_key_when_provided() {
+        let registry = test_api_app().await;
+        let account = make_account("Primary OpenAI", Some("sk-secret"));
+        let account_id = account.id;
+        registry.accounts().create(account).await.unwrap();
+
+        let app = axum::Router::new().nest("/api", build_router(registry.clone()));
+
+        let (update_status, update_json) = send_json(
+            app,
+            axum::http::Method::PUT,
+            &format!("/api/accounts/{account_id}"),
+            json!({
+                "vendor": "open_ai",
+                "display_name": "Primary OpenAI Rotated",
+                "api_key": "sk-new-secret",
+                "enabled": true,
+                "weight": 1,
+                "priority": 0,
+                "tags": ["prod"],
+                "capabilities": ["chat"]
+            }),
+        )
+        .await;
+
+        assert_eq!(update_status, StatusCode::OK);
+        assert_eq!(update_json["has_api_key"], json!(true));
+        assert!(update_json.get("api_key").is_none());
+
+        let stored = registry.accounts().get(account_id).await.unwrap();
+        assert_eq!(stored.api_key.as_deref(), Some("sk-new-secret"));
+        assert_eq!(stored.display_name, "Primary OpenAI Rotated");
+    }
+
+    #[tokio::test]
     async fn admin_router_returns_not_found_for_updating_or_deleting_missing_account() {
         let registry = test_api_app().await;
         let missing = crate::domain::AccountId::generate();

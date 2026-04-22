@@ -140,6 +140,24 @@ fn account_from_request(
     }
 }
 
+fn updated_account_from_request(
+    existing: ProviderAccount,
+    req: UpdateAccountRequest,
+) -> ProviderAccount {
+    ProviderAccount {
+        id: existing.id,
+        vendor: req.vendor,
+        display_name: req.display_name,
+        api_base_override: req.api_base_override,
+        api_key: req.api_key.or(existing.api_key),
+        enabled: req.enabled,
+        weight: req.weight,
+        priority: req.priority,
+        tags: req.tags,
+        capabilities: req.capabilities,
+    }
+}
+
 fn pool_from_request(pool_id: crate::domain::PoolId, req: CreatePoolRequest) -> ProviderPool {
     ProviderPool {
         id: pool_id,
@@ -191,10 +209,10 @@ pub async fn handle_update_account(
     let account_id = parse_path(account_id)?;
     let req = parse_json(req)?;
     validate_display_name(&req.display_name)?;
-    if registry.accounts().get(account_id).await.is_none() {
+    let Some(existing_account) = registry.accounts().get(account_id).await else {
         return Err(not_found("account", account_id));
-    }
-    let account = account_from_request(account_id, req);
+    };
+    let account = updated_account_from_request(existing_account, req);
     registry
         .accounts()
         .update(account.clone())
