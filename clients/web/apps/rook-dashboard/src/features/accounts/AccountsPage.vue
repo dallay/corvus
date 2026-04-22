@@ -43,7 +43,7 @@ const form = reactive<AccountFormInput>({
 const visibleGroups = computed(() => groups.value);
 /* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const formTitle = computed(() =>
-  mode.value === "create" ? "Create provider account" : "Edit provider account",
+  mode.value === "create" ? "Create provider account" : "Edit provider account"
 );
 /* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const credentialHint = computed(() => {
