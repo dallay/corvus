@@ -1682,6 +1682,33 @@ async fn update_session_activity_if_persisted(
     }
 }
 
+async fn finalize_generated_session_if_needed(
+    state: &AppState,
+    session_id: &str,
+    session_source: webhook_dispatch::WebhookSessionSource,
+) {
+    if !matches!(
+        session_source,
+        webhook_dispatch::WebhookSessionSource::Generated
+    ) {
+        return;
+    }
+
+    if let Err(error) = state.mem.end_session(session_id).await {
+        tracing::debug!("generated session end best-effort failed: {error}");
+        return;
+    }
+
+    let workspace_dir = state.config.lock().workspace_dir.clone();
+    if let Err(error) = crate::memory::record_session_completion(&workspace_dir) {
+        tracing::debug!("dream session counter update failed: {error}");
+        return;
+    }
+    if let Err(error) = crate::memory::run_dream_if_triggered(&workspace_dir) {
+        tracing::debug!("dream consolidation after generated session skipped: {error}");
+    }
+}
+
 fn webhook_duplicate_response(idempotency_key: &str) -> WebhookResponse {
     tracing::info!(
         idempotency_key_fingerprint = %fingerprint_idempotency_key(idempotency_key),

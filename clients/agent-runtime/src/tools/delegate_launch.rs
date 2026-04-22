@@ -99,6 +99,33 @@ impl Tool for DelegateLaunchTool {
                             "context": {
                                 "type": "string",
                                 "description": "Optional context to prepend to the child's prompt."
+                            },
+                            "execution": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "description": "Optional execution metadata for isolation, transport, and model overrides.",
+                                "properties": {
+                                    "working_directory": { "type": "string" },
+                                    "sandbox_mode": { "type": "string" },
+                                    "repository_id": { "type": "string" },
+                                    "worktree_id": { "type": "string" },
+                                    "tool_allowlist": {
+                                        "type": "array",
+                                        "items": { "type": "string" }
+                                    },
+                                    "tool_denylist": {
+                                        "type": "array",
+                                        "items": { "type": "string" }
+                                    },
+                                    "provider_override": { "type": "string" },
+                                    "model_override": { "type": "string" },
+                                    "permission_broker": { "type": "string" },
+                                    "transport": {
+                                        "type": "string",
+                                        "enum": ["in_process", "mailbox", "remote_bridge"]
+                                    },
+                                    "read_only_project_access": { "type": "boolean" }
+                                }
                             }
                         }
                     }
@@ -176,6 +203,12 @@ impl Tool for DelegateLaunchTool {
                 .get("context")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
+            let execution = item
+                .get("execution")
+                .cloned()
+                .map(serde_json::from_value::<crate::agent::coordinator::ChildExecutionSpec>)
+                .transpose()
+                .map_err(|error| anyhow::anyhow!("invalid execution metadata: {error}"))?;
 
             child_requests.push(ChildLaunchRequest {
                 child_id: ChildAgentId(child_id),
@@ -183,6 +216,7 @@ impl Tool for DelegateLaunchTool {
                 prompt,
                 context,
                 launch_index: u32::try_from(launch_index).unwrap_or(u32::MAX),
+                execution,
             });
         }
 
@@ -417,5 +451,99 @@ mod tests {
             .unwrap();
         assert!(!result.success);
         assert!(result.error.is_some());
+    }
+
+    #[tokio::test]
+    async fn returns_requested_and_enforced_execution_metadata_in_initial_snapshot() {
+        let result = tool()
+            .execute(serde_json::json!({
+                "children": [
+                    {
+                        "child_id": "a",
+                        "agent_name": "AgentA",
+                        "prompt": "p",
+                        "execution": {
+                            "transport": "mailbox",
+                            "sandbox_mode": "workspace_write",
+                            "tool_allowlist": ["read"],
+                            "read_only_project_access": true,
+                            "working_directory": "/tmp/project"
+                        }
+                    }
+                ]
+            }))
+            .await
+            .unwrap();
+
+        assert!(result.success, "expected success, got: {:?}", result.error);
+        let structured = result.structured.expect("structured payload");
+        let execution = &structured["snapshot"]["children"][0]["execution"];
+        assert_eq!(execution["requested"]["transport"], "mailbox");
+        assert_eq!(execution["requested"]["sandbox_mode"], "workspace_write");
+        assert_eq!(
+            execution["requested"]["read_only_project_access"],
+            serde_json::json!(true)
+        );
+        assert_eq!(execution["enforced"]["transport"], "mailbox");
+        assert_eq!(
+            execution["enforced"]["process_local_handle_authority"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            execution["enforced"]["approval_broker_mode"],
+            "parent_owned_only"
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_remote_bridge_requests_without_local_fallback() {
+        let result = tool()
+            .execute(serde_json::json!({
+                "children": [
+                    {
+                        "child_id": "a",
+                        "agent_name": "AgentA",
+                        "prompt": "p",
+                        "execution": {
+                            "transport": "remote_bridge"
+                        }
+                    }
+                ]
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("unsupported transport request"));
+    }
+
+    #[tokio::test]
+    async fn rejects_unsupported_permission_broker_requests_fail_closed() {
+        let result = tool()
+            .execute(serde_json::json!({
+                "children": [
+                    {
+                        "child_id": "a",
+                        "agent_name": "AgentA",
+                        "prompt": "p",
+                        "execution": {
+                            "permission_broker": "child_owned"
+                        }
+                    }
+                ]
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("unsupported permission broker request"));
     }
 }
