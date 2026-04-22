@@ -157,13 +157,23 @@ describe("useAccounts", () => {
       .mockResolvedValueOnce([createAccount()])
       .mockResolvedValueOnce([
         createAccount(),
-        createAccount({ id: "created-account", display_name: "Created Account", has_api_key: true }),
+        createAccount({
+          id: "created-account",
+          display_name: "Created Account",
+          has_api_key: true,
+        }),
       ])
       .mockResolvedValueOnce([
         createAccount({ id: "account-1", enabled: false, display_name: "Disabled Account" }),
-        createAccount({ id: "created-account", display_name: "Created Account", has_api_key: true }),
+        createAccount({
+          id: "created-account",
+          display_name: "Created Account",
+          has_api_key: true,
+        }),
       ])
-      .mockResolvedValueOnce([createAccount({ id: "account-1", enabled: false, display_name: "Disabled Account" })]);
+      .mockResolvedValueOnce([
+        createAccount({ id: "account-1", enabled: false, display_name: "Disabled Account" }),
+      ])
     const listHealth = vi.fn(async () => [createHealth()]);
     const client = createClient({ listAccounts, listAccountHealth: listHealth });
 

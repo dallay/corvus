@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-import { RookApiClient, type RookApi } from "@/lib/api/client";
-import { normalizeHashRoute, toHashRoute, type RookRoute } from "@/lib/navigation/routes";
+import { type RookApi, RookApiClient } from "@/lib/api/client";
+import { normalizeHashRoute, type RookRoute, toHashRoute } from "@/lib/navigation/routes";
 import { useRookSession } from "@/lib/session/useRookSession";
 
+/* biome-ignore lint/correctness/noUnusedImports: used in Vue template */
 import AccountsPage from "./features/accounts/AccountsPage.vue";
+/* biome-ignore lint/correctness/noUnusedImports: used in Vue template */
 import OverviewPage from "./features/overview/OverviewPage.vue";
 
 const { baseUrl, bearerToken, isConfigured } = useRookSession();
@@ -13,6 +15,7 @@ const route = ref<RookRoute>(normalizeHashRoute(window.location.hash));
 const isConnected = ref(false);
 const connectedClient = ref<RookApi | null>(null);
 
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const client = computed<RookApi | null>(() => connectedClient.value);
 
 function refreshConnectedClient() {
@@ -24,11 +27,13 @@ function refreshConnectedClient() {
   connectedClient.value = new RookApiClient(baseUrl.value.trim(), bearerToken.value.trim());
 }
 
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 function connectSession() {
   isConnected.value = true;
   refreshConnectedClient();
 }
 
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 function disconnectSession() {
   isConnected.value = false;
   connectedClient.value = null;
@@ -44,6 +49,7 @@ function handleHashChange() {
   route.value = normalizeHashRoute(window.location.hash);
 }
 
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 function navigate(nextRoute: RookRoute) {
   window.location.hash = toHashRoute(nextRoute);
 }

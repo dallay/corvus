@@ -127,7 +127,7 @@ describe("AccountsPage", () => {
     await wrapper.get('input[name="display_name"]').setValue("Disabled Account");
     await wrapper.get('input[name="api_key"]').setValue("sk-disabled");
     await wrapper.get('input[name="enabled"]').setValue(false);
-    await wrapper.get('form').trigger("submit");
+    await wrapper.get("form").trigger("submit");
     await flushPromises();
 
     expect(client.createAccount).toHaveBeenCalledWith(
@@ -153,7 +153,7 @@ describe("AccountsPage", () => {
     expect(wrapper.text()).not.toContain("Test connection");
 
     await wrapper.get('input[name="enabled"]').setValue(true);
-    await wrapper.get('form').trigger("submit");
+    await wrapper.get("form").trigger("submit");
     await flushPromises();
 
     expect(client.updateAccount).toHaveBeenCalledWith(

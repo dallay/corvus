@@ -10,14 +10,23 @@ const props = defineProps<{
 }>();
 
 const overview = useOverview(props.client);
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const providerGroups = computed(() => overview.providerGroups.value);
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const healthSummary = computed(() => overview.healthSummary.value);
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const totalAccounts = computed(() => overview.totalAccounts.value);
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const enabledAccounts = computed(() => overview.enabledAccounts.value);
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const disabledAccounts = computed(() => overview.disabledAccounts.value);
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const providerCount = computed(() => overview.providerCount.value);
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const isEmpty = computed(() => overview.isEmpty.value);
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const loading = computed(() => overview.loading.value);
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const error = computed(() => overview.error.value);
 
 void overview.load();
