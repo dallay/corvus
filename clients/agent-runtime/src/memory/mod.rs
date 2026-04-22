@@ -17,6 +17,7 @@ pub use backend::{
     classify_memory_backend, default_memory_backend_key, memory_backend_profile,
     selectable_memory_backends, MemoryBackendKind, MemoryBackendProfile,
 };
+#[allow(unused_imports)]
 pub use dream::{
     record_session_completion, run_if_triggered as run_dream_if_triggered,
     run_now as run_dream_now, DreamLaunchContract, DreamLockState, DreamPhase, DreamPhaseResult,
