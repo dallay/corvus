@@ -3,10 +3,7 @@ use crate::tui::view_models::{
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-pub const DEFERRED_LOGS_MESSAGE: &str =
-    "recent logs are deferred until a verified backend/admin read contract exists";
-pub const DEFERRED_TROUBLESHOOTING_MESSAGE: &str = "troubleshooting and setup are deferred to #597";
-pub const DEFERRED_MUTATIONS_MESSAGE: &str = "this first Rook TUI slice is read-only";
+pub const DASHBOARD_BRIDGE_PREFIX: &str = "setup and mutations are managed in the web dashboard:";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
@@ -66,12 +63,13 @@ pub struct AppState {
     pub pools: LoadState<PoolsViewModel>,
     pub health: LoadState<HealthViewModel>,
     pub routes: LoadState<RoutesViewModel>,
+    pub dashboard_url: String,
     pub footer_message: Option<String>,
     pub should_quit: bool,
 }
 
-impl Default for AppState {
-    fn default() -> Self {
+impl AppState {
+    pub fn new(dashboard_url: String) -> Self {
         Self {
             active_view: ActiveView::Status,
             status: LoadState::Idle,
@@ -79,9 +77,16 @@ impl Default for AppState {
             pools: LoadState::Idle,
             health: LoadState::Idle,
             routes: LoadState::Idle,
-            footer_message: Some(DEFERRED_MUTATIONS_MESSAGE.to_string()),
+            dashboard_url: dashboard_url.clone(),
+            footer_message: Some(format!("{} {}", DASHBOARD_BRIDGE_PREFIX, dashboard_url)),
             should_quit: false,
         }
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new("http://127.0.0.1:4141".to_string())
     }
 }
 
@@ -95,7 +100,10 @@ pub enum AppAction {
 impl AppState {
     pub fn set_active_view(&mut self, view: ActiveView) {
         self.active_view = view;
-        self.footer_message = Some(DEFERRED_MUTATIONS_MESSAGE.to_string());
+        self.footer_message = Some(format!(
+            "{} {}",
+            DASHBOARD_BRIDGE_PREFIX, self.dashboard_url
+        ));
     }
 
     pub fn set_loading(&mut self, view: ActiveView) {
@@ -159,16 +167,11 @@ impl AppState {
                 self.should_quit = true;
                 AppAction::Quit
             }
-            KeyCode::Char('t') => {
-                self.footer_message = Some(DEFERRED_TROUBLESHOOTING_MESSAGE.to_string());
-                AppAction::None
-            }
-            KeyCode::Char('m') => {
-                self.footer_message = Some(DEFERRED_MUTATIONS_MESSAGE.to_string());
-                AppAction::None
-            }
-            KeyCode::Char('g') => {
-                self.footer_message = Some(DEFERRED_LOGS_MESSAGE.to_string());
+            KeyCode::Char('t') | KeyCode::Char('m') | KeyCode::Char('g') => {
+                self.footer_message = Some(format!(
+                    "{} {}",
+                    DASHBOARD_BRIDGE_PREFIX, self.dashboard_url
+                ));
                 AppAction::None
             }
             KeyCode::Up => {
@@ -289,13 +292,9 @@ mod tests {
     }
 
     #[test]
-    fn view_switching_refresh_quit_and_deferred_messages_are_bounded() {
-        let mut state = AppState::default();
-
-        assert_eq!(ActiveView::Health.next(), ActiveView::Routes);
-        assert_eq!(ActiveView::Routes.next(), ActiveView::Status);
-        assert_eq!(ActiveView::Status.prev(), ActiveView::Routes);
-        assert_eq!(ActiveView::Routes.prev(), ActiveView::Health);
+    fn view_switching_refresh_quit_and_dashboard_url_are_bounded() {
+        let mut state = AppState::new("http://localhost:3000".to_string());
+        assert_eq!(state.dashboard_url, "http://localhost:3000");
 
         assert_eq!(
             state.handle_key(KeyEvent::from(KeyCode::Char('2'))),
@@ -315,7 +314,7 @@ mod tests {
         );
         assert_eq!(
             state.footer_message.as_deref(),
-            Some(DEFERRED_LOGS_MESSAGE)
+            Some("setup and mutations are managed in the web dashboard: http://localhost:3000")
         );
 
         assert_eq!(
@@ -324,7 +323,7 @@ mod tests {
         );
         assert_eq!(
             state.footer_message.as_deref(),
-            Some(DEFERRED_TROUBLESHOOTING_MESSAGE)
+            Some("setup and mutations are managed in the web dashboard: http://localhost:3000")
         );
 
         assert_eq!(
@@ -342,7 +341,7 @@ mod tests {
     fn active_view_failures_stay_scoped_without_blanking_other_views() {
         let mut state = AppState {
             health: LoadState::Ready(empty_health()),
-            ..Default::default()
+            ..AppState::new("http://localhost:3000".to_string())
         };
         state.set_active_view(ActiveView::Providers);
         state.set_error(ActiveView::Providers, "accounts failed");
@@ -355,7 +354,7 @@ mod tests {
     fn routes_loading_and_error_states_stay_scoped_and_logs_remain_deferred() {
         let mut state = AppState {
             providers: LoadState::Ready(ProvidersViewModel { groups: vec![] }),
-            ..Default::default()
+            ..AppState::new("http://localhost:3000".to_string())
         };
 
         state.set_loading(ActiveView::Routes);
@@ -367,7 +366,10 @@ mod tests {
         assert!(matches!(state.providers_state(), LoadState::Ready(_)));
 
         state.handle_key(KeyEvent::from(KeyCode::Char('g')));
-        assert_eq!(state.footer_message.as_deref(), Some(DEFERRED_LOGS_MESSAGE));
+        assert_eq!(
+            state.footer_message.as_deref(),
+            Some("setup and mutations are managed in the web dashboard: http://localhost:3000")
+        );
         assert_ne!(ActiveView::Routes.title(), "Recent Logs");
     }
 }

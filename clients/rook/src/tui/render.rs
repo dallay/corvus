@@ -42,7 +42,7 @@ fn render_tabs(frame: &mut ratatui::Frame, area: Rect, active: ActiveView) {
 }
 
 fn render_footer(frame: &mut ratatui::Frame, area: Rect, message: Option<&str>) {
-    let text = message.unwrap_or("keys: 1-5 switch, ←/→ tabs, ↑/↓ routes, r refresh, q quit");
+    let text = message.unwrap_or("web dashboard handles setup and mutations; keys: 1-5 switch, ←/→ tabs, ↑/↓ routes, r refresh, q quit");
     frame.render_widget(Paragraph::new(text), area);
 }
 
@@ -314,11 +314,12 @@ mod tests {
 
     #[test]
     fn renders_shell_chrome_and_state_variants_for_each_view() {
-        let mut app = AppState::default();
+        let mut app = AppState::new("http://localhost:3000".to_string());
         let loading = draw_text(&app);
         assert!(loading.contains("Rook TUI"));
         assert!(loading.contains("Loading Status"));
         assert!(loading.contains("Routes"));
+        assert!(loading.contains("http://localhost:3000"));
 
         app.active_view = ActiveView::Providers;
         app.providers = LoadState::Empty {
@@ -354,6 +355,7 @@ mod tests {
         assert!(ready.contains("Health Summary"));
         assert!(ready.contains("OpenAI"));
         assert!(ready.contains("unknown"));
+        assert!(ready.contains("http://localhost:3000"));
 
         app.active_view = ActiveView::Routes;
         app.routes = LoadState::Empty {
@@ -380,7 +382,7 @@ mod tests {
                 provider_groups: vec![],
                 health_summary: sample_health_summary(),
             }),
-            ..Default::default()
+            ..AppState::new("http://localhost:3000".to_string())
         };
         let status = draw_text(&app);
         assert!(status.contains("Total accounts: 2"));
@@ -448,5 +450,6 @@ mod tests {
         assert!(routes.contains("Fallback route: none"));
         assert!(routes.contains("chat"));
         assert!(!routes.contains("Recent Logs"));
+        assert!(routes.contains("http://localhost:3000"));
     }
 }

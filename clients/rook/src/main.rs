@@ -108,15 +108,15 @@ async fn main() -> Result<()> {
 }
 
 async fn run_cli(cli: Cli) -> Result<()> {
-    run_cli_with_tui_runner(cli, |registry| async move {
-        rook::tui::run_standalone(registry).await
+    run_cli_with_tui_runner(cli, |registry, dashboard_url| async move {
+        rook::tui::run_standalone(registry, dashboard_url).await
     })
     .await
 }
 
 async fn run_cli_with_tui_runner<F, Fut>(cli: Cli, tui_runner: F) -> Result<()>
 where
-    F: Fn(RookRegistry) -> Fut,
+    F: Fn(RookRegistry, String) -> Fut,
     Fut: std::future::Future<Output = Result<(), rook::domain::RookError>>,
 {
     match cli.command {
@@ -153,7 +153,12 @@ where
             rook::server::run(config).await?;
         }
         Commands::Tui => {
-            launch_tui_with_runner(DEFAULT_ROOK_DB_PATH, tui_runner).await?;
+            launch_tui_with_runner(
+                DEFAULT_ROOK_DB_PATH,
+                "http://127.0.0.1:4141".to_string(),
+                tui_runner,
+            )
+            .await?;
         }
         Commands::Doctor => {
             println!("rook doctor: not yet implemented");
@@ -170,13 +175,13 @@ where
     Ok(())
 }
 
-async fn launch_tui_with_runner<F, Fut>(db_path: &str, tui_runner: F) -> Result<()>
+async fn launch_tui_with_runner<F, Fut>(db_path: &str, dashboard_url: String, tui_runner: F) -> Result<()>
 where
-    F: Fn(RookRegistry) -> Fut,
+    F: Fn(RookRegistry, String) -> Fut,
     Fut: std::future::Future<Output = Result<(), rook::domain::RookError>>,
 {
     let registry = RookRegistry::open(db_path).await?;
-    tui_runner(registry).await?;
+    tui_runner(registry, dashboard_url).await?;
     Ok(())
 }
 
@@ -345,10 +350,13 @@ mod tests {
             Cli {
                 command: Commands::Tui,
             },
-            move |_registry| {
+            move |_registry, dashboard_url| {
                 let captured_for_runner = captured_for_runner.clone();
                 async move {
-                    *captured_for_runner.lock().unwrap() = Some(DEFAULT_ROOK_DB_PATH.to_string());
+                    *captured_for_runner.lock().unwrap() = Some(format!(
+                        "{}|{}",
+                        DEFAULT_ROOK_DB_PATH, dashboard_url
+                    ));
                     Ok(())
                 }
             },
@@ -358,7 +366,7 @@ mod tests {
 
         assert_eq!(
             captured.lock().unwrap().as_deref(),
-            Some(DEFAULT_ROOK_DB_PATH)
+            Some("./rook.db|http://127.0.0.1:4141")
         );
     }
 }

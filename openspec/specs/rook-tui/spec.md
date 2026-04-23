@@ -43,8 +43,9 @@ that allows the operator to reach the implemented read-only views for the bounde
 - health
 - routes
 
-For #596, the TUI MUST treat route inspection as an implemented read-only view and MUST continue to
-defer troubleshooting/setup flows, repair workflows, recent logs, and mutation workflows.
+For #597, the TUI MUST treat route inspection as an implemented read-only view and MUST formalize
+its terminal boundary by guiding operators to the web dashboard for setup, mutations, and advanced
+troubleshooting workflows.
 
 (Previously: The TUI navigation requirement was bounded to the four #595 views only and required
 route inspection/details, troubleshooting/setup flows, and mutation workflows to remain outside the
@@ -57,13 +58,15 @@ implemented navigation surface.)
 - THEN the TUI MUST provide access to status, providers, pools, health, and routes
 - AND each of those destinations MUST be reachable within the same terminal session
 
-#### Scenario: logs and troubleshooting remain outside the implemented navigation surface
+#### Scenario: logs and mutations are explicitly bridged to the web dashboard
 
-- GIVEN the Rook TUI is running for #596
+- GIVEN the Rook TUI is running
 - WHEN the operator inspects available views and actions
 - THEN the TUI MUST NOT present recent logs, troubleshooting/setup, or repair workflows as
-  implemented views for this slice
-- AND the TUI MUST keep those workflow areas explicitly deferred to follow-up changes
+  implemented terminal views
+- AND the TUI MUST explicitly display the Web Dashboard URL as the required destination for setup,
+  mutation, and advanced troubleshooting
+- AND all "deferred to #597" messaging MUST be removed.
 
 ### Requirement: Status View Provides Read-Only Operator Orientation From Verified Read Contracts
 
@@ -261,40 +264,13 @@ backend semantics.
 - THEN the TUI MUST show an error state within the routes view
 - AND the TUI MUST NOT replace unrelated views with a global failure state
 
-### Requirement: Deferred Workflows and Mutations Remain Explicitly Out of Scope
+#### Scenario: setup explicitly directed to web dashboard
 
-For #596, the TUI MUST explicitly defer unsupported workflow areas and MUST NOT present them as
-implemented capabilities.
+- GIVEN one TUI view depends on a verified read request that returns empty (for example, no accounts
+  configured)
+- WHEN the operator reads the empty state or the main shell
+- THEN the TUI MUST inform the operator to perform setup via the web dashboard.
 
-The TUI MUST NOT implement or imply support for:
-
-- recent logs, log history, log tailing, or any other log-read workflow until a verified backend or
-  admin read contract exists
-- troubleshooting, setup, onboarding guidance, repair, or guided recovery workflows (#597)
-- account, provider, pool, route, settings, usage, health, or log mutations
-- any new TUI-only backend contract, aggregation endpoint, or admin API for this slice
-
-The TUI MAY communicate that those workflows are deferred, but it MUST NOT present them as working
-interactive features.
-
-(Previously: This requirement deferred route inspection, route detail, route administration,
-troubleshooting/setup, and all mutations for #595.)
-
-#### Scenario: recent logs stay explicitly deferred without a verified read contract
-
-- GIVEN the operator is using the #596 Rook TUI
-- WHEN the operator inspects navigation, views, and actions
-- THEN the TUI MUST NOT present recent logs as an implemented workflow
-- AND the TUI MUST NOT imply any log-read capability unless a verified backend or admin read
-  contract is in scope, which it is not for #596
-
-#### Scenario: troubleshooting and setup workflows stay explicitly deferred
-
-- GIVEN the operator is using the #596 Rook TUI
-- WHEN the operator inspects guidance, views, and actions
-- THEN the TUI MUST NOT present troubleshooting, setup, onboarding, or repair flows as implemented
-  workflows
-- AND those workflow areas MUST remain deferred to #597
 
 ### Requirement: Routes View Uses Verified Route Read Contracts Only
 

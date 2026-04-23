@@ -45,19 +45,27 @@ impl Drop for TerminalSession {
     }
 }
 
-pub async fn run_standalone(registry: RookRegistry) -> Result<(), RookError> {
-    run_app(registry, None).await
+pub async fn run_standalone(registry: RookRegistry, dashboard_url: String) -> Result<(), RookError> {
+    run_app(registry, dashboard_url, None).await
 }
 
-pub async fn run_embedded(registry: RookRegistry, shutdown: Arc<Notify>) -> Result<(), RookError> {
-    run_app(registry, Some(shutdown)).await
+pub async fn run_embedded(
+    registry: RookRegistry,
+    dashboard_url: String,
+    shutdown: Arc<Notify>,
+) -> Result<(), RookError> {
+    run_app(registry, dashboard_url, Some(shutdown)).await
 }
 
-async fn run_app(registry: RookRegistry, shutdown: Option<Arc<Notify>>) -> Result<(), RookError> {
+async fn run_app(
+    registry: RookRegistry,
+    dashboard_url: String,
+    shutdown: Option<Arc<Notify>>,
+) -> Result<(), RookError> {
     let mut terminal = TerminalSession::new()?;
     let query = TuiQueryService::new(registry);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut app = AppState::default();
+    let mut app = AppState::new(dashboard_url);
     app.set_loading(app.active_view);
     request_view_load(&query, app.active_view, tx.clone());
     let mut last_refresh = Instant::now();

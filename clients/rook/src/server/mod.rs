@@ -199,15 +199,15 @@ async fn build_app_with_registry_and_idempotency(
 ///
 /// Logs a startup message and returns `Ok(())` after graceful shutdown.
 pub async fn run(config: ServerConfig) -> Result<(), RookError> {
-    run_with_tui_runner(config, |registry, shutdown| async move {
-        tui::run_embedded(registry, shutdown).await
+    run_with_tui_runner(config, |registry, dashboard_url, shutdown| async move {
+        tui::run_embedded(registry, dashboard_url, shutdown).await
     })
     .await
 }
 
 async fn run_with_tui_runner<F, Fut>(config: ServerConfig, tui_runner: F) -> Result<(), RookError>
 where
-    F: Fn(RookRegistry, Arc<Notify>) -> Fut + Send + Sync + Clone + 'static,
+    F: Fn(RookRegistry, String, Arc<Notify>) -> Fut + Send + Sync + Clone + 'static,
     Fut: std::future::Future<Output = Result<(), RookError>> + Send + 'static,
 {
     let registry = RookRegistry::open(config.effective_db_path()).await?;
@@ -226,6 +226,7 @@ where
 
     if config.enable_tui {
         let shutdown = Arc::new(Notify::new());
+        let dashboard_url = format!("http://{}:{}", config.host, config.port);
         let (server_shutdown_tx, server_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
         let server = tokio::spawn(async move {
             axum::serve(
@@ -244,7 +245,7 @@ where
             .map_err(RookError::Io)
         });
 
-        let tui_result = tui_runner(registry, shutdown.clone()).await;
+        let tui_result = tui_runner(registry, dashboard_url, shutdown.clone()).await;
         let _ = server_shutdown_tx.send(());
         shutdown.notify_waiters();
         let server_result = server
@@ -569,9 +570,10 @@ mod tests {
                     rate_limits: RateLimitConfig::default(),
                     idempotency: IdempotencyConfig::default(),
                 },
-                move |_registry, shutdown| {
+                move |_registry, dashboard_url, shutdown| {
                     let calls_for_runner = calls_for_runner.clone();
                     async move {
+                        assert!(dashboard_url.starts_with("http://127.0.0.1:"));
                         calls_for_runner.fetch_add(1, Ordering::SeqCst);
                         shutdown.notify_waiters();
                         Ok(())
