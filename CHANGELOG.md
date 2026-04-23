@@ -1,5 +1,39 @@
 # Changelog
 
+## [3.4.0](https://github.com/dallay/corvus/compare/v3.3.0...v3.4.0) (2026-04-22)
+
+
+### Features
+
+* **protection:** add develop branch protection rules and update documentation ([b8edd01](https://github.com/dallay/corvus/commit/b8edd018d995bf5f37e8c9daa6b89df0cf46b9f8))
+* **rook:** add admin API for operator management ([0a281a0](https://github.com/dallay/corvus/commit/0a281a048586f9ef86cb298a957581b505f5fa0c))
+* **rook:** add embedded operator dashboard flows ([c51c8c1](https://github.com/dallay/corvus/commit/c51c8c1b2b09a79207271bb95d8568e4e17b3a86))
+* **rook:** add embedded operator dashboard flows ([a98c315](https://github.com/dallay/corvus/commit/a98c31519951b78a6eaa78ac497879a770be0a22))
+* **rook:** add OpenAI-compatible gateway endpoints ([41d7539](https://github.com/dallay/corvus/commit/41d75398de62c915bb13e4d3864c463e73b75457))
+* **rook:** harden gateway transport and chat delivery ([93efa55](https://github.com/dallay/corvus/commit/93efa5581cd971ab9241416671ecf4dc15953ac5))
+* **runtime:** add dream hooks for generated sessions ([d200610](https://github.com/dallay/corvus/commit/d20061008cf2e38832b50488a32793bff0baa3eb))
+* **runtime:** complete orchestration parity contract ([2e34682](https://github.com/dallay/corvus/commit/2e34682d34021e31220f7fc1a0412b6b2709f4a0))
+
+
+### Bug Fixes
+
+* **rook:** apply dashboard formatter rules ([28df7ff](https://github.com/dallay/corvus/commit/28df7ffa6e50b43aec5681fa7e89616e1f96bb93))
+* **rook:** harden admin API error and integrity handling ([fdd13c2](https://github.com/dallay/corvus/commit/fdd13c2d13a621f57dc041d698c44fe45d8903b9))
+* **rook:** harden gateway secret handling and startup wiring ([5ddeb41](https://github.com/dallay/corvus/commit/5ddeb4138287531daeab472fcba78b2a77e05e35))
+* **rook:** satisfy dashboard biome checks ([e61eaee](https://github.com/dallay/corvus/commit/e61eaeed7bb1f822ac8f09cfe0acb749f0097d70))
+* **rook:** satisfy dashboard stylelint rule ([ef37542](https://github.com/dallay/corvus/commit/ef37542e9175778ff42d8dc72f28474849f45f1d))
+* **rook:** satisfy remaining web hook checks ([f354537](https://github.com/dallay/corvus/commit/f35453733a7fb78f8489de2355938d8e1169fbf7))
+* **runtime:** allow staged dream re-exports ([7732cad](https://github.com/dallay/corvus/commit/7732cad7758f5d3482ff915716aa9f82d5f252e6))
+* **runtime:** satisfy orchestration clippy gates ([a170a86](https://github.com/dallay/corvus/commit/a170a8604858daef5ca564796fc30aa74d788352))
+* **runtime:** satisfy orchestration lint gates ([4ec0078](https://github.com/dallay/corvus/commit/4ec007806c17d2190ae701c2bac07a339ebf850a))
+* **state:** update current_phase to archive and adjust next phase ([b2290ac](https://github.com/dallay/corvus/commit/b2290ace5586aa0e34b7816ea21062de3edf7d86))
+
+
+### Performance Improvements
+
+* Optimize Web Chat Rendering with v-memo and v-once ([eb2bc35](https://github.com/dallay/corvus/commit/eb2bc353fa93c68b329b6cb118af5fb141218b09))
+* **web:** optimize chat rendering with v-memo and v-once ([cbaf95c](https://github.com/dallay/corvus/commit/cbaf95c518612f70eb004da6b3f04c9d3163f7af))
+
 ## [3.3.0](https://github.com/dallay/corvus/compare/v3.2.0...v3.3.0) (2026-04-21)
 
 
