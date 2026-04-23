@@ -15,7 +15,8 @@
 //! use rook::services::account::AccountService as _;
 //!
 //! let registry = RookRegistry::open("./rook.db").await?;
-//! let accounts = registry.accounts().list().await?;
+//! let accounts = registry.accounts().list().await;
+//! # let _ = accounts;
 //! # Ok(())
 //! # }
 //! ```

@@ -27,7 +27,7 @@ pub struct ChatCompletionsIdempotencyConfig {
     pub replay_window_seconds: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct IdempotencyConfig {
     pub chat_completions: ChatCompletionsIdempotencyConfig,
 }
@@ -41,20 +41,11 @@ impl Default for ChatCompletionsIdempotencyConfig {
     }
 }
 
-impl Default for IdempotencyConfig {
-    fn default() -> Self {
-        Self {
-            chat_completions: ChatCompletionsIdempotencyConfig::default(),
-        }
-    }
-}
-
 impl ChatCompletionsIdempotencyConfig {
     pub fn validate(&self) -> Result<(), RookError> {
         if self.replay_window_seconds == 0 {
             return Err(RookError::Config(
-                "chat completions idempotency replay window must be greater than zero"
-                    .to_string(),
+                "chat completions idempotency replay window must be greater than zero".to_string(),
             ));
         }
 
@@ -166,8 +157,7 @@ impl RateLimitConfig {
     pub fn validate(&self) -> Result<(), RookError> {
         self.api.validate("/api/*")?;
         self.v1_models.validate("/v1/models")?;
-        self.v1_chat_completions
-            .validate("/v1/chat/completions")?;
+        self.v1_chat_completions.validate("/v1/chat/completions")?;
         Ok(())
     }
 }
@@ -245,7 +235,11 @@ impl TransportConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{ChatCompletionsIdempotencyConfig, IdempotencyConfig, InboundAuthConfig, RateLimitConfig, RequestIdConfig, SurfaceRateLimitPolicy, TransportConfig, TrustedForwardedHeaders, TrustedProxyConfig};
+    use super::{
+        ChatCompletionsIdempotencyConfig, IdempotencyConfig, InboundAuthConfig, RateLimitConfig,
+        RequestIdConfig, SurfaceRateLimitPolicy, TransportConfig, TrustedForwardedHeaders,
+        TrustedProxyConfig,
+    };
     use serde_json::json;
 
     fn policy(max_requests: u32, window_seconds: u64) -> SurfaceRateLimitPolicy {
@@ -318,7 +312,9 @@ mod tests {
             },
         };
 
-        let error = config.validate().expect_err("zero replay window must fail validation");
+        let error = config
+            .validate()
+            .expect_err("zero replay window must fail validation");
         assert!(error
             .to_string()
             .contains("replay window must be greater than zero"));
@@ -361,8 +357,12 @@ mod tests {
             ..TransportConfig::default()
         };
 
-        let error = config.validate().expect_err("proxy trust without cidrs must fail");
-        assert!(error.to_string().contains("trusted proxy CIDR list must not be empty"));
+        let error = config
+            .validate()
+            .expect_err("proxy trust without cidrs must fail");
+        assert!(error
+            .to_string()
+            .contains("trusted proxy CIDR list must not be empty"));
     }
 
     #[test]
@@ -379,7 +379,9 @@ mod tests {
             ..TransportConfig::default()
         };
 
-        let error = config.validate().expect_err("invalid cidr must fail closed");
+        let error = config
+            .validate()
+            .expect_err("invalid cidr must fail closed");
         assert!(error.to_string().contains("invalid trusted proxy CIDR"));
     }
 

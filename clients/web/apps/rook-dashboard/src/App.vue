@@ -15,6 +15,10 @@ import OverviewPage from "./features/overview/OverviewPage.vue";
 import PoolsPage from "./features/pools/PoolsPage.vue";
 /* biome-ignore lint/correctness/noUnusedImports: used in Vue template */
 import RoutesPage from "./features/routes/RoutesPage.vue";
+/* biome-ignore lint/correctness/noUnusedImports: used in Vue template */
+import SettingsPage from "./features/settings/SettingsPage.vue";
+/* biome-ignore lint/correctness/noUnusedImports: used in Vue template */
+import UsagePage from "./features/usage/UsagePage.vue";
 
 const { baseUrl, bearerToken, isConfigured } = useRookSession();
 const route = ref<RookRoute>(normalizeHashRoute(window.location.hash));
@@ -84,8 +88,8 @@ onBeforeUnmount(() => {
         <h1>Dedicated operator dashboard surface</h1>
         <p class="hero-copy">
           This slice extends the dedicated Rook dashboard surface with overview, provider/account,
-          pool, route, and read-only health workflows. It does not expand the legacy Corvus dashboard
-          and it does not absorb #594.
+          pool, route, read-only health, usage placeholder, and settings workflows. It does not
+          expand the legacy Corvus dashboard and it does not invent unsupported #594 APIs.
         </p>
       </div>
       <section class="session-card">
@@ -138,9 +142,15 @@ onBeforeUnmount(() => {
       <button :class="['nav-button', { active: route === 'health' }]" type="button" @click="navigate('health')">
         Health
       </button>
+      <button :class="['nav-button', { active: route === 'usage' }]" type="button" @click="navigate('usage')">
+        Usage
+      </button>
+      <button :class="['nav-button', { active: route === 'settings' }]" type="button" @click="navigate('settings')">
+        Settings
+      </button>
       <div class="deferred-card">
         <strong>Deferred areas</strong>
-        <span>Usage, logs, settings, and backups remain deferred to #594.</span>
+        <span>Logs and backups remain deferred until verified contracts exist.</span>
       </div>
     </nav>
 
@@ -148,13 +158,15 @@ onBeforeUnmount(() => {
       <h2>Connect the dashboard to a Rook admin API</h2>
       <p>
         Enter the Rook base URL and bearer token to unlock overview, providers/accounts, pools,
-        routes, and read-only health workflows.
+        routes, health, usage, and settings workflows.
       </p>
     </section>
     <OverviewPage v-else-if="route === 'overview'" :client="client" />
     <AccountsPage v-else-if="route === 'accounts'" :client="client" />
     <PoolsPage v-else-if="route === 'pools'" :client="client" />
     <RoutesPage v-else-if="route === 'routes'" :client="client" />
-    <HealthPage v-else :client="client" />
+    <HealthPage v-else-if="route === 'health'" :client="client" />
+    <UsagePage v-else-if="route === 'usage'" :client="client" />
+    <SettingsPage v-else :client="client" />
   </main>
 </template>

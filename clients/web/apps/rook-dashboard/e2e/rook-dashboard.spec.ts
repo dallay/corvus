@@ -29,6 +29,17 @@ type RouteRecord = {
   capability_constraints: string[];
 };
 
+type SettingsRecord = {
+  gateway_port: number;
+  default_routing_policy: {
+    strategy: string;
+    max_retries: number;
+    cooldown_seconds: number;
+  };
+  log_json: boolean;
+  log_level: string;
+};
+
 function createFixture() {
   const state = {
     accounts: [
@@ -75,6 +86,16 @@ function createFixture() {
         capability_constraints: ["chat"],
       },
     ] satisfies RouteRecord[],
+    settings: {
+      gateway_port: 11434,
+      default_routing_policy: {
+        strategy: "round_robin",
+        max_retries: 2,
+        cooldown_seconds: 15,
+      },
+      log_json: false,
+      log_level: "info",
+    } satisfies SettingsRecord,
   };
 
   return state;
@@ -311,6 +332,40 @@ async function mockRookApi(page: Parameters<typeof test>[0]["page"], state: Retu
       ),
     });
   });
+
+  await page.route("**/api/usage", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        available: false,
+        reason: "usage accounting is not implemented in M1",
+      }),
+    });
+  });
+
+  await page.route("**/api/settings", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(state.settings),
+      });
+      return;
+    }
+
+    if (route.request().method() === "PUT") {
+      state.settings = route.request().postDataJSON() as SettingsRecord;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(state.settings),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 405, body: "" });
+  });
 }
 
 async function connectSession(page: Parameters<typeof test>[0]["page"]) {
@@ -378,4 +433,21 @@ test("covers #593 navigation plus pools, routes, and read-only health flows", as
   await expect(page.getByText("anthropic · unknown · available: no")).toBeVisible();
   await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
   await expect(page.getByText("Retry health")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Usage" }).click();
+  await expect(page.getByRole("heading", { name: "Usage placeholder" })).toBeVisible();
+  await expect(page.getByText("usage accounting is not implemented in M1")).toBeVisible();
+  await expect(page.getByText("Total requests")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByText("Manage Rook settings")).toBeVisible();
+  await page.getByLabel("Gateway port").fill("12000");
+  await page.getByLabel("Enable JSON logs").check();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+  await expect(page.getByLabel("Gateway port")).toHaveValue("12000");
+  await expect(page.getByText("Import settings")).toHaveCount(0);
+  await expect(page.getByText("Export settings")).toHaveCount(0);
+  await expect(page.getByText("Deferred areas")).toBeVisible();
+  await expect(page.getByText("Logs and backups remain deferred until verified contracts exist.")).toBeVisible();
 });

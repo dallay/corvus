@@ -47,6 +47,26 @@ export interface RouteView {
   capability_constraints: string[];
 }
 
+export interface RoutingPolicyView {
+  strategy: string;
+  max_retries: number;
+  cooldown_seconds: number;
+}
+
+export interface SettingsView {
+  gateway_port: number;
+  default_routing_policy: RoutingPolicyView;
+  log_json: boolean;
+  log_level: string;
+}
+
+export type UpdateSettingsRequest = SettingsView;
+
+export interface UsageStatusView {
+  available: boolean;
+  reason: string;
+}
+
 export interface CreateAccountRequest {
   vendor: string;
   display_name: string;

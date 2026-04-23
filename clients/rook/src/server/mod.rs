@@ -9,16 +9,18 @@ use crate::config::{IdempotencyConfig, InboundAuthConfig, RateLimitConfig, Trans
 use crate::dashboard;
 use crate::domain::RookError;
 use crate::gateway::{self, GatewayState};
-use crate::idempotency::middleware::{ChatIdempotencyMiddlewareState, apply_chat_idempotency};
+use crate::idempotency::middleware::{apply_chat_idempotency, ChatIdempotencyMiddlewareState};
 use crate::registry::RookRegistry;
 use crate::routing::RoutingEngine;
 use crate::services::idempotency::SharedIdempotencyService;
 use crate::transport::context::{RateLimitedSurface, RouteSurface};
-use crate::transport::middleware::{TransportMiddlewareState, apply_transport_baseline};
-use crate::transport::rate_limit::{RateLimitMiddlewareState, RateLimitState, apply_rate_limit};
-use axum::{Router, middleware};
+use crate::transport::middleware::{apply_transport_baseline, TransportMiddlewareState};
+use crate::transport::rate_limit::{apply_rate_limit, RateLimitMiddlewareState, RateLimitState};
+use crate::tui;
+use axum::{middleware, Router};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::sync::Notify;
 use tracing::info;
 
 // ---------------------------------------------------------------------------
@@ -71,11 +73,6 @@ impl ServerConfig {
     pub fn effective_db_path(&self) -> &str {
         self.db_path.as_deref().unwrap_or("./rook.db")
     }
-}
-
-async fn build_app(config: ServerConfig) -> Result<Router, RookError> {
-    let registry = RookRegistry::open(config.effective_db_path()).await?;
-    build_app_with_registry(config, registry).await
 }
 
 async fn build_app_with_registry(
@@ -140,7 +137,10 @@ async fn build_app_with_registry_and_idempotency(
             inbound_auth.clone(),
             admin_inbound_auth,
         ))
-        .layer(middleware::from_fn_with_state(admin_rate_limit, apply_rate_limit))
+        .layer(middleware::from_fn_with_state(
+            admin_rate_limit,
+            apply_rate_limit,
+        ))
         .layer(middleware::from_fn_with_state(
             admin_transport,
             apply_transport_baseline,
@@ -152,7 +152,10 @@ async fn build_app_with_registry_and_idempotency(
                     inbound_auth.clone(),
                     gateway_inbound_auth,
                 ))
-                .layer(middleware::from_fn_with_state(models_rate_limit, apply_rate_limit))
+                .layer(middleware::from_fn_with_state(
+                    models_rate_limit,
+                    apply_rate_limit,
+                ))
                 .layer(middleware::from_fn_with_state(
                     gateway_transport.clone(),
                     apply_transport_baseline,
@@ -164,8 +167,14 @@ async fn build_app_with_registry_and_idempotency(
                     chat_idempotency,
                     apply_chat_idempotency,
                 ))
-                .layer(middleware::from_fn_with_state(inbound_auth, gateway_inbound_auth))
-                .layer(middleware::from_fn_with_state(chat_rate_limit, apply_rate_limit))
+                .layer(middleware::from_fn_with_state(
+                    inbound_auth,
+                    gateway_inbound_auth,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    chat_rate_limit,
+                    apply_rate_limit,
+                ))
                 .layer(middleware::from_fn_with_state(
                     gateway_transport,
                     apply_transport_baseline,
@@ -190,7 +199,19 @@ async fn build_app_with_registry_and_idempotency(
 ///
 /// Logs a startup message and returns `Ok(())` after graceful shutdown.
 pub async fn run(config: ServerConfig) -> Result<(), RookError> {
-    let app = build_app(config.clone()).await?;
+    run_with_tui_runner(config, |registry, shutdown| async move {
+        tui::run_embedded(registry, shutdown).await
+    })
+    .await
+}
+
+async fn run_with_tui_runner<F, Fut>(config: ServerConfig, tui_runner: F) -> Result<(), RookError>
+where
+    F: Fn(RookRegistry, Arc<Notify>) -> Fut + Send + Sync + Clone + 'static,
+    Fut: std::future::Future<Output = Result<(), RookError>> + Send + 'static,
+{
+    let registry = RookRegistry::open(config.effective_db_path()).await?;
+    let app = build_app_with_registry(config.clone(), registry.clone()).await?;
 
     let addr: SocketAddr = config
         .socket_addr()
@@ -203,12 +224,47 @@ pub async fn run(config: ServerConfig) -> Result<(), RookError> {
 
     info!("Rook listening on http://{}:{}", config.host, config.port);
 
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+    if config.enable_tui {
+        let shutdown = Arc::new(Notify::new());
+        let (server_shutdown_tx, server_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async move {
+                tokio::select! {
+                    _ = shutdown_signal() => {}
+                    _ = async {
+                        let _ = server_shutdown_rx.await;
+                    } => {}
+                }
+            })
+            .await
+            .map_err(RookError::Io)
+        });
+
+        let tui_result = tui_runner(registry, shutdown.clone()).await;
+        let _ = server_shutdown_tx.send(());
+        shutdown.notify_waiters();
+        let server_result = server
+            .await
+            .map_err(|err| RookError::Other(anyhow::anyhow!(err.to_string())))?;
+
+        tui_result?;
+        server_result?;
+        Ok(())
+    } else {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
         .with_graceful_shutdown(shutdown_signal())
         .await
         .map_err(RookError::Io)?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Wait for Ctrl-C; used as the graceful-shutdown trigger.
@@ -226,19 +282,31 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{IdempotencyConfig, RateLimitConfig, SurfaceRateLimitPolicy, TransportConfig};
-    use crate::domain::{AccountId, ModelRoute, PoolId, ProviderAccount, ProviderPool, ProviderVendor, RouteId, SelectionStrategy};
+    use crate::config::{
+        IdempotencyConfig, RateLimitConfig, SurfaceRateLimitPolicy, TransportConfig,
+    };
+    use crate::domain::{
+        AccountId, ModelRoute, PoolId, ProviderAccount, ProviderPool, ProviderVendor, RouteId,
+        SelectionStrategy,
+    };
     use crate::gateway::types::STREAM_CONTENT_TYPE;
-    use crate::idempotency::types::{ChatIdempotencyRecord, ChatIdempotencyScope, ReserveResult, StoredGatewayResponse};
-    use crate::services::{account::AccountService as _, pool::PoolService as _, route::RouteService as _};
+    use crate::idempotency::types::{
+        ChatIdempotencyRecord, ChatIdempotencyScope, ReserveResult, StoredGatewayResponse,
+    };
     use crate::services::idempotency::{IdempotencyService, SharedIdempotencyService};
+    use crate::services::{
+        account::AccountService as _, pool::PoolService as _, route::RouteService as _,
+    };
     use axum::body::{to_bytes, Body};
     use axum::extract::State;
     use axum::http::{Request, StatusCode};
     use serde_json::json;
     use std::future::Future;
     use std::pin::Pin;
-    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
     use tokio::sync::Notify;
     use tower::util::ServiceExt;
 
@@ -484,6 +552,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn enable_tui_runs_embedded_tui_with_shared_shutdown() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_for_runner = calls.clone();
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            run_with_tui_runner(
+                ServerConfig {
+                    host: "127.0.0.1".to_string(),
+                    port: 0,
+                    enable_tui: true,
+                    db_path: None,
+                    inbound_auth: InboundAuthConfig::default(),
+                    transport: TransportConfig::default(),
+                    rate_limits: RateLimitConfig::default(),
+                    idempotency: IdempotencyConfig::default(),
+                },
+                move |_registry, shutdown| {
+                    let calls_for_runner = calls_for_runner.clone();
+                    async move {
+                        calls_for_runner.fetch_add(1, Ordering::SeqCst);
+                        shutdown.notify_waiters();
+                        Ok(())
+                    }
+                },
+            ),
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "embedded server+tui orchestration timed out"
+        );
+        result.unwrap().unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn covered_routes_include_effective_request_id_and_dashboard_root_stays_out_of_scope() {
         let registry = RookRegistry::open_in_memory().await.unwrap();
         let app = build_app_with_registry(ServerConfig::default(), registry)
@@ -531,9 +637,10 @@ mod tests {
     #[tokio::test]
     async fn auth_failures_still_include_effective_request_id_on_covered_routes() {
         let registry = RookRegistry::open_in_memory().await.unwrap();
-        let app = build_app_with_registry(auth_enabled_config(Some("rook-inbound-secret")), registry)
-            .await
-            .unwrap();
+        let app =
+            build_app_with_registry(auth_enabled_config(Some("rook-inbound-secret")), registry)
+                .await
+                .unwrap();
 
         let response = app
             .oneshot(
@@ -560,9 +667,10 @@ mod tests {
     #[tokio::test]
     async fn protected_routes_require_valid_bearer_when_auth_enabled() {
         let registry = RookRegistry::open_in_memory().await.unwrap();
-        let app = build_app_with_registry(auth_enabled_config(Some("rook-inbound-secret")), registry)
-            .await
-            .unwrap();
+        let app =
+            build_app_with_registry(auth_enabled_config(Some("rook-inbound-secret")), registry)
+                .await
+                .unwrap();
 
         let (api_status, api_headers, api_body) = request_with_bearer(
             app.clone(),
@@ -605,9 +713,10 @@ mod tests {
     #[tokio::test]
     async fn protected_routes_reach_handlers_with_valid_bearer_and_dashboard_stays_public() {
         let registry = RookRegistry::open_in_memory().await.unwrap();
-        let app = build_app_with_registry(auth_enabled_config(Some("rook-inbound-secret")), registry)
-            .await
-            .unwrap();
+        let app =
+            build_app_with_registry(auth_enabled_config(Some("rook-inbound-secret")), registry)
+                .await
+                .unwrap();
 
         let (api_status, _, api_body) = request_with_bearer(
             app.clone(),
@@ -817,9 +926,12 @@ mod tests {
 
     #[tokio::test]
     async fn rate_limit_slice_acceptance_does_not_require_streaming_or_idempotency_work() {
-        let app = build_app_with_registry(limited_server_config(), RookRegistry::open_in_memory().await.unwrap())
-            .await
-            .unwrap();
+        let app = build_app_with_registry(
+            limited_server_config(),
+            RookRegistry::open_in_memory().await.unwrap(),
+        )
+        .await
+        .unwrap();
 
         let (first_status, _, _) = request_with_bearer(
             app.clone(),
@@ -849,7 +961,7 @@ mod tests {
     async fn valid_inbound_auth_does_not_replace_outbound_provider_auth() {
         use axum::extract::{Json, State};
         use axum::http::HeaderMap;
-        use axum::{Router, body::Bytes, routing::post};
+        use axum::{body::Bytes, routing::post, Router};
         use std::net::SocketAddr;
 
         async fn capture_auth(
@@ -911,9 +1023,10 @@ mod tests {
             .await
             .unwrap();
 
-        let app = build_app_with_registry(auth_enabled_config(Some("rook-inbound-secret")), registry)
-            .await
-            .unwrap();
+        let app =
+            build_app_with_registry(auth_enabled_config(Some("rook-inbound-secret")), registry)
+                .await
+                .unwrap();
 
         let (status, _, body) = request_with_bearer(
             app,
@@ -988,12 +1101,10 @@ mod tests {
 
     #[tokio::test]
     async fn chat_idempotency_replays_completed_response_without_second_upstream_call() {
-        use axum::{Json, Router, routing::post};
+        use axum::{routing::post, Json, Router};
         use std::net::SocketAddr;
 
-        async fn handler(
-            State(counter): State<Arc<AtomicUsize>>,
-        ) -> Json<serde_json::Value> {
+        async fn handler(State(counter): State<Arc<AtomicUsize>>) -> Json<serde_json::Value> {
             let count = counter.fetch_add(1, Ordering::SeqCst) + 1;
             Json(json!({"id": format!("chat-{count}")}))
         }
@@ -1063,7 +1174,7 @@ mod tests {
 
     #[tokio::test]
     async fn chat_idempotency_rejects_in_progress_and_mismatched_replays() {
-        use axum::{Json, Router, routing::post};
+        use axum::{routing::post, Json, Router};
         use std::net::SocketAddr;
 
         async fn blocking_handler(
@@ -1137,7 +1248,8 @@ mod tests {
             .unwrap();
         assert_eq!(in_progress.status(), StatusCode::CONFLICT);
         let in_progress_body = to_bytes(in_progress.into_body(), usize::MAX).await.unwrap();
-        let in_progress_json = serde_json::from_slice::<serde_json::Value>(&in_progress_body).unwrap();
+        let in_progress_json =
+            serde_json::from_slice::<serde_json::Value>(&in_progress_body).unwrap();
         assert_eq!(
             in_progress_json["error"]["code"],
             json!("idempotency_request_in_progress")
@@ -1162,7 +1274,10 @@ mod tests {
         assert_eq!(mismatch.status(), StatusCode::CONFLICT);
         let mismatch_body = to_bytes(mismatch.into_body(), usize::MAX).await.unwrap();
         let mismatch_json = serde_json::from_slice::<serde_json::Value>(&mismatch_body).unwrap();
-        assert_eq!(mismatch_json["error"]["code"], json!("idempotency_key_reused"));
+        assert_eq!(
+            mismatch_json["error"]["code"],
+            json!("idempotency_key_reused")
+        );
         assert_eq!(counter.load(Ordering::SeqCst), 1);
 
         notify.notify_waiters();
@@ -1172,7 +1287,7 @@ mod tests {
 
     #[tokio::test]
     async fn chat_idempotency_missing_key_does_not_enable_replay_protection() {
-        use axum::{Json, Router, routing::post};
+        use axum::{routing::post, Json, Router};
         use std::net::SocketAddr;
 
         async fn handler(State(counter): State<Arc<AtomicUsize>>) -> Json<serde_json::Value> {
@@ -1236,7 +1351,7 @@ mod tests {
 
     #[tokio::test]
     async fn chat_idempotency_replays_completed_terminal_error_response() {
-        use axum::{Json, Router, routing::post};
+        use axum::{routing::post, Json, Router};
         use std::net::SocketAddr;
 
         async fn handler(
@@ -1306,7 +1421,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(second.status(), StatusCode::BAD_GATEWAY);
-        assert_eq!(second.headers().get("idempotency-replayed").unwrap(), "true");
+        assert_eq!(
+            second.headers().get("idempotency-replayed").unwrap(),
+            "true"
+        );
         let second_body = to_bytes(second.into_body(), usize::MAX).await.unwrap();
 
         assert_eq!(first_body, second_body);

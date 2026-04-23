@@ -11,9 +11,12 @@ import type {
   HealthSummaryView,
   PoolView,
   RouteView,
+  SettingsView,
   UpdateAccountRequest,
   UpdatePoolRequest,
   UpdateRouteRequest,
+  UpdateSettingsRequest,
+  UsageStatusView,
 } from "./types";
 
 export interface RookApi {
@@ -33,6 +36,9 @@ export interface RookApi {
   deleteRoute(routeId: string): Promise<void>;
   listAccountHealth(): Promise<HealthAccountView[]>;
   getHealthSummary(): Promise<HealthSummaryView>;
+  getUsage(): Promise<UsageStatusView>;
+  getSettings(): Promise<SettingsView>;
+  updateSettings(payload: UpdateSettingsRequest): Promise<SettingsView>;
   createAccount(payload: CreateAccountRequest): Promise<AccountView>;
   updateAccount(accountId: string, payload: UpdateAccountRequest): Promise<AccountView>;
   deleteAccount(accountId: string): Promise<void>;
@@ -130,6 +136,21 @@ export class RookApiClient implements RookApi {
 
   getHealthSummary(): Promise<HealthSummaryView> {
     return this.request<HealthSummaryView>("/api/health/summary");
+  }
+
+  getUsage(): Promise<UsageStatusView> {
+    return this.request<UsageStatusView>("/api/usage");
+  }
+
+  getSettings(): Promise<SettingsView> {
+    return this.request<SettingsView>("/api/settings");
+  }
+
+  updateSettings(payload: UpdateSettingsRequest): Promise<SettingsView> {
+    return this.request<SettingsView>("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
   }
 
   createAccount(payload: CreateAccountRequest): Promise<AccountView> {

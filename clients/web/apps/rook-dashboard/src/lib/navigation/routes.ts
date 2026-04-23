@@ -1,4 +1,11 @@
-export type RookRoute = "overview" | "accounts" | "pools" | "routes" | "health";
+export type RookRoute =
+  | "overview"
+  | "accounts"
+  | "pools"
+  | "routes"
+  | "health"
+  | "usage"
+  | "settings";
 
 const DEFAULT_ROUTE: RookRoute = "overview";
 
@@ -19,6 +26,14 @@ export function normalizeHashRoute(hash: string | undefined | null): RookRoute {
 
   if (value === "#/health" || value === "#health") {
     return "health";
+  }
+
+  if (value === "#/usage" || value === "#usage") {
+    return "usage";
+  }
+
+  if (value === "#/settings" || value === "#settings") {
+    return "settings";
   }
 
   if (value === "#/overview" || value === "#overview" || value === "#" || value === "") {

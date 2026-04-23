@@ -7,7 +7,7 @@ describe("RookApiClient", () => {
     vi.restoreAllMocks();
   });
 
-  it("calls only verified pool, membership, route, and read-only health endpoints", async () => {
+  it("calls only verified usage, settings, pool, membership, route, and read-only health endpoints", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
       async () =>
         new Response(JSON.stringify({ ok: true }), {
@@ -51,6 +51,18 @@ describe("RookApiClient", () => {
     await client.deleteRoute("route-1");
     await client.listAccountHealth();
     await client.getHealthSummary();
+    await client.getUsage();
+    await client.getSettings();
+    await client.updateSettings({
+      gateway_port: 11434,
+      default_routing_policy: {
+        strategy: "round_robin",
+        max_retries: 2,
+        cooldown_seconds: 15,
+      },
+      log_json: false,
+      log_level: "info",
+    });
 
     const calls = fetchMock.mock.calls.map(([input, init]) => ({
       url: String(input),
@@ -89,18 +101,31 @@ describe("RookApiClient", () => {
         method: "GET",
         auth: "Bearer token",
       },
+      { url: "http://rook.local/api/usage", method: "GET", auth: "Bearer token" },
+      { url: "http://rook.local/api/settings", method: "GET", auth: "Bearer token" },
+      { url: "http://rook.local/api/settings", method: "PUT", auth: "Bearer token" },
     ]);
   });
 
-  it("does not expose speculative health mutation methods", () => {
+  it("does not expose speculative health, logs, or backup mutation methods", () => {
     const client = new RookApiClient("http://rook.local", "token") as RookApiClient & {
       resetHealth?: unknown;
       retryHealth?: unknown;
       reconnectAccount?: unknown;
+      listLogs?: unknown;
+      createBackup?: unknown;
+      restoreBackup?: unknown;
+      exportSettings?: unknown;
+      importSettings?: unknown;
     };
 
     expect(client.resetHealth).toBeUndefined();
     expect(client.retryHealth).toBeUndefined();
     expect(client.reconnectAccount).toBeUndefined();
+    expect(client.listLogs).toBeUndefined();
+    expect(client.createBackup).toBeUndefined();
+    expect(client.restoreBackup).toBeUndefined();
+    expect(client.exportSettings).toBeUndefined();
+    expect(client.importSettings).toBeUndefined();
   });
 });

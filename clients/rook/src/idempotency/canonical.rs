@@ -1,3 +1,37 @@
+use serde_json::{Map, Value};
+
+pub fn canonicalize_json(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let sorted = map
+                .iter()
+                .map(|(key, value)| (key.clone(), canonicalize_json(value)))
+                .collect::<Map<String, Value>>();
+            Value::Object(sorted)
+        }
+        Value::Array(values) => Value::Array(values.iter().map(canonicalize_json).collect()),
+        _ => value.clone(),
+    }
+}
+
+pub fn canonicalize_json_bytes(raw: &[u8]) -> Result<Vec<u8>, serde_json::Error> {
+    let value: Value = serde_json::from_slice(raw)?;
+    serde_json::to_vec(&canonicalize_json(&value))
+}
+
+pub fn hash_canonical_json(value: &Value) -> String {
+    let canonical = serde_json::to_vec(&canonicalize_json(value))
+        .expect("canonical JSON serialization should not fail");
+    hash_canonical_bytes(&canonical)
+}
+
+pub fn hash_canonical_bytes(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+
+    let digest = Sha256::digest(bytes);
+    format!("{digest:x}")
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -70,37 +104,4 @@ mod tests {
             canonicalize_json_bytes(right).expect("right payload should canonicalize")
         );
     }
-}
-use serde_json::{Map, Value};
-
-pub fn canonicalize_json(value: &Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            let sorted = map
-                .iter()
-                .map(|(key, value)| (key.clone(), canonicalize_json(value)))
-                .collect::<Map<String, Value>>();
-            Value::Object(sorted)
-        }
-        Value::Array(values) => Value::Array(values.iter().map(canonicalize_json).collect()),
-        _ => value.clone(),
-    }
-}
-
-pub fn canonicalize_json_bytes(raw: &[u8]) -> Result<Vec<u8>, serde_json::Error> {
-    let value: Value = serde_json::from_slice(raw)?;
-    serde_json::to_vec(&canonicalize_json(&value))
-}
-
-pub fn hash_canonical_json(value: &Value) -> String {
-    let canonical = serde_json::to_vec(&canonicalize_json(value))
-        .expect("canonical JSON serialization should not fail");
-    hash_canonical_bytes(&canonical)
-}
-
-pub fn hash_canonical_bytes(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-
-    let digest = Sha256::digest(bytes);
-    format!("{digest:x}")
 }

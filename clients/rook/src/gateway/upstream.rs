@@ -424,8 +424,7 @@ mod tests {
     #[tokio::test]
     async fn open_chat_completion_stream_rejects_blank_api_key_when_auth_header_cannot_be_built() {
         let captured = Arc::new(Mutex::new(Vec::new()));
-        let (base_url, _handle) =
-            mock_upstream(StatusCode::OK, json!({"ok":true}), captured).await;
+        let (base_url, _handle) = mock_upstream(StatusCode::OK, json!({"ok":true}), captured).await;
 
         let mut account = make_account(ProviderVendor::OpenAi);
         account.api_base_override = Some(base_url);

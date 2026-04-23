@@ -4,9 +4,9 @@ use crate::domain::{
 };
 use crate::services::health::{AccountHealth, HealthStatus};
 use axum::{
-    Json,
-    http::{HeaderValue, StatusCode, header::RETRY_AFTER, header::WWW_AUTHENTICATE},
+    http::{header::RETRY_AFTER, header::WWW_AUTHENTICATE, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -350,14 +350,14 @@ pub fn admin_rate_limited_response(retry_after_seconds: u64) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::to_bytes;
-    use axum::http::{header::WWW_AUTHENTICATE, StatusCode};
-    use axum::response::IntoResponse;
     use crate::domain::{
         AccountId, PoolId, ProviderAccount, ProviderPool, ProviderVendor, RookSettings, RouteId,
         RoutingPolicy, SelectionStrategy,
     };
     use crate::services::health::{AccountHealth, HealthStatus};
+    use axum::body::to_bytes;
+    use axum::http::{header::WWW_AUTHENTICATE, StatusCode};
+    use axum::response::IntoResponse;
     use chrono::Utc;
     use serde_json::json;
 
@@ -538,7 +538,10 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"]["code"], json!("unauthorized"));
-        assert_eq!(json["error"]["message"], json!("valid inbound bearer token required"));
+        assert_eq!(
+            json["error"]["message"],
+            json!("valid inbound bearer token required")
+        );
     }
 
     #[tokio::test]

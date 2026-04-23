@@ -31,27 +31,29 @@ struct CompletionLogFields {
     ignored_forwarded_headers: Vec<&'static str>,
 }
 
-fn build_completion_log_fields(
-    request_id: &str,
+struct CompletionLogInput<'a> {
+    request_id: &'a str,
     surface: RouteSurface,
-    method: &axum::http::Method,
-    route: &str,
+    method: &'a axum::http::Method,
+    route: &'a str,
     status: axum::http::StatusCode,
     duration_ms: u64,
     forwarded_trust: ForwardedTrust,
     forwarded_present: bool,
-    ignored_forwarded_headers: &[&'static str],
-) -> CompletionLogFields {
+    ignored_forwarded_headers: &'a [&'static str],
+}
+
+fn build_completion_log_fields(input: CompletionLogInput<'_>) -> CompletionLogFields {
     CompletionLogFields {
-        request_id: request_id.to_string(),
-        surface,
-        method: method.to_string(),
-        route: route.to_string(),
-        status: status.as_u16(),
-        duration_ms,
-        forwarded_trust,
-        forwarded_present,
-        ignored_forwarded_headers: ignored_forwarded_headers.to_vec(),
+        request_id: input.request_id.to_string(),
+        surface: input.surface,
+        method: input.method.to_string(),
+        route: input.route.to_string(),
+        status: input.status.as_u16(),
+        duration_ms: input.duration_ms,
+        forwarded_trust: input.forwarded_trust,
+        forwarded_present: input.forwarded_present,
+        ignored_forwarded_headers: input.ignored_forwarded_headers.to_vec(),
     }
 }
 
@@ -92,17 +94,17 @@ pub async fn apply_transport_baseline(
         &state.config.request_id,
     );
 
-    let completion = build_completion_log_fields(
-        request_id.effective(),
-        state.surface,
-        &method,
-        &route,
+    let completion = build_completion_log_fields(CompletionLogInput {
+        request_id: request_id.effective(),
+        surface: state.surface,
+        method: &method,
+        route: &route,
         status,
         duration_ms,
-        forwarded.context.trust,
-        forwarded.forwarded_present,
-        &forwarded.context.ignored_headers,
-    );
+        forwarded_trust: forwarded.context.trust,
+        forwarded_present: forwarded.forwarded_present,
+        ignored_forwarded_headers: &forwarded.context.ignored_headers,
+    });
 
     info!(
         request_id = %completion.request_id,
@@ -122,7 +124,7 @@ pub async fn apply_transport_baseline(
 
 #[cfg(test)]
 mod tests {
-    use super::{TransportMiddlewareState, apply_transport_baseline};
+    use super::{apply_transport_baseline, TransportMiddlewareState};
     use crate::config::TransportConfig;
     use crate::transport::context::{RouteSurface, SanitizedTransportContext};
     use axum::http::{Request, StatusCode};
@@ -185,24 +187,27 @@ mod tests {
 
     #[test]
     fn middleware_completion_log_fields_remain_structured_and_secret_free() {
-        let completion = super::build_completion_log_fields(
-            "trace-789",
-            RouteSurface::GatewayV1,
-            &axum::http::Method::GET,
-            "/probe",
-            StatusCode::OK,
-            12,
-            crate::transport::context::ForwardedTrust::Absent,
-            false,
-            &[],
-        );
+        let completion = super::build_completion_log_fields(super::CompletionLogInput {
+            request_id: "trace-789",
+            surface: RouteSurface::GatewayV1,
+            method: &axum::http::Method::GET,
+            route: "/probe",
+            status: StatusCode::OK,
+            duration_ms: 12,
+            forwarded_trust: crate::transport::context::ForwardedTrust::Absent,
+            forwarded_present: false,
+            ignored_forwarded_headers: &[],
+        });
 
         assert_eq!(completion.request_id, "trace-789");
         assert_eq!(completion.method, "GET");
         assert_eq!(completion.route, "/probe");
         assert_eq!(completion.status, 200);
         assert_eq!(completion.duration_ms, 12);
-        assert_eq!(completion.forwarded_trust, crate::transport::context::ForwardedTrust::Absent);
+        assert_eq!(
+            completion.forwarded_trust,
+            crate::transport::context::ForwardedTrust::Absent
+        );
         assert!(!completion.forwarded_present);
         let serialized = format!("{completion:?}");
         assert!(!serialized.contains("super-secret"));

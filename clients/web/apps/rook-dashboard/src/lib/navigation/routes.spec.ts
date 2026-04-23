@@ -14,12 +14,12 @@ describe("routes", () => {
     expect(normalizeHashRoute("#/pools")).toBe("pools");
     expect(normalizeHashRoute("#/routes")).toBe("routes");
     expect(normalizeHashRoute("#/health")).toBe("health");
+    expect(normalizeHashRoute("#/usage")).toBe("usage");
+    expect(normalizeHashRoute("#/settings")).toBe("settings");
   });
 
   it("keeps deferred #594 areas out of the supported route set", () => {
-    expect(normalizeHashRoute("#/usage")).toBe("overview");
     expect(normalizeHashRoute("#/logs")).toBe("overview");
-    expect(normalizeHashRoute("#/settings")).toBe("overview");
     expect(normalizeHashRoute("#/backups")).toBe("overview");
   });
 
@@ -29,5 +29,7 @@ describe("routes", () => {
     expect(toHashRoute("pools")).toBe("#/pools");
     expect(toHashRoute("routes")).toBe("#/routes");
     expect(toHashRoute("health")).toBe("#/health");
+    expect(toHashRoute("usage")).toBe("#/usage");
+    expect(toHashRoute("settings")).toBe("#/settings");
   });
 });

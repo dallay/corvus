@@ -40,7 +40,9 @@ pub fn build_router(state: GatewayState) -> Router {
 }
 
 pub fn build_models_router(state: GatewayState) -> Router {
-    Router::new().route("/models", get(handlers::handle_list_models)).with_state(state)
+    Router::new()
+        .route("/models", get(handlers::handle_list_models))
+        .with_state(state)
 }
 
 pub fn build_chat_router(state: GatewayState) -> Router {

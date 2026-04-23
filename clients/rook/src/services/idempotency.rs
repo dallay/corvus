@@ -6,7 +6,9 @@ use chrono::{DateTime, Duration, Utc};
 
 use crate::db::SqliteDb;
 use crate::domain::RookError;
-use crate::idempotency::types::{ChatIdempotencyRecord, ChatIdempotencyScope, ReserveResult, StoredGatewayResponse};
+use crate::idempotency::types::{
+    ChatIdempotencyRecord, ChatIdempotencyScope, ReserveResult, StoredGatewayResponse,
+};
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -81,12 +83,7 @@ impl IdempotencyService for SqliteIdempotencyService {
     ) -> BoxFuture<'a, Result<(), RookError>> {
         Box::pin(async move {
             self.db
-                .complete_chat_completion_idempotency(
-                    scope,
-                    request_hash,
-                    &response,
-                    completed_at,
-                )
+                .complete_chat_completion_idempotency(scope, request_hash, &response, completed_at)
                 .await
         })
     }
@@ -127,7 +124,8 @@ impl SharedIdempotencyService {
 
 impl std::fmt::Debug for SharedIdempotencyService {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SharedIdempotencyService").finish_non_exhaustive()
+        f.debug_struct("SharedIdempotencyService")
+            .finish_non_exhaustive()
     }
 }
 
@@ -305,7 +303,10 @@ mod tests {
             .expect("load should succeed")
             .expect("record should exist");
         assert_eq!(record.status, ChatIdempotencyStatus::Completed);
-        assert_eq!(record.response.expect("response should exist").status_code, 502);
+        assert_eq!(
+            record.response.expect("response should exist").status_code,
+            502
+        );
     }
 
     #[tokio::test]

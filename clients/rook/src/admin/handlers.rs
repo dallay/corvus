@@ -500,6 +500,16 @@ pub async fn handle_put_settings(
 pub async fn handle_list_account_health(
     State(registry): State<RookRegistry>,
 ) -> Json<Vec<HealthAccountView>> {
+    Json(list_health_account_views(&registry).await)
+}
+
+pub async fn handle_health_summary(
+    State(registry): State<RookRegistry>,
+) -> Json<HealthSummaryView> {
+    Json(build_health_summary_view(&registry).await)
+}
+
+pub async fn list_health_account_views(registry: &RookRegistry) -> Vec<HealthAccountView> {
     let accounts = registry.accounts().list().await;
     let mut response = Vec::with_capacity(accounts.len());
     for account in accounts {
@@ -507,12 +517,11 @@ pub async fn handle_list_account_health(
         let available = registry.health().is_available(account.id).await;
         response.push(HealthAccountView::new(&account, health, available));
     }
-    Json(response)
+
+    response
 }
 
-pub async fn handle_health_summary(
-    State(registry): State<RookRegistry>,
-) -> Json<HealthSummaryView> {
+pub async fn build_health_summary_view(registry: &RookRegistry) -> HealthSummaryView {
     let accounts = registry.accounts().list().await;
     let mut summary = HealthSummaryView {
         total: accounts.len(),
@@ -532,7 +541,7 @@ pub async fn handle_health_summary(
         }
     }
 
-    Json(summary)
+    summary
 }
 
 pub fn admin_error_response(

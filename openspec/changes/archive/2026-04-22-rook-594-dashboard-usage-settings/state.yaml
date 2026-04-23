@@ -1,0 +1,12 @@
+change: rook-594-dashboard-usage-settings
+current_phase: archive
+completed:
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+  - archive
+next: none
+updated: 2026-04-23

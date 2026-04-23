@@ -29,8 +29,8 @@ fn vendor_to_db_str(vendor: &ProviderVendor) -> Result<String, RookError> {
 
 /// Parse a database string into a `ProviderVendor`.
 fn db_str_to_vendor(s: &str) -> Result<ProviderVendor, RookError> {
-    // Parse as JSON string to leverage existing deserialization logic
-    serde_json::from_str(&format!("\"{s}\""))
+    // Parse as a JSON string value to leverage existing deserialization logic.
+    serde_json::from_value(serde_json::Value::String(s.to_string()))
         .map_err(|e| RookError::Registry(format!("invalid vendor '{s}': {e}")))
 }
 
