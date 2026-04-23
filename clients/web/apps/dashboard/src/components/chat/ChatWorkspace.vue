@@ -86,18 +86,19 @@ function scrollChatToBottom(): void {
   chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
 }
 
-function queueA11yAnnouncement(message: string): void {
-  sessionAnnouncement.value = "";
+function queueAnnouncement(target: { value: string }, message: string): void {
+  target.value = "";
   globalThis.setTimeout(() => {
-    sessionAnnouncement.value = message;
+    target.value = message;
   }, 0);
 }
 
+function queueA11yAnnouncement(message: string): void {
+  queueAnnouncement(sessionAnnouncement, message);
+}
+
 function queueApprovalAnnouncement(message: string): void {
-  approvalAnnouncement.value = "";
-  globalThis.setTimeout(() => {
-    approvalAnnouncement.value = message;
-  }, 0);
+  queueAnnouncement(approvalAnnouncement, message);
 }
 
 async function focusPromptInput(): Promise<void> {
@@ -327,7 +328,7 @@ function restoreMessages(): void {
 
     if (parsed.every(isValidMessage)) {
       messages.value = parsed;
-      messageIdCounter = Math.max(...parsed.map((m) => m.id)) + 1;
+      messageIdCounter = parsed.length > 0 ? Math.max(...parsed.map((m) => m.id)) + 1 : 1;
     } else {
       resetMessagesForSession();
     }
@@ -416,6 +417,10 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (persistDebounceTimer) {
+    clearTimeout(persistDebounceTimer);
+    persistDebounceTimer = null;
+  }
   prompt.value = "";
   chat.stopSessionPolling();
 });
