@@ -25,6 +25,11 @@ with the dashboard routes.
 
 ## Requirements
 
+> See also: `openspec/specs/gateway/rook-acceptance-regression-matrix.md` for the consolidated
+> acceptance/regression traceability matrix covering shipped Rook slices #592-#599. This matrix is
+> a verification artifact only; the behavioral source-of-truth remains this spec plus the dedicated
+> `dashboard` and `rook-tui` specs for their surfaces.
+
 ### R1: `api_key` Field on `ProviderAccount`
 
 The `ProviderAccount` domain struct MUST include an `api_key` field of type `Option<String>`.
