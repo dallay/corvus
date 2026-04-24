@@ -3373,105 +3373,107 @@ impl Config {
         Ok(())
     }
 
-fn validate_optional_upper_bounded_u64(
-    value: Option<u64>,
-    field_name: &str,
-    ceiling: u64,
-    ceiling_label: &str,
-) -> Result<()> {
-    let Some(value) = value else {
-        return Ok(());
-    };
-    if value == 0 {
-        anyhow::bail!("{field_name} must be greater than 0");
+    fn validate_optional_upper_bounded_u64(
+        value: Option<u64>,
+        field_name: &str,
+        ceiling: u64,
+        ceiling_label: &str,
+    ) -> Result<()> {
+        let Some(value) = value else {
+            return Ok(());
+        };
+        if value == 0 {
+            anyhow::bail!("{field_name} must be greater than 0");
+        }
+        if value > ceiling {
+            anyhow::bail!("{field_name}={value} exceeds the {ceiling_label} ceiling ({ceiling})");
+        }
+        Ok(())
     }
-    if value > ceiling {
-        anyhow::bail!("{field_name}={value} exceeds the {ceiling_label} ceiling ({ceiling})");
-    }
-    Ok(())
-}
 
-fn validate_optional_upper_bounded_usize(
-    value: Option<usize>,
-    field_name: &str,
-    ceiling: usize,
-    ceiling_label: &str,
-) -> Result<()> {
-    let Some(value) = value else {
-        return Ok(());
-    };
-    if value == 0 {
-        anyhow::bail!("{field_name} must be greater than 0");
+    fn validate_optional_upper_bounded_usize(
+        value: Option<usize>,
+        field_name: &str,
+        ceiling: usize,
+        ceiling_label: &str,
+    ) -> Result<()> {
+        let Some(value) = value else {
+            return Ok(());
+        };
+        if value == 0 {
+            anyhow::bail!("{field_name} must be greater than 0");
+        }
+        if value > ceiling {
+            anyhow::bail!("{field_name}={value} exceeds the {ceiling_label} ceiling ({ceiling})");
+        }
+        Ok(())
     }
-    if value > ceiling {
-        anyhow::bail!("{field_name}={value} exceeds the {ceiling_label} ceiling ({ceiling})");
+
+    fn validate_optional_positive_u64(value: Option<u64>, field_name: &str) -> Result<()> {
+        if value == Some(0) {
+            anyhow::bail!("{field_name} must be greater than 0");
+        }
+        Ok(())
     }
-    Ok(())
-}
 
-fn validate_optional_positive_u64(value: Option<u64>, field_name: &str) -> Result<()> {
-    if value == Some(0) {
-        anyhow::bail!("{field_name} must be greater than 0");
+    fn multimodal_hint_or_error(mm: &MultimodalConfig) -> Result<&str> {
+        mm.vision_model_hint.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "multimodal.enabled=true requires multimodal.vision_model_hint to be set"
+            )
+        })
     }
-    Ok(())
-}
 
-fn multimodal_hint_or_error(mm: &MultimodalConfig) -> Result<&str> {
-    mm.vision_model_hint.as_deref().ok_or_else(|| {
-        anyhow::anyhow!("multimodal.enabled=true requires multimodal.vision_model_hint to be set")
-    })
-}
-
-fn ensure_multimodal_route_exists(model_routes: &[ModelRouteConfig], hint: &str) -> Result<()> {
-    let has_image_route = model_routes
-        .iter()
-        .any(|route| route.hint == hint && route.allow_image_input);
-    if !has_image_route {
-        anyhow::bail!(
+    fn ensure_multimodal_route_exists(model_routes: &[ModelRouteConfig], hint: &str) -> Result<()> {
+        let has_image_route = model_routes
+            .iter()
+            .any(|route| route.hint == hint && route.allow_image_input);
+        if !has_image_route {
+            anyhow::bail!(
             "multimodal.vision_model_hint='{}' does not match any [[model_routes]] entry with allow_image_input=true",
             hint,
         );
+        }
+        Ok(())
     }
-    Ok(())
-}
 
-fn ensure_multimodal_allowed_channels(mm: &MultimodalConfig) -> Result<()> {
-    if mm.allowed_channels.is_empty() {
-        anyhow::bail!(
-            "multimodal.enabled=true requires multimodal.allowed_channels to be non-empty"
-        );
-    }
-    for channel in &mm.allowed_channels {
-        if !MVP_VALID_MULTIMODAL_CHANNELS.contains(&channel.as_str()) {
-            tracing::warn!(
+    fn ensure_multimodal_allowed_channels(mm: &MultimodalConfig) -> Result<()> {
+        if mm.allowed_channels.is_empty() {
+            anyhow::bail!(
+                "multimodal.enabled=true requires multimodal.allowed_channels to be non-empty"
+            );
+        }
+        for channel in &mm.allowed_channels {
+            if !MVP_VALID_MULTIMODAL_CHANNELS.contains(&channel.as_str()) {
+                tracing::warn!(
                 "multimodal.allowed_channels contains '{}' which is not a supported MVP channel (telegram, whatsapp, discord, slack) — it will be fail-closed at runtime",
                 channel,
             );
+            }
         }
+        Ok(())
     }
-    Ok(())
-}
 
-fn log_multimodal_limits(mm: &MultimodalConfig) {
-    let effective_max_image_bytes = mm
-        .max_image_bytes
-        .unwrap_or(crate::channels::media::MAX_IMAGE_BYTES);
-    let effective_max_images_per_turn = mm.effective_max_images_per_turn();
-    let image_bytes_source = if mm.max_image_bytes.is_some() {
-        "config override"
-    } else {
-        "default"
-    };
-    let images_per_turn_source = if mm.max_images_per_turn.is_some() {
-        "config override"
-    } else {
-        "default"
-    };
+    fn log_multimodal_limits(mm: &MultimodalConfig) {
+        let effective_max_image_bytes = mm
+            .max_image_bytes
+            .unwrap_or(crate::channels::media::MAX_IMAGE_BYTES);
+        let effective_max_images_per_turn = mm.effective_max_images_per_turn();
+        let image_bytes_source = if mm.max_image_bytes.is_some() {
+            "config override"
+        } else {
+            "default"
+        };
+        let images_per_turn_source = if mm.max_images_per_turn.is_some() {
+            "config override"
+        } else {
+            "default"
+        };
 
-    tracing::info!(
+        tracing::info!(
         "Multimodal enabled: max_image_bytes={effective_max_image_bytes} ({image_bytes_source}), max_images_per_turn={effective_max_images_per_turn} ({images_per_turn_source})"
     );
-}
+    }
 
     fn validate_audio_config(&self) -> Result<()> {
         let ac = &self.audio;

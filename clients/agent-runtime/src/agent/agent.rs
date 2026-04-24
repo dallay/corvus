@@ -870,7 +870,10 @@ impl Agent {
         let audit_message = build_shell_audit_message(&error.to_string(), result.error.as_deref());
         Err(ToolExecutionResult {
             name: call.name.clone(),
-            output: format!("{}\n\n[AUDIT ERROR: {error}]", render_tool_result_output(result)),
+            output: format!(
+                "{}\n\n[AUDIT ERROR: {error}]",
+                render_tool_result_output(result)
+            ),
             success: result.success,
             tool_call_id: call.tool_call_id.clone(),
             action: DispatchAction::ApprovalRequired(audit_message),

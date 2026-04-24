@@ -1804,15 +1804,14 @@ fn apply_positive_cost_limit(
     Ok(())
 }
 
-fn apply_warn_percent_patch(
-    target: &mut u8,
-    value: Option<u8>,
-) -> Result<(), AdminResponse> {
+fn apply_warn_percent_patch(target: &mut u8, value: Option<u8>) -> Result<(), AdminResponse> {
     let Some(value) = value else {
         return Ok(());
     };
     if value == 0 || value > 100 {
-        return Err(bad_request("cost.warn_at_percent must be in range [1, 100]"));
+        return Err(bad_request(
+            "cost.warn_at_percent must be in range [1, 100]",
+        ));
     }
     *target = value;
     Ok(())

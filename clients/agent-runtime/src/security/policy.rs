@@ -224,7 +224,10 @@ fn skip_env_assignments(s: &str) -> &str {
 }
 
 fn command_uses_forbidden_globs(base_raw: &str, segment: &str) -> bool {
-    base_raw != "find" && ['*', '?', '[', ']', '{', '}'].iter().any(|ch| segment.contains(*ch))
+    base_raw != "find"
+        && ['*', '?', '[', ']', '{', '}']
+            .iter()
+            .any(|ch| segment.contains(*ch))
 }
 
 fn normalize_args_for_path_checks(raw_args: &[&str]) -> Option<Vec<String>> {
@@ -528,7 +531,9 @@ impl SecurityPolicy {
     }
 
     fn is_allowed_command(&self, base_raw: &str) -> bool {
-        self.allowed_commands.iter().any(|allowed| allowed == base_raw)
+        self.allowed_commands
+            .iter()
+            .any(|allowed| allowed == base_raw)
     }
 
     fn has_any_command(&self, normalized: &str) -> bool {

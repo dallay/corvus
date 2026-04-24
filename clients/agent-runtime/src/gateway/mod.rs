@@ -2077,7 +2077,11 @@ async fn handle_webhook(
         )
         .await
         {
-            release_idempotency_key(&state, reserved_idempotency_key.as_deref(), persist_idempotency);
+            release_idempotency_key(
+                &state,
+                reserved_idempotency_key.as_deref(),
+                persist_idempotency,
+            );
             return response;
         }
     }
@@ -2131,7 +2135,11 @@ async fn handle_webhook(
         );
         let (response, persist_idempotency) =
             webhook_response_from_dispatch_result(dispatch_result);
-        release_idempotency_key(&state, reserved_idempotency_key.as_deref(), persist_idempotency);
+        release_idempotency_key(
+            &state,
+            reserved_idempotency_key.as_deref(),
+            persist_idempotency,
+        );
         update_session_activity_if_persisted(
             &state,
             &session_id,
@@ -2154,7 +2162,11 @@ async fn handle_webhook(
     )
     .await
     {
-        release_idempotency_key(&state, reserved_idempotency_key.as_deref(), persist_idempotency);
+        release_idempotency_key(
+            &state,
+            reserved_idempotency_key.as_deref(),
+            persist_idempotency,
+        );
         update_session_activity_if_persisted(
             &state,
             &session_id,
@@ -2212,7 +2224,11 @@ async fn handle_webhook(
 
     let (response, persist_idempotency) = legacy_simple_chat(&state, message, &session_id).await;
 
-    release_idempotency_key(&state, reserved_idempotency_key.as_deref(), persist_idempotency);
+    release_idempotency_key(
+        &state,
+        reserved_idempotency_key.as_deref(),
+        persist_idempotency,
+    );
 
     update_session_activity_if_persisted(
         &state,

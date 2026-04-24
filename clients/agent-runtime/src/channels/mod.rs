@@ -1873,10 +1873,7 @@ fn augmented_turn_content(turn: &ChatMessage) -> Option<String> {
     Some(augmented_content)
 }
 
-fn append_context_lines(
-    buffer: &mut String,
-    context_lines: impl IntoIterator<Item = String>,
-) {
+fn append_context_lines(buffer: &mut String, context_lines: impl IntoIterator<Item = String>) {
     for line in context_lines {
         buffer.push_str(&line);
         buffer.push('\n');

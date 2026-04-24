@@ -1423,7 +1423,14 @@ async fn handle_agent_command(
 
     agent.record_agent_start_event(&provider_name, &model_name);
 
-    let run_result = run_agent_message_or_interactive(&mut agent, message.clone(), &provider_name, &model_name, session_start).await;
+    let run_result = run_agent_message_or_interactive(
+        &mut agent,
+        message.clone(),
+        &provider_name,
+        &model_name,
+        session_start,
+    )
+    .await;
     finish_cli_session(
         &agent,
         &provider_name,
