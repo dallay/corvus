@@ -306,6 +306,31 @@ mod tests {
     }
 
     #[test]
+    fn serve_cli_defaults_to_loopback_first_bind_posture() {
+        let cli = Cli::try_parse_from(["rook", "serve"]).unwrap();
+
+        match cli.command {
+            Commands::Serve {
+                host,
+                port,
+                tui,
+                db_path,
+                inbound_auth_enabled,
+                inbound_auth_token,
+                ..
+            } => {
+                assert_eq!(host, "127.0.0.1");
+                assert_eq!(port, 4141);
+                assert!(!tui);
+                assert_eq!(db_path, None);
+                assert!(!inbound_auth_enabled);
+                assert_eq!(inbound_auth_token, None);
+            }
+            _ => panic!("expected serve command"),
+        }
+    }
+
+    #[test]
     fn build_server_config_keeps_inbound_auth_separate() {
         let config = build_server_config(ServerConfigInput {
             host: "127.0.0.1".to_string(),

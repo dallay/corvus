@@ -343,6 +343,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn proxy_chat_completion_never_reuses_inbound_bearer_token_as_provider_auth() {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let (base_url, _handle) =
+            mock_upstream(StatusCode::OK, json!({"ok":true}), captured.clone()).await;
+
+        let mut account = make_account(ProviderVendor::OpenAi);
+        account.api_base_override = Some(base_url);
+        account.api_key = Some("sk-provider".to_string());
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+
+        let response = proxy_chat_completion(&client, &account, Bytes::from_static(br#"{}"#))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status, reqwest::StatusCode::OK);
+
+        let requests = captured.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        let authorization = requests[0]
+            .headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .unwrap();
+        assert_eq!(authorization, "Bearer sk-provider");
+        assert_ne!(authorization, "Bearer rook-inbound-secret");
+    }
+
+    #[tokio::test]
     async fn proxy_chat_completion_returns_local_error_for_missing_base_url() {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(2))

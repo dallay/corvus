@@ -22,6 +22,12 @@ pub struct InboundAuthConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InboundAuthOperatorState {
+    pub enabled: bool,
+    pub token_configured: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatCompletionsIdempotencyConfig {
     pub enabled: bool,
     pub replay_window_seconds: u64,
@@ -60,6 +66,20 @@ impl IdempotencyConfig {
 }
 
 impl InboundAuthConfig {
+    pub fn token_configured(&self) -> bool {
+        self.bearer_token
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|token| !token.is_empty())
+    }
+
+    pub fn operator_state(&self) -> InboundAuthOperatorState {
+        InboundAuthOperatorState {
+            enabled: self.enabled,
+            token_configured: self.token_configured(),
+        }
+    }
+
     pub fn validate(&self) -> Result<(), RookError> {
         if !self.enabled {
             return Ok(());
@@ -236,9 +256,9 @@ impl TransportConfig {
 #[cfg(test)]
 mod tests {
     use super::{
-        ChatCompletionsIdempotencyConfig, IdempotencyConfig, InboundAuthConfig, RateLimitConfig,
-        RequestIdConfig, SurfaceRateLimitPolicy, TransportConfig, TrustedForwardedHeaders,
-        TrustedProxyConfig,
+        ChatCompletionsIdempotencyConfig, IdempotencyConfig, InboundAuthConfig,
+        InboundAuthOperatorState, RateLimitConfig, RequestIdConfig, SurfaceRateLimitPolicy,
+        TransportConfig, TrustedForwardedHeaders, TrustedProxyConfig,
     };
     use serde_json::json;
 
@@ -277,6 +297,42 @@ mod tests {
         };
 
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn inbound_auth_operator_state_reports_enabled_and_configured_without_exposing_token() {
+        let config = InboundAuthConfig {
+            enabled: true,
+            bearer_token: Some("rook-inbound-secret".to_string()),
+        };
+
+        let state = config.operator_state();
+
+        assert_eq!(
+            state,
+            InboundAuthOperatorState {
+                enabled: true,
+                token_configured: true,
+            }
+        );
+        let rendered = format!("{state:?}");
+        assert!(!rendered.contains("rook-inbound-secret"));
+    }
+
+    #[test]
+    fn inbound_auth_operator_state_treats_blank_token_as_not_configured() {
+        let config = InboundAuthConfig {
+            enabled: true,
+            bearer_token: Some("   ".to_string()),
+        };
+
+        assert_eq!(
+            config.operator_state(),
+            InboundAuthOperatorState {
+                enabled: true,
+                token_configured: false,
+            }
+        );
     }
 
     #[test]

@@ -666,6 +666,26 @@ mod tests {
         assert_eq!(cfg.port, cloned.port);
     }
 
+    #[test]
+    fn server_config_defaults_to_loopback_first_bind_target() {
+        let cfg = ServerConfig::default();
+
+        assert_eq!(cfg.host, "127.0.0.1");
+        assert_eq!(cfg.port, 4141);
+        assert_eq!(cfg.socket_addr(), "127.0.0.1:4141");
+    }
+
+    #[test]
+    fn explicit_non_loopback_override_remains_honored() {
+        let cfg = ServerConfig {
+            host: "0.0.0.0".to_string(),
+            port: 8080,
+            ..ServerConfig::default()
+        };
+
+        assert_eq!(cfg.socket_addr(), "0.0.0.0:8080");
+    }
+
     #[tokio::test]
     async fn protected_routes_require_valid_bearer_when_auth_enabled() {
         let registry = RookRegistry::open_in_memory().await.unwrap();
