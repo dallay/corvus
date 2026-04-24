@@ -2,19 +2,19 @@ use rook::distribution::{current_platform_binary_name, supported_release_artifac
 
 #[test]
 fn supported_release_artifacts_match_expected_names() {
-    let names: Vec<&str> = supported_release_artifacts()
+    let artifacts: Vec<(&str, &str)> = supported_release_artifacts()
         .iter()
-        .map(|artifact| artifact.binary_name)
+        .map(|artifact| (artifact.target, artifact.binary_name))
         .collect();
 
     assert_eq!(
-        names,
+        artifacts,
         vec![
-            "rook-darwin-arm64",
-            "rook-darwin-x64",
-            "rook-linux-x64",
-            "rook-linux-arm64",
-            "rook-windows-x64.exe",
+            ("aarch64-apple-darwin", "rook-darwin-arm64"),
+            ("x86_64-apple-darwin", "rook-darwin-x64"),
+            ("x86_64-unknown-linux-gnu", "rook-linux-x64"),
+            ("aarch64-unknown-linux-gnu", "rook-linux-arm64"),
+            ("x86_64-pc-windows-msvc", "rook-windows-x64.exe"),
         ]
     );
 }

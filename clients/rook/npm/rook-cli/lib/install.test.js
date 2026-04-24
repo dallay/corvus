@@ -29,5 +29,8 @@ test('maps supported platforms to rook npm package names', () => {
 });
 
 test('ensureBinary fails clearly when native binary is not present', () => {
-  assert.throws(() => ensureBinary(), /Native Rook binary is not available/);
+  assert.throws(
+    () => ensureBinary({ binDir: '/definitely-missing-rook-bin', platform: 'linux', arch: 'x64' }),
+    /Native Rook binary is not available/
+  );
 });

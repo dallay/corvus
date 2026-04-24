@@ -27,17 +27,23 @@ function getPackageNameFor(platform, arch) {
   return matrix[`${platform}-${arch}`] ?? null;
 }
 
-function getAssetName() {
-  return getAssetNameFor(process.platform, process.arch);
+function getAssetName(platform = process.platform, arch = process.arch) {
+  return getAssetNameFor(platform, arch);
 }
 
-function ensureBinary() {
-  const assetName = getAssetName();
+function ensureBinary(options = {}) {
+  const {
+    binDir = BIN_DIR,
+    platform = process.platform,
+    arch = process.arch,
+  } = options;
+
+  const assetName = getAssetName(platform, arch);
   if (!assetName) {
-    throw new Error(`Unsupported platform: ${process.platform}-${process.arch}`);
+    throw new Error(`Unsupported platform: ${platform}-${arch}`);
   }
 
-  const binaryPath = path.join(BIN_DIR, assetName);
+  const binaryPath = path.join(binDir, assetName);
   if (!fs.existsSync(binaryPath)) {
     throw new Error(`Native Rook binary is not available at ${binaryPath}`);
   }

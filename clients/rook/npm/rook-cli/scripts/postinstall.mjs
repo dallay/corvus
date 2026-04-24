@@ -3,20 +3,22 @@
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { ensureBinDir, getAssetName } = require('../lib/install');
+const { ensureBinDir, ensureBinary, getAssetName } = require('../lib/install');
 
 try {
-  const binDir = ensureBinDir();
+  ensureBinDir();
   const assetName = getAssetName();
   if (!assetName) {
     throw new Error('Unsupported platform');
   }
-  console.log(`[rook] Native binary directory ready at ${binDir}`);
+  const binaryPath = ensureBinary();
+  console.log(`[rook] Native binary ready at ${binaryPath}`);
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes('Unsupported platform')) {
     console.error(`[rook] ${message}`);
     process.exit(1);
   }
-  console.warn(`[rook] Postinstall skipped: ${message}`);
+  console.error(`[rook] Postinstall failed: ${message}`);
+  process.exit(1);
 }

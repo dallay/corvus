@@ -174,23 +174,32 @@ rook-dist-check: ## Validate Rook release artifact contract
 rook-dist-local: ## Build current-platform Rook release artifact into clients/rook/dist
 	@$(MKDIR_P) clients/rook/dist
 	@cargo build --manifest-path clients/rook/Cargo.toml --release --bin rook
-	@platform_id="$$(uname -s)-$$(uname -m)"; \
+	@os_name="$${OS:-}"; \
+	 platform_id="$$(uname -s)-$$(uname -m)"; \
 	 if [ "$$platform_id" = "Darwin-arm64" ] || [ "$$platform_id" = "Darwin-aarch64" ]; then \
 		platform_name="rook-darwin-arm64"; \
+		binary_path="clients/rook/target/release/rook"; \
 	 elif [ "$$platform_id" = "Darwin-x86_64" ]; then \
 		platform_name="rook-darwin-x64"; \
+		binary_path="clients/rook/target/release/rook"; \
 	 elif [ "$$platform_id" = "Linux-x86_64" ]; then \
 		platform_name="rook-linux-x64"; \
+		binary_path="clients/rook/target/release/rook"; \
 	 elif [ "$$platform_id" = "Linux-aarch64" ] || [ "$$platform_id" = "Linux-arm64" ]; then \
 		platform_name="rook-linux-arm64"; \
+		binary_path="clients/rook/target/release/rook"; \
+	 elif [ "$$os_name" = "Windows_NT" ] || echo "$$platform_id" | grep -Eq '^(MINGW|MSYS|CYGWIN)'; then \
+		platform_name="rook-windows-x64.exe"; \
+		binary_path="clients/rook/target/release/rook.exe"; \
 	 else \
 		platform_name="unsupported"; \
+		binary_path=""; \
 	 fi; \
 	 if [ "$$platform_name" = unsupported ]; then \
 		printf 'Unsupported local platform for rook-dist-local: %s-%s\n' "$$(uname -s)" "$$(uname -m)"; \
 		exit 1; \
 	 fi; \
-	 cp clients/rook/target/release/rook "clients/rook/dist/$$platform_name"; \
+	 cp "$$binary_path" "clients/rook/dist/$$platform_name"; \
 	 printf 'Rook artifact ready at clients/rook/dist/%s\n' "$$platform_name"
 
 # --- WEB APPLICATIONS ---

@@ -329,24 +329,9 @@ jobs:
           # publishAllPublicationsToMavenCentralRepository/publishToMavenCentral.
           ./gradlew -p gradle/build-logic publishToMavenCentral
 
-      - name: 📦 Publish Rust crate to crates.io
-        if: ${{ inputs.release }}
-        id: publish-cargo
-        continue-on-error: true
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
-            echo "⚠️ Skipping crates.io publish - CARGO_REGISTRY_TOKEN not configured"
-            exit 0
-          fi
-          cd clients/agent-runtime
-          cargo publish --locked
-
       - name: 📦 Publish corvus-traits crate to crates.io
         if: ${{ inputs.release }}
         id: publish-cargo-corvus-traits
-        continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
@@ -357,10 +342,22 @@ jobs:
           cd clients/agent-runtime/crates/corvus-traits
           cargo publish --locked
 
+      - name: 📦 Publish Rust crate to crates.io
+        if: ${{ inputs.release }}
+        id: publish-cargo
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "⚠️ Skipping crates.io publish - CARGO_REGISTRY_TOKEN not configured"
+            exit 0
+          fi
+          cd clients/agent-runtime
+          cargo publish --locked
+
       - name: 📦 Publish Rook crate to crates.io
         if: ${{ inputs.release }}
         id: publish-cargo-rook
-        continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
@@ -838,7 +835,7 @@ jobs:
 
   publish-npm-platforms-rook:
     if: ${{ inputs.release }}
-    needs: build-rook-binaries
+    needs: [build-rook-binaries, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -937,7 +934,7 @@ jobs:
 
   publish-npm-base-rook:
     if: ${{ inputs.release }}
-    needs: publish-npm-platforms-rook
+    needs: [publish-npm-platforms-rook, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
