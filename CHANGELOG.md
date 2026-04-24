@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.1](https://github.com/dallay/corvus/compare/v3.6.0...v3.6.1) (2026-04-24)
+
+
+### Bug Fixes
+
+* **agent-runtime:** unblock pre-push clippy checks ([09d1936](https://github.com/dallay/corvus/commit/09d1936ad89cbe8da95a796133cf812a0048b356))
+
 ## [3.6.0](https://github.com/dallay/corvus/compare/v3.5.0...v3.6.0) (2026-04-24)
 
 
