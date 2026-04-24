@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: rook-600-acceptance-regression-matrix
 **Version**: N/A
@@ -30,7 +30,7 @@ traceability rather than new runtime behavior.
 - `openspec/specs/rook-tui/spec.md`
 - `openspec/specs/gateway/spec.md`
 - `clients/web/apps/rook-dashboard/package.json`
-- repo-level confidence command `make build` (already validated previously in this conversation with exit code `0`)
+- repo-level confidence command `make build` (returned exit code 0 at commit 07e002cda722c840bb4922345fa2db96083747ec)
 
 ---
 

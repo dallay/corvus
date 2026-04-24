@@ -75,11 +75,17 @@ slices.
 
 The security lane MUST trace to the targeted regression evidence from #598 for loopback-first bind
 defaults, explicit bind override behavior, inbound versus outbound auth separation, admin secret
-redaction, and structured-log secret safety.
+redaction, and structured-log secret safety. Each security lane entry MUST include a required
+"Risk & Rollback Traceability" field that references the specific regression evidence IDs (e.g., #598),
+links to threat/risk notes, and summarizes the rollback/mitigation steps and tests for boundary/failure
+modes so reviewers can verify operational fallback posture.
 
 The audit lane MUST trace to the targeted regression evidence from #599 for audit migration,
 storage/service wiring, handler emission, bounded audit reads, and the preserved honesty of usage
-and health coverage.
+and health coverage. Each audit lane entry MUST include a required "Risk & Rollback Traceability"
+field that references the specific regression evidence IDs (e.g., #599), links to threat/risk notes,
+and summarizes the rollback/mitigation steps and tests for boundary/failure modes so reviewers can
+verify operational fallback posture.
 
 #### Scenario: dashboard lane maps shipped slices to existing commands and evidence
 

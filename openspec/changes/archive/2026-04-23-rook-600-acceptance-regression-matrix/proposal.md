@@ -34,7 +34,7 @@ The preferred implementation is documentation-first. If a small automation helpe
 
 | Area | Impact | Description |
 |------|--------|-------------|
-| `openspec/changes/rook-600-acceptance-regression-matrix/proposal.md` | New | Defines the intent, bounded scope, and rationale for the consolidated matrix change. |
+| `openspec/changes/archive/2026-04-23-rook-600-acceptance-regression-matrix/proposal.md` | New | Defines the intent, bounded scope, and rationale for the consolidated matrix change. |
 | `openspec/specs/gateway/spec.md` | Modified | Adds the acceptance/regression matrix requirements or traceability language under the recommended `gateway` domain. |
 | `openspec/specs/dashboard/spec.md` | Referenced | Supplies the dashboard operator-shell contract that the matrix maps to #592-#594 verification commands. |
 | `openspec/specs/rook-tui/spec.md` | Referenced | Supplies the TUI read-only/operator-boundary contract that the matrix maps to #595-#597 verification commands. |

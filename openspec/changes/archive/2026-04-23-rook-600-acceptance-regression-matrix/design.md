@@ -168,7 +168,7 @@ An abbreviated example structure:
 
 | File | Action | Description |
 |------|--------|-------------|
-| `openspec/changes/rook-600-acceptance-regression-matrix/design.md` | Create | Technical design for the consolidated acceptance/regression matrix. |
+| `openspec/changes/archive/2026-04-23-rook-600-acceptance-regression-matrix/design.md` | Create | Technical design for the consolidated acceptance/regression matrix. |
 | `openspec/specs/gateway/rook-acceptance-regression-matrix.md` | Create | Durable consolidated matrix artifact for Rook #592-#599 under the `gateway` domain. |
 | `openspec/specs/gateway/spec.md` | Modify | Add a short requirement or traceability pointer establishing the gateway-domain ownership of the matrix artifact. |
 | `Makefile` | Maybe Modify | Optionally add one thin compositional target if, and only if, it reuses existing commands without introducing new semantics. |
