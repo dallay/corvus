@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.6.0](https://github.com/dallay/corvus/compare/v3.5.0...v3.6.0) (2026-04-24)
+
+
+### Features
+
+* add usage and settings pages with API integration ([924e687](https://github.com/dallay/corvus/commit/924e687f7c11dec99003e0619d8d9f62ba04ea3d))
+* **rook:** add distribution channels and release wiring ([f2121c1](https://github.com/dallay/corvus/commit/f2121c1c120f62bc0f9c61fd7ac9594645c1aac3))
+* **rook:** add distribution channels and release wiring ([8b1dce2](https://github.com/dallay/corvus/commit/8b1dce28ada851f4f7ce60c5bcc6230779812f4b))
+
+
+### Bug Fixes
+
+* apply CodeRabbit auto-fixes ([0e0bcfc](https://github.com/dallay/corvus/commit/0e0bcfc9985912ac400722be6239a10afdf9505c))
+* **rook:** address workflow and packaging review feedback ([5a196d5](https://github.com/dallay/corvus/commit/5a196d5b53bac665c85ff115984051068abee281))
+
 ## [3.5.0](https://github.com/dallay/corvus/compare/v3.4.0...v3.5.0) (2026-04-24)
 
 
