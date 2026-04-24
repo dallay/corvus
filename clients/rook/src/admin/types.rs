@@ -2,7 +2,9 @@ use crate::domain::{
     AccountId, ModelRoute, PoolId, ProviderAccount, ProviderPool, ProviderVendor, RookSettings,
     RouteId, RoutingPolicy, SelectionStrategy,
 };
+use crate::db::audit::StoredAdminAuditEvent;
 use crate::services::health::{AccountHealth, HealthStatus};
+use chrono::{DateTime, Utc};
 use axum::{
     http::{header::RETRY_AFTER, header::WWW_AUTHENTICATE, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
@@ -178,6 +180,49 @@ pub struct SettingsView {
     pub default_routing_policy: RoutingPolicyView,
     pub log_json: bool,
     pub log_level: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ListAuditEventsQuery {
+    #[serde(default = "default_audit_limit")]
+    pub limit: u32,
+    #[serde(default)]
+    pub resource_kind: Option<String>,
+    #[serde(default)]
+    pub resource_id: Option<String>,
+}
+
+fn default_audit_limit() -> u32 {
+    20
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AuditEventView {
+    pub id: String,
+    pub occurred_at: DateTime<Utc>,
+    pub request_id: Option<String>,
+    pub surface: String,
+    pub action: String,
+    pub resource_kind: String,
+    pub resource_id: Option<String>,
+    pub payload: Value,
+}
+
+impl TryFrom<StoredAdminAuditEvent> for AuditEventView {
+    type Error = serde_json::Error;
+
+    fn try_from(value: StoredAdminAuditEvent) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: value.id,
+            occurred_at: value.occurred_at,
+            request_id: value.request_id,
+            surface: value.surface,
+            action: value.action,
+            resource_kind: value.resource_kind,
+            resource_id: value.resource_id,
+            payload: serde_json::from_str(&value.payload_json)?,
+        })
+    }
 }
 
 impl From<RookSettings> for SettingsView {

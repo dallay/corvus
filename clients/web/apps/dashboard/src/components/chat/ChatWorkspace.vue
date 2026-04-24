@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import { Button } from "@corvus/ui";
-import { type Ref, computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.

@@ -12,6 +12,7 @@ pub fn build_router(registry: RookRegistry) -> Router {
             get(handlers::handle_list_account_health),
         )
         .route("/health/summary", get(handlers::handle_health_summary))
+        .route("/audit/events", get(handlers::handle_list_audit_events))
         .route(
             "/accounts",
             get(handlers::handle_list_accounts).post(handlers::handle_create_account),
@@ -203,6 +204,41 @@ mod tests {
         assert_eq!(get_json["id"], json!(account_id.to_string()));
         assert_eq!(get_json["display_name"], json!("Primary OpenAI"));
         assert!(get_json.get("api_key").is_none());
+    }
+
+    #[tokio::test]
+    async fn admin_router_records_and_lists_recent_audit_events() {
+        let registry = test_api_app().await;
+        let app = axum::Router::new().nest("/api", build_router(registry));
+
+        let (create_status, create_json) = send_json(
+            app.clone(),
+            axum::http::Method::POST,
+            "/api/accounts",
+            json!({
+                "vendor": "open_ai",
+                "display_name": "Audited Account",
+                "enabled": true,
+                "weight": 1,
+                "priority": 0,
+                "tags": [],
+                "capabilities": []
+            }),
+        )
+        .await;
+        assert_eq!(create_status, StatusCode::CREATED);
+        let created_id = create_json["id"].as_str().unwrap().to_string();
+
+        tokio::task::yield_now().await;
+
+        let (audit_status, audit_json) = request_json(app, "/api/audit/events?limit=10").await;
+        assert_eq!(audit_status, StatusCode::OK);
+        let events = audit_json.as_array().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["action"], json!("account_created"));
+        assert_eq!(events[0]["resource_kind"], json!("account"));
+        assert_eq!(events[0]["resource_id"], json!(created_id));
+        assert!(events[0]["payload"].get("api_key").is_none());
     }
 
     #[tokio::test]
