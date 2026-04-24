@@ -6,6 +6,7 @@
 //! Sub-modules are split by domain entity to keep file sizes manageable.
 
 pub mod account;
+pub mod audit;
 pub mod idempotency;
 pub mod pool;
 pub mod route;
@@ -37,6 +38,11 @@ const MIGRATION_SQL_0003: &str = include_str!(concat!(
 const MIGRATION_SQL_0004: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/0004_chat_completions_idempotency.sql"
+));
+
+const MIGRATION_SQL_0005: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/0005_admin_audit_events.sql"
 ));
 
 /// A handle to the Rook SQLite database.
@@ -171,6 +177,21 @@ impl SqliteDb {
             apply_migration(pool, version_0004, MIGRATION_SQL_0004).await?;
         }
 
+        // ── Migration 0005: admin audit events ───────────────────────────────
+        let version_0005 = "0005_admin_audit_events";
+        let row_0005: Option<(String,)> =
+            sqlx::query_as("SELECT version FROM schema_migrations WHERE version = ?")
+                .bind(version_0005)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| {
+                    RookError::Registry(format!("failed to check migration 0005 status: {e}"))
+                })?;
+
+        if row_0005.is_none() {
+            apply_migration(pool, version_0005, MIGRATION_SQL_0005).await?;
+        }
+
         Ok(())
     }
 }
@@ -291,6 +312,44 @@ mod tests {
         assert_eq!(
             row.map(|(version,)| version),
             Some("0004_chat_completions_idempotency".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn open_in_memory_applies_admin_audit_events_migration() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+
+        let columns = sqlx::query("PRAGMA table_info(admin_audit_events)")
+            .fetch_all(db.pool())
+            .await
+            .unwrap();
+
+        let has_payload_json = columns.iter().any(|row| {
+            row.try_get::<String, _>("name")
+                .map(|name| name == "payload_json")
+                .unwrap_or(false)
+        });
+
+        assert!(
+            has_payload_json,
+            "admin_audit_events should include payload_json column"
+        );
+    }
+
+    #[tokio::test]
+    async fn open_in_memory_records_admin_audit_events_migration_version() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT version FROM schema_migrations WHERE version = ?")
+                .bind("0005_admin_audit_events")
+                .fetch_optional(db.pool())
+                .await
+                .unwrap();
+
+        assert_eq!(
+            row.map(|(version,)| version),
+            Some("0005_admin_audit_events".to_string())
         );
     }
 }

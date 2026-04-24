@@ -1,14 +1,8 @@
-use axum::{
-    body::Body,
-    extract::State,
-    http::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{body::Body, extract::State, http::Request, middleware::Next, response::Response};
 
 use crate::{
     admin::types::admin_unauthorized_response,
-    auth::types::{AuthenticatedPrincipal, validate_inbound_request},
+    auth::types::{validate_inbound_request, AuthenticatedPrincipal},
     config::InboundAuthConfig,
     gateway::types::gateway_unauthorized_response,
 };
@@ -20,7 +14,8 @@ pub async fn admin_inbound_auth(
 ) -> Response {
     match validate_inbound_request(request.headers(), &config) {
         Ok(()) => {
-            if let Ok(principal) = AuthenticatedPrincipal::from_inbound_auth(request.headers(), &config)
+            if let Ok(principal) =
+                AuthenticatedPrincipal::from_inbound_auth(request.headers(), &config)
             {
                 request.extensions_mut().insert(principal);
             }
@@ -37,7 +32,8 @@ pub async fn gateway_inbound_auth(
 ) -> Response {
     match validate_inbound_request(request.headers(), &config) {
         Ok(()) => {
-            if let Ok(principal) = AuthenticatedPrincipal::from_inbound_auth(request.headers(), &config)
+            if let Ok(principal) =
+                AuthenticatedPrincipal::from_inbound_auth(request.headers(), &config)
             {
                 request.extensions_mut().insert(principal);
             }

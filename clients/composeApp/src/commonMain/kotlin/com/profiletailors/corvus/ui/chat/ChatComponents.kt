@@ -337,6 +337,7 @@ fun BridgeStatusCard(bridgeState: MobileBridgeUiState, modifier: Modifier = Modi
   )
 }
 
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
 @Composable
 fun SessionSelectionCard(
   sessions: List<RuntimeSession>,
@@ -370,6 +371,7 @@ fun SessionSelectionCard(
   }
 }
 
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
 @Composable
 fun ApprovalCard(
   request: RuntimeApprovalRequest,

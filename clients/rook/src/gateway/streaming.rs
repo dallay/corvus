@@ -23,11 +23,7 @@ impl OpenAiSseParser {
         self.buffer.extend_from_slice(chunk);
         let mut events = Vec::new();
 
-        while let Some(boundary) = self
-            .buffer
-            .windows(2)
-            .position(|window| window == b"\n\n")
-        {
+        while let Some(boundary) = self.buffer.windows(2).position(|window| window == b"\n\n") {
             let frame = self.buffer.drain(..boundary + 2).collect::<Vec<u8>>();
             let frame = String::from_utf8_lossy(&frame[..frame.len() - 2]).to_string();
             if frame.trim().is_empty() {
@@ -105,7 +101,9 @@ pub fn normalize_openai_sse_bytes(body: &[u8]) -> (String, bool) {
     (rendered, seen_done)
 }
 
-pub fn text_event_stream(body: String) -> impl Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>> {
+pub fn text_event_stream(
+    body: String,
+) -> impl Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>> {
     let events = body
         .split("\n\n")
         .filter_map(|frame| {
@@ -116,7 +114,9 @@ pub fn text_event_stream(body: String) -> impl Stream<Item = Result<axum::respon
     stream::iter(events)
 }
 
-pub fn upstream_event_stream<S, E>(upstream: S) -> impl Stream<Item = Result<axum::response::sse::Event, Infallible>>
+pub fn upstream_event_stream<S, E>(
+    upstream: S,
+) -> impl Stream<Item = Result<axum::response::sse::Event, Infallible>>
 where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
 {

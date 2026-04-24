@@ -8,12 +8,12 @@ class AndroidPersistence(private val sharedPreferences: SharedPreferences) :
     return parseLinkedRuntimeMetadataComponents()
   }
 
+  @Suppress("ReturnCount") // Early returns on null guards are idiomatic Kotlin null-safety
   private fun parseLinkedRuntimeMetadataComponents(): LinkedRuntimeMetadata? {
     val targetId = sharedPreferences.getString(KEY_TARGET_ID, null) ?: return null
-    val transportStr = sharedPreferences.getString(KEY_TRANSPORT_MODE, null)
-    val trustStr = sharedPreferences.getString(KEY_TRUST_MODE, null)
-    val transportMode = transportStr.toTransportMode() ?: return null
-    val trustMode = trustStr.toTrustMode() ?: return null
+    val transportMode =
+      sharedPreferences.getString(KEY_TRANSPORT_MODE, null).toTransportMode() ?: return null
+    val trustMode = sharedPreferences.getString(KEY_TRUST_MODE, null).toTrustMode() ?: return null
     val linkedAtEpochMs =
       sharedPreferences.getLong(KEY_LINKED_AT_EPOCH_MS, MISSING_LINKED_AT).takeIf {
         it != MISSING_LINKED_AT

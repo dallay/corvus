@@ -228,8 +228,8 @@ mod tests {
         AccountId, ModelRoute, PoolId, ProviderAccount, ProviderPool, ProviderVendor, RouteId,
         SelectionStrategy,
     };
-    use crate::gateway::{build_router, GatewayState};
     use crate::gateway::types::STREAM_CONTENT_TYPE;
+    use crate::gateway::{build_router, GatewayState};
     use crate::registry::RookRegistry;
     use crate::routing::RoutingEngine;
     use crate::services::{
@@ -444,7 +444,8 @@ mod tests {
 
     #[tokio::test]
     async fn chat_completions_stream_false_stays_on_buffered_json_path() {
-        let (_server, upstream) = mock_upstream(StatusCode::OK, json!({"id":"chatcmpl-buffered"})).await;
+        let (_server, upstream) =
+            mock_upstream(StatusCode::OK, json!({"id":"chatcmpl-buffered"})).await;
         let (app, registry) = test_app().await;
         seed_route(
             &registry,
@@ -559,9 +560,7 @@ mod tests {
                     Ok::<Bytes, std::convert::Infallible>(Bytes::from_static(
                         b"data: {\"id\":\"chunk-1\"}\n\n",
                     )),
-                    Ok::<Bytes, std::convert::Infallible>(Bytes::from_static(
-                        b"event: broken\n\n",
-                    )),
+                    Ok::<Bytes, std::convert::Infallible>(Bytes::from_static(b"event: broken\n\n")),
                 ])),
             )
         }

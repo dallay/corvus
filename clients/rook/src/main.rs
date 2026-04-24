@@ -4,8 +4,14 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use rook::config::{ChatCompletionsIdempotencyConfig, IdempotencyConfig, InboundAuthConfig, RateLimitConfig, TransportConfig};
+use rook::config::{
+    ChatCompletionsIdempotencyConfig, IdempotencyConfig, InboundAuthConfig, RateLimitConfig,
+    TransportConfig,
+};
+use rook::registry::RookRegistry;
 use rook::server::ServerConfig;
+
+const DEFAULT_ROOK_DB_PATH: &str = "./rook.db";
 
 #[derive(Parser)]
 #[command(
@@ -98,6 +104,21 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    run_cli(cli).await
+}
+
+async fn run_cli(cli: Cli) -> Result<()> {
+    run_cli_with_tui_runner(cli, |registry, dashboard_url| async move {
+        rook::tui::run_standalone(registry, dashboard_url).await
+    })
+    .await
+}
+
+async fn run_cli_with_tui_runner<F, Fut>(cli: Cli, tui_runner: F) -> Result<()>
+where
+    F: Fn(RookRegistry, String) -> Fut,
+    Fut: std::future::Future<Output = Result<(), rook::domain::RookError>>,
+{
     match cli.command {
         Commands::Serve {
             host,
@@ -114,10 +135,10 @@ async fn main() -> Result<()> {
             chat_rate_limit_window_seconds,
             chat_idempotency_replay_window_seconds,
         } => {
-            let config = build_server_config(
+            let config = build_server_config(ServerConfigInput {
                 host,
                 port,
-                tui,
+                enable_tui: tui,
                 db_path,
                 inbound_auth_enabled,
                 inbound_auth_token,
@@ -128,12 +149,16 @@ async fn main() -> Result<()> {
                 chat_rate_limit_max_requests,
                 chat_rate_limit_window_seconds,
                 chat_idempotency_replay_window_seconds,
-            );
+            });
             rook::server::run(config).await?;
         }
         Commands::Tui => {
-            println!("rook tui: not yet implemented");
-            std::process::exit(1);
+            launch_tui_with_runner(
+                DEFAULT_ROOK_DB_PATH,
+                "http://127.0.0.1:4141".to_string(),
+                tui_runner,
+            )
+            .await?;
         }
         Commands::Doctor => {
             println!("rook doctor: not yet implemented");
@@ -150,7 +175,17 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn build_server_config(
+async fn launch_tui_with_runner<F, Fut>(db_path: &str, dashboard_url: String, tui_runner: F) -> Result<()>
+where
+    F: Fn(RookRegistry, String) -> Fut,
+    Fut: std::future::Future<Output = Result<(), rook::domain::RookError>>,
+{
+    let registry = RookRegistry::open(db_path).await?;
+    tui_runner(registry, dashboard_url).await?;
+    Ok(())
+}
+
+struct ServerConfigInput {
     host: String,
     port: u16,
     enable_tui: bool,
@@ -164,35 +199,37 @@ fn build_server_config(
     chat_rate_limit_max_requests: u32,
     chat_rate_limit_window_seconds: u64,
     chat_idempotency_replay_window_seconds: u64,
-) -> ServerConfig {
+}
+
+fn build_server_config(input: ServerConfigInput) -> ServerConfig {
     ServerConfig {
-        host,
-        port,
-        enable_tui,
-        db_path,
+        host: input.host,
+        port: input.port,
+        enable_tui: input.enable_tui,
+        db_path: input.db_path,
         inbound_auth: InboundAuthConfig {
-            enabled: inbound_auth_enabled,
-            bearer_token: inbound_auth_token,
+            enabled: input.inbound_auth_enabled,
+            bearer_token: input.inbound_auth_token,
         },
         transport: TransportConfig::default(),
         rate_limits: RateLimitConfig {
             api: rook::config::SurfaceRateLimitPolicy {
-                max_requests: api_rate_limit_max_requests,
-                window_seconds: api_rate_limit_window_seconds,
+                max_requests: input.api_rate_limit_max_requests,
+                window_seconds: input.api_rate_limit_window_seconds,
             },
             v1_models: rook::config::SurfaceRateLimitPolicy {
-                max_requests: models_rate_limit_max_requests,
-                window_seconds: models_rate_limit_window_seconds,
+                max_requests: input.models_rate_limit_max_requests,
+                window_seconds: input.models_rate_limit_window_seconds,
             },
             v1_chat_completions: rook::config::SurfaceRateLimitPolicy {
-                max_requests: chat_rate_limit_max_requests,
-                window_seconds: chat_rate_limit_window_seconds,
+                max_requests: input.chat_rate_limit_max_requests,
+                window_seconds: input.chat_rate_limit_window_seconds,
             },
         },
         idempotency: IdempotencyConfig {
             chat_completions: ChatCompletionsIdempotencyConfig {
                 enabled: true,
-                replay_window_seconds: chat_idempotency_replay_window_seconds,
+                replay_window_seconds: input.chat_idempotency_replay_window_seconds,
             },
         },
     }
@@ -201,6 +238,7 @@ fn build_server_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn serve_cli_parses_inbound_auth_flags() {
@@ -268,22 +306,47 @@ mod tests {
     }
 
     #[test]
+    fn serve_cli_defaults_to_loopback_first_bind_posture() {
+        let cli = Cli::try_parse_from(["rook", "serve"]).unwrap();
+
+        match cli.command {
+            Commands::Serve {
+                host,
+                port,
+                tui,
+                db_path,
+                inbound_auth_enabled,
+                inbound_auth_token,
+                ..
+            } => {
+                assert_eq!(host, "127.0.0.1");
+                assert_eq!(port, 4141);
+                assert!(!tui);
+                assert_eq!(db_path, None);
+                assert!(!inbound_auth_enabled);
+                assert_eq!(inbound_auth_token, None);
+            }
+            _ => panic!("expected serve command"),
+        }
+    }
+
+    #[test]
     fn build_server_config_keeps_inbound_auth_separate() {
-        let config = build_server_config(
-            "127.0.0.1".to_string(),
-            4141,
-            false,
-            None,
-            true,
-            Some("rook-inbound-secret".to_string()),
-            61,
-            30,
-            121,
-            31,
-            32,
-            33,
-            3600,
-        );
+        let config = build_server_config(ServerConfigInput {
+            host: "127.0.0.1".to_string(),
+            port: 4141,
+            enable_tui: false,
+            db_path: None,
+            inbound_auth_enabled: true,
+            inbound_auth_token: Some("rook-inbound-secret".to_string()),
+            api_rate_limit_max_requests: 61,
+            api_rate_limit_window_seconds: 30,
+            models_rate_limit_max_requests: 121,
+            models_rate_limit_window_seconds: 31,
+            chat_rate_limit_max_requests: 32,
+            chat_rate_limit_window_seconds: 33,
+            chat_idempotency_replay_window_seconds: 3600,
+        });
 
         assert!(config.inbound_auth.enabled);
         assert_eq!(
@@ -297,6 +360,38 @@ mod tests {
         assert_eq!(config.rate_limits.v1_models.window_seconds, 31);
         assert_eq!(config.rate_limits.v1_chat_completions.max_requests, 32);
         assert_eq!(config.rate_limits.v1_chat_completions.window_seconds, 33);
-        assert_eq!(config.idempotency.chat_completions.replay_window_seconds, 3600);
+        assert_eq!(
+            config.idempotency.chat_completions.replay_window_seconds,
+            3600
+        );
+    }
+
+    #[tokio::test]
+    async fn tui_command_launches_real_runner_with_effective_db_path() {
+        let captured = Arc::new(Mutex::new(None::<String>));
+        let captured_for_runner = captured.clone();
+
+        run_cli_with_tui_runner(
+            Cli {
+                command: Commands::Tui,
+            },
+            move |_registry, dashboard_url| {
+                let captured_for_runner = captured_for_runner.clone();
+                async move {
+                    *captured_for_runner.lock().unwrap() = Some(format!(
+                        "{}|{}",
+                        DEFAULT_ROOK_DB_PATH, dashboard_url
+                    ));
+                    Ok(())
+                }
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            captured.lock().unwrap().as_deref(),
+            Some("./rook.db|http://127.0.0.1:4141")
+        );
     }
 }

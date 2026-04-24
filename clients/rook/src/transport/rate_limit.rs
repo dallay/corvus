@@ -57,10 +57,12 @@ impl RateLimitState {
             .get(&surface)
             .expect("covered surface policy must exist");
         let mut windows = self.windows.lock().await;
-        let window = windows.entry(surface).or_insert_with(|| SurfaceWindowState {
-            window_started_at: now,
-            request_count: 0,
-        });
+        let window = windows
+            .entry(surface)
+            .or_insert_with(|| SurfaceWindowState {
+                window_started_at: now,
+                request_count: 0,
+            });
         evaluate_surface_limit(now, policy, window)
     }
 }
@@ -111,7 +113,7 @@ pub async fn apply_rate_limit(
 
 #[cfg(test)]
 mod tests {
-    use super::{RateLimitDecision, RateLimitState, SurfaceWindowState, evaluate_surface_limit};
+    use super::{evaluate_surface_limit, RateLimitDecision, RateLimitState, SurfaceWindowState};
     use crate::config::{RateLimitConfig, SurfaceRateLimitPolicy};
     use crate::transport::context::RateLimitedSurface;
     use std::time::{Duration, Instant};
@@ -132,7 +134,10 @@ mod tests {
             request_count: 0,
         };
 
-        assert_eq!(evaluate_surface_limit(now, &policy, &mut window), RateLimitDecision::Allow);
+        assert_eq!(
+            evaluate_surface_limit(now, &policy, &mut window),
+            RateLimitDecision::Allow
+        );
         assert_eq!(window.request_count, 1);
 
         assert_eq!(
@@ -157,7 +162,10 @@ mod tests {
             RateLimitDecision::Allow
         );
         assert_eq!(window.request_count, 1);
-        assert_eq!(window.window_started_at, started_at + Duration::from_secs(60));
+        assert_eq!(
+            window.window_started_at,
+            started_at + Duration::from_secs(60)
+        );
     }
 
     #[test]
@@ -189,7 +197,10 @@ mod tests {
             v1_chat_completions: policy(1, 60),
         });
 
-        assert_eq!(state.check(RateLimitedSurface::AdminApi).await, RateLimitDecision::Allow);
+        assert_eq!(
+            state.check(RateLimitedSurface::AdminApi).await,
+            RateLimitDecision::Allow
+        );
         assert_eq!(
             state.check(RateLimitedSurface::AdminApi).await,
             RateLimitDecision::Reject {
@@ -202,7 +213,9 @@ mod tests {
             RateLimitDecision::Allow
         );
         assert_eq!(
-            state.check(RateLimitedSurface::GatewayChatCompletions).await,
+            state
+                .check(RateLimitedSurface::GatewayChatCompletions)
+                .await,
             RateLimitDecision::Allow
         );
     }

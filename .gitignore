@@ -170,6 +170,7 @@ build/spotless-prettier-node-modules-*/serve.js
 # Rust coverage artifacts
 *.profraw
 /tmp/
+clients/rook/rook.db
 # START AI Agent Symlinks
 .agent/commands
 .agent/commands.bak.*

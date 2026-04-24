@@ -275,7 +275,10 @@ mod tests {
             resolution.context.client_ip,
             Some(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 9)))
         );
-        assert_eq!(resolution.context.host.as_deref(), Some("public.example.com"));
+        assert_eq!(
+            resolution.context.host.as_deref(),
+            Some("public.example.com")
+        );
         assert_eq!(resolution.context.proto.as_deref(), Some("https"));
         assert_eq!(resolution.context.port, Some(443));
     }
@@ -295,8 +298,14 @@ mod tests {
         assert_eq!(resolution.context.trust, ForwardedTrust::Ignored);
         assert_eq!(resolution.context.client_ip, None);
         assert_eq!(resolution.context.port, None);
-        assert!(resolution.context.ignored_headers.contains(&"x-forwarded-for"));
-        assert!(resolution.context.ignored_headers.contains(&"x-forwarded-port"));
+        assert!(resolution
+            .context
+            .ignored_headers
+            .contains(&"x-forwarded-for"));
+        assert!(resolution
+            .context
+            .ignored_headers
+            .contains(&"x-forwarded-port"));
     }
 
     #[test]

@@ -15,7 +15,8 @@
 //! use rook::services::account::AccountService as _;
 //!
 //! let registry = RookRegistry::open("./rook.db").await?;
-//! let accounts = registry.accounts().list().await?;
+//! let accounts = registry.accounts().list().await;
+//! # let _ = accounts;
 //! # Ok(())
 //! # }
 //! ```
@@ -23,7 +24,7 @@
 use crate::db::SqliteDb;
 use crate::domain::RookError;
 use crate::services::{
-    account::SqliteAccountService, health::InMemoryHealthService,
+    account::SqliteAccountService, audit::SqliteAuditService, health::InMemoryHealthService,
     idempotency::SqliteIdempotencyService, pool::SqlitePoolService, route::SqliteRouteService,
     settings::SqliteSettingsService,
 };
@@ -34,6 +35,7 @@ use crate::services::{
 #[derive(Clone)]
 pub struct RookRegistry {
     accounts: SqliteAccountService,
+    audit: SqliteAuditService,
     pools: SqlitePoolService,
     routes: SqliteRouteService,
     settings: SqliteSettingsService,
@@ -62,6 +64,7 @@ impl RookRegistry {
     fn from_db(db: SqliteDb) -> Self {
         Self {
             accounts: SqliteAccountService::new(db.clone()),
+            audit: SqliteAuditService::new(db.clone()),
             pools: SqlitePoolService::new(db.clone()),
             routes: SqliteRouteService::new(db.clone()),
             settings: SqliteSettingsService::new(db.clone()),
@@ -84,6 +87,10 @@ impl RookRegistry {
     /// Account service — manage provider accounts.
     pub fn accounts(&self) -> &SqliteAccountService {
         &self.accounts
+    }
+
+    pub fn audit(&self) -> &SqliteAuditService {
+        &self.audit
     }
 
     /// Pool service — manage provider pools.
@@ -164,5 +171,39 @@ mod tests {
         };
         r.settings().save(s).await.unwrap();
         assert_eq!(r.settings().load().await.gateway_port, 7777);
+    }
+
+    #[tokio::test]
+    async fn registry_audit_append_and_list_round_trip() {
+        use crate::db::audit::{AdminAuditListQuery, StoredAdminAuditEvent};
+        use crate::services::audit::AuditService as _;
+        use chrono::{TimeZone, Utc};
+
+        let r = registry().await;
+        r.audit()
+            .append(StoredAdminAuditEvent {
+                id: "audit-1".to_string(),
+                occurred_at: Utc.with_ymd_and_hms(2026, 4, 23, 12, 0, 0).unwrap(),
+                request_id: Some("req-1".to_string()),
+                surface: "admin_api".to_string(),
+                action: "settings_updated".to_string(),
+                resource_kind: "settings".to_string(),
+                resource_id: None,
+                payload_json: r#"{"safe":true}"#.to_string(),
+            })
+            .await
+            .unwrap();
+
+        let rows = r
+            .audit()
+            .list_recent(AdminAuditListQuery {
+                limit: 10,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "audit-1");
     }
 }

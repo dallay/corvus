@@ -61,7 +61,7 @@ fn validate_request_id_value(value: &HeaderValue, max_length: usize) -> Option<S
 
 #[cfg(test)]
 mod tests {
-    use super::{RequestIdAdoption, resolve_request_id, set_response_request_id_header};
+    use super::{resolve_request_id, set_response_request_id_header, RequestIdAdoption};
     use crate::config::RequestIdConfig;
     use axum::http::{HeaderMap, HeaderValue};
 
@@ -88,7 +88,10 @@ mod tests {
 
         let request_id = resolve_request_id(&headers, &config());
 
-        assert_eq!(request_id, RequestIdAdoption::Adopted("trace-123".to_string()));
+        assert_eq!(
+            request_id,
+            RequestIdAdoption::Adopted("trace-123".to_string())
+        );
     }
 
     #[test]

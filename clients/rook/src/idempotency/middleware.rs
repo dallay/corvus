@@ -16,8 +16,8 @@ use crate::gateway::types::{
     IDEMPOTENCY_REPLAYED_HEADER,
 };
 use crate::idempotency::canonical::{canonicalize_json_bytes, hash_canonical_bytes};
-use crate::idempotency::types::{ChatIdempotencyScope, ReserveResult, StoredGatewayResponse};
 use crate::idempotency::is_valid_idempotency_key;
+use crate::idempotency::types::{ChatIdempotencyScope, ReserveResult, StoredGatewayResponse};
 use crate::services::idempotency::SharedIdempotencyService;
 use axum::Json;
 
@@ -115,9 +115,8 @@ pub async fn apply_chat_idempotency(
         idempotency_key: key,
     };
     let now = Utc::now();
-    let replay_window = Duration::seconds(
-        i64::try_from(state.config.replay_window_seconds).unwrap_or(i64::MAX),
-    );
+    let replay_window =
+        Duration::seconds(i64::try_from(state.config.replay_window_seconds).unwrap_or(i64::MAX));
 
     let reserve = match state
         .service
@@ -209,8 +208,8 @@ async fn finalize_response(
 
 fn replay_response(stored: StoredGatewayResponse) -> Response {
     let mut response = Response::new(Body::from(Bytes::from(stored.body)));
-    *response.status_mut() = StatusCode::from_u16(stored.status_code)
-        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    *response.status_mut() =
+        StatusCode::from_u16(stored.status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     response.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,
         HeaderValue::from_str(&stored.content_type)

@@ -15,7 +15,9 @@ pub fn extract_bearer_token(headers: &HeaderMap) -> Result<&str, BearerExtractio
         return Err(BearerExtractionError::Malformed);
     }
 
-    let raw = value.to_str().map_err(|_| BearerExtractionError::Malformed)?;
+    let raw = value
+        .to_str()
+        .map_err(|_| BearerExtractionError::Malformed)?;
     let mut parts = raw.split_whitespace();
     let scheme = parts.next().ok_or(BearerExtractionError::Malformed)?;
     if !scheme.eq_ignore_ascii_case("Bearer") {
@@ -69,7 +71,10 @@ mod tests {
             HeaderValue::from_static("Bearer rook-inbound-secret"),
         );
 
-        assert_eq!(extract_bearer_token(&headers).unwrap(), "rook-inbound-secret");
+        assert_eq!(
+            extract_bearer_token(&headers).unwrap(),
+            "rook-inbound-secret"
+        );
     }
 
     #[test]
@@ -80,7 +85,10 @@ mod tests {
             HeaderValue::from_static("bearer rook-inbound-secret"),
         );
 
-        assert_eq!(extract_bearer_token(&headers).unwrap(), "rook-inbound-secret");
+        assert_eq!(
+            extract_bearer_token(&headers).unwrap(),
+            "rook-inbound-secret"
+        );
     }
 
     #[test]
@@ -91,7 +99,10 @@ mod tests {
             HeaderValue::from_static("Bearer   rook-inbound-secret   "),
         );
 
-        assert_eq!(extract_bearer_token(&headers).unwrap(), "rook-inbound-secret");
+        assert_eq!(
+            extract_bearer_token(&headers).unwrap(),
+            "rook-inbound-secret"
+        );
     }
 
     #[test]
@@ -101,7 +112,10 @@ mod tests {
             AUTHORIZATION,
             HeaderValue::from_static("Bearer rook-inbound-secret"),
         );
-        duplicate_headers.append(AUTHORIZATION, HeaderValue::from_static("Bearer second-token"));
+        duplicate_headers.append(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer second-token"),
+        );
         assert!(extract_bearer_token(&duplicate_headers).is_err());
 
         let mut malformed_headers = HeaderMap::new();

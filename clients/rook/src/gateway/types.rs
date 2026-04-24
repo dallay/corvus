@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use axum::{
-    Json,
-    http::{HeaderValue, StatusCode, header::RETRY_AFTER, header::WWW_AUTHENTICATE},
+    http::{header::RETRY_AFTER, header::WWW_AUTHENTICATE, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
 use serde::{Deserialize, Serialize};
 
@@ -412,7 +412,10 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"]["type"], json!("invalid_request_error"));
         assert_eq!(json["error"]["code"], json!("unauthorized"));
-        assert_eq!(json["error"]["message"], json!("valid inbound bearer token required"));
+        assert_eq!(
+            json["error"]["message"],
+            json!("valid inbound bearer token required")
+        );
     }
 
     #[tokio::test]

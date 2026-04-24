@@ -4,6 +4,7 @@
 //! between their own representations and the domain types.
 
 pub mod account;
+pub mod audit;
 pub mod health;
 pub mod idempotency;
 pub mod pool;

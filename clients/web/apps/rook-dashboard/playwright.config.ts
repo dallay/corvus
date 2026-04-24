@@ -8,9 +8,9 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   webServer: {
-    command: "PLAYWRIGHT=true pnpm dev --host 127.0.0.1 --port 4325",
+    command: "pnpm exec vite --host 127.0.0.1 --port 4325",
     url: "http://127.0.0.1:4325",
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 60_000,
   },
   projects: [

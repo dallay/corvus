@@ -1,3 +1,5 @@
+@file:Suppress("MatchingDeclarationName") // File contains multiple related Composable declarations
+
 package com.profiletailors.corvus.ui.chat
 
 import androidx.compose.foundation.BorderStroke
@@ -43,6 +45,7 @@ data class ChatInputFieldProps(
   val enabled: Boolean = true,
 )
 
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
 @Composable
 fun ChatInputField(props: ChatInputFieldProps, modifier: Modifier = Modifier) {
   val colors = MaterialTheme.colorScheme
@@ -93,6 +96,7 @@ fun ChatInputField(props: ChatInputFieldProps, modifier: Modifier = Modifier) {
   }
 }
 
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
 @Composable
 private fun SendButton(isEnabled: Boolean, gradient: Brush, glowColor: Color, onSend: () -> Unit) {
   val sendButtonModifier =

@@ -2,11 +2,13 @@ use crate::domain::{
     AccountId, ModelRoute, PoolId, ProviderAccount, ProviderPool, ProviderVendor, RookSettings,
     RouteId, RoutingPolicy, SelectionStrategy,
 };
+use crate::db::audit::StoredAdminAuditEvent;
 use crate::services::health::{AccountHealth, HealthStatus};
+use chrono::{DateTime, Utc};
 use axum::{
-    Json,
-    http::{HeaderValue, StatusCode, header::RETRY_AFTER, header::WWW_AUTHENTICATE},
+    http::{header::RETRY_AFTER, header::WWW_AUTHENTICATE, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -180,6 +182,49 @@ pub struct SettingsView {
     pub log_level: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ListAuditEventsQuery {
+    #[serde(default = "default_audit_limit")]
+    pub limit: u32,
+    #[serde(default)]
+    pub resource_kind: Option<String>,
+    #[serde(default)]
+    pub resource_id: Option<String>,
+}
+
+fn default_audit_limit() -> u32 {
+    20
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AuditEventView {
+    pub id: String,
+    pub occurred_at: DateTime<Utc>,
+    pub request_id: Option<String>,
+    pub surface: String,
+    pub action: String,
+    pub resource_kind: String,
+    pub resource_id: Option<String>,
+    pub payload: Value,
+}
+
+impl TryFrom<StoredAdminAuditEvent> for AuditEventView {
+    type Error = serde_json::Error;
+
+    fn try_from(value: StoredAdminAuditEvent) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: value.id,
+            occurred_at: value.occurred_at,
+            request_id: value.request_id,
+            surface: value.surface,
+            action: value.action,
+            resource_kind: value.resource_kind,
+            resource_id: value.resource_id,
+            payload: serde_json::from_str(&value.payload_json)?,
+        })
+    }
+}
+
 impl From<RookSettings> for SettingsView {
     fn from(settings: RookSettings) -> Self {
         Self {
@@ -350,14 +395,14 @@ pub fn admin_rate_limited_response(retry_after_seconds: u64) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::to_bytes;
-    use axum::http::{header::WWW_AUTHENTICATE, StatusCode};
-    use axum::response::IntoResponse;
     use crate::domain::{
         AccountId, PoolId, ProviderAccount, ProviderPool, ProviderVendor, RookSettings, RouteId,
         RoutingPolicy, SelectionStrategy,
     };
     use crate::services::health::{AccountHealth, HealthStatus};
+    use axum::body::to_bytes;
+    use axum::http::{header::WWW_AUTHENTICATE, StatusCode};
+    use axum::response::IntoResponse;
     use chrono::Utc;
     use serde_json::json;
 
@@ -538,7 +583,10 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"]["code"], json!("unauthorized"));
-        assert_eq!(json["error"]["message"], json!("valid inbound bearer token required"));
+        assert_eq!(
+            json["error"]["message"],
+            json!("valid inbound bearer token required")
+        );
     }
 
     #[tokio::test]

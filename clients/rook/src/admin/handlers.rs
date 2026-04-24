@@ -1,13 +1,14 @@
 use crate::admin::types::{
-    AccountView, AddPoolMemberRequest, AdminErrorResponse, CreateAccountRequest, CreatePoolRequest,
-    CreateRouteRequest, HealthAccountView, HealthSummaryView, PoolView, RouteView, SettingsView,
-    UpdateAccountRequest, UpdatePoolRequest, UpdateRouteRequest, UpdateSettingsRequest,
-    UsageStatusView,
+    AccountView, AddPoolMemberRequest, AdminErrorResponse, AuditEventView, CreateAccountRequest,
+    CreatePoolRequest, CreateRouteRequest, HealthAccountView, HealthSummaryView,
+    ListAuditEventsQuery, PoolView, RouteView, SettingsView, UpdateAccountRequest,
+    UpdatePoolRequest, UpdateRouteRequest, UpdateSettingsRequest, UsageStatusView,
 };
+use crate::db::audit::{AdminAuditListQuery, StoredAdminAuditEvent};
 use crate::domain::{ProviderAccount, ProviderPool, RookError};
 use crate::registry::RookRegistry;
 use crate::services::{
-    account::AccountService as _, health::HealthService as _, pool::PoolService as _,
+    account::AccountService as _, audit::AuditService as _, health::HealthService as _, pool::PoolService as _,
     route::RouteService as _, settings::SettingsService as _,
 };
 use axum::{
@@ -15,12 +16,15 @@ use axum::{
     extract::{
         rejection::{JsonRejection, PathRejection},
         Path, State,
+        Query,
     },
     http::StatusCode,
     Json,
 };
-use serde_json::{Map, Value};
+use chrono::Utc;
+use serde_json::{Map, Value, json};
 use tracing::error;
+use uuid::Uuid;
 
 type AdminJson<T> = Result<Json<T>, (StatusCode, Json<AdminErrorResponse>)>;
 type AdminCreated<T> = Result<(StatusCode, Json<T>), (StatusCode, Json<AdminErrorResponse>)>;
@@ -75,9 +79,38 @@ fn internal_error_response() -> (StatusCode, Json<AdminErrorResponse>) {
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(admin_error_response(
             "internal_error",
-            "Internal server error",
+            "An unexpected error occurred",
         )),
     )
+}
+
+fn emit_audit(
+    registry: &RookRegistry,
+    action: &str,
+    resource_kind: &str,
+    resource_id: Option<String>,
+    payload: Value,
+) {
+    let audit = registry.audit().clone();
+    let action = action.to_string();
+    let resource_kind = resource_kind.to_string();
+    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+
+    tokio::spawn(async move {
+        let event = StoredAdminAuditEvent {
+            id: Uuid::new_v4().to_string(),
+            occurred_at: Utc::now(),
+            request_id: None,
+            surface: "admin_api".to_string(),
+            action,
+            resource_kind,
+            resource_id,
+            payload_json,
+        };
+        if let Err(err) = audit.append(event).await {
+            error!(error = %err, "failed to append admin audit event");
+        }
+    });
 }
 
 fn parse_json<T>(
@@ -186,6 +219,37 @@ pub async fn handle_get_usage() -> Json<UsageStatusView> {
     Json(UsageStatusView::placeholder())
 }
 
+pub async fn handle_list_audit_events(
+    State(registry): State<RookRegistry>,
+    Query(query): Query<ListAuditEventsQuery>,
+) -> AdminJson<Vec<AuditEventView>> {
+    let rows = registry
+        .audit()
+        .list_recent(AdminAuditListQuery {
+            limit: query.limit,
+            resource_kind: query.resource_kind,
+            resource_id: query.resource_id,
+        })
+        .await
+        .map_err(classify_rook_error)?;
+
+    let views = rows
+        .into_iter()
+        .map(AuditEventView::try_from)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(admin_error_response(
+                    "internal_error",
+                    format!("invalid audit payload: {error}"),
+                )),
+            )
+        })?;
+
+    Ok(Json(views))
+}
+
 pub async fn handle_create_account(
     State(registry): State<RookRegistry>,
     req: Result<ExtractJson<CreateAccountRequest>, JsonRejection>,
@@ -198,7 +262,15 @@ pub async fn handle_create_account(
         .create(account.clone())
         .await
         .map_err(classify_rook_error)?;
-    Ok((StatusCode::CREATED, Json(AccountView::from(account))))
+    let view = AccountView::from(account);
+    emit_audit(
+        &registry,
+        "account_created",
+        "account",
+        Some(view.id.to_string()),
+        json!({"vendor": view.vendor, "display_name": view.display_name, "enabled": view.enabled}),
+    );
+    Ok((StatusCode::CREATED, Json(view)))
 }
 
 pub async fn handle_update_account(
@@ -218,7 +290,15 @@ pub async fn handle_update_account(
         .update(account.clone())
         .await
         .map_err(classify_rook_error)?;
-    Ok(Json(AccountView::from(account)))
+    let view = AccountView::from(account);
+    emit_audit(
+        &registry,
+        "account_updated",
+        "account",
+        Some(view.id.to_string()),
+        json!({"vendor": view.vendor, "display_name": view.display_name, "enabled": view.enabled}),
+    );
+    Ok(Json(view))
 }
 
 pub async fn handle_delete_account(
@@ -234,6 +314,13 @@ pub async fn handle_delete_account(
         .delete(account_id)
         .await
         .map_err(classify_rook_error)?;
+    emit_audit(
+        &registry,
+        "account_deleted",
+        "account",
+        Some(account_id.to_string()),
+        json!({}),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -295,7 +382,15 @@ pub async fn handle_create_pool(
         .create(pool.clone())
         .await
         .map_err(classify_rook_error)?;
-    Ok((StatusCode::CREATED, Json(PoolView::from(pool))))
+    let view = PoolView::from(pool);
+    emit_audit(
+        &registry,
+        "pool_created",
+        "pool",
+        Some(view.id.to_string()),
+        json!({"name": view.name, "strategy": view.strategy}),
+    );
+    Ok((StatusCode::CREATED, Json(view)))
 }
 
 pub async fn handle_update_pool(
@@ -315,7 +410,15 @@ pub async fn handle_update_pool(
         .update(pool.clone())
         .await
         .map_err(classify_rook_error)?;
-    Ok(Json(PoolView::from(pool)))
+    let view = PoolView::from(pool);
+    emit_audit(
+        &registry,
+        "pool_updated",
+        "pool",
+        Some(view.id.to_string()),
+        json!({"name": view.name, "strategy": view.strategy}),
+    );
+    Ok(Json(view))
 }
 
 pub async fn handle_delete_pool(
@@ -331,6 +434,13 @@ pub async fn handle_delete_pool(
         .delete(pool_id)
         .await
         .map_err(classify_rook_error)?;
+    emit_audit(
+        &registry,
+        "pool_deleted",
+        "pool",
+        Some(pool_id.to_string()),
+        json!({}),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -347,11 +457,19 @@ pub async fn handle_add_pool_member(
     if registry.accounts().get(req.account_id).await.is_none() {
         return Err(not_found("account", req.account_id));
     }
+
     registry
         .pools()
         .add_member(pool_id, req.account_id)
         .await
         .map_err(classify_rook_error)?;
+    emit_audit(
+        &registry,
+        "pool_member_added",
+        "pool_membership",
+        Some(pool_id.to_string()),
+        json!({"account_id": req.account_id.to_string()}),
+    );
     match registry.pools().get(pool_id).await {
         Some(pool) => Ok(Json(PoolView::from(pool))),
         None => Err(not_found("pool", pool_id)),
@@ -383,6 +501,13 @@ pub async fn handle_remove_pool_member(
         .remove_member(pool_id, account_id)
         .await
         .map_err(classify_rook_error)?;
+    emit_audit(
+        &registry,
+        "pool_member_removed",
+        "pool_membership",
+        Some(pool_id.to_string()),
+        json!({"account_id": account_id.to_string()}),
+    );
     match registry.pools().get(pool_id).await {
         Some(pool) => Ok(Json(PoolView::from(pool))),
         None => Err(not_found("pool", pool_id)),
@@ -430,7 +555,15 @@ pub async fn handle_create_route(
         .create(route.clone())
         .await
         .map_err(classify_rook_error)?;
-    Ok((StatusCode::CREATED, Json(RouteView::from(route))))
+    let view = RouteView::from(route);
+    emit_audit(
+        &registry,
+        "route_created",
+        "route",
+        Some(view.id.to_string()),
+        json!({"logical_model": view.logical_model, "target_pool_id": view.target_pool_id.to_string()}),
+    );
+    Ok((StatusCode::CREATED, Json(view)))
 }
 
 pub async fn handle_update_route(
@@ -456,7 +589,15 @@ pub async fn handle_update_route(
         .update(route.clone())
         .await
         .map_err(classify_rook_error)?;
-    Ok(Json(RouteView::from(route)))
+    let view = RouteView::from(route);
+    emit_audit(
+        &registry,
+        "route_updated",
+        "route",
+        Some(view.id.to_string()),
+        json!({"logical_model": view.logical_model, "target_pool_id": view.target_pool_id.to_string()}),
+    );
+    Ok(Json(view))
 }
 
 pub async fn handle_delete_route(
@@ -472,6 +613,13 @@ pub async fn handle_delete_route(
         .delete(route_id)
         .await
         .map_err(classify_rook_error)?;
+    emit_audit(
+        &registry,
+        "route_deleted",
+        "route",
+        Some(route_id.to_string()),
+        json!({}),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -491,15 +639,33 @@ pub async fn handle_put_settings(
     let settings = crate::domain::RookSettings::from(req.clone());
     registry
         .settings()
-        .save(settings)
+        .save(settings.clone())
         .await
         .map_err(classify_rook_error)?;
-    Ok(Json(req))
+    let view = SettingsView::from(settings);
+    emit_audit(
+        &registry,
+        "settings_updated",
+        "settings",
+        None,
+        json!({"gateway_port": view.gateway_port, "log_level": view.log_level}),
+    );
+    Ok(Json(view))
 }
 
 pub async fn handle_list_account_health(
     State(registry): State<RookRegistry>,
 ) -> Json<Vec<HealthAccountView>> {
+    Json(list_health_account_views(&registry).await)
+}
+
+pub async fn handle_health_summary(
+    State(registry): State<RookRegistry>,
+) -> Json<HealthSummaryView> {
+    Json(build_health_summary_view(&registry).await)
+}
+
+pub async fn list_health_account_views(registry: &RookRegistry) -> Vec<HealthAccountView> {
     let accounts = registry.accounts().list().await;
     let mut response = Vec::with_capacity(accounts.len());
     for account in accounts {
@@ -507,12 +673,11 @@ pub async fn handle_list_account_health(
         let available = registry.health().is_available(account.id).await;
         response.push(HealthAccountView::new(&account, health, available));
     }
-    Json(response)
+
+    response
 }
 
-pub async fn handle_health_summary(
-    State(registry): State<RookRegistry>,
-) -> Json<HealthSummaryView> {
+pub async fn build_health_summary_view(registry: &RookRegistry) -> HealthSummaryView {
     let accounts = registry.accounts().list().await;
     let mut summary = HealthSummaryView {
         total: accounts.len(),
@@ -532,7 +697,7 @@ pub async fn handle_health_summary(
         }
     }
 
-    Json(summary)
+    summary
 }
 
 pub fn admin_error_response(
@@ -553,7 +718,43 @@ pub fn admin_error_response_with_details(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::audit::AdminAuditListQuery;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn handle_create_account_appends_audit_event_on_success() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let req = Ok(axum::Json(CreateAccountRequest {
+            vendor: crate::domain::ProviderVendor::OpenAi,
+            display_name: "test".to_string(),
+            api_base_override: None,
+            api_key: None,
+            enabled: true,
+            weight: 1,
+            priority: 0,
+            tags: vec![],
+            capabilities: vec![],
+        }));
+
+        let (_, json_resp) = handle_create_account(State(registry.clone()), req).await.unwrap();
+        let account_id = json_resp.id;
+
+        tokio::task::yield_now().await;
+
+        let events = registry
+            .audit()
+            .list_recent(AdminAuditListQuery {
+                limit: 10,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "account_created");
+        assert_eq!(events[0].resource_kind, "account");
+        assert_eq!(events[0].resource_id.as_deref(), Some(account_id.to_string().as_str()));
+    }
 
     #[test]
     fn shared_admin_error_helpers_delegate_to_transport_shape() {

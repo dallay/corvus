@@ -960,8 +960,16 @@ mod tests {
             fallback_pool_id: Some(pool_a_id),
         };
 
-        registry.pools().create(pool_a).await.unwrap();
+        registry
+            .pools()
+            .create(ProviderPool {
+                fallback_pool_id: None,
+                ..pool_a.clone()
+            })
+            .await
+            .unwrap();
         registry.pools().create(pool_b).await.unwrap();
+        registry.pools().update(pool_a).await.unwrap();
 
         let route = make_route("cycle-model", pool_a_id);
         registry.routes().create(route).await.unwrap();

@@ -61,6 +61,10 @@ tower-http = { version = "0.6", default-features = false, features = ["fs", "tra
 http = "1.0"
 ipnet = "2.10"
 
+# Terminal UI
+crossterm = { version = "0.29", default-features = false, features = ["events"] }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29"] }
+
 # Shared runtime contracts (no internal corvus binary dependency)
 corvus-traits = { path = "../agent-runtime/crates/corvus-traits" }
 

@@ -28,6 +28,16 @@ textarea {
   font: inherit;
 }
 
+select,
+textarea {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(148 163 184 / 22%);
+  background: rgb(15 23 42 / 72%);
+  color: #f8fbff;
+  padding: 0.75rem 0.9rem;
+}
+
 button {
   cursor: pointer;
 }
@@ -228,6 +238,12 @@ input {
   margin: 1rem 0 0;
   display: grid;
   gap: 0.85rem;
+}
+
+.member-section {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1.25rem;
 }
 
 .account-row {

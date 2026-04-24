@@ -36,7 +36,9 @@ fn row_to_record(row: &sqlx::sqlite::SqliteRow) -> Result<ChatIdempotencyRecord,
     let response = match status {
         ChatIdempotencyStatus::Completed => Some(StoredGatewayResponse {
             status_code: u16::try_from(response_status_code.ok_or_else(|| {
-                RookError::Registry("completed idempotency response missing status code".to_string())
+                RookError::Registry(
+                    "completed idempotency response missing status code".to_string(),
+                )
             })?)
             .map_err(|_| RookError::Registry("response status code out of range".to_string()))?,
             content_type: row
@@ -67,9 +69,9 @@ fn row_to_record(row: &sqlx::sqlite::SqliteRow) -> Result<ChatIdempotencyRecord,
         request_hash: row
             .try_get("request_hash")
             .map_err(|e| RookError::Registry(format!("missing request_hash: {e}")))?,
-        canonical_request_body: row.try_get("canonical_request_body").map_err(|e| {
-            RookError::Registry(format!("missing canonical_request_body: {e}"))
-        })?,
+        canonical_request_body: row
+            .try_get("canonical_request_body")
+            .map_err(|e| RookError::Registry(format!("missing canonical_request_body: {e}")))?,
         status,
         response,
         started_at: row
@@ -96,13 +98,11 @@ impl SqliteDb {
         &self,
         now: DateTime<Utc>,
     ) -> Result<u64, RookError> {
-        let result = sqlx::query(
-            "DELETE FROM chat_completion_idempotency WHERE expires_at <= ?",
-        )
-        .bind(now.to_rfc3339())
-        .execute(self.pool())
-        .await
-        .map_err(|e| RookError::Registry(format!("prune idempotency records failed: {e}")))?;
+        let result = sqlx::query("DELETE FROM chat_completion_idempotency WHERE expires_at <= ?")
+            .bind(now.to_rfc3339())
+            .execute(self.pool())
+            .await
+            .map_err(|e| RookError::Registry(format!("prune idempotency records failed: {e}")))?;
 
         Ok(result.rows_affected())
     }
@@ -137,19 +137,16 @@ impl SqliteDb {
         now: DateTime<Utc>,
         replay_window: Duration,
     ) -> Result<ReserveResult, RookError> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| RookError::Registry(format!("begin idempotency reserve failed: {e}")))?;
+        let mut tx =
+            self.pool().begin().await.map_err(|e| {
+                RookError::Registry(format!("begin idempotency reserve failed: {e}"))
+            })?;
 
-        sqlx::query(
-            "DELETE FROM chat_completion_idempotency WHERE expires_at <= ?",
-        )
-        .bind(now.to_rfc3339())
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| RookError::Registry(format!("prune during reserve failed: {e}")))?;
+        sqlx::query("DELETE FROM chat_completion_idempotency WHERE expires_at <= ?")
+            .bind(now.to_rfc3339())
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RookError::Registry(format!("prune during reserve failed: {e}")))?;
 
         let existing = sqlx::query(
             "SELECT principal_scope_id, idempotency_key, http_method, request_path, request_hash, \

@@ -1,0 +1,14 @@
+change: rook-596-tui-route-inspection-recent-logs
+current_phase: archive
+completed:
+  - init
+  - explore
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+  - archive
+next: none
+updated: 2026-04-23T00:00:00Z

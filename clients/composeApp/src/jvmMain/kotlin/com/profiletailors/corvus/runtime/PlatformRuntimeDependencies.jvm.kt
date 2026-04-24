@@ -1,3 +1,8 @@
+@file:Suppress(
+  "MatchingDeclarationName", // File name matches the expect declaration, not the actual
+  "TooManyFunctions", // File implements full RuntimeFacade; functions belong together by design
+)
+
 package com.profiletailors.corvus.runtime
 
 import androidx.compose.runtime.Composable
