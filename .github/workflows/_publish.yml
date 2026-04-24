@@ -980,7 +980,13 @@ jobs:
 
   release-assets:
     if: ${{ inputs.release }}
-    needs: [publish, build-native-binaries, build-cerebro-binaries, build-rook-binaries]
+    needs:
+      [
+        publish,
+        build-native-binaries,
+        build-cerebro-binaries,
+        build-rook-binaries,
+      ]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
