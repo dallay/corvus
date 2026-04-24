@@ -454,6 +454,8 @@ describe("Dashboard App", () => {
   it("has no obvious axe violations in the dashboard shell", async () => {
     const { wrapper } = mountApp(createMockConfig({ isOperatorReady: true }));
 
+    expect(wrapper.find("main").exists()).toBe(true);
+    expect(wrapper.find("#main-content").exists()).toBe(true);
     await expectNoAxeViolations(wrapper.element);
   });
 

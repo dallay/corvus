@@ -147,6 +147,8 @@ describe("ChatWorkspace", () => {
   it("has no obvious axe violations for the onboarding gate", async () => {
     const wrapper = mountWorkspace();
 
+    expect(wrapper.find(".chat-gate").exists()).toBe(true);
+    expect(wrapper.get(".chat-gate h2").text()).toContain("sesión");
     await expectNoAxeViolations(wrapper.get(".chat-gate").element, {
       rules: {
         region: { enabled: false },

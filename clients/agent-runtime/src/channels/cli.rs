@@ -310,63 +310,21 @@ impl Channel for CliChannel {
 
         while let Ok(Some(line)) = lines.next_line().await {
             let line = line.trim().to_string();
-            if line.is_empty() {
+            if should_skip_cli_line(&line) {
                 continue;
             }
-            if line == "/quit" || line == "/exit" {
+            if is_cli_exit_command(&line) {
                 break;
             }
 
-            // ── /audio command ────────────────────────────────
             if line.starts_with("/audio") {
-                match parse_audio_command(&line) {
-                    Some(Ok(path)) => {
-                        if self.handle_audio_command(&path, &tx).await.is_err() {
-                            // Receiver closed during audio processing - stop the loop
-                            break;
-                        }
-                    }
-                    Some(Err(())) => {
-                        println!("Usage: /audio <file-path>");
-                    }
-                    None => {
-                        // Starts with "/audio" but parse_audio_command rejected it
-                        // (e.g. "/audiobook") — fall through to normal text path.
-                        let msg = ChannelMessage {
-                            id: Uuid::new_v4().to_string(),
-                            sender: "user".to_string(),
-                            reply_target: "user".to_string(),
-                            content: line,
-                            channel: "cli".to_string(),
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs(),
-                            parts: vec![],
-                        };
-                        if tx.send(msg).await.is_err() {
-                            break;
-                        }
-                    }
+                if should_stop_after_audio_command(self, &line, &tx).await {
+                    break;
                 }
                 continue;
             }
 
-            // ── Normal text message (unchanged path) ──────────
-            let msg = ChannelMessage {
-                id: Uuid::new_v4().to_string(),
-                sender: "user".to_string(),
-                reply_target: "user".to_string(),
-                content: line,
-                channel: "cli".to_string(),
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs(),
-                parts: vec![],
-            };
-
-            if tx.send(msg).await.is_err() {
+            if send_cli_text_message(&tx, line).await.is_err() {
                 break;
             }
         }
@@ -375,6 +333,51 @@ impl Channel for CliChannel {
 }
 
 // ── Helpers ───────────────────────────────────────────────────
+
+fn should_skip_cli_line(line: &str) -> bool {
+    line.is_empty()
+}
+
+fn is_cli_exit_command(line: &str) -> bool {
+    line == "/quit" || line == "/exit"
+}
+
+async fn should_stop_after_audio_command(
+    channel: &CliChannel,
+    line: &str,
+    tx: &tokio::sync::mpsc::Sender<ChannelMessage>,
+) -> bool {
+    match parse_audio_command(line) {
+        Some(Ok(path)) => channel.handle_audio_command(&path, tx).await.is_err(),
+        Some(Err(())) => {
+            println!("Usage: /audio <file-path>");
+            false
+        }
+        None => send_cli_text_message(tx, line.to_string()).await.is_err(),
+    }
+}
+
+async fn send_cli_text_message(
+    tx: &tokio::sync::mpsc::Sender<ChannelMessage>,
+    content: String,
+) -> Result<(), tokio::sync::mpsc::error::SendError<ChannelMessage>> {
+    tx.send(build_cli_message(content)).await
+}
+
+fn build_cli_message(content: String) -> ChannelMessage {
+    ChannelMessage {
+        id: Uuid::new_v4().to_string(),
+        sender: "user".to_string(),
+        reply_target: "user".to_string(),
+        content,
+        channel: "cli".to_string(),
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        parts: vec![],
+    }
+}
 
 /// Parse a `/audio <path>` CLI input.
 ///

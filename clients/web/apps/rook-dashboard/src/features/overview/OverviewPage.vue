@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
 
 import type { RookApi } from "@/lib/api/client";
 
@@ -29,7 +29,9 @@ const loading = computed(() => overview.loading.value);
 /* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const error = computed(() => overview.error.value);
 
-void overview.load();
+onMounted(async () => {
+  await overview.load();
+});
 </script>
 
 <template>

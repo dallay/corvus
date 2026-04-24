@@ -16,8 +16,8 @@ const loading = computed(() => usageState.loading.value);
 /* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const error = computed(() => usageState.error.value);
 
-onMounted(() => {
-  void usageState.load();
+onMounted(async () => {
+  await usageState.load();
 });
 </script>
 

@@ -27,111 +27,141 @@ pub fn resolve_forwarded_context(
         };
     }
 
-    if !config.enabled {
+    if !should_trust_forwarded_headers(direct_peer_addr, config) {
         context.trust = ForwardedTrust::Ignored;
         return ForwardedResolution {
             context,
             forwarded_present: true,
         };
+    }
+
+    let (trusted_any, malformed_any) = apply_allowed_forwarded_headers(headers, config, &mut context);
+    context.trust = resolve_forwarded_trust(trusted_any, malformed_any, forwarded_present);
+
+    ForwardedResolution {
+        context,
+        forwarded_present: true,
+    }
+}
+
+fn should_trust_forwarded_headers(
+    direct_peer_addr: Option<SocketAddr>,
+    config: &TrustedProxyConfig,
+) -> bool {
+    if !config.enabled {
+        return false;
     }
 
     let Some(peer_addr) = direct_peer_addr else {
-        context.trust = ForwardedTrust::Ignored;
-        return ForwardedResolution {
-            context,
-            forwarded_present: true,
-        };
+        return false;
     };
 
-    if !peer_matches_trusted_proxy(peer_addr.ip(), &config.trusted_cidrs) {
-        context.trust = ForwardedTrust::Ignored;
-        return ForwardedResolution {
-            context,
-            forwarded_present: true,
-        };
-    }
+    peer_matches_trusted_proxy(peer_addr.ip(), &config.trusted_cidrs)
+}
 
+fn apply_allowed_forwarded_headers(
+    headers: &HeaderMap,
+    config: &TrustedProxyConfig,
+    context: &mut SanitizedForwardedContext,
+) -> (bool, bool) {
     let mut trusted_any = false;
     let mut malformed_any = false;
 
-    if config.allowed_headers.x_forwarded_for && headers.contains_key("x-forwarded-for") {
-        match parse_ip_header(headers, "x-forwarded-for") {
-            Some(value) => {
-                context.client_ip = Some(value);
-                trusted_any = true;
+    apply_forwarded_value(
+        headers,
+        config.allowed_headers.x_forwarded_for,
+        "x-forwarded-for",
+        context,
+        &mut trusted_any,
+        &mut malformed_any,
+        parse_ip_header,
+        |ctx, value| ctx.client_ip = Some(value),
+    );
+    apply_forwarded_value(
+        headers,
+        config.allowed_headers.x_real_ip,
+        "x-real-ip",
+        context,
+        &mut trusted_any,
+        &mut malformed_any,
+        parse_ip_header,
+        |ctx, value| {
+            if ctx.client_ip.is_none() {
+                ctx.client_ip = Some(value);
             }
-            None => {
-                malformed_any = true;
-                context.ignored_headers.push("x-forwarded-for");
-            }
-        }
+        },
+    );
+    apply_forwarded_value(
+        headers,
+        config.allowed_headers.x_forwarded_host,
+        "x-forwarded-host",
+        context,
+        &mut trusted_any,
+        &mut malformed_any,
+        parse_visible_header,
+        |ctx, value| ctx.host = Some(value),
+    );
+    apply_forwarded_value(
+        headers,
+        config.allowed_headers.x_forwarded_proto,
+        "x-forwarded-proto",
+        context,
+        &mut trusted_any,
+        &mut malformed_any,
+        parse_proto_header,
+        |ctx, value| ctx.proto = Some(value),
+    );
+    apply_forwarded_value(
+        headers,
+        config.allowed_headers.x_forwarded_port,
+        "x-forwarded-port",
+        context,
+        &mut trusted_any,
+        &mut malformed_any,
+        parse_port_header,
+        |ctx, value| ctx.port = Some(value),
+    );
+
+    (trusted_any, malformed_any)
+}
+
+fn apply_forwarded_value<T>(
+    headers: &HeaderMap,
+    enabled: bool,
+    header_name: &'static str,
+    context: &mut SanitizedForwardedContext,
+    trusted_any: &mut bool,
+    malformed_any: &mut bool,
+    parser: impl Fn(&HeaderMap, &str) -> Option<T>,
+    on_value: impl Fn(&mut SanitizedForwardedContext, T),
+) {
+    if !enabled || !headers.contains_key(header_name) {
+        return;
     }
 
-    if config.allowed_headers.x_real_ip && headers.contains_key("x-real-ip") {
-        match parse_ip_header(headers, "x-real-ip") {
-            Some(value) => {
-                if context.client_ip.is_none() {
-                    context.client_ip = Some(value);
-                }
-                trusted_any = true;
-            }
-            None => {
-                malformed_any = true;
-                context.ignored_headers.push("x-real-ip");
-            }
+    match parser(headers, header_name) {
+        Some(value) => {
+            on_value(context, value);
+            *trusted_any = true;
+        }
+        None => {
+            *malformed_any = true;
+            context.ignored_headers.push(header_name);
         }
     }
+}
 
-    if config.allowed_headers.x_forwarded_host && headers.contains_key("x-forwarded-host") {
-        match parse_visible_header(headers, "x-forwarded-host") {
-            Some(value) => {
-                context.host = Some(value);
-                trusted_any = true;
-            }
-            None => {
-                malformed_any = true;
-                context.ignored_headers.push("x-forwarded-host");
-            }
-        }
-    }
-
-    if config.allowed_headers.x_forwarded_proto && headers.contains_key("x-forwarded-proto") {
-        match parse_proto_header(headers, "x-forwarded-proto") {
-            Some(value) => {
-                context.proto = Some(value);
-                trusted_any = true;
-            }
-            None => {
-                malformed_any = true;
-                context.ignored_headers.push("x-forwarded-proto");
-            }
-        }
-    }
-
-    if config.allowed_headers.x_forwarded_port && headers.contains_key("x-forwarded-port") {
-        match parse_port_header(headers, "x-forwarded-port") {
-            Some(value) => {
-                context.port = Some(value);
-                trusted_any = true;
-            }
-            None => {
-                malformed_any = true;
-                context.ignored_headers.push("x-forwarded-port");
-            }
-        }
-    }
-
-    context.trust = if trusted_any {
+fn resolve_forwarded_trust(
+    trusted_any: bool,
+    malformed_any: bool,
+    forwarded_present: bool,
+) -> ForwardedTrust {
+    if trusted_any {
         ForwardedTrust::Trusted
     } else if malformed_any || forwarded_present {
         ForwardedTrust::Ignored
     } else {
         ForwardedTrust::Absent
-    };
-
-    ForwardedResolution {
-        context,
-        forwarded_present: true,
     }
 }
 

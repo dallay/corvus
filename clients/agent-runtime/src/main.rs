@@ -1399,79 +1399,10 @@ async fn handle_agent_command(
 ) -> Result<()> {
     maybe_print_update_notice_bounded(&config).await;
 
-    // Normalize agent flags BEFORE slash command handling so the fast path uses the correct mode
-    // and unsupported overrides are caught early.
-    let mut effective_config = config.clone();
-    if plan {
-        effective_config.agent.execution_mode = ExecutionMode::Plan;
-    } else {
-        effective_config.agent.execution_mode = ExecutionMode::Standard;
+    let config = prepare_agent_config(config, provider, model, temperature, peripheral, plan)?;
+    if let Some(result) = maybe_handle_agent_fast_paths(&config, message.as_deref()).await? {
+        return result;
     }
-    if !peripheral.is_empty() {
-        anyhow::bail!(
-            "peripheral overrides are not currently supported; found {} override(s): {:?}",
-            peripheral.len(),
-            peripheral
-        );
-    }
-    let mut config = effective_config;
-
-    if let Some(raw_message) = message.as_deref() {
-        if let Some(result_message) = maybe_handle_cli_handled_ingress(&config, raw_message).await?
-        {
-            println!("{result_message}");
-            return Ok(());
-        }
-    }
-
-    let canonical_prompt = message
-        .clone()
-        .unwrap_or_else(|| "interactive-session".to_string());
-    let canonical = collect_unified_loop_result(&canonical_prompt).await;
-
-    if std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1") {
-        print_unified_loop_preview(&canonical);
-        if std::env::var("CORVUS_UNIFIED_LOOP_ONLY").as_deref() == Ok("1") {
-            return Ok(());
-        }
-    }
-
-    if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
-        match blocking {
-            crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, .. } => {
-                return Err(anyhow!(
-                    "[session:{}] approval required for `{tool}`; request blocked",
-                    canonical.session_id
-                ));
-            }
-            crate::pre_execution::BlockingOutcome::TimeoutAborted => {
-                return Err(anyhow!(
-                    "[session:{}] request aborted due to timeout semantics",
-                    canonical.session_id
-                ));
-            }
-            crate::pre_execution::BlockingOutcome::Fallback { response } => {
-                return Err(anyhow!(
-                    "[session:{}] fallback activated: {response}",
-                    canonical.session_id
-                ));
-            }
-        }
-    }
-
-    if std::env::var("CORVUS_UNIFIED_CANONICAL_ONLY").as_deref() == Ok("1") {
-        print_canonical_only(&canonical);
-        return Ok(());
-    }
-
-    // Apply remaining config overrides before agent initialization
-    if let Some(p) = provider {
-        config.default_provider = Some(p);
-    }
-    if let Some(m) = model {
-        config.default_model = Some(m);
-    }
-    config.default_temperature = temperature;
 
     let provider_name = config
         .default_provider
@@ -1492,40 +1423,156 @@ async fn handle_agent_command(
 
     agent.record_agent_start_event(&provider_name, &model_name);
 
-    let run_result = if let Some(msg) = message {
-        let turn_result = agent
-            .turn_with_context(&msg, crate::agent::TurnContext::default())
-            .await;
-        if let Ok(turn_result) = &turn_result {
-            let blocking_err = cli_blocking_error_from_turn_result(turn_result);
-            if let Some(response) = turn_result.final_text.as_deref() {
-                println!("{response}");
-            }
-            if let Some(err) = blocking_err {
-                let summary_result = agent.session_cost_summary(chrono::Utc::now());
-                agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
-                match summary_result {
-                    Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Agent),
-                    Err(error) => {
-                        tracing::warn!("Failed to load agent session cost summary: {error}");
-                    }
-                }
-                return Err(err);
-            }
-        }
-        turn_result.map(|_| ())
-    } else {
-        agent.run_interactive().await
-    };
-
-    let summary_result = agent.session_cost_summary(chrono::Utc::now());
-    agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
-    match summary_result {
-        Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Agent),
-        Err(error) => tracing::warn!("Failed to load agent session cost summary: {error}"),
-    }
+    let run_result = run_agent_message_or_interactive(&mut agent, message.clone(), &provider_name, &model_name, session_start).await;
+    finish_cli_session(
+        &agent,
+        &provider_name,
+        &model_name,
+        session_start,
+        CliSessionSurface::Agent,
+        "agent",
+    );
 
     run_result
+}
+
+fn prepare_agent_config(
+    config: Config,
+    provider: Option<String>,
+    model: Option<String>,
+    temperature: f64,
+    peripheral: Vec<String>,
+    plan: bool,
+) -> Result<Config> {
+    if !peripheral.is_empty() {
+        anyhow::bail!(
+            "peripheral overrides are not currently supported; found {} override(s): {:?}",
+            peripheral.len(),
+            peripheral
+        );
+    }
+
+    let mut effective_config = config.clone();
+    effective_config.agent.execution_mode = if plan {
+        ExecutionMode::Plan
+    } else {
+        ExecutionMode::Standard
+    };
+    if let Some(provider) = provider {
+        effective_config.default_provider = Some(provider);
+    }
+    if let Some(model) = model {
+        effective_config.default_model = Some(model);
+    }
+    effective_config.default_temperature = temperature;
+    Ok(effective_config)
+}
+
+async fn maybe_handle_agent_fast_paths(
+    config: &Config,
+    message: Option<&str>,
+) -> Result<Option<Result<()>>> {
+    if let Some(raw_message) = message {
+        if let Some(result_message) = maybe_handle_cli_handled_ingress(config, raw_message).await? {
+            println!("{result_message}");
+            return Ok(Some(Ok(())));
+        }
+    }
+
+    let canonical_prompt = message.unwrap_or("interactive-session");
+    let canonical = collect_unified_loop_result(canonical_prompt).await;
+    if should_return_after_preview(&canonical) {
+        return Ok(Some(Ok(())));
+    }
+    if let Some(error) = blocking_error_from_canonical(&canonical) {
+        return Ok(Some(Err(error)));
+    }
+    if std::env::var("CORVUS_UNIFIED_CANONICAL_ONLY").as_deref() == Ok("1") {
+        print_canonical_only(&canonical);
+        return Ok(Some(Ok(())));
+    }
+
+    Ok(None)
+}
+
+fn should_return_after_preview(
+    canonical: &crate::agent::unified_entrypoint::CanonicalOutcome,
+) -> bool {
+    if std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() != Ok("1") {
+        return false;
+    }
+
+    print_unified_loop_preview(canonical);
+    std::env::var("CORVUS_UNIFIED_LOOP_ONLY").as_deref() == Ok("1")
+}
+
+fn blocking_error_from_canonical(
+    canonical: &crate::agent::unified_entrypoint::CanonicalOutcome,
+) -> Option<anyhow::Error> {
+    let blocking = crate::pre_execution::classify_blocking(canonical)?;
+    Some(match blocking {
+        crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, .. } => anyhow!(
+            "[session:{}] approval required for `{tool}`; request blocked",
+            canonical.session_id
+        ),
+        crate::pre_execution::BlockingOutcome::TimeoutAborted => anyhow!(
+            "[session:{}] request aborted due to timeout semantics",
+            canonical.session_id
+        ),
+        crate::pre_execution::BlockingOutcome::Fallback { response } => anyhow!(
+            "[session:{}] fallback activated: {response}",
+            canonical.session_id
+        ),
+    })
+}
+
+async fn run_agent_message_or_interactive(
+    agent: &mut crate::agent::Agent,
+    message: Option<String>,
+    provider_name: &str,
+    model_name: &str,
+    session_start: Instant,
+) -> Result<()> {
+    let Some(message) = message else {
+        return agent.run_interactive().await;
+    };
+
+    let turn_result = agent
+        .turn_with_context(&message, crate::agent::TurnContext::default())
+        .await;
+    if let Ok(turn_result) = &turn_result {
+        if let Some(response) = turn_result.final_text.as_deref() {
+            println!("{response}");
+        }
+        if let Some(err) = cli_blocking_error_from_turn_result(turn_result) {
+            finish_cli_session(
+                agent,
+                provider_name,
+                model_name,
+                session_start,
+                CliSessionSurface::Agent,
+                "agent",
+            );
+            return Err(err);
+        }
+    }
+    turn_result.map(|_| ())
+}
+
+fn finish_cli_session(
+    agent: &crate::agent::Agent,
+    provider_name: &str,
+    model_name: &str,
+    session_start: Instant,
+    surface: CliSessionSurface,
+    surface_name: &str,
+) {
+    let summary_result = agent.session_cost_summary(chrono::Utc::now());
+    agent.record_agent_end_event(provider_name, model_name, session_start.elapsed());
+    match summary_result {
+        Ok(summary) => print_cli_session_summary(summary, surface),
+        Err(error) => tracing::warn!("Failed to load {surface_name} session cost summary: {error}"),
+    }
 }
 
 async fn maybe_handle_cli_handled_ingress(

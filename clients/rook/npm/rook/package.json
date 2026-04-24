@@ -1,6 +1,6 @@
 {
   "name": "@dallay/rook",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "description": "Corvus Rook CLI - Cross-platform binary distribution",
   "license": "Apache-2.0",
   "repository": {
@@ -15,11 +15,11 @@
     "bin/rook.js"
   ],
   "optionalDependencies": {
-    "@dallay/rook-darwin-x64": "3.5.0",
-    "@dallay/rook-darwin-arm64": "3.5.0",
-    "@dallay/rook-linux-x64": "3.5.0",
-    "@dallay/rook-linux-arm64": "3.5.0",
-    "@dallay/rook-windows-x64": "3.5.0"
+    "@dallay/rook-darwin-x64": "3.6.0",
+    "@dallay/rook-darwin-arm64": "3.6.0",
+    "@dallay/rook-linux-x64": "3.6.0",
+    "@dallay/rook-linux-arm64": "3.6.0",
+    "@dallay/rook-windows-x64": "3.6.0"
   },
   "engines": {
     "node": ">=18"

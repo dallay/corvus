@@ -393,44 +393,14 @@ pub(crate) async fn execute(
     model: &str,
     request: WebhookTurnRequest,
 ) -> WebhookTurnResult {
-    // Compute clamped mode BEFORE creating ingress context so evaluation sees the enforced value
     let clamped_mode =
         resolve_webhook_execution_mode(config.agent.execution_mode, Some(request.execution_mode));
-    let tool_snapshot = match crate::bootstrap::slash_tool_snapshot_from_config(config) {
+    let tool_snapshot = match build_webhook_tool_snapshot(config, &request, model) {
         Ok(snapshot) => snapshot,
-        Err(error) => {
-            tracing::error!(
-                ?error,
-                "failed to build slash tool snapshot for webhook ingress"
-            );
-            return map_canonical_result(&request, model, CanonicalWebhookResult::Error);
-        }
+        Err(result) => return result,
     };
 
-    let ingress_context = crate::session_commands::CommandContext::for_webhook(
-        &request.session_id,
-        match request.session_source {
-            WebhookSessionSource::Explicit => {
-                crate::session_commands::CommandSessionSource::Explicit
-            }
-            WebhookSessionSource::Generated => {
-                crate::session_commands::CommandSessionSource::Generated
-            }
-        },
-        clamped_mode,
-        request.caller_token_hash.clone(),
-    );
-
-    match crate::pre_execution::adapt_handled_ingress(
-        crate::pre_execution::evaluate_ingress(
-            memory.as_ref(),
-            &tool_snapshot,
-            ingress_context,
-            &request.message,
-            true,
-        )
-        .await,
-    ) {
+    match evaluate_webhook_ingress(memory.as_ref(), &tool_snapshot, &request, clamped_mode).await {
         HandledIngress::Handled(HandledIngressOutcome::SessionCommandSuccess(success)) => {
             return WebhookTurnResult {
                 session_id: request.session_id.clone(),
@@ -553,6 +523,54 @@ pub(crate) async fn execute(
                 map_canonical_result(&request, model, CanonicalWebhookResult::Error)
             }
         }
+    }
+}
+
+fn build_webhook_tool_snapshot(
+    config: &Config,
+    request: &WebhookTurnRequest,
+    model: &str,
+) -> Result<Vec<crate::session_commands::SessionCommandToolEntry>, WebhookTurnResult> {
+    crate::bootstrap::slash_tool_snapshot_from_config(config).map_err(|error| {
+        tracing::error!(
+            ?error,
+            "failed to build slash tool snapshot for webhook ingress"
+        );
+        map_canonical_result(request, model, CanonicalWebhookResult::Error)
+    })
+}
+
+async fn evaluate_webhook_ingress(
+    memory: &dyn Memory,
+    tool_snapshot: &[crate::session_commands::SessionCommandToolEntry],
+    request: &WebhookTurnRequest,
+    clamped_mode: ExecutionMode,
+) -> HandledIngress {
+    let ingress_context = crate::session_commands::CommandContext::for_webhook(
+        &request.session_id,
+        webhook_command_session_source(request.session_source),
+        clamped_mode,
+        request.caller_token_hash.clone(),
+    );
+
+    crate::pre_execution::adapt_handled_ingress(
+        crate::pre_execution::evaluate_ingress(
+            memory,
+            tool_snapshot,
+            ingress_context,
+            &request.message,
+            true,
+        )
+        .await,
+    )
+}
+
+fn webhook_command_session_source(
+    source: WebhookSessionSource,
+) -> crate::session_commands::CommandSessionSource {
+    match source {
+        WebhookSessionSource::Explicit => crate::session_commands::CommandSessionSource::Explicit,
+        WebhookSessionSource::Generated => crate::session_commands::CommandSessionSource::Generated,
     }
 }
 

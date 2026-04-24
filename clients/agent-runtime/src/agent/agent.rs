@@ -33,6 +33,28 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+fn render_tool_result_output(result: &crate::tools::ToolResult) -> String {
+    if result.success {
+        result.output.clone()
+    } else {
+        format!(
+            "Error: {}",
+            result
+                .error
+                .clone()
+                .unwrap_or_else(|| result.output.clone())
+        )
+    }
+}
+
+fn build_shell_audit_message(audit_error: &str, original_error: Option<&str>) -> String {
+    if let Some(original_error) = original_error {
+        format!("Audit logging failed: {audit_error}; original shell error: {original_error}")
+    } else {
+        format!("Audit logging failed: {audit_error}")
+    }
+}
 use uuid::Uuid;
 
 const PRE_FLIGHT_ESTIMATED_OUTPUT_TOKENS: u64 = 500;
@@ -823,31 +845,7 @@ impl Agent {
         duration: Duration,
     ) -> std::result::Result<String, ToolExecutionResult> {
         if call.name == "shell" {
-            if let Err(error) = self.log_shell_audit_event(call, result, duration) {
-                let base_output = if result.success {
-                    result.output.clone()
-                } else {
-                    format!(
-                        "Error: {}",
-                        result
-                            .error
-                            .clone()
-                            .unwrap_or_else(|| result.output.clone())
-                    )
-                };
-                let audit_message = if let Some(original_error) = &result.error {
-                    format!("Audit logging failed: {error}; original shell error: {original_error}")
-                } else {
-                    format!("Audit logging failed: {error}")
-                };
-                return Err(ToolExecutionResult {
-                    name: call.name.clone(),
-                    output: format!("{base_output}\n\n[AUDIT ERROR: {error}]"),
-                    success: result.success,
-                    tool_call_id: call.tool_call_id.clone(),
-                    action: DispatchAction::ApprovalRequired(audit_message),
-                });
-            }
+            self.handle_shell_tool_result(call, result, duration)?;
         } else if call.name == "browser" {
             self.log_browser_security_event(result);
         }
@@ -856,16 +854,26 @@ impl Agent {
             tracing::warn!(tool = %call.name, "MCP tool call returned failure status");
         }
 
-        Ok(if result.success {
-            result.output.clone()
-        } else {
-            format!(
-                "Error: {}",
-                result
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| result.output.clone())
-            )
+        Ok(render_tool_result_output(result))
+    }
+
+    fn handle_shell_tool_result(
+        &self,
+        call: &ParsedToolCall,
+        result: &crate::tools::ToolResult,
+        duration: Duration,
+    ) -> std::result::Result<(), ToolExecutionResult> {
+        let Err(error) = self.log_shell_audit_event(call, result, duration) else {
+            return Ok(());
+        };
+
+        let audit_message = build_shell_audit_message(&error.to_string(), result.error.as_deref());
+        Err(ToolExecutionResult {
+            name: call.name.clone(),
+            output: format!("{}\n\n[AUDIT ERROR: {error}]", render_tool_result_output(result)),
+            success: result.success,
+            tool_call_id: call.tool_call_id.clone(),
+            action: DispatchAction::ApprovalRequired(audit_message),
         })
     }
 

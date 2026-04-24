@@ -24,8 +24,8 @@ const saveSuccess = computed(() => settingsState.saveSuccess.value);
 /* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const isDirty = computed(() => settingsState.isDirty.value);
 
-onMounted(() => {
-  void settingsState.load();
+onMounted(async () => {
+  await settingsState.load();
 });
 </script>
 

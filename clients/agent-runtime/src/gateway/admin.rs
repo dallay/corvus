@@ -1751,42 +1751,70 @@ fn apply_cost_patch(cfg: &mut Config, cost: Option<&AdminCostPatch>) -> Result<(
     if let Some(enabled) = cost.enabled {
         cfg.cost.enabled = enabled;
     }
-    if let Some(session_limit_usd) = cost.session_limit_usd {
-        if !session_limit_usd.is_finite() || session_limit_usd < 0.0 {
-            return Err(bad_request(
-                "cost.session_limit_usd must be a finite value greater than or equal to 0",
-            ));
-        }
-        cfg.cost.session_limit_usd = session_limit_usd;
-    }
-    if let Some(daily_limit_usd) = cost.daily_limit_usd {
-        if !daily_limit_usd.is_finite() || daily_limit_usd <= 0.0 {
-            return Err(bad_request(
-                "cost.daily_limit_usd must be a finite value greater than 0",
-            ));
-        }
-        cfg.cost.daily_limit_usd = daily_limit_usd;
-    }
-    if let Some(monthly_limit_usd) = cost.monthly_limit_usd {
-        if !monthly_limit_usd.is_finite() || monthly_limit_usd <= 0.0 {
-            return Err(bad_request(
-                "cost.monthly_limit_usd must be a finite value greater than 0",
-            ));
-        }
-        cfg.cost.monthly_limit_usd = monthly_limit_usd;
-    }
-    if let Some(warn_at_percent) = cost.warn_at_percent {
-        if warn_at_percent == 0 || warn_at_percent > 100 {
-            return Err(bad_request(
-                "cost.warn_at_percent must be in range [1, 100]",
-            ));
-        }
-        cfg.cost.warn_at_percent = warn_at_percent;
-    }
+    apply_non_negative_cost_limit(
+        &mut cfg.cost.session_limit_usd,
+        cost.session_limit_usd,
+        "cost.session_limit_usd must be a finite value greater than or equal to 0",
+    )?;
+    apply_positive_cost_limit(
+        &mut cfg.cost.daily_limit_usd,
+        cost.daily_limit_usd,
+        "cost.daily_limit_usd must be a finite value greater than 0",
+    )?;
+    apply_positive_cost_limit(
+        &mut cfg.cost.monthly_limit_usd,
+        cost.monthly_limit_usd,
+        "cost.monthly_limit_usd must be a finite value greater than 0",
+    )?;
+    apply_warn_percent_patch(&mut cfg.cost.warn_at_percent, cost.warn_at_percent)?;
     if let Some(allow_override) = cost.allow_override {
         cfg.cost.allow_override = allow_override;
     }
 
+    Ok(())
+}
+
+fn apply_non_negative_cost_limit(
+    target: &mut f64,
+    value: Option<f64>,
+    error_message: &'static str,
+) -> Result<(), AdminResponse> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    if !value.is_finite() || value < 0.0 {
+        return Err(bad_request(error_message));
+    }
+    *target = value;
+    Ok(())
+}
+
+fn apply_positive_cost_limit(
+    target: &mut f64,
+    value: Option<f64>,
+    error_message: &'static str,
+) -> Result<(), AdminResponse> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    if !value.is_finite() || value <= 0.0 {
+        return Err(bad_request(error_message));
+    }
+    *target = value;
+    Ok(())
+}
+
+fn apply_warn_percent_patch(
+    target: &mut u8,
+    value: Option<u8>,
+) -> Result<(), AdminResponse> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    if value == 0 || value > 100 {
+        return Err(bad_request("cost.warn_at_percent must be in range [1, 100]"));
+    }
+    *target = value;
     Ok(())
 }
 

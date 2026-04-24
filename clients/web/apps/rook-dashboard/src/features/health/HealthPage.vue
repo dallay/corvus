@@ -20,8 +20,8 @@ const error = computed(() => health.error.value);
 /* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const isEmpty = computed(() => health.isEmpty.value);
 
-onMounted(() => {
-  void health.load();
+onMounted(async () => {
+  await health.load();
 });
 </script>
 

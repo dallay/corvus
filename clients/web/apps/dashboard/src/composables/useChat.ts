@@ -68,6 +68,12 @@ type StreamEventState = {
   currentData: string;
 };
 
+type StreamLineResult =
+  | { type: "continue" }
+  | { type: "chunk"; chunk: string }
+  | { type: "done"; doneEvent: StreamDoneEvent }
+  | { type: "error"; message: string };
+
 const APPROVAL_REQUIRED_TYPES = new Set(["approval_required", "approval_contract"]);
 
 function createSessionState(
@@ -92,42 +98,32 @@ function createSessionId(): string {
   return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function parseApprovalErrorType(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") {
     return null;
   }
 
   const response = payload as ApprovalErrorPayload;
-  if (typeof response.code === "string" && response.code.trim()) {
-    return response.code.trim();
-  }
-  if (typeof response.code === "number") {
-    return response.code.toString();
-  }
-  if (typeof response.type === "string" && response.type.trim()) {
-    return response.type.trim();
-  }
-  if (typeof response.tool === "string" && response.tool.trim()) {
-    return response.tool.trim();
-  }
-  if (typeof response.reason === "string" && response.reason.trim()) {
-    return response.reason.trim();
+  const topLevelType =
+    nonEmptyString(response.code) ??
+    (typeof response.code === "number" ? response.code.toString() : null) ??
+    nonEmptyString(response.type) ??
+    nonEmptyString(response.tool) ??
+    nonEmptyString(response.reason) ??
+    nonEmptyString(response.error);
+  if (topLevelType) {
+    return topLevelType;
   }
 
-  if (typeof response.error === "string" && response.error.trim()) {
-    return response.error.trim();
+  if (!response.error || typeof response.error !== "object") {
+    return null;
   }
 
-  if (response.error && typeof response.error === "object") {
-    if (typeof response.error.code === "string" && response.error.code.trim()) {
-      return response.error.code.trim();
-    }
-    if (typeof response.error.type === "string" && response.error.type.trim()) {
-      return response.error.type.trim();
-    }
-  }
-
-  return null;
+  return nonEmptyString(response.error.code) ?? nonEmptyString(response.error.type);
 }
 
 async function readJsonPayload(response: Response): Promise<unknown> {
@@ -167,6 +163,61 @@ function processStreamBuffer(
   }
 
   return remaining;
+}
+
+function parseStreamEventJson<T>(payload: string, fallbackMessage: string): T {
+  try {
+    return JSON.parse(payload) as T;
+  } catch {
+    throw new Error(fallbackMessage);
+  }
+}
+
+function consumeStreamLine(
+  line: string,
+  state: StreamEventState,
+  fallbackMessage: string
+): StreamLineResult {
+  if (line.startsWith("event: ")) {
+    state.currentEvent = line.slice(7).trim();
+    return { type: "continue" };
+  }
+
+  if (line.startsWith("data: ")) {
+    state.currentData += (state.currentData ? "\n" : "") + line.slice(6);
+    return { type: "continue" };
+  }
+
+  if (line !== "") {
+    return { type: "continue" };
+  }
+
+  if (!state.currentEvent || !state.currentData) {
+    resetStreamEventState(state);
+    return { type: "continue" };
+  }
+
+  const eventName = state.currentEvent;
+  const eventData = state.currentData;
+  resetStreamEventState(state);
+
+  if (eventName === "chunk") {
+    return { type: "chunk", chunk: eventData };
+  }
+
+  if (eventName === "done") {
+    return {
+      type: "done",
+      doneEvent: parseStreamEventJson<StreamDoneEvent>(eventData, fallbackMessage),
+    };
+  }
+
+  if (eventName === "error") {
+    const errorEvt = parseStreamEventJson<StreamErrorEvent>(eventData, fallbackMessage);
+    return { type: "error", message: errorEvt.message || fallbackMessage };
+  }
+
+  return { type: "continue" };
 }
 
 export function useChat(
@@ -556,59 +607,25 @@ export function useChat(
       let buffer = "";
       const streamEventState: StreamEventState = { currentEvent: "", currentData: "" };
       let doneEvent: StreamDoneEvent | null = null;
+      const fallbackMessage = t("chat.requestError", { text: normalizedMessage });
 
       const processLine = (line: string, state: StreamEventState): void => {
-        if (line.startsWith("event: ")) {
-          state.currentEvent = line.slice(7).trim();
-          return;
+        const result = consumeStreamLine(line, state, fallbackMessage);
+        switch (result.type) {
+          case "chunk":
+            onChunk(result.chunk);
+            break;
+          case "done":
+            doneEvent = result.doneEvent;
+            if (doneEvent.session_id && !isSessionReady.value) {
+              setSessionReady(doneEvent.session_id);
+            }
+            break;
+          case "error":
+            throw new Error(result.message);
+          case "continue":
+            break;
         }
-
-        if (line.startsWith("data: ")) {
-          state.currentData += (state.currentData ? "\n" : "") + line.slice(6);
-          return;
-        }
-
-        if (line !== "") {
-          return;
-        }
-
-        if (!state.currentEvent || !state.currentData) {
-          resetStreamEventState(state);
-          return;
-        }
-
-        if (state.currentEvent === "chunk") {
-          onChunk(state.currentData);
-          resetStreamEventState(state);
-          return;
-        }
-
-        if (state.currentEvent === "done") {
-          try {
-            doneEvent = JSON.parse(state.currentData) as StreamDoneEvent;
-          } catch {
-            throw new Error(t("chat.requestError", { text: normalizedMessage }));
-          }
-
-          if (doneEvent.session_id && !isSessionReady.value) {
-            setSessionReady(doneEvent.session_id);
-          }
-          resetStreamEventState(state);
-          return;
-        }
-
-        if (state.currentEvent === "error") {
-          let errorEvt: StreamErrorEvent;
-          try {
-            errorEvt = JSON.parse(state.currentData) as StreamErrorEvent;
-          } catch {
-            throw new Error(t("chat.requestError", { text: normalizedMessage }));
-          }
-
-          throw new Error(errorEvt.message || t("chat.requestError", { text: normalizedMessage }));
-        }
-
-        resetStreamEventState(state);
       };
 
       while (true) {
@@ -625,7 +642,7 @@ export function useChat(
       }
 
       if (!doneEvent) {
-        throw new Error(t("chat.requestError", { text: normalizedMessage }));
+        throw new Error(fallbackMessage);
       }
 
       statusMessage.value = t("chat.sessionActive", { sessionId: currentSessionId.value });

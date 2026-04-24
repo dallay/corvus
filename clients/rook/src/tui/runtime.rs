@@ -66,51 +66,73 @@ async fn run_app(
     let query = TuiQueryService::new(registry);
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut app = AppState::new(dashboard_url);
-    app.set_loading(app.active_view);
-    request_view_load(&query, app.active_view, tx.clone());
     let mut last_refresh = Instant::now();
+
+    trigger_view_refresh(&mut app, &query, &tx, &mut last_refresh);
 
     loop {
         terminal.draw(&app)?;
-
-        while let Ok(event) = rx.try_recv() {
-            apply_runtime_event(&mut app, event);
-        }
+        drain_runtime_events(&mut app, &mut rx);
 
         if app.should_quit {
-            if let Some(shutdown) = shutdown.as_ref() {
-                shutdown.notify_waiters();
-            }
+            notify_shutdown(shutdown.as_ref());
             break;
         }
 
-        if let Some(event) =
-            poll_terminal_event(Duration::from_millis(100)).map_err(RookError::Config)?
-        {
-            match event {
-                RuntimeEvent::Key(key) => match app.handle_key(key) {
-                    AppAction::RefreshActiveView => {
-                        app.set_loading(app.active_view);
-                        request_view_load(&query, app.active_view, tx.clone());
-                        last_refresh = Instant::now();
-                    }
-                    AppAction::Quit | AppAction::None => {}
-                },
-                RuntimeEvent::Tick => {
-                    if last_refresh.elapsed() >= Duration::from_secs(30) {
-                        app.set_loading(app.active_view);
-                        request_view_load(&query, app.active_view, tx.clone());
-                        last_refresh = Instant::now();
-                    }
-                }
-                RuntimeEvent::ViewLoaded { .. } | RuntimeEvent::ViewFailed { .. } => {
-                    apply_runtime_event(&mut app, event);
-                }
-            }
+        let maybe_event = poll_terminal_event(Duration::from_millis(100)).map_err(RookError::Config)?;
+        if let Some(event) = maybe_event {
+            handle_runtime_event(&mut app, event, &query, &tx, &mut last_refresh);
         }
     }
 
     Ok(())
+}
+
+fn drain_runtime_events(app: &mut AppState, rx: &mut mpsc::UnboundedReceiver<RuntimeEvent>) {
+    while let Ok(event) = rx.try_recv() {
+        apply_runtime_event(app, event);
+    }
+}
+
+fn notify_shutdown(shutdown: Option<&Arc<Notify>>) {
+    if let Some(shutdown) = shutdown {
+        shutdown.notify_waiters();
+    }
+}
+
+fn trigger_view_refresh(
+    app: &mut AppState,
+    query: &TuiQueryService,
+    tx: &mpsc::UnboundedSender<RuntimeEvent>,
+    last_refresh: &mut Instant,
+) {
+    app.set_loading(app.active_view);
+    request_view_load(query, app.active_view, tx.clone());
+    *last_refresh = Instant::now();
+}
+
+fn handle_runtime_event(
+    app: &mut AppState,
+    event: RuntimeEvent,
+    query: &TuiQueryService,
+    tx: &mpsc::UnboundedSender<RuntimeEvent>,
+    last_refresh: &mut Instant,
+) {
+    match event {
+        RuntimeEvent::Key(key) => {
+            if matches!(app.handle_key(key), AppAction::RefreshActiveView) {
+                trigger_view_refresh(app, query, tx, last_refresh);
+            }
+        }
+        RuntimeEvent::Tick => {
+            if last_refresh.elapsed() >= Duration::from_secs(30) {
+                trigger_view_refresh(app, query, tx, last_refresh);
+            }
+        }
+        RuntimeEvent::ViewLoaded { .. } | RuntimeEvent::ViewFailed { .. } => {
+            apply_runtime_event(app, event);
+        }
+    }
 }
 
 fn apply_runtime_event(app: &mut AppState, event: RuntimeEvent) {

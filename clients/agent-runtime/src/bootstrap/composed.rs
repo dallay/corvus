@@ -23,6 +23,17 @@ pub fn bootstrap_from_plan(
 
 fn config_from_plan(base_config: &Config, plan: &ComposedRuntimePlan) -> Result<Config> {
     let mut config = base_config.clone();
+
+    apply_agent_plan_settings(&mut config, plan);
+    apply_memory_plan_settings(&mut config, plan);
+    apply_observer_plan_settings(&mut config, plan)?;
+    apply_security_plan_settings(&mut config, plan)?;
+    apply_identity_plan_settings(&mut config, plan);
+
+    Ok(config)
+}
+
+fn apply_agent_plan_settings(config: &mut Config, plan: &ComposedRuntimePlan) {
     config.default_provider = Some(plan.provider.key.clone());
     if let Some(model) = &plan.agent.model {
         config.default_model = Some(model.clone());
@@ -36,63 +47,64 @@ fn config_from_plan(base_config: &Config, plan: &ComposedRuntimePlan) -> Result<
     if let Some(max_tool_iterations) = plan.runtime.max_tool_iterations {
         config.agent.max_tool_iterations = max_tool_iterations;
     }
-    // First check memory_settings.auto_save (from resolved plan), fallback to config
-    if let Some(auto_save) = plan.memory_settings.auto_save {
-        config.memory.auto_save = auto_save;
-    } else if let Some(auto_save) = plan
-        .memory
-        .config
-        .as_ref()
-        .and_then(|value| value.get("auto_save"))
-        .and_then(toml::Value::as_bool)
-    {
+}
+
+fn apply_memory_plan_settings(config: &mut Config, plan: &ComposedRuntimePlan) {
+    if let Some(auto_save) = resolved_memory_auto_save(plan) {
         config.memory.auto_save = auto_save;
     }
     config.memory.backend = plan.memory.key.clone();
+}
 
-    // Validate and apply observers - only single observer supported for now
+fn resolved_memory_auto_save(plan: &ComposedRuntimePlan) -> Option<bool> {
+    plan.memory_settings.auto_save.or_else(|| {
+        plan.memory
+            .config
+            .as_ref()
+            .and_then(|value| value.get("auto_save"))
+            .and_then(toml::Value::as_bool)
+    })
+}
+
+fn apply_observer_plan_settings(config: &mut Config, plan: &ComposedRuntimePlan) -> Result<()> {
     if plan.observers.len() > 1 {
         return Err(anyhow!(
             "multiple observers not supported: found {} ({:?}), expected 1",
             plan.observers.len(),
             plan.observers
                 .iter()
-                .map(|o| o.key.clone())
+                .map(|observer| observer.key.clone())
                 .collect::<Vec<_>>()
         ));
     }
-    if let Some(observer) = plan.observers.first() {
-        config.observability.backend = observer.key.clone();
-        if let Some(observer_config) = &observer.config {
-            if let Some(endpoint) = observer_config
-                .get("otel_endpoint")
-                .and_then(toml::Value::as_str)
-            {
-                config.observability.otel_endpoint = Some(endpoint.to_string());
-            }
-            if let Some(service_name) = observer_config
-                .get("otel_service_name")
-                .and_then(toml::Value::as_str)
-            {
-                config.observability.otel_service_name = Some(service_name.to_string());
-            }
-        }
+
+    let Some(observer) = plan.observers.first() else {
+        return Ok(());
+    };
+
+    config.observability.backend = observer.key.clone();
+    let Some(observer_config) = &observer.config else {
+        return Ok(());
+    };
+
+    if let Some(endpoint) = observer_config
+        .get("otel_endpoint")
+        .and_then(toml::Value::as_str)
+    {
+        config.observability.otel_endpoint = Some(endpoint.to_string());
+    }
+    if let Some(service_name) = observer_config
+        .get("otel_service_name")
+        .and_then(toml::Value::as_str)
+    {
+        config.observability.otel_service_name = Some(service_name.to_string());
     }
 
-    // Validate and apply security backend - fail on unknown keys instead of silently defaulting
-    config.security.sandbox.backend = match plan.security.key.as_str() {
-        "landlock" => SandboxBackend::Landlock,
-        "firejail" => SandboxBackend::Firejail,
-        "bubblewrap" => SandboxBackend::Bubblewrap,
-        "docker" => SandboxBackend::Docker,
-        "none" => SandboxBackend::None,
-        unknown => {
-            return Err(anyhow!(
-                "unknown security backend: '{}', valid options are: landlock, firejail, bubblewrap, docker, none",
-                unknown
-            ))
-        }
-    };
+    Ok(())
+}
+
+fn apply_security_plan_settings(config: &mut Config, plan: &ComposedRuntimePlan) -> Result<()> {
+    config.security.sandbox.backend = parse_sandbox_backend(&plan.security.key)?;
     if let Some(require) = plan
         .security
         .config
@@ -102,13 +114,29 @@ fn config_from_plan(base_config: &Config, plan: &ComposedRuntimePlan) -> Result<
     {
         config.security.sandbox.require = require;
     }
+    Ok(())
+}
+
+fn parse_sandbox_backend(key: &str) -> Result<SandboxBackend> {
+    match key {
+        "landlock" => Ok(SandboxBackend::Landlock),
+        "firejail" => Ok(SandboxBackend::Firejail),
+        "bubblewrap" => Ok(SandboxBackend::Bubblewrap),
+        "docker" => Ok(SandboxBackend::Docker),
+        "none" => Ok(SandboxBackend::None),
+        unknown => Err(anyhow!(
+            "unknown security backend: '{}', valid options are: landlock, firejail, bubblewrap, docker, none",
+            unknown
+        )),
+    }
+}
+
+fn apply_identity_plan_settings(config: &mut Config, plan: &ComposedRuntimePlan) {
     if let Some(format) = &plan.identity.format {
         config.identity.format = format.clone();
     }
     config.identity.aieos_path = plan.identity.aieos_path.clone();
     config.identity.aieos_inline = plan.identity.aieos_inline.clone();
-
-    Ok(config)
 }
 
 fn build_bootstrap_and_provider(

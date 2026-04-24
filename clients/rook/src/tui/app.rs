@@ -220,53 +220,53 @@ pub enum ViewData {
     Routes(RoutesViewModel),
 }
 
+fn into_load_state<T>(model: T, is_empty: impl FnOnce(&T) -> bool, empty_message: &str) -> LoadState<T> {
+    if is_empty(&model) {
+        LoadState::Empty {
+            message: empty_message.to_string(),
+        }
+    } else {
+        LoadState::Ready(model)
+    }
+}
+
 impl AppState {
     pub fn apply_loaded_view(&mut self, view: ActiveView, data: ViewData) {
         match (view, data) {
             (ActiveView::Status, ViewData::Status(model)) => {
-                self.status = if model.total_accounts == 0 {
-                    LoadState::Empty {
-                        message: "No provider accounts are configured.".to_string(),
-                    }
-                } else {
-                    LoadState::Ready(model)
-                };
+                self.status = into_load_state(
+                    model,
+                    |model| model.total_accounts == 0,
+                    "No provider accounts are configured.",
+                );
             }
             (ActiveView::Providers, ViewData::Providers(model)) => {
-                self.providers = if model.groups.is_empty() {
-                    LoadState::Empty {
-                        message: "No provider accounts are configured.".to_string(),
-                    }
-                } else {
-                    LoadState::Ready(model)
-                };
+                self.providers = into_load_state(
+                    model,
+                    |model| model.groups.is_empty(),
+                    "No provider accounts are configured.",
+                );
             }
             (ActiveView::Pools, ViewData::Pools(model)) => {
-                self.pools = if model.pools.is_empty() {
-                    LoadState::Empty {
-                        message: "No pools are currently configured.".to_string(),
-                    }
-                } else {
-                    LoadState::Ready(model)
-                };
+                self.pools = into_load_state(
+                    model,
+                    |model| model.pools.is_empty(),
+                    "No pools are currently configured.",
+                );
             }
             (ActiveView::Health, ViewData::Health(model)) => {
-                self.health = if model.summary.total == 0 || model.rows.is_empty() {
-                    LoadState::Empty {
-                        message: "No current account health data is available.".to_string(),
-                    }
-                } else {
-                    LoadState::Ready(model)
-                };
+                self.health = into_load_state(
+                    model,
+                    |model| model.summary.total == 0 || model.rows.is_empty(),
+                    "No current account health data is available.",
+                );
             }
             (ActiveView::Routes, ViewData::Routes(model)) => {
-                self.routes = if model.rows.is_empty() {
-                    LoadState::Empty {
-                        message: "No routes are currently configured.".to_string(),
-                    }
-                } else {
-                    LoadState::Ready(model)
-                };
+                self.routes = into_load_state(
+                    model,
+                    |model| model.rows.is_empty(),
+                    "No routes are currently configured.",
+                );
             }
             _ => {}
         }
