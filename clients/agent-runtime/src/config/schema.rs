@@ -3344,107 +3344,134 @@ impl Config {
     fn validate_multimodal_config(&self) -> Result<()> {
         let mm = &self.multimodal;
 
-        // Validate max_image_bytes bounds regardless of enabled state
-        if let Some(max_bytes) = mm.max_image_bytes {
-            if max_bytes == 0 {
-                anyhow::bail!("multimodal.max_image_bytes must be greater than 0");
-            }
-            if max_bytes > crate::channels::media::MAX_IMAGE_BYTES_CEILING {
-                anyhow::bail!(
-                    "multimodal.max_image_bytes={} exceeds the 50 MiB ceiling ({})",
-                    max_bytes,
-                    crate::channels::media::MAX_IMAGE_BYTES_CEILING,
-                );
-            }
-        }
-
-        if let Some(max_images_per_turn) = mm.max_images_per_turn {
-            if max_images_per_turn == 0 {
-                anyhow::bail!("multimodal.max_images_per_turn must be greater than 0");
-            }
-            if max_images_per_turn > crate::channels::media::MAX_IMAGES_PER_TURN_CEILING {
-                anyhow::bail!(
-                    "multimodal.max_images_per_turn={} exceeds the ceiling ({})",
-                    max_images_per_turn,
-                    crate::channels::media::MAX_IMAGES_PER_TURN_CEILING,
-                );
-            }
-        }
-
-        if let Some(threshold_minutes) = mm.staged_image_reaper_threshold_minutes {
-            if threshold_minutes == 0 {
-                anyhow::bail!(
-                    "multimodal.staged_image_reaper_threshold_minutes must be greater than 0"
-                );
-            }
-        }
+        Self::validate_optional_upper_bounded_u64(
+            mm.max_image_bytes,
+            "multimodal.max_image_bytes",
+            crate::channels::media::MAX_IMAGE_BYTES_CEILING,
+            "50 MiB",
+        )?;
+        Self::validate_optional_upper_bounded_usize(
+            mm.max_images_per_turn,
+            "multimodal.max_images_per_turn",
+            crate::channels::media::MAX_IMAGES_PER_TURN_CEILING,
+            "the",
+        )?;
+        Self::validate_optional_positive_u64(
+            mm.staged_image_reaper_threshold_minutes,
+            "multimodal.staged_image_reaper_threshold_minutes",
+        )?;
 
         if !mm.enabled {
             return Ok(());
         }
-        let hint = match mm.vision_model_hint {
-            Some(ref h) => h,
-            None => {
-                anyhow::bail!(
-                    "multimodal.enabled=true requires multimodal.vision_model_hint to be set"
-                );
-            }
-        };
-        // Cross-reference: a matching model_route must exist with
-        // allow_image_input enabled.
-        let has_image_route = self
-            .model_routes
-            .iter()
-            .any(|r| r.hint == *hint && r.allow_image_input);
-        if !has_image_route {
-            anyhow::bail!(
-                "multimodal.vision_model_hint='{}' does not match any \
-                 [[model_routes]] entry with allow_image_input=true",
-                hint,
-            );
-        }
-        if mm.allowed_channels.is_empty() {
-            anyhow::bail!(
-                "multimodal.enabled=true requires multimodal.allowed_channels to be non-empty"
-            );
-        }
-        for ch in &mm.allowed_channels {
-            if !MVP_VALID_MULTIMODAL_CHANNELS.contains(&ch.as_str()) {
-                tracing::warn!(
-                    "multimodal.allowed_channels contains '{}' which is not a supported MVP channel \
-                     (telegram, whatsapp, discord, slack) — it will be fail-closed at runtime",
-                    ch,
-                );
-            }
-        }
 
-        // Log effective multimodal limits
-        let effective_max_image_bytes = mm
-            .max_image_bytes
-            .unwrap_or(crate::channels::media::MAX_IMAGE_BYTES);
-        let effective_max_images_per_turn = mm.effective_max_images_per_turn();
-        if mm.max_image_bytes.is_some() {
-            tracing::info!(
-                "Multimodal enabled: max_image_bytes={effective_max_image_bytes} (config override), max_images_per_turn={effective_max_images_per_turn}{}",
-                if mm.max_images_per_turn.is_some() {
-                    " (config override)"
-                } else {
-                    " (default)"
-                }
-            );
-        } else {
-            tracing::info!(
-                "Multimodal enabled: max_image_bytes={effective_max_image_bytes} (default), max_images_per_turn={effective_max_images_per_turn}{}",
-                if mm.max_images_per_turn.is_some() {
-                    " (config override)"
-                } else {
-                    " (default)"
-                }
-            );
-        }
+        let hint = Self::multimodal_hint_or_error(mm)?;
+        Self::ensure_multimodal_route_exists(&self.model_routes, hint)?;
+        Self::ensure_multimodal_allowed_channels(mm)?;
+        Self::log_multimodal_limits(mm);
 
         Ok(())
     }
+
+fn validate_optional_upper_bounded_u64(
+    value: Option<u64>,
+    field_name: &str,
+    ceiling: u64,
+    ceiling_label: &str,
+) -> Result<()> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    if value == 0 {
+        anyhow::bail!("{field_name} must be greater than 0");
+    }
+    if value > ceiling {
+        anyhow::bail!("{field_name}={value} exceeds the {ceiling_label} ceiling ({ceiling})");
+    }
+    Ok(())
+}
+
+fn validate_optional_upper_bounded_usize(
+    value: Option<usize>,
+    field_name: &str,
+    ceiling: usize,
+    ceiling_label: &str,
+) -> Result<()> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    if value == 0 {
+        anyhow::bail!("{field_name} must be greater than 0");
+    }
+    if value > ceiling {
+        anyhow::bail!("{field_name}={value} exceeds the {ceiling_label} ceiling ({ceiling})");
+    }
+    Ok(())
+}
+
+fn validate_optional_positive_u64(value: Option<u64>, field_name: &str) -> Result<()> {
+    if value == Some(0) {
+        anyhow::bail!("{field_name} must be greater than 0");
+    }
+    Ok(())
+}
+
+fn multimodal_hint_or_error(mm: &MultimodalConfig) -> Result<&str> {
+    mm.vision_model_hint.as_deref().ok_or_else(|| {
+        anyhow::anyhow!("multimodal.enabled=true requires multimodal.vision_model_hint to be set")
+    })
+}
+
+fn ensure_multimodal_route_exists(model_routes: &[ModelRouteConfig], hint: &str) -> Result<()> {
+    let has_image_route = model_routes
+        .iter()
+        .any(|route| route.hint == hint && route.allow_image_input);
+    if !has_image_route {
+        anyhow::bail!(
+            "multimodal.vision_model_hint='{}' does not match any [[model_routes]] entry with allow_image_input=true",
+            hint,
+        );
+    }
+    Ok(())
+}
+
+fn ensure_multimodal_allowed_channels(mm: &MultimodalConfig) -> Result<()> {
+    if mm.allowed_channels.is_empty() {
+        anyhow::bail!(
+            "multimodal.enabled=true requires multimodal.allowed_channels to be non-empty"
+        );
+    }
+    for channel in &mm.allowed_channels {
+        if !MVP_VALID_MULTIMODAL_CHANNELS.contains(&channel.as_str()) {
+            tracing::warn!(
+                "multimodal.allowed_channels contains '{}' which is not a supported MVP channel (telegram, whatsapp, discord, slack) — it will be fail-closed at runtime",
+                channel,
+            );
+        }
+    }
+    Ok(())
+}
+
+fn log_multimodal_limits(mm: &MultimodalConfig) {
+    let effective_max_image_bytes = mm
+        .max_image_bytes
+        .unwrap_or(crate::channels::media::MAX_IMAGE_BYTES);
+    let effective_max_images_per_turn = mm.effective_max_images_per_turn();
+    let image_bytes_source = if mm.max_image_bytes.is_some() {
+        "config override"
+    } else {
+        "default"
+    };
+    let images_per_turn_source = if mm.max_images_per_turn.is_some() {
+        "config override"
+    } else {
+        "default"
+    };
+
+    tracing::info!(
+        "Multimodal enabled: max_image_bytes={effective_max_image_bytes} ({image_bytes_source}), max_images_per_turn={effective_max_images_per_turn} ({images_per_turn_source})"
+    );
+}
 
     fn validate_audio_config(&self) -> Result<()> {
         let ac = &self.audio;

@@ -1709,6 +1709,32 @@ async fn finalize_generated_session_if_needed(
     }
 }
 
+fn webhook_http_source(
+    session_source: webhook_dispatch::WebhookSessionSource,
+) -> crate::session_commands::CommandSessionSource {
+    match session_source {
+        webhook_dispatch::WebhookSessionSource::Explicit => {
+            crate::session_commands::CommandSessionSource::Explicit
+        }
+        webhook_dispatch::WebhookSessionSource::Generated => {
+            crate::session_commands::CommandSessionSource::Generated
+        }
+    }
+}
+
+fn reserve_webhook_idempotency_key(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Option<String>, WebhookResponse> {
+    let Some(idempotency_key) = webhook_idempotency_key(headers) else {
+        return Ok(None);
+    };
+    if !state.idempotency_store.record_if_new(idempotency_key) {
+        return Err(webhook_duplicate_response(idempotency_key));
+    }
+    Ok(Some(idempotency_key.to_string()))
+}
+
 fn webhook_duplicate_response(idempotency_key: &str) -> WebhookResponse {
     tracing::info!(
         idempotency_key_fingerprint = %fingerprint_idempotency_key(idempotency_key),
@@ -2034,28 +2060,14 @@ async fn handle_webhook(
     let server_execution_mode = config.agent.execution_mode;
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
     let token_hash = utils::extract_bearer_token(&headers).map(|t| compute_token_hash(&t));
+    let http_source = webhook_http_source(session_source);
 
-    // Idempotency guard BEFORE preview short-circuit to ensure duplicate suppression
-    // applies to preview slash-command requests.
-    let reserved_idempotency_key = if let Some(idempotency_key) = webhook_idempotency_key(&headers)
-    {
-        if !state.idempotency_store.record_if_new(idempotency_key) {
-            return webhook_duplicate_response(idempotency_key);
-        }
-        Some(idempotency_key)
-    } else {
-        None
+    let reserved_idempotency_key = match reserve_webhook_idempotency_key(&state, &headers) {
+        Ok(key) => key,
+        Err(response) => return response,
     };
 
     if is_preview && !dispatcher_enabled {
-        let http_source = match session_source {
-            webhook_dispatch::WebhookSessionSource::Explicit => {
-                crate::session_commands::CommandSessionSource::Explicit
-            }
-            webhook_dispatch::WebhookSessionSource::Generated => {
-                crate::session_commands::CommandSessionSource::Generated
-            }
-        };
         if let Some((response, persist_idempotency)) = maybe_handle_http_ingress(
             &state,
             &session_id,
@@ -2065,7 +2077,7 @@ async fn handle_webhook(
         )
         .await
         {
-            release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+            release_idempotency_key(&state, reserved_idempotency_key.as_deref(), persist_idempotency);
             return response;
         }
     }
@@ -2081,7 +2093,7 @@ async fn handle_webhook(
     {
         if token_hash.is_some() {
             tracing::error!("session upsert failed for token-scoped request: {e:#}");
-            release_idempotency_key(&state, reserved_idempotency_key, false);
+            release_idempotency_key(&state, reserved_idempotency_key.as_deref(), false);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "Session tracking failed"})),
@@ -2119,7 +2131,7 @@ async fn handle_webhook(
         );
         let (response, persist_idempotency) =
             webhook_response_from_dispatch_result(dispatch_result);
-        release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+        release_idempotency_key(&state, reserved_idempotency_key.as_deref(), persist_idempotency);
         update_session_activity_if_persisted(
             &state,
             &session_id,
@@ -2132,14 +2144,7 @@ async fn handle_webhook(
 
     // Intercept shared handled-ingress commands before plan/cost guards so they can
     // short-circuit without being blocked by execution-mode or cost checks.
-    let http_source = match session_source {
-        webhook_dispatch::WebhookSessionSource::Explicit => {
-            crate::session_commands::CommandSessionSource::Explicit
-        }
-        webhook_dispatch::WebhookSessionSource::Generated => {
-            crate::session_commands::CommandSessionSource::Generated
-        }
-    };
+    let http_source = webhook_http_source(session_source);
     if let Some((response, persist_idempotency)) = maybe_handle_http_ingress(
         &state,
         &session_id,
@@ -2149,7 +2154,7 @@ async fn handle_webhook(
     )
     .await
     {
-        release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+        release_idempotency_key(&state, reserved_idempotency_key.as_deref(), persist_idempotency);
         update_session_activity_if_persisted(
             &state,
             &session_id,
@@ -2173,7 +2178,7 @@ async fn handle_webhook(
                 }
             })),
         );
-        release_idempotency_key(&state, reserved_idempotency_key, false);
+        release_idempotency_key(&state, reserved_idempotency_key.as_deref(), false);
         update_session_activity_if_persisted(&state, &session_id, token_hash.as_deref(), false)
             .await;
         return response;
@@ -2191,7 +2196,7 @@ async fn handle_webhook(
                 }
             })),
         );
-        release_idempotency_key(&state, reserved_idempotency_key, false);
+        release_idempotency_key(&state, reserved_idempotency_key.as_deref(), false);
         update_session_activity_if_persisted(&state, &session_id, token_hash.as_deref(), false)
             .await;
         return response;
@@ -2207,7 +2212,7 @@ async fn handle_webhook(
 
     let (response, persist_idempotency) = legacy_simple_chat(&state, message, &session_id).await;
 
-    release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+    release_idempotency_key(&state, reserved_idempotency_key.as_deref(), persist_idempotency);
 
     update_session_activity_if_persisted(
         &state,

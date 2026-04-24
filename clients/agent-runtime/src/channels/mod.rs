@@ -1828,32 +1828,7 @@ fn build_history(
         ctx.system_prompt.as_str(),
     ))];
 
-    // Inject image/audio context from prior turns into outbound messages
-    // without modifying stored history.
-    for turn in prior_turns {
-        let has_media_meta = turn.image_metadata.is_some() || turn.audio_metadata.is_some();
-        if has_media_meta {
-            let mut augmented_content = String::new();
-            if let Some(ref meta_list) = turn.image_metadata {
-                for meta in meta_list {
-                    augmented_content.push_str(&meta.to_context_string());
-                    augmented_content.push('\n');
-                }
-            }
-            if let Some(ref meta_list) = turn.audio_metadata {
-                for meta in meta_list {
-                    augmented_content.push_str(&meta.to_context_string());
-                    augmented_content.push('\n');
-                }
-            }
-            augmented_content.push_str(&turn.content);
-            history.push(ConversationMessage::Chat(ChatMessage::user(
-                augmented_content,
-            )));
-        } else {
-            history.push(ConversationMessage::Chat(turn));
-        }
-    }
+    history.extend(prior_turns.into_iter().map(conversation_message_from_turn));
 
     if let Some(instructions) = channel_delivery_instructions(channel_name) {
         history.push(ConversationMessage::Chat(ChatMessage::system(instructions)));
@@ -1863,6 +1838,49 @@ fn build_history(
         enriched_message,
     )));
     history
+}
+
+fn conversation_message_from_turn(turn: ChatMessage) -> ConversationMessage {
+    if let Some(augmented_content) = augmented_turn_content(&turn) {
+        ConversationMessage::Chat(ChatMessage::user(augmented_content))
+    } else {
+        ConversationMessage::Chat(turn)
+    }
+}
+
+fn augmented_turn_content(turn: &ChatMessage) -> Option<String> {
+    let mut augmented_content = String::new();
+    append_context_lines(
+        &mut augmented_content,
+        turn.image_metadata
+            .as_ref()
+            .into_iter()
+            .flatten()
+            .map(|meta| meta.to_context_string()),
+    );
+    append_context_lines(
+        &mut augmented_content,
+        turn.audio_metadata
+            .as_ref()
+            .into_iter()
+            .flatten()
+            .map(|meta| meta.to_context_string()),
+    );
+    if augmented_content.is_empty() {
+        return None;
+    }
+    augmented_content.push_str(&turn.content);
+    Some(augmented_content)
+}
+
+fn append_context_lines(
+    buffer: &mut String,
+    context_lines: impl IntoIterator<Item = String>,
+) {
+    for line in context_lines {
+        buffer.push_str(&line);
+        buffer.push('\n');
+    }
 }
 
 async fn maybe_handle_channel_ingress(

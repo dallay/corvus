@@ -223,6 +223,17 @@ fn skip_env_assignments(s: &str) -> &str {
     }
 }
 
+fn command_uses_forbidden_globs(base_raw: &str, segment: &str) -> bool {
+    base_raw != "find" && ['*', '?', '[', ']', '{', '}'].iter().any(|ch| segment.contains(*ch))
+}
+
+fn normalize_args_for_path_checks(raw_args: &[&str]) -> Option<Vec<String>> {
+    raw_args
+        .iter()
+        .map(|arg| normalize_arg_for_path_checks(arg))
+        .collect::<Option<Vec<_>>>()
+}
+
 /// Detect a single `&` operator (background/chain). `&&` is allowed.
 ///
 /// We treat any standalone `&` as unsafe in policy validation because it can
@@ -448,39 +459,20 @@ impl SecurityPolicy {
         }
 
         let cmd_part = skip_env_assignments(segment);
-
         let mut words = cmd_part.split_whitespace();
-        let base_raw = words.next().unwrap_or("");
-
-        if base_raw.is_empty() {
+        let Some(base_raw) = words.next() else {
             return true;
-        }
+        };
 
-        // Enforce exact matches for allowed commands and disallow path components.
-        // This prevents executing malicious binaries in the workspace that happen
-        // to share a name with an allowed command (e.g. ./ls).
-        if !self
-            .allowed_commands
-            .iter()
-            .any(|allowed| allowed == base_raw)
-        {
+        if !self.is_allowed_command(base_raw) {
             return false;
         }
-
-        if base_raw != "find"
-            && ['*', '?', '[', ']', '{', '}']
-                .iter()
-                .any(|ch| segment.contains(*ch))
-        {
+        if command_uses_forbidden_globs(base_raw, segment) {
             return false;
         }
 
         let raw_args: Vec<&str> = words.collect();
-        let normalized_args = match raw_args
-            .iter()
-            .map(|arg| normalize_arg_for_path_checks(arg))
-            .collect::<Option<Vec<_>>>()
-        {
+        let normalized_args = match normalize_args_for_path_checks(&raw_args) {
             Some(args) => args,
             None => return false,
         };
@@ -533,6 +525,10 @@ impl SecurityPolicy {
         }
 
         self.is_args_safe(base_raw, &args)
+    }
+
+    fn is_allowed_command(&self, base_raw: &str) -> bool {
+        self.allowed_commands.iter().any(|allowed| allowed == base_raw)
     }
 
     fn has_any_command(&self, normalized: &str) -> bool {
