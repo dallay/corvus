@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.5.0](https://github.com/dallay/corvus/compare/v3.4.0...v3.5.0) (2026-04-24)
+
+
+### Features
+
+* Enhance workflow permissions, fix detekt alerts, and add Rook dashboard ([e43fc1a](https://github.com/dallay/corvus/commit/e43fc1a9a5b1c0c6ce53ef102832df1ddad1c713))
+* **rook:** add admin audit trail and fix repo build ([9f3529e](https://github.com/dallay/corvus/commit/9f3529e12f22e2eb716c984deed9637c68325656)), closes [#599](https://github.com/dallay/corvus/issues/599)
+* **rook:** add pools routes and health dashboard flows ([1add3fa](https://github.com/dallay/corvus/commit/1add3fa6f23b5274534dcc3b62d50d1659a08b0d))
+* **rook:** finalize tui setup and troubleshooting boundary ([b930dae](https://github.com/dallay/corvus/commit/b930dae7ae09a381f14d71185e5841cd124986b4)), closes [#597](https://github.com/dallay/corvus/issues/597)
+* **rook:** harden security defaults and secret boundaries ([dadc02d](https://github.com/dallay/corvus/commit/dadc02d421194dd907728294ffe51387687a3f80)), closes [#598](https://github.com/dallay/corvus/issues/598)
+* **rook:** implement operator dashboard and tui route inspection slices ([6a340d9](https://github.com/dallay/corvus/commit/6a340d92e9427cdb0d9e6ef1b4d23581ec20e379))
+
+
+### Bug Fixes
+
+* correct Duration::from_mins usage, refactor announcement helpers, and fix Vue edge cases ([7efc729](https://github.com/dallay/corvus/commit/7efc729709cac677396c2da6fec5055cf33319ca))
+* replace non-existent Duration::from_mins, refactor Vue announcement helpers, and fix edge cases ([37d5a96](https://github.com/dallay/corvus/commit/37d5a969195f77d6c0af781db6f31ce3ef474643))
+
 ## [3.4.0](https://github.com/dallay/corvus/compare/v3.3.0...v3.4.0) (2026-04-22)
 
 
