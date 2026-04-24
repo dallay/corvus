@@ -857,6 +857,7 @@ impl Agent {
         Ok(render_tool_result_output(result))
     }
 
+    #[allow(clippy::result_large_err)]
     fn handle_shell_tool_result(
         &self,
         call: &ParsedToolCall,

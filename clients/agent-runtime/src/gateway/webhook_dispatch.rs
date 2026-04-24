@@ -526,6 +526,7 @@ pub(crate) async fn execute(
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn build_webhook_tool_snapshot(
     config: &Config,
     request: &WebhookTurnRequest,
