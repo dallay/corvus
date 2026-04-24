@@ -7,6 +7,7 @@ pub mod auth;
 pub mod config;
 pub mod dashboard;
 pub mod db;
+pub mod distribution;
 pub mod domain;
 pub mod gateway;
 pub mod idempotency;

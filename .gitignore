@@ -151,6 +151,7 @@ docs/website/package-lock.json
 # Astro cache/build directories
 **/.astro/
 clients/web/apps/**/dist/
+clients/rook/dist/
 clients/web/apps/**/node_modules/
 dev/Caddyfile.active
 

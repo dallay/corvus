@@ -206,7 +206,32 @@ jobs:
                   read_properties("gradle/build-logic/gradle.properties", "VERSION"),
               ),
               ("clients/agent-runtime/Cargo.toml", read_toml_version("clients/agent-runtime/Cargo.toml")),
+              ("clients/rook/Cargo.toml", read_toml_version("clients/rook/Cargo.toml")),
               ("modules/cerebro/Cargo.toml", read_toml_version("modules/cerebro/Cargo.toml")),
+              (
+                  "clients/rook/npm/rook/package.json",
+                  read_json_version("clients/rook/npm/rook/package.json"),
+              ),
+              (
+                  "clients/rook/npm/rook-darwin-x64/package.json",
+                  read_json_version("clients/rook/npm/rook-darwin-x64/package.json"),
+              ),
+              (
+                  "clients/rook/npm/rook-darwin-arm64/package.json",
+                  read_json_version("clients/rook/npm/rook-darwin-arm64/package.json"),
+              ),
+              (
+                  "clients/rook/npm/rook-linux-x64/package.json",
+                  read_json_version("clients/rook/npm/rook-linux-x64/package.json"),
+              ),
+              (
+                  "clients/rook/npm/rook-linux-arm64/package.json",
+                  read_json_version("clients/rook/npm/rook-linux-arm64/package.json"),
+              ),
+              (
+                  "clients/rook/npm/rook-windows-x64/package.json",
+                  read_json_version("clients/rook/npm/rook-windows-x64/package.json"),
+              ),
               (
                   "clients/agent-runtime/npm/corvus/package.json",
                   read_json_version("clients/agent-runtime/npm/corvus/package.json"),
@@ -304,10 +329,22 @@ jobs:
           # publishAllPublicationsToMavenCentralRepository/publishToMavenCentral.
           ./gradlew -p gradle/build-logic publishToMavenCentral
 
+      - name: 📦 Publish corvus-traits crate to crates.io
+        if: ${{ inputs.release }}
+        id: publish-cargo-corvus-traits
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "⚠️ Skipping crates.io publish - CARGO_REGISTRY_TOKEN not configured"
+            exit 0
+          fi
+          cd clients/agent-runtime/crates/corvus-traits
+          cargo publish --locked
+
       - name: 📦 Publish Rust crate to crates.io
         if: ${{ inputs.release }}
         id: publish-cargo
-        continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
@@ -316,6 +353,20 @@ jobs:
             exit 0
           fi
           cd clients/agent-runtime
+          cargo publish --locked
+
+      - name: 📦 Publish Rook crate to crates.io
+        if: ${{ inputs.release }}
+        id: publish-cargo-rook
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "⚠️ Skipping crates.io publish - CARGO_REGISTRY_TOKEN not configured"
+            exit 0
+          fi
+          echo "Assumes corvus-traits has already been published for this release line."
+          cd clients/rook
           cargo publish --locked
 
       - name: 📄 Release publish summary
@@ -327,6 +378,8 @@ jobs:
           CREDENTIALS_OUTCOME: ${{ steps.optional-release-credentials.outcome }}
           MAVEN_OUTCOME: ${{ steps.publish-maven.outcome }}
           CARGO_OUTCOME: ${{ steps.publish-cargo.outcome }}
+          CARGO_TRAITS_OUTCOME: ${{ steps.publish-cargo-corvus-traits.outcome }}
+          CARGO_ROOK_OUTCOME: ${{ steps.publish-cargo-rook.outcome }}
         run: |
           {
              echo "## ${RELEASE_CHANNEL^} release publish summary"
@@ -337,9 +390,12 @@ jobs:
              echo "- ${RELEASE_CHANNEL^} version checks: ${VERSION_CHECK_OUTCOME}"
              echo "- Optional credential check: ${CREDENTIALS_OUTCOME}"
              echo "- Maven/Gradle publish step: ${MAVEN_OUTCOME}"
-             echo "- Rust publish step: ${CARGO_OUTCOME}"
+             echo "- Rust publish step (corvus): ${CARGO_OUTCOME}"
+             echo "- Rust publish step (corvus-traits): ${CARGO_TRAITS_OUTCOME}"
+             echo "- Rust publish step (rook): ${CARGO_ROOK_OUTCOME}"
              echo "- npm dist-tag: ${NPM_DIST_TAG}"
              echo "- npm stable contract: @dallay/corvus, corvus-darwin-x64, corvus-darwin-arm64, corvus-linux-x64, corvus-linux-arm64, corvus-windows-x64"
+             echo "- rook npm stable contract: @dallay/rook, rook-darwin-x64, rook-darwin-arm64, rook-linux-x64, rook-linux-arm64, rook-windows-x64"
              echo "- Excluded by policy: corvus-cli is internal/private; Windows ARM64 is intentionally unsupported for stable npm publication"
              echo "- Stable notes source: release-please owns canonical stable release notes"
              echo "- Beta notes source: release-please owns canonical beta release notes"
@@ -359,6 +415,13 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/_build-cerebro-binaries.yml
+
+  build-rook-binaries:
+    if: ${{ inputs.release }}
+    needs: publish
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_build-rook-binaries.yml
 
   docker-image:
     if: ${{ inputs.release }}
@@ -502,6 +565,80 @@ jobs:
         with:
           context: .
           file: modules/cerebro/Dockerfile.release-prebuilt
+          target: release
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.docker-meta.outputs.tags }}
+          labels: ${{ steps.docker-meta.outputs.labels }}
+
+  docker-image-rook:
+    if: ${{ inputs.release }}
+    needs: [publish, build-rook-binaries]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: ⬇ Download Rook Linux artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: rook-linux-*
+          path: clients/rook/dist
+          merge-multiple: true
+          if-no-files-found: error
+
+      - name: 📦 Extract Rook Linux binaries
+        working-directory: clients/rook/dist
+        run: |
+          set -euo pipefail
+          tar -xzf rook-linux-x64.tar.gz
+          tar -xzf rook-linux-arm64.tar.gz
+          chmod +x rook-linux-x64 rook-linux-arm64
+
+      - name: 🐳 Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: 🔐 Login to Docker Hub
+        continue-on-error: true
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 🔐 Login to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Generate Rook Docker tags and labels
+        id: docker-meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: |
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/rook
+            ghcr.io/${{ github.repository_owner }}/rook
+          tags: |
+            type=raw,value=${{ needs.publish.outputs.release_version }}
+            type=raw,value=${{ needs.publish.outputs.release_major_minor }},enable=${{ needs.publish.outputs.release_channel == 'stable' }}
+            type=raw,value=${{ needs.publish.outputs.release_major }},enable=${{ needs.publish.outputs.release_channel == 'stable' }}
+            type=raw,value=latest,enable=${{ needs.publish.outputs.release_channel == 'stable' }}
+            type=raw,value=beta,enable=${{ needs.publish.outputs.release_channel == 'beta' }}
+
+      - name: 🐳 Build and push Rook Docker image
+        continue-on-error: true
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: clients/rook/Dockerfile.release-prebuilt
           target: release
           platforms: linux/amd64,linux/arm64
           push: true
@@ -696,9 +833,160 @@ jobs:
             echo "- Windows ARM64 is intentionally unsupported and excluded from stable npm publication."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  publish-npm-platforms-rook:
+    if: ${{ inputs.release }}
+    needs: [build-rook-binaries, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pkg: rook-darwin-x64
+            artifact: rook-darwin-x64
+            binary: rook-darwin-x64
+            source_binary: rook-darwin-x64
+          - pkg: rook-darwin-arm64
+            artifact: rook-darwin-arm64
+            binary: rook-darwin-arm64
+            source_binary: rook-darwin-arm64
+          - pkg: rook-linux-x64
+            artifact: rook-linux-x64
+            binary: rook-linux-x64
+            source_binary: rook-linux-x64
+          - pkg: rook-linux-arm64
+            artifact: rook-linux-arm64
+            binary: rook-linux-arm64
+            source_binary: rook-linux-arm64
+          - pkg: rook-windows-x64
+            artifact: rook-windows-x64
+            binary: rook-windows-x64.exe
+            source_binary: rook-windows-x64.exe
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: ⬇ Download artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ matrix.artifact }}
+          path: /tmp/artifact
+
+      - name: 📦 Extract binary
+        run: |
+          set -euo pipefail
+          cd /tmp/artifact
+          archive=$(find . -name "*.tar.gz" -o -name "*.zip" | head -1)
+          if [ -z "$archive" ]; then
+            echo "No archive found!"
+            exit 1
+          fi
+          if [[ "$archive" == *.tar.gz ]]; then
+            tar -xzf "$archive"
+          else
+            unzip -o "$archive"
+          fi
+          find . -name "${{ matrix.source_binary }}" -type f -exec chmod +x {} \; -print
+
+      - name: 🚀 Publish to npm
+        id: publish-platform-package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "⚠️ Skipping npm publish - NPM_TOKEN not configured"
+            exit 0
+          fi
+
+          cd clients/rook/npm/${{ matrix.pkg }}
+
+          binary_path=$(find /tmp/artifact -name "${{ matrix.source_binary }}" -type f | head -1)
+          if [ -z "$binary_path" ]; then
+            echo "Binary not found!"
+            exit 1
+          fi
+          cp "$binary_path" ./${{ matrix.binary }}
+
+          package_name="@dallay/${{ matrix.pkg }}"
+          package_version="$(node -p "require('./package.json').version")"
+
+          if npm view "${package_name}@${package_version}" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "ℹ️ ${package_name}@${package_version} is already published, skipping"
+            exit 0
+          fi
+
+          npm_publish_args=(--access public)
+          if [ "${NPM_DIST_TAG:-latest}" != "latest" ]; then
+            npm_publish_args+=(--tag "$NPM_DIST_TAG")
+          fi
+
+          npm publish "${npm_publish_args[@]}"
+
+  publish-npm-base-rook:
+    if: ${{ inputs.release }}
+    needs: [publish-npm-platforms-rook, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: 🚀 Publish base package
+        id: publish-base-package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "⚠️ Skipping npm publish - NPM_TOKEN not configured"
+            exit 0
+          fi
+
+          cd clients/rook/npm/rook
+
+          package_name="@dallay/rook"
+          package_version="$(node -p "require('./package.json').version")"
+
+          if npm view "${package_name}@${package_version}" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "ℹ️ ${package_name}@${package_version} is already published, skipping"
+            exit 0
+          fi
+
+          npm_publish_args=(--access public)
+          if [ "${NPM_DIST_TAG:-latest}" != "latest" ]; then
+            npm_publish_args+=(--tag "$NPM_DIST_TAG")
+          fi
+
+          npm publish "${npm_publish_args[@]}"
+
   release-assets:
     if: ${{ inputs.release }}
-    needs: [publish, build-native-binaries, build-cerebro-binaries]
+    needs:
+      [
+        publish,
+        build-native-binaries,
+        build-cerebro-binaries,
+        build-rook-binaries,
+      ]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -721,10 +1009,18 @@ jobs:
           merge-multiple: true
           if-no-files-found: error
 
+      - name: ⬇ Download rook release artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: rook-*
+          path: dist/rook
+          merge-multiple: true
+          if-no-files-found: error
+
       - name: 📋 Generate SHA256 checksums
         run: |
           set -euo pipefail
-          for dir in dist/corvus dist/cerebro; do
+          for dir in dist/corvus dist/cerebro dist/rook; do
             cd "$dir"
             for archive in *.tar.gz *.zip; do
               [[ -f "$archive" ]] || continue
@@ -743,7 +1039,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Uploading assets to existing GitHub Release ${RELEASE_ID} (${RELEASE_TAG})"
-          gh release upload "$RELEASE_TAG" dist/corvus/corvus-* dist/cerebro/cerebro-* --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$RELEASE_TAG" dist/corvus/corvus-* dist/cerebro/cerebro-* dist/rook/rook-* --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: 📄 Summarize GitHub Release publication
         if: ${{ always() }}

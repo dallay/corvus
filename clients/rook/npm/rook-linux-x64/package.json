@@ -1,0 +1,17 @@
+{
+  "name": "@dallay/rook-linux-x64",
+  "version": "3.5.0",
+  "description": "Rook CLI for Linux x64",
+  "license": "Apache-2.0",
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dallay/corvus.git",
+    "directory": "clients/rook/npm/rook-linux-x64"
+  },
+  "files": ["rook-linux-x64"],
+  "engines": {
+    "node": ">=18"
+  }
+}
