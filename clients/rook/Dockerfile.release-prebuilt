@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1
+
+FROM busybox:latest AS prep
+
+ARG TARGETARCH
+
+RUN mkdir -p /rook-data
+
+COPY clients/rook/dist/rook-linux-x64 /tmp/rook-linux-x64
+COPY clients/rook/dist/rook-linux-arm64 /tmp/rook-linux-arm64
+
+RUN case "$TARGETARCH" in \
+  amd64) cp /tmp/rook-linux-x64 /tmp/rook ;; \
+  arm64) cp /tmp/rook-linux-arm64 /tmp/rook ;; \
+  *) echo "Unsupported TARGETARCH=$TARGETARCH" && exit 1 ;; \
+esac
+
+RUN chmod +x /tmp/rook && chown -R 65532:65532 /rook-data
+
+FROM gcr.io/distroless/cc-debian13:nonroot AS release
+
+COPY --from=prep /tmp/rook /usr/local/bin/rook
+COPY --from=prep /rook-data /rook-data
+
+ENV HOME=/rook-data
+
+WORKDIR /rook-data
+USER 65532:65532
+EXPOSE 4141
+
+# Container images intentionally bind to 0.0.0.0 so the service is reachable when the operator
+# explicitly publishes the container port. This does not change Rook's product-level local-first
+# default outside Docker.
+ENTRYPOINT ["rook"]
+CMD ["serve", "--host", "0.0.0.0", "--port", "4141", "--db-path", "/rook-data/rook.db"]
