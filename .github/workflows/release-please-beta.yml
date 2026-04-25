@@ -80,6 +80,7 @@ jobs:
           shared_prefix = {
               ".github/workflows/": {"rook"},
               "openspec/specs/release-management/": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
+              "scripts/release-contract.test.mjs": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
           }
 
           ignored_prefix = (
