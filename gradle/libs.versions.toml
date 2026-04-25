@@ -21,7 +21,7 @@ compose-multiplatform = "1.10.2"
 kotlinx-coroutines = "1.10.2"
 junit-jupiter = "5.14.3"
 material3 = "1.10.0-alpha05"
-netty = "4.1.132.Final"
+netty = "4.2.12.Final"
 protobuf = "3.25.9"
 jackson-tools = "3.1.0"
 
@@ -77,18 +77,18 @@ org-gradlex-jvm-dependency-conflict-resolution = { id = "org.gradlex.jvm-depende
 org-gradlex-java-module-dependencies = { id = "org.gradlex.java-module-dependencies", version = "1.12.1" }
 org-gradlex-java-module-testing = { id = "org.gradlex.java-module-testing", version = "1.8" }
 org-gradlex-extra-java-module-info = { id = "org.gradlex.extra-java-module-info", version = "1.14" }
-com-gradleup-shadow = { id = "com.gradleup.shadow", version = "9.3.1" }
+com-gradleup-shadow = { id = "com.gradleup.shadow", version = "9.4.1" }
 com-gradle-plugin-publish = { id = "com.gradle.plugin-publish", version = "2.1.1" }
 com-vanniktech-maven-publish = { id = "com.vanniktech.maven.publish", version = "0.36.0" }
-com-autonomousapps-dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version = "3.6.1" }
+com-autonomousapps-dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version = "3.9.0" }
 io-fuchs-gradle-classpath-collision-detector = { id = "io.fuchs.gradle.classpath-collision-detector", version = "1.0.0" }
-org-cyclonedx-bom = { id = "org.cyclonedx.bom", version = "3.1.0" }
-com-github-spotbugs = { id = "com.github.spotbugs", version = "6.4.8" }
+org-cyclonedx-bom = { id = "org.cyclonedx.bom", version = "3.2.4" }
+com-github-spotbugs = { id = "com.github.spotbugs", version = "6.5.1" }
 org-jetbrains-kotlinx-kover = { id = "org.jetbrains.kotlinx.kover", version = "0.9.8" }
-com-google-devtools-ksp = { id = "com.google.devtools.ksp", version = "2.3.5" }
+com-google-devtools-ksp = { id = "com.google.devtools.ksp", version = "2.3.6" }
 com-google-cloud-tools-jib = { id = "com.google.cloud.tools.jib", version = "3.5.3" }
 org-nosphere-apache-rat = { id = "org.nosphere.apache.rat", version = "0.8.1" }
 io-freefair-lombok = { id = "io.freefair.lombok", version = "9.2.0" }
-org-openrewrite-rewrite = { id = "org.openrewrite.rewrite", version = "7.28.0" }
+org-openrewrite-rewrite = { id = "org.openrewrite.rewrite", version = "7.31.0" }
 org-springframework-boot = { id = "org.springframework.boot", version = "4.1.0-M1" }
 org-openapi-generator = { id = "org.openapi.generator", version = "7.19.0" }
