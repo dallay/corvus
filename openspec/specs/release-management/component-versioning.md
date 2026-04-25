@@ -93,6 +93,11 @@ A validate-only component is in managed release state but does not publish artif
 contract. It may still require checks because it affects shipped components, shared tooling, or
 consumer safety.
 
+`gradle-kmp` should remain in this bucket for now. The current repository carries two live Gradle
+version sources (`gradle.properties` and `gradle/build-logic/gradle.properties`) that must stay
+aligned for release-time validation, but that dual-source posture is not yet a strong enough basis
+to model `gradle-kmp` as a standalone `release-please` manifest authority.
+
 ### Excluded Component
 
 An excluded component remains visible in release state but is not considered part of stable publish

@@ -235,6 +235,15 @@ jobs:
               return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["version"]
 
           checks = []
+          if "gradle-kmp" in affected_components:
+              checks.extend([
+                  ("gradle.properties", read_properties("gradle.properties", "VERSION")),
+                  (
+                      "gradle/build-logic/gradle.properties",
+                      read_properties("gradle/build-logic/gradle.properties", "VERSION"),
+                  ),
+              ])
+
           if "corvus-runtime" in affected_components:
               checks.extend([
                   ("clients/agent-runtime/Cargo.toml", read_toml_version("clients/agent-runtime/Cargo.toml")),
