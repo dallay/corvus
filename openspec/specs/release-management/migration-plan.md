@@ -283,3 +283,33 @@ Before moving beyond the current rollout level, require at least:
 - one reviewed diff showing the exact files changed,
 - one explicit statement of expected affected components,
 - and one rollback path already documented for the slice under review.
+
+## Current completion status
+
+The current rollout should be considered materially complete for the initial component-scoped release
+migration phase.
+
+Completed in this phase:
+
+- canonical inventory and impact mapping are documented,
+- rollback rules and per-slice rollback procedures are documented,
+- operational verification evidence is defined,
+- component-scoped versioning is active for `rook`, `corvus-runtime`, and `cerebro`,
+- publish/reporting workflows are component-aware,
+- `gradle-kmp` is explicitly modeled as `validate-only`.
+
+This means the repository now has enough structure to operate a component-aware release rollout
+without treating every publishable surface as a single indistinguishable repo-wide release unit.
+
+## Deferred follow-up work
+
+The following items remain intentionally deferred beyond the current phase:
+
+- observing or dry-running a concrete multi-component release event with recorded evidence,
+- deciding whether `gradle-kmp` should ever become its own `release-please` manifest authority,
+- any future refinement of tag/release presentation beyond the current repo-wide canonical stable and
+  beta authority model,
+- and any additional simplification once the rollout has more operating history.
+
+These deferred items should not block closure of the current migration phase, but they should be
+tracked before declaring the rollout fully mature.
