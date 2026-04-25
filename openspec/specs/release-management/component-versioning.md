@@ -93,6 +93,11 @@ A validate-only component is in managed release state but does not publish artif
 contract. It may still require checks because it affects shipped components, shared tooling, or
 consumer safety.
 
+`gradle-kmp` should remain in this bucket for now. The current repository carries two live Gradle
+version sources (`gradle.properties` and `gradle/build-logic/gradle.properties`) that must stay
+aligned for release-time validation, but that dual-source posture is not yet a strong enough basis
+to model `gradle-kmp` as a standalone `release-please` manifest authority.
+
 ### Excluded Component
 
 An excluded component remains visible in release state but is not considered part of stable publish
@@ -111,6 +116,76 @@ The key design constraint is:
 - **component-scoped state answers "what does this component do in that release?"**
 
 This preserves one stable release authority while enabling component-aware release operations.
+
+## Tag and Release Authority
+
+The migration should preserve a single canonical interpretation of tag and release ownership.
+
+### Stable authority
+
+- The repo-wide stable `release-please` flow remains the canonical owner of the stable GitHub
+  Release, stable release notes, and the canonical `vX.Y.Z` release event.
+- Component-scoped release state exists to decide scope, validation, and publication behavior; it is
+  not a second competing stable authority.
+- Component-aware manifests may describe which components participate in a stable cycle, but they do
+  not replace the canonical repo-wide stable release event.
+
+### Beta authority
+
+- The beta `release-please` flow remains the canonical owner of beta release-note generation and the
+  beta release event for the repository.
+- Component participation in a beta cycle may vary by affected component set, but beta notes and the
+  triggering release event still come from the shared beta release flow.
+
+### Current component-state interpretation
+
+- `rook`, `corvus-runtime`, and `cerebro` currently participate in component-scoped version state.
+- `gradle-kmp` is currently `validate-only`: it influences validation and publish posture, but it is
+  not yet modeled as an independent `release-please` manifest authority.
+- Component state should answer “who is in scope?” and “what should publish?”, while repo-wide tag
+  authority answers “what release event is canonical?”.
+
+## Expected Multi-Component Behavior
+
+The rollout should support shared changes that affect more than one release-managed component at the
+same time.
+
+### Scenario A — `rook` only
+
+When only `rook` release surfaces change:
+
+- resolver output should contain `rook`,
+- `release-please` scope should only advance `rook` component state,
+- `_publish.yml` should validate and publish only `rook` surfaces,
+- unaffected components should remain skipped.
+
+### Scenario B — `corvus-runtime` and `cerebro`
+
+When shared changes affect both `corvus-runtime` and `cerebro`:
+
+- resolver output should include both components,
+- version-state changes should remain aligned in config and manifest files,
+- `_publish.yml` should validate both component surfaces,
+- downstream publication should occur only for those two components.
+
+### Scenario C — shared workflow or release-plumbing change
+
+When a shared release path changes (for example `release-please.yml`, `release-please-beta.yml`, or
+`_publish.yml`):
+
+- the affected component set may legitimately fan out to multiple components,
+- component-aware summaries must make that fan-out visible,
+- operators should be able to distinguish publishable components from validate-only ones.
+
+### Scenario D — `gradle-kmp` participation
+
+When Gradle release surfaces change:
+
+- resolver output may include `gradle-kmp`,
+- `_publish.yml` should validate Gradle version alignment,
+- `gradle-kmp` should appear in reporting as `validate-only`,
+- and no new standalone `release-please` manifest authority should be inferred from that validation
+  alone.
 
 ## Migration Direction
 

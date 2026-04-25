@@ -75,8 +75,21 @@ jobs:
               ".release-please-beta-manifest.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
               "version.txt": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
           }
+
           shared_prefix = {
+              ".github/workflows/": {"rook"},
               "openspec/specs/release-management/": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
+          }
+
+          ignored_prefix = (
+              "clients/web/",
+              "clients/androidApp/",
+              "clients/composeApp/",
+          )
+          ignored_exact = {
+              "package.json",
+              "pnpm-lock.yaml",
+              "pnpm-workspace.yaml",
           }
 
           changed_files = []
@@ -108,6 +121,8 @@ jobs:
                       if path == prefix or path.startswith(prefix):
                           affected_set.update(comps)
                           matched = True
+                  if path in ignored_exact or any(path.startswith(prefix) for prefix in ignored_prefix):
+                      matched = True
                   if not matched:
                       unmapped.append(path)
 

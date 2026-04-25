@@ -12,5 +12,5 @@ org.ow2.asm:asm-commons:9.9=jacocoAnt,koverJvmReporter
 org.ow2.asm:asm-tree:9.9=jacocoAnt,koverJvmReporter
 org.ow2.asm:asm:9.9=jacocoAnt,koverJvmReporter
 org.slf4j:slf4j-bom:2.1.0-alpha1=aggregateCodeCoverageReportResults,aggregateTestReportResults,annotationProcessor,compileClasspath,mainRuntimeClasspath,runtimeClasspath,testAnnotationProcessor,testCompileClasspath,testRuntimeClasspath
-tools.jackson:jackson-bom:3.1.0=aggregateCodeCoverageReportResults,aggregateTestReportResults,annotationProcessor,compileClasspath,mainRuntimeClasspath,runtimeClasspath,testAnnotationProcessor,testCompileClasspath,testRuntimeClasspath
+tools.jackson:jackson-bom:3.1.1=aggregateCodeCoverageReportResults,aggregateTestReportResults,annotationProcessor,compileClasspath,mainRuntimeClasspath,runtimeClasspath,testAnnotationProcessor,testCompileClasspath,testRuntimeClasspath
 empty=cyclonedxBom,koverExternalArtifacts

@@ -15,6 +15,21 @@ fan out to multiple components when changed.
 | `gradle/` | `gradle-kmp` | includes Gradle build logic and publication-specific configuration |
 | `gradle.properties` | `gradle-kmp` | top-level Gradle publication version source |
 
+## Non-release-scoped paths
+
+The following paths are intentionally treated as outside the current component-scoped release
+resolver. Changes there should not fail release-scope resolution, but they also should not mint
+release scope on their own.
+
+| Path prefix | Resolver treatment | Why |
+| --- | --- | --- |
+| `clients/web/` | ignored for release-scope resolution | current rollout only models release-managed surfaces for `corvus-runtime`, `rook`, `cerebro`, and `gradle-kmp` |
+| `clients/androidApp/` | ignored for release-scope resolution | Android app workspace changes are outside the current component-scoped release contract |
+| `clients/composeApp/` | ignored for release-scope resolution | Compose app workspace changes are outside the current component-scoped release contract |
+| `package.json` | ignored for release-scope resolution | root JavaScript workspace metadata is not yet part of component-scoped release authority |
+| `pnpm-lock.yaml` | ignored for release-scope resolution | root JS lockfile changes should not force release scope by themselves |
+| `pnpm-workspace.yaml` | ignored for release-scope resolution | root workspace wiring is outside the current component-scoped release contract |
+
 ## Shared-path fan-out rules
 
 | Path prefix | Affected component(s) | Why |

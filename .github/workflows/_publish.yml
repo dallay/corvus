@@ -235,6 +235,49 @@ jobs:
               return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["version"]
 
           checks = []
+          if "gradle-kmp" in affected_components:
+              checks.extend([
+                  ("gradle.properties", read_properties("gradle.properties", "VERSION")),
+                  (
+                      "gradle/build-logic/gradle.properties",
+                      read_properties("gradle/build-logic/gradle.properties", "VERSION"),
+                  ),
+              ])
+
+          if "corvus-runtime" in affected_components:
+              checks.extend([
+                  ("clients/agent-runtime/Cargo.toml", read_toml_version("clients/agent-runtime/Cargo.toml")),
+                  (
+                      "clients/agent-runtime/npm/corvus/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-darwin-x64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-darwin-x64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-darwin-arm64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-darwin-arm64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-linux-x64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-linux-x64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-linux-arm64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-linux-arm64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-windows-x64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-windows-x64/package.json"),
+                  ),
+              ])
+
+          if "cerebro" in affected_components:
+              checks.extend([
+                  ("modules/cerebro/Cargo.toml", read_toml_version("modules/cerebro/Cargo.toml")),
+              ])
+
           if "rook" in affected_components:
               checks.extend([
                   ("clients/rook/Cargo.toml", read_toml_version("clients/rook/Cargo.toml")),
@@ -390,6 +433,10 @@ jobs:
           CARGO_OUTCOME: ${{ steps.publish-cargo.outcome }}
           CARGO_TRAITS_OUTCOME: ${{ steps.publish-cargo-corvus-traits.outcome }}
           CARGO_ROOK_OUTCOME: ${{ steps.publish-cargo-rook.outcome }}
+          HAS_CORVUS_RUNTIME: ${{ steps.component-flags.outputs.has_corvus_runtime }}
+          HAS_ROOK: ${{ steps.component-flags.outputs.has_rook }}
+          HAS_CEREBRO: ${{ steps.component-flags.outputs.has_cerebro }}
+          HAS_GRADLE_KMP: ${{ steps.component-flags.outputs.has_gradle_kmp }}
         run: |
           {
              echo "## ${RELEASE_CHANNEL^} release publish summary"
@@ -410,6 +457,44 @@ jobs:
              echo "- Stable notes source: release-please owns canonical stable release notes"
              echo "- Beta notes source: release-please owns canonical beta release notes"
              echo "- GitHub Release ownership: release-please owns the canonical GitHub Release and canonical ${RELEASE_CHANNEL} release notes; _publish.yml only publishes artifacts/assets"
+             echo
+             echo "### Component status"
+             echo
+             if [ "${HAS_CORVUS_RUNTIME}" = "true" ]; then
+               echo "#### corvus-runtime"
+               echo "- Policy: publishable"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Cargo publish (corvus): ${CARGO_OUTCOME}"
+               echo "- Cargo publish (corvus-traits): ${CARGO_TRAITS_OUTCOME}"
+               echo "- npm publication: delegated to component-scoped downstream jobs"
+               echo "- Docker publication: delegated to component-scoped downstream jobs"
+               echo
+             fi
+             if [ "${HAS_CEREBRO}" = "true" ]; then
+               echo "#### cerebro"
+               echo "- Policy: publishable"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Cargo/release asset publication: delegated to component-scoped downstream jobs"
+               echo "- Docker publication: delegated to component-scoped downstream jobs"
+               echo
+             fi
+             if [ "${HAS_ROOK}" = "true" ]; then
+               echo "#### rook"
+               echo "- Policy: publishable"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Cargo publish (rook): ${CARGO_ROOK_OUTCOME}"
+               echo "- npm publication: delegated to component-scoped downstream jobs"
+               echo "- Docker publication: delegated to component-scoped downstream jobs"
+               echo
+             fi
+             if [ "${HAS_GRADLE_KMP}" = "true" ]; then
+               echo "#### gradle-kmp"
+               echo "- Policy: validate-only"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Maven/Gradle publication step: ${MAVEN_OUTCOME}"
+               echo "- Release state ownership: not yet modeled as its own release-please manifest authority"
+               echo
+             fi
            } >> "$GITHUB_STEP_SUMMARY"
 
   build-native-binaries:

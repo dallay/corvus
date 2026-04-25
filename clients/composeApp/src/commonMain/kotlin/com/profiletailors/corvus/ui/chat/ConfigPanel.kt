@@ -49,7 +49,7 @@ internal fun ConfigPanel(
           brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
         )
     ) {
-      ConfigSettingsList(
+      configSettingsList(
         bridgeState = bridgeState,
         resumableSessions = resumableSessions,
         activeSessionId = activeSessionId,
@@ -61,7 +61,7 @@ internal fun ConfigPanel(
 }
 
 @Composable
-internal fun ConfigSettingsList(
+internal fun configSettingsList(
   bridgeState: MobileBridgeUiState,
   resumableSessions: List<RuntimeSession>,
   activeSessionId: String?,

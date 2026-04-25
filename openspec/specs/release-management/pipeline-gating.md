@@ -78,6 +78,9 @@ Expected outcomes:
 - publishable components must satisfy their required validation policy,
 - validate-only components may still run release checks,
 - excluded components do not become stable release blockers merely by existing.
+- `gradle-kmp` currently belongs in the validate-only bucket: version alignment and publish
+  credentials may be checked, but release state is not yet managed as its own `release-please`
+  component.
 
 ### 3. Component Publish Gate
 

@@ -1,5 +1,6 @@
 [workspace]
 members = [".", "crates/corvus-traits", "crates/corvus-providers", "crates/corvus-channels", "crates/corvus-tools", "crates/corvus-memory", "crates/corvus-observability", "crates/corvus-security", "crates/corvus-composer", "crates/robot-kit"]
+exclude = ["firmware/corvus-esp32", "firmware/corvus-esp32-ui", "firmware/corvus-nucleo"]
 resolver = "2"
 
 [package]

@@ -12,19 +12,16 @@ val isRustTasksEnabled =
 
 fun resolveCargoExecutable(): String {
   val configuredCargo = providers.environmentVariable("CARGO").orNull
-  if (!configuredCargo.isNullOrBlank()) {
-    return configuredCargo
-  }
+  val homeCargoExecutable =
+    providers
+      .environmentVariable("HOME")
+      .orNull
+      ?.takeIf(String::isNotBlank)
+      ?.let { File(it).resolve(".cargo/bin/cargo") }
+      ?.takeIf { it.isFile && it.canExecute() }
+      ?.absolutePath
 
-  val homeDir = providers.environmentVariable("HOME").orNull
-  if (!homeDir.isNullOrBlank()) {
-    val homeCargo = File(homeDir).resolve(".cargo/bin/cargo")
-    if (homeCargo.isFile && homeCargo.canExecute()) {
-      return homeCargo.absolutePath
-    }
-  }
-
-  return "cargo"
+  return configuredCargo?.takeIf(String::isNotBlank) ?: homeCargoExecutable ?: "cargo"
 }
 
 val cargoExecutable = resolveCargoExecutable()
