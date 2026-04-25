@@ -57,7 +57,7 @@ jobs:
           current_sha = os.environ.get("CURRENT_SHA", "")
 
           exclusive = {
-              "clients/agent-runtime/": {"corvus-runtime"},
+              "clients/agent-runtime/": {"corvus-runtime", "cerebro"},
               "clients/rook/": {"rook"},
               "modules/cerebro/": {"cerebro"},
               "gradle/": {"gradle-kmp"},
