@@ -3,6 +3,89 @@
   "include-component-in-tag": true,
   "pull-request-title-pattern": "chore: release beta ${component} v${version}",
   "packages": {
+    "clients/agent-runtime": {
+      "component": "corvus-runtime",
+      "release-type": "rust",
+      "versioning": "prerelease",
+      "prerelease": true,
+      "prerelease-type": "beta",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "clients/agent-runtime/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus-darwin-x64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus-darwin-arm64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus-linux-x64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus-linux-arm64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus-windows-x64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus/package.json",
+          "jsonpath": "$.optionalDependencies['@dallay/corvus-darwin-x64']"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus/package.json",
+          "jsonpath": "$.optionalDependencies['@dallay/corvus-darwin-arm64']"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus/package.json",
+          "jsonpath": "$.optionalDependencies['@dallay/corvus-linux-x64']"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus/package.json",
+          "jsonpath": "$.optionalDependencies['@dallay/corvus-linux-arm64']"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus/package.json",
+          "jsonpath": "$.optionalDependencies['@dallay/corvus-windows-x64']"
+        }
+      ]
+    },
+    "modules/cerebro": {
+      "component": "cerebro",
+      "release-type": "rust",
+      "versioning": "prerelease",
+      "prerelease": true,
+      "prerelease-type": "beta",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "modules/cerebro/Cargo.toml",
+          "jsonpath": "$.package.version"
+        }
+      ]
+    },
     "clients/rook": {
       "component": "rook",
       "release-type": "rust",

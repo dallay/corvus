@@ -235,6 +235,40 @@ jobs:
               return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["version"]
 
           checks = []
+          if "corvus-runtime" in affected_components:
+              checks.extend([
+                  ("clients/agent-runtime/Cargo.toml", read_toml_version("clients/agent-runtime/Cargo.toml")),
+                  (
+                      "clients/agent-runtime/npm/corvus/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-darwin-x64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-darwin-x64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-darwin-arm64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-darwin-arm64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-linux-x64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-linux-x64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-linux-arm64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-linux-arm64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-windows-x64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-windows-x64/package.json"),
+                  ),
+              ])
+
+          if "cerebro" in affected_components:
+              checks.extend([
+                  ("modules/cerebro/Cargo.toml", read_toml_version("modules/cerebro/Cargo.toml")),
+              ])
+
           if "rook" in affected_components:
               checks.extend([
                   ("clients/rook/Cargo.toml", read_toml_version("clients/rook/Cargo.toml")),
