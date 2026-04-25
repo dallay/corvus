@@ -164,7 +164,7 @@ fun OnboardingScreen(
   actions: OnboardingScreenActions,
   modifier: Modifier = Modifier,
 ) {
-  val layoutModifier = rememberOnboardingLayoutModifier()
+  val layoutModifier = onboardingLayoutModifier()
 
   Column(
     modifier = modifier.then(layoutModifier),
@@ -183,7 +183,7 @@ fun OnboardingScreen(
 }
 
 @Composable
-private fun rememberOnboardingLayoutModifier(): Modifier {
+private fun onboardingLayoutModifier(): Modifier {
   val colors = MaterialTheme.colorScheme
   val corvusColors = CorvusTheme.colors
 
