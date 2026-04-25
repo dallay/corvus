@@ -2984,19 +2984,15 @@ async fn legacy_simple_chat(
     let model_label = state.model.clone();
     let started_at = Instant::now();
 
-    state
-        .observer
-        .record_event(&crate::observability::ObserverEvent::AgentStart {
-            provider: provider_label.clone(),
-            model: model_label.clone(),
-        });
-    state
-        .observer
-        .record_event(&crate::observability::ObserverEvent::LlmRequest {
-            provider: provider_label.clone(),
-            model: model_label.clone(),
-            messages_count: 1,
-        });
+    state.observer.record_event(&crate::observability::ObserverEvent::agent_start(
+        provider_label.clone(),
+        model_label.clone(),
+    ));
+    state.observer.record_event(&crate::observability::ObserverEvent::llm_request(
+        provider_label.clone(),
+        model_label.clone(),
+        1,
+    ));
 
     match state
         .provider
@@ -3041,23 +3037,21 @@ fn record_llm_success(
 ) {
     let provider_s = provider.to_string();
     let model_s = model.to_string();
-    observer.record_event(&crate::observability::ObserverEvent::LlmResponse {
-        provider: provider_s.clone(),
-        model: model_s.clone(),
+    observer.record_event(&crate::observability::ObserverEvent::llm_response(
+        provider_s.clone(),
+        model_s.clone(),
         duration,
-        success: true,
-        error_message: None,
-    });
-    observer.record_metric(&crate::observability::ObserverMetric::RequestLatency(
-        duration,
+        true,
+        None,
     ));
-    observer.record_event(&crate::observability::ObserverEvent::AgentEnd {
-        provider: provider_s,
-        model: model_s,
+    observer.record_metric(&crate::observability::ObserverMetric::request_latency(duration));
+    observer.record_event(&crate::observability::ObserverEvent::agent_end(
+        provider_s,
+        model_s,
         duration,
-        tokens_used: None,
-        cost_usd: None,
-    });
+        None,
+        None,
+    ));
 }
 
 fn record_llm_failure(
@@ -3070,27 +3064,25 @@ fn record_llm_failure(
     let provider_s = provider.to_string();
     let model_s = model.to_string();
     let error_s = sanitized_error.to_string();
-    observer.record_event(&crate::observability::ObserverEvent::LlmResponse {
-        provider: provider_s.clone(),
-        model: model_s.clone(),
+    observer.record_event(&crate::observability::ObserverEvent::llm_response(
+        provider_s.clone(),
+        model_s.clone(),
         duration,
-        success: false,
-        error_message: Some(error_s.clone()),
-    });
-    observer.record_metric(&crate::observability::ObserverMetric::RequestLatency(
-        duration,
+        false,
+        Some(error_s.clone()),
     ));
-    observer.record_event(&crate::observability::ObserverEvent::Error {
-        component: "gateway".to_string(),
-        message: error_s,
-    });
-    observer.record_event(&crate::observability::ObserverEvent::AgentEnd {
-        provider: provider_s,
-        model: model_s,
+    observer.record_metric(&crate::observability::ObserverMetric::request_latency(duration));
+    observer.record_event(&crate::observability::ObserverEvent::error(
+        String::from("gateway"),
+        error_s,
+    ));
+    observer.record_event(&crate::observability::ObserverEvent::agent_end(
+        provider_s,
+        model_s,
         duration,
-        tokens_used: None,
-        cost_usd: None,
-    });
+        None,
+        None,
+    ));
 }
 
 /// `WhatsApp` verification query params

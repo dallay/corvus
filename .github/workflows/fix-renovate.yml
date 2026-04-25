@@ -15,8 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      contents: write
+      contents: read
     if: >-
+      false &&
       startsWith(github.event.comment.body, '/fix-lock') &&
       github.event.issue.pull_request != null &&
       (
