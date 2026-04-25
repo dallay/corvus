@@ -331,6 +331,11 @@ impl SecurityPolicy {
         // Normalize input via iterative URL decoding to prevent bypasses.
         let command = iterative_url_decode(command);
 
+        // Block residual percent signs after decoding (incomplete or malicious encoding)
+        if command.contains('%') {
+            return CommandRiskLevel::High;
+        }
+
         // Early exit on the raw command catches snippets that span segment
         // boundaries (e.g. fork bombs containing `;`).  The per-segment check
         // below is intentionally kept for snippets that appear within a single
@@ -426,6 +431,11 @@ impl SecurityPolicy {
 
         // Normalize input via iterative URL decoding to prevent bypasses.
         let command = iterative_url_decode(command);
+
+        // Block residual percent signs after decoding (incomplete or malicious encoding)
+        if command.contains('%') {
+            return false;
+        }
 
         if self.contains_blocked_operators(&command) {
             return false;
@@ -831,8 +841,8 @@ fn normalize_arg_for_path_checks(token: &str) -> Option<String> {
 /// Iterative URL decoding to prevent bypasses like %252e%252e (double-encoded "..")
 fn iterative_url_decode(input: &str) -> String {
     let mut decoded = input.to_string();
-    for _ in 0..3 {
-        let next = urlencoding::decode(&decoded).unwrap_or_else(|_| decoded.clone().into());
+    for _ in 0..10 {
+        let next = urlencoding::decode(decoded.as_str()).unwrap_or_else(|_| decoded.into());
         if next == decoded {
             break;
         }
@@ -2144,4 +2154,50 @@ fn command_risk_level_detects_encoded_dangerous_snippets() {
     // fork bomb encoded
     let encoded_fork = "%3a%28%29%7b%3a%7c%3a%26%7d%3b%3a";
     assert_eq!(p.command_risk_level(encoded_fork), CommandRiskLevel::High);
+}
+
+#[test]
+fn deep_encoded_traversal_attacks_blocked() {
+    let p = SecurityPolicy::default();
+
+    // Deep-encoded path traversal in cat command
+    // %2525252e = %25 %25 2e -> %25 2e -> . (after multiple decodings)
+    assert!(
+        !p.is_command_allowed("cat %2525252e%2525252e/etc/passwd"),
+        "Deep-encoded traversal in cat command must be blocked"
+    );
+
+    // Deep-encoded path traversal (standalone path check)
+    assert!(
+        !p.is_path_allowed("%2525252e%2525252e/etc/passwd"),
+        "Deep-encoded traversal path must be blocked"
+    );
+
+    // Deep-encoded rm command (high-risk)
+    assert_eq!(
+        p.command_risk_level("rm %2525252e%2525252e/etc/passwd"),
+        CommandRiskLevel::High,
+        "Deep-encoded rm must be classified as High risk"
+    );
+
+    // Deep-encoded rm command should be blocked by is_command_allowed
+    assert!(
+        !p.is_command_allowed("rm %2525252e%2525252e/etc/passwd"),
+        "Deep-encoded rm command must be blocked"
+    );
+
+    // Deep-encoded fork-bomb variant
+    // Fork bomb: :(){ :|:& };:
+    // URL encoded once: %3a%28%29%7b%3a%7c%3a%26%7d%3b%3a
+    // Double-encoded (example): %25 prefix on each %
+    let deep_fork = "%253a%2528%2529%257b%253a%257c%253a%2526%257d%253b%253a";
+    assert_eq!(
+        p.command_risk_level(deep_fork),
+        CommandRiskLevel::High,
+        "Deep-encoded fork bomb must be classified as High risk"
+    );
+    assert!(
+        !p.is_command_allowed(deep_fork),
+        "Deep-encoded fork bomb must be blocked"
+    );
 }
