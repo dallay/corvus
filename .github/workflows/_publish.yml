@@ -433,6 +433,10 @@ jobs:
           CARGO_OUTCOME: ${{ steps.publish-cargo.outcome }}
           CARGO_TRAITS_OUTCOME: ${{ steps.publish-cargo-corvus-traits.outcome }}
           CARGO_ROOK_OUTCOME: ${{ steps.publish-cargo-rook.outcome }}
+          HAS_CORVUS_RUNTIME: ${{ steps.component-flags.outputs.has_corvus_runtime }}
+          HAS_ROOK: ${{ steps.component-flags.outputs.has_rook }}
+          HAS_CEREBRO: ${{ steps.component-flags.outputs.has_cerebro }}
+          HAS_GRADLE_KMP: ${{ steps.component-flags.outputs.has_gradle_kmp }}
         run: |
           {
              echo "## ${RELEASE_CHANNEL^} release publish summary"
@@ -453,6 +457,44 @@ jobs:
              echo "- Stable notes source: release-please owns canonical stable release notes"
              echo "- Beta notes source: release-please owns canonical beta release notes"
              echo "- GitHub Release ownership: release-please owns the canonical GitHub Release and canonical ${RELEASE_CHANNEL} release notes; _publish.yml only publishes artifacts/assets"
+             echo
+             echo "### Component status"
+             echo
+             if [ "${HAS_CORVUS_RUNTIME}" = "true" ]; then
+               echo "#### corvus-runtime"
+               echo "- Policy: publishable"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Cargo publish (corvus): ${CARGO_OUTCOME}"
+               echo "- Cargo publish (corvus-traits): ${CARGO_TRAITS_OUTCOME}"
+               echo "- npm publication: delegated to component-scoped downstream jobs"
+               echo "- Docker publication: delegated to component-scoped downstream jobs"
+               echo
+             fi
+             if [ "${HAS_CEREBRO}" = "true" ]; then
+               echo "#### cerebro"
+               echo "- Policy: publishable"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Cargo/release asset publication: delegated to component-scoped downstream jobs"
+               echo "- Docker publication: delegated to component-scoped downstream jobs"
+               echo
+             fi
+             if [ "${HAS_ROOK}" = "true" ]; then
+               echo "#### rook"
+               echo "- Policy: publishable"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Cargo publish (rook): ${CARGO_ROOK_OUTCOME}"
+               echo "- npm publication: delegated to component-scoped downstream jobs"
+               echo "- Docker publication: delegated to component-scoped downstream jobs"
+               echo
+             fi
+             if [ "${HAS_GRADLE_KMP}" = "true" ]; then
+               echo "#### gradle-kmp"
+               echo "- Policy: validate-only"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Maven/Gradle publication step: ${MAVEN_OUTCOME}"
+               echo "- Release state ownership: not yet modeled as its own release-please manifest authority"
+               echo
+             fi
            } >> "$GITHUB_STEP_SUMMARY"
 
   build-native-binaries:
