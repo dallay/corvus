@@ -46,7 +46,7 @@ the field round-trips through the database.
 The in-memory `AccountService` implementation MUST also carry the `api_key` field.
 
 > **Security note (M1 scope)**: The `api_key` is stored as plaintext in SQLite for M1.
-> Encryption-at-rest is deferred to #591.
+> Encryption-at-rest is not covered by this requirement and would require a separate follow-up change if adopted.
 
 #### Scenario: api_key persists and round-trips through SQLite
 
