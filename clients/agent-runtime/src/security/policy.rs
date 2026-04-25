@@ -328,6 +328,9 @@ impl SecurityPolicy {
 
     /// Classify command risk. Any high-risk segment marks the whole command high.
     pub fn command_risk_level(&self, command: &str) -> CommandRiskLevel {
+        // Normalize input via iterative URL decoding to prevent bypasses.
+        let command = iterative_url_decode(command);
+
         // Early exit on the raw command catches snippets that span segment
         // boundaries (e.g. fork bombs containing `;`).  The per-segment check
         // below is intentionally kept for snippets that appear within a single
@@ -336,7 +339,7 @@ impl SecurityPolicy {
             return CommandRiskLevel::High;
         }
 
-        let normalized = normalize_risk_segments(command);
+        let normalized = normalize_risk_segments(&command);
 
         let mut saw_medium = false;
 
@@ -421,11 +424,14 @@ impl SecurityPolicy {
             return false;
         }
 
-        if self.contains_blocked_operators(command) {
+        // Normalize input via iterative URL decoding to prevent bypasses.
+        let command = iterative_url_decode(command);
+
+        if self.contains_blocked_operators(&command) {
             return false;
         }
 
-        self.validate_command_segments(command)
+        self.validate_command_segments(&command)
     }
 
     fn contains_blocked_operators(&self, command: &str) -> bool {
@@ -579,19 +585,12 @@ impl SecurityPolicy {
 
     /// Check if a file path is allowed (no path traversal, within workspace)
     pub fn is_path_allowed(&self, path: &str) -> bool {
-        // Block null bytes (can truncate paths in C-backed syscalls)
-        if path.contains('\0') {
-            return false;
-        }
+        let decoded = iterative_url_decode(path);
 
-        // Iterative URL decoding to prevent bypasses like %252e%252e (double-encoded "..")
-        let mut decoded = path.to_string();
-        for _ in 0..3 {
-            let next = urlencoding::decode(&decoded).unwrap_or_else(|_| decoded.clone().into());
-            if next == decoded {
-                break;
-            }
-            decoded = next.into_owned();
+        // Block null bytes (can truncate paths in C-backed syscalls)
+        // Check after decoding to catch %00
+        if decoded.contains('\0') {
+            return false;
         }
 
         // Block backslashes (Windows-style separators or escaping)
@@ -827,6 +826,19 @@ fn normalize_arg_for_path_checks(token: &str) -> Option<String> {
             .map(|value| value.into_owned());
     }
     Some(dequoted.to_string())
+}
+
+/// Iterative URL decoding to prevent bypasses like %252e%252e (double-encoded "..")
+fn iterative_url_decode(input: &str) -> String {
+    let mut decoded = input.to_string();
+    for _ in 0..3 {
+        let next = urlencoding::decode(&decoded).unwrap_or_else(|_| decoded.clone().into());
+        if next == decoded {
+            break;
+        }
+        decoded = next.into_owned();
+    }
+    decoded
 }
 
 /// Check whether `expanded` path starts with any of the forbidden paths.
@@ -2092,4 +2104,44 @@ fn is_command_allowed_blocks_path_in_flags() {
         !p.is_command_allowed("git -C/etc status"),
         "Should block absolute path in short flag"
     );
+}
+
+#[test]
+fn is_command_allowed_blocks_url_encoded_bypasses() {
+    let p = SecurityPolicy::default();
+
+    // Encoded redirection operator
+    assert!(!p.is_command_allowed("echo secret %3e /tmp/pwned"));
+    assert!(!p.is_command_allowed("echo secret %3E /tmp/pwned"));
+
+    // Encoded background operator
+    assert!(!p.is_command_allowed("ls %26 rm -rf /"));
+
+    // Encoded subshell
+    assert!(!p.is_command_allowed("echo %24%28whoami%29"));
+
+    // Encoded path traversal in command argument
+    assert!(!p.is_command_allowed("cat ..%2f..%2fetc%2fpasswd"));
+
+    // Null byte bypass
+    assert!(!p.is_command_allowed("cat secret.txt%00.jpg"));
+}
+
+#[test]
+fn is_path_allowed_blocks_null_byte_encoded() {
+    let p = SecurityPolicy::default();
+    assert!(!p.is_path_allowed("file.txt%00"));
+    assert!(!p.is_path_allowed("%00file.txt"));
+}
+
+#[test]
+fn command_risk_level_detects_encoded_dangerous_snippets() {
+    let p = SecurityPolicy::default();
+    // rm -rf / encoded
+    let encoded_rm = "rm%20-rf%20%2f";
+    assert_eq!(p.command_risk_level(encoded_rm), CommandRiskLevel::High);
+
+    // fork bomb encoded
+    let encoded_fork = "%3a%28%29%7b%3a%7c%3a%26%7d%3b%3a";
+    assert_eq!(p.command_risk_level(encoded_fork), CommandRiskLevel::High);
 }
