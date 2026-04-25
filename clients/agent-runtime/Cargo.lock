@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "cerebro"
-version = "3.6.0"
+version = "3.6.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1158,7 +1158,7 @@ dependencies = [
 
 [[package]]
 name = "corvus"
-version = "3.6.0"
+version = "3.6.1"
 dependencies = [
  "anyhow",
  "async-trait",
