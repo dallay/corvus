@@ -101,7 +101,6 @@ jobs:
       release_tag: ${{ github.event.release.tag_name }}
       release_id: ${{ github.event.release.id }}
       affected_components: ${{ needs.resolve-release-scope.outputs.affected_components }}
-      affected_components: ${{ needs.resolve-release-scope.outputs.affected_components }}
     secrets:
       SIGNING_IN_MEMORY_KEY: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
       SIGNING_IN_MEMORY_KEY_PASSWORD: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
