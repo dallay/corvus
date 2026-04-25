@@ -4,5 +4,5 @@
 com.google.protobuf:protobuf-bom:3.25.9=classpath,latestReleasesPath,mainRuntimeClasspath
 io.netty:netty-bom:4.1.132.Final=classpath,latestReleasesPath,mainRuntimeClasspath
 org.slf4j:slf4j-bom:2.1.0-alpha1=classpath,latestReleasesPath,mainRuntimeClasspath
-tools.jackson:jackson-bom:3.1.0=classpath,latestReleasesPath,mainRuntimeClasspath
+tools.jackson:jackson-bom:3.1.1=classpath,latestReleasesPath,mainRuntimeClasspath
 empty=
