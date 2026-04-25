@@ -196,3 +196,90 @@ Choose the first pilot component using all of these constraints:
 - expected affected component set recorded
 - stable/beta workflow behavior observed or dry-run validated
 - rollback command/document steps prepared before merge
+
+### Operational evidence checklist for the current rollout
+
+Use this checklist before advancing the component-scoped rollout beyond the current slice.
+
+#### 1. Record the intended scope explicitly
+
+For every PR or rollout step, record:
+
+- the target slice/commit being introduced or reverted,
+- the expected affected component set,
+- whether each affected component is `publishable` or `validate-only`,
+- and whether the change is expected to alter version state, publish gating, reporting only, or docs only.
+
+#### 2. Verify workflow syntax after every workflow-touching slice
+
+Minimum command:
+
+```bash
+actionlint .github/workflows/_publish.yml \
+  .github/workflows/release-please.yml \
+  .github/workflows/release-please-beta.yml \
+  .github/workflows/publish-release.yml \
+  .github/workflows/publish-snapshot.yml
+```
+
+Evidence to capture:
+
+- command output (success / no output expected),
+- exact workflow files included in the check,
+- and whether the slice changed workflow behavior or reporting only.
+
+#### 3. Verify version-state changes as paired config + manifest updates
+
+Whenever `release-please` component scope changes, review these files together:
+
+- `release-please-config.json`
+- `release-please-beta-config.json`
+- `.release-please-manifest.json`
+- `.release-please-beta-manifest.json`
+
+Evidence to capture:
+
+- the exact components present before and after the change,
+- whether the manifest keys match the config component model,
+- and confirmation that stable/beta config stayed structurally aligned.
+
+#### 4. Verify publish-gating changes against affected components
+
+Whenever `_publish.yml`, `release-please.yml`, or `release-please-beta.yml` changes, capture:
+
+- the resolver summary showing affected components,
+- the publish summary showing component-aware status,
+- confirmation that unaffected components are skipped,
+- and confirmation that validate-only components stop short of becoming standalone release-state authorities.
+
+#### 5. Use slice-specific evidence for the currently implemented rollout
+
+Current slices and their minimum evidence:
+
+- `b7444cbd` — rook pilot
+  - resolver output includes `rook` when expected,
+  - release-please output remains readable and scoped.
+- `b3841bc5` — centralized publish gating
+  - component flags match resolver output,
+  - downstream jobs are gated only when the component is affected.
+- `43266d2f` — expand versioning to `corvus-runtime` and `cerebro`
+  - config and manifest files show the same component set,
+  - `_publish.yml` validates the added version surfaces.
+- `1ff3d95d` — keep `gradle-kmp` validate-only
+  - Gradle version checks validate `gradle.properties` and `gradle/build-logic/gradle.properties`,
+  - `gradle-kmp` remains documented as validate-only.
+- `9f9642dd` — rollback procedures documented
+  - rollback commands exist for every rollout slice,
+  - paired file-group rules are documented.
+- `a78fddf6` — component-aware publish summary
+  - `GITHUB_STEP_SUMMARY` includes component status for affected components,
+  - the summary distinguishes publishable vs validate-only policy.
+
+#### 6. Do not advance phases on inferred confidence alone
+
+Before moving beyond the current rollout level, require at least:
+
+- one concrete workflow validation run,
+- one reviewed diff showing the exact files changed,
+- one explicit statement of expected affected components,
+- and one rollback path already documented for the slice under review.
