@@ -2984,15 +2984,19 @@ async fn legacy_simple_chat(
     let model_label = state.model.clone();
     let started_at = Instant::now();
 
-    state.observer.record_event(&crate::observability::ObserverEvent::agent_start(
-        provider_label.clone(),
-        model_label.clone(),
-    ));
-    state.observer.record_event(&crate::observability::ObserverEvent::llm_request(
-        provider_label.clone(),
-        model_label.clone(),
-        1,
-    ));
+    state
+        .observer
+        .record_event(&crate::observability::ObserverEvent::agent_start(
+            provider_label.clone(),
+            model_label.clone(),
+        ));
+    state
+        .observer
+        .record_event(&crate::observability::ObserverEvent::llm_request(
+            provider_label.clone(),
+            model_label.clone(),
+            1,
+        ));
 
     match state
         .provider
@@ -3044,13 +3048,11 @@ fn record_llm_success(
         true,
         None,
     ));
-    observer.record_metric(&crate::observability::ObserverMetric::request_latency(duration));
-    observer.record_event(&crate::observability::ObserverEvent::agent_end(
-        provider_s,
-        model_s,
+    observer.record_metric(&crate::observability::ObserverMetric::request_latency(
         duration,
-        None,
-        None,
+    ));
+    observer.record_event(&crate::observability::ObserverEvent::agent_end(
+        provider_s, model_s, duration, None, None,
     ));
 }
 
@@ -3071,17 +3073,15 @@ fn record_llm_failure(
         false,
         Some(error_s.clone()),
     ));
-    observer.record_metric(&crate::observability::ObserverMetric::request_latency(duration));
+    observer.record_metric(&crate::observability::ObserverMetric::request_latency(
+        duration,
+    ));
     observer.record_event(&crate::observability::ObserverEvent::error(
         String::from("gateway"),
         error_s,
     ));
     observer.record_event(&crate::observability::ObserverEvent::agent_end(
-        provider_s,
-        model_s,
-        duration,
-        None,
-        None,
+        provider_s, model_s, duration, None, None,
     ));
 }
 
