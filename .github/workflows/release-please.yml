@@ -63,18 +63,20 @@ jobs:
               "gradle/": {"gradle-kmp"},
               "gradle.properties": {"gradle-kmp"},
           }
-          shared_exact = {
-              ".github/workflows/release-please.yml": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              ".github/workflows/release-please-beta.yml": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              ".github/workflows/_publish.yml": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              ".github/workflows/publish-release.yml": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              ".github/workflows/publish-snapshot.yml": {"gradle-kmp"},
-              "release-please-config.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              "release-please-beta-config.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              ".release-please-manifest.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              ".release-please-beta-manifest.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              "version.txt": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-          }
+            shared_exact = {
+                ".github/workflows/release-please.yml": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
+                ".github/workflows/release-please-beta.yml": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
+                ".github/workflows/_publish.yml": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
+                ".github/workflows/publish-release.yml": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
+                ".github/workflows/publish-snapshot.yml": {"gradle-kmp"},
+                ".github/workflows/codeql-analysis.yml": {"rook"},
+                "release-please-config.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
+                "release-please-beta-config.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
+                ".release-please-manifest.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
+                ".release-please-beta-manifest.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
+                "version.txt": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
+            }
+
           shared_prefix = {
               "openspec/specs/release-management/": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
           }
