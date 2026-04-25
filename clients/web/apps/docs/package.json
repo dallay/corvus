@@ -27,6 +27,6 @@
     "astro-vtbot": "catalog:",
     "portless": "catalog:",
     "typescript": "catalog:",
-    "vite": "8.0.10"
+    "vite": "catalog:"
   }
 }

@@ -28,6 +28,7 @@
   "devDependencies": {
     "portless": "catalog:",
     "typescript": "catalog:",
-    "vite": "8.0.10"
-  }
+    "vite": "^7.3.0"
+  },
+  "_comment": "TODO: switch vite to 'catalog:vite' once the catalog is fixed to require Vite 7.x for Astro 6.1"
 }

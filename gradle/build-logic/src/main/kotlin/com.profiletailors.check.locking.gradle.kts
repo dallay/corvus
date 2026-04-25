@@ -5,7 +5,7 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
 val isCi = providers.environmentVariable("CI").orNull?.isNotBlank() == true
-val safeNettyVersion = "4.1.132.Final"
+val safeNettyVersion = "4.2.12.Final"
 val safeProtobufVersion = "3.25.9"
 val safeJacksonToolsVersion = "3.1.0"
 
