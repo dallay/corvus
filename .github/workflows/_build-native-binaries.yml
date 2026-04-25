@@ -4,6 +4,9 @@ name: "_build-native-binaries"
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   build-native-binaries:
     runs-on: ${{ matrix.os }}

@@ -2,6 +2,9 @@
 # https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#supported-keywords-for-jobs-that-call-a-reusable-workflow
 name: Publish Release
 
+permissions:
+  contents: read
+
 on:
   release:
     types:

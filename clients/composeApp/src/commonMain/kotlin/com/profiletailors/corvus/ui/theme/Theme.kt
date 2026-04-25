@@ -22,6 +22,37 @@ import androidx.compose.ui.unit.sp
 // Corvus AI - Futuristic Tech Theme
 // ============================================================================
 
+private const val LIGHT_PRIMARY_CONTAINER_HEX = 0xFFF3E8FF
+private const val LIGHT_SECONDARY_CONTAINER_HEX = 0xFFCFFAFE
+private const val LIGHT_BACKGROUND_HEX = 0xFFF8FAFC
+private const val DARK_BACKGROUND_HEX = 0xFF0F141B
+private const val DARK_SURFACE_HEX = 0xFF151B24
+private const val DARK_SURFACE_VARIANT_HEX = 0xFF1D2531
+private const val DARK_OUTLINE_HEX = 0xFF334155
+private const val DARK_OUTLINE_VARIANT_HEX = 0xFF1E293B
+private const val DARK_ON_BACKGROUND_HEX = 0xFFE2E8F0
+private const val DARK_ON_SURFACE_VARIANT_HEX = 0xFF94A3B8
+private const val ERROR_HEX = 0xFFEF4444
+private const val LIGHT_ON_BACKGROUND_HEX = 0xFF0F172A
+private const val LIGHT_SURFACE_VARIANT_HEX = 0xFFF1F5F9
+private const val LIGHT_ON_SURFACE_VARIANT_HEX = 0xFF64748B
+private const val LIGHT_OUTLINE_HEX = 0xFFCBD5E1
+private const val LIGHT_OUTLINE_VARIANT_HEX = 0xFFE2E8F0
+private const val SCRIM_HEX = 0xFF000000
+private const val GLASS_BORDER_HEX = 0x33FFFFFF
+private const val SPACING_XS = 4
+private const val SPACING_SM = 8
+private const val SPACING_MD = 16
+private const val SPACING_LG = 24
+private const val SPACING_XL = 32
+private const val RADIUS_SM = 8
+private const val RADIUS_MD = 16
+private const val RADIUS_LG = 24
+private const val RADIUS_FULL = 9999
+private const val ANIMATION_FAST_MS = 150
+private const val ANIMATION_NORMAL_MS = 300
+private const val ANIMATION_SLOW_MS = 500
+
 private val DarkColorScheme =
   darkColorScheme(
     primary = Purple,
@@ -34,48 +65,48 @@ private val DarkColorScheme =
     onSecondaryContainer = Color.White,
     tertiary = PurpleLight,
     onTertiary = Color.White,
-    background = Color(0xFF0F141B),
-    onBackground = Color(0xFFE2E8F0),
-    surface = Color(0xFF151B24),
-    onSurface = Color(0xFFE2E8F0),
-    surfaceVariant = Color(0xFF1D2531),
-    onSurfaceVariant = Color(0xFF94A3B8),
-    outline = Color(0xFF334155),
-    outlineVariant = Color(0xFF1E293B),
-    error = Color(0xFFEF4444),
+    background = Color(DARK_BACKGROUND_HEX),
+    onBackground = Color(DARK_ON_BACKGROUND_HEX),
+    surface = Color(DARK_SURFACE_HEX),
+    onSurface = Color(DARK_ON_BACKGROUND_HEX),
+    surfaceVariant = Color(DARK_SURFACE_VARIANT_HEX),
+    onSurfaceVariant = Color(DARK_ON_SURFACE_VARIANT_HEX),
+    outline = Color(DARK_OUTLINE_HEX),
+    outlineVariant = Color(DARK_OUTLINE_VARIANT_HEX),
+    error = Color(ERROR_HEX),
     onError = Color.White,
-    inverseSurface = Color(0xFFE2E8F0),
-    inverseOnSurface = Color(0xFF0F141B),
+    inverseSurface = Color(DARK_ON_BACKGROUND_HEX),
+    inverseOnSurface = Color(LIGHT_ON_BACKGROUND_HEX),
     inversePrimary = PurpleDark,
-    scrim = Color(0xFF000000),
+    scrim = Color(SCRIM_HEX),
   )
 
 private val LightColorScheme =
   lightColorScheme(
     primary = Purple,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFF3E8FF),
+    primaryContainer = Color(LIGHT_PRIMARY_CONTAINER_HEX),
     onPrimaryContainer = PurpleDark,
     secondary = Cyan,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFCFFAFE),
+    secondaryContainer = Color(LIGHT_SECONDARY_CONTAINER_HEX),
     onSecondaryContainer = CyanDark,
     tertiary = PurpleLight,
     onTertiary = Color.White,
-    background = Color(0xFFF8FAFC),
-    onBackground = Color(0xFF0F172A),
+    background = Color(LIGHT_BACKGROUND_HEX),
+    onBackground = Color(LIGHT_ON_BACKGROUND_HEX),
     surface = Color.White,
-    onSurface = Color(0xFF0F172A),
-    surfaceVariant = Color(0xFFF1F5F9),
-    onSurfaceVariant = Color(0xFF64748B),
-    outline = Color(0xFFCBD5E1),
-    outlineVariant = Color(0xFFE2E8F0),
-    error = Color(0xFFEF4444),
+    onSurface = Color(LIGHT_ON_BACKGROUND_HEX),
+    surfaceVariant = Color(LIGHT_SURFACE_VARIANT_HEX),
+    onSurfaceVariant = Color(LIGHT_ON_SURFACE_VARIANT_HEX),
+    outline = Color(LIGHT_OUTLINE_HEX),
+    outlineVariant = Color(LIGHT_OUTLINE_VARIANT_HEX),
+    error = Color(ERROR_HEX),
     onError = Color.White,
-    inverseSurface = Color(0xFF0F172A),
-    inverseOnSurface = Color(0xFFF1F5F9),
+    inverseSurface = Color(LIGHT_ON_BACKGROUND_HEX),
+    inverseOnSurface = Color(LIGHT_SURFACE_VARIANT_HEX),
     inversePrimary = PurpleLight,
-    scrim = Color(0xFF000000),
+    scrim = Color(SCRIM_HEX),
   )
 
 // ============================================================================
@@ -236,7 +267,7 @@ data class CorvusTokens(
 
   // Glass Effect
   val glassBackground: Color = DarkCorvusColors.glassSurface,
-  val glassBorder: Color = Color(0x33FFFFFF),
+  val glassBorder: Color = Color(GLASS_BORDER_HEX),
 
   // Status Colors
   val statusConnected: Color = SuccessGreen,
@@ -244,22 +275,22 @@ data class CorvusTokens(
   val statusProcessing: Color = WarningAmber,
 
   // Spacing
-  val spacingXs: Int = 4,
-  val spacingSm: Int = 8,
-  val spacingMd: Int = 16,
-  val spacingLg: Int = 24,
-  val spacingXl: Int = 32,
+  val spacingXs: Int = SPACING_XS,
+  val spacingSm: Int = SPACING_SM,
+  val spacingMd: Int = SPACING_MD,
+  val spacingLg: Int = SPACING_LG,
+  val spacingXl: Int = SPACING_XL,
 
   // Border Radius
-  val radiusSm: Int = 8,
-  val radiusMd: Int = 16,
-  val radiusLg: Int = 24,
-  val radiusFull: Int = 9999,
+  val radiusSm: Int = RADIUS_SM,
+  val radiusMd: Int = RADIUS_MD,
+  val radiusLg: Int = RADIUS_LG,
+  val radiusFull: Int = RADIUS_FULL,
 
   // Animation
-  val animationFast: Int = 150,
-  val animationNormal: Int = 300,
-  val animationSlow: Int = 500,
+  val animationFast: Int = ANIMATION_FAST_MS,
+  val animationNormal: Int = ANIMATION_NORMAL_MS,
+  val animationSlow: Int = ANIMATION_SLOW_MS,
 )
 
 val LocalCorvusTokens = staticCompositionLocalOf { CorvusTokens() }
