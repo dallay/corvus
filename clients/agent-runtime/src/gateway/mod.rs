@@ -33,6 +33,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use hmac::KeyInit;
 use parking_lot::Mutex;
 use regex::Regex;
 use std::collections::hash_map::DefaultHasher;
@@ -8003,7 +8004,7 @@ always_ask = []
     // ══════════════════════════════════════════════════════════
 
     fn compute_whatsapp_signature_hex(secret: &str, body: &[u8]) -> String {
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
         use sha2::Sha256;
 
         let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
