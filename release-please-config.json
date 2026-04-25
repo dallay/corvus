@@ -22,6 +22,11 @@
         },
         {
           "type": "toml",
+          "path": "clients/rook/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
           "path": "modules/cerebro/Cargo.toml",
           "jsonpath": "$.package.version"
         },
@@ -29,6 +34,61 @@
           "type": "toml",
           "path": "clients/agent-runtime/Cargo.toml",
           "jsonpath": "$.dependencies.cerebro.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/rook/npm/rook/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/rook/npm/rook-darwin-x64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/rook/npm/rook-darwin-arm64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/rook/npm/rook-linux-x64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/rook/npm/rook-linux-arm64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/rook/npm/rook-windows-x64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/rook/npm/rook/package.json",
+          "jsonpath": "$.optionalDependencies['@dallay/rook-darwin-x64']"
+        },
+        {
+          "type": "json",
+          "path": "clients/rook/npm/rook/package.json",
+          "jsonpath": "$.optionalDependencies['@dallay/rook-darwin-arm64']"
+        },
+        {
+          "type": "json",
+          "path": "clients/rook/npm/rook/package.json",
+          "jsonpath": "$.optionalDependencies['@dallay/rook-linux-x64']"
+        },
+        {
+          "type": "json",
+          "path": "clients/rook/npm/rook/package.json",
+          "jsonpath": "$.optionalDependencies['@dallay/rook-linux-arm64']"
+        },
+        {
+          "type": "json",
+          "path": "clients/rook/npm/rook/package.json",
+          "jsonpath": "$.optionalDependencies['@dallay/rook-windows-x64']"
         },
         {
           "type": "json",
