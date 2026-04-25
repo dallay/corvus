@@ -16,6 +16,9 @@ on:
       release_id:
         type: string
         required: false
+      affected_components:
+        type: string
+        required: false
     secrets:
       SIGNING_IN_MEMORY_KEY:
         required: false
@@ -172,7 +175,9 @@ jobs:
         env:
           EXPECTED_VERSION: ${{ steps.release-context.outputs.release_version }}
           RELEASE_CHANNEL: ${{ steps.release-context.outputs.release_channel }}
+          AFFECTED_COMPONENTS: ${{ inputs.affected_components || '["rook"]' }}
         run: |
+
           set -euo pipefail
 
           python3 <<'PY'
@@ -184,6 +189,11 @@ jobs:
 
           expected = os.environ["EXPECTED_VERSION"]
           channel = os.environ["RELEASE_CHANNEL"].title()
+          affected_components_raw = os.environ.get("AFFECTED_COMPONENTS", '["rook"]')
+          try:
+              affected_components = set(json.loads(affected_components_raw))
+          except json.JSONDecodeError as exc:
+              raise RuntimeError(f"Invalid AFFECTED_COMPONENTS payload: {affected_components_raw}") from exc
 
           def read_properties(path: str, key: str) -> str:
               for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
@@ -198,65 +208,38 @@ jobs:
           def read_json_version(path: str) -> str:
               return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["version"]
 
-          checks = [
-              ("version.txt", pathlib.Path("version.txt").read_text(encoding="utf-8").strip()),
-              ("gradle.properties", read_properties("gradle.properties", "VERSION")),
-              (
-                  "gradle/build-logic/gradle.properties",
-                  read_properties("gradle/build-logic/gradle.properties", "VERSION"),
-              ),
-              ("clients/agent-runtime/Cargo.toml", read_toml_version("clients/agent-runtime/Cargo.toml")),
-              ("clients/rook/Cargo.toml", read_toml_version("clients/rook/Cargo.toml")),
-              ("modules/cerebro/Cargo.toml", read_toml_version("modules/cerebro/Cargo.toml")),
-              (
-                  "clients/rook/npm/rook/package.json",
-                  read_json_version("clients/rook/npm/rook/package.json"),
-              ),
-              (
-                  "clients/rook/npm/rook-darwin-x64/package.json",
-                  read_json_version("clients/rook/npm/rook-darwin-x64/package.json"),
-              ),
-              (
-                  "clients/rook/npm/rook-darwin-arm64/package.json",
-                  read_json_version("clients/rook/npm/rook-darwin-arm64/package.json"),
-              ),
-              (
-                  "clients/rook/npm/rook-linux-x64/package.json",
-                  read_json_version("clients/rook/npm/rook-linux-x64/package.json"),
-              ),
-              (
-                  "clients/rook/npm/rook-linux-arm64/package.json",
-                  read_json_version("clients/rook/npm/rook-linux-arm64/package.json"),
-              ),
-              (
-                  "clients/rook/npm/rook-windows-x64/package.json",
-                  read_json_version("clients/rook/npm/rook-windows-x64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-darwin-x64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-darwin-x64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-darwin-arm64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-darwin-arm64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-linux-x64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-linux-x64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-linux-arm64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-linux-arm64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-windows-x64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-windows-x64/package.json"),
-              ),
-          ]
+          checks = []
+          if "rook" in affected_components:
+              checks.extend([
+                  ("clients/rook/Cargo.toml", read_toml_version("clients/rook/Cargo.toml")),
+                  (
+                      "clients/rook/npm/rook/package.json",
+                      read_json_version("clients/rook/npm/rook/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-darwin-x64/package.json",
+                      read_json_version("clients/rook/npm/rook-darwin-x64/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-darwin-arm64/package.json",
+                      read_json_version("clients/rook/npm/rook-darwin-arm64/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-linux-x64/package.json",
+                      read_json_version("clients/rook/npm/rook-linux-x64/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-linux-arm64/package.json",
+                      read_json_version("clients/rook/npm/rook-linux-arm64/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-windows-x64/package.json",
+                      read_json_version("clients/rook/npm/rook-windows-x64/package.json"),
+                  ),
+              ])
+
+          if not checks:
+              raise RuntimeError(f"No version checks configured for affected components: {sorted(affected_components)}")
 
           failures = [(surface, actual) for surface, actual in checks if actual != expected]
 
@@ -721,7 +704,7 @@ jobs:
         id: publish-platform-package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+          NPM_DIST_TAG: latest
         run: |
           set -euo pipefail
           if [ -z "$NODE_AUTH_TOKEN" ]; then
@@ -759,7 +742,7 @@ jobs:
         if: ${{ always() }}
         env:
           PLATFORM_PUBLISH_OUTCOME: ${{ steps.publish-platform-package.outcome }}
-          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+          NPM_DIST_TAG: latest
         run: |
           {
             echo "## npm platform publish summary"
@@ -792,7 +775,7 @@ jobs:
         id: publish-base-package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+          NPM_DIST_TAG: latest
         run: |
           set -euo pipefail
           if [ -z "$NODE_AUTH_TOKEN" ]; then
@@ -821,7 +804,7 @@ jobs:
         if: ${{ always() }}
         env:
           BASE_PUBLISH_OUTCOME: ${{ steps.publish-base-package.outcome }}
-          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+          NPM_DIST_TAG: latest
         run: |
           {
             echo "## npm base publish summary"

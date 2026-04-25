@@ -23,6 +23,7 @@ jobs:
       release_created: ${{ steps.release-please.outputs.releases_created || steps.release-please.outputs.release_created || 'false' }}
       tag_name: ${{ steps.release-please.outputs.tag_name }}
       release_id: ${{ steps.resolve-release-id.outputs.release_id }}
+      affected_components: ${{ steps.component-scope.outputs.affected_components }}
     steps:
       - name: 🔐 Generate release GitHub App token
         id: app-token
@@ -36,6 +37,16 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
+
+      - name: 🧭 Resolve pilot affected components
+        id: component-scope
+        run: |
+          printf 'affected_components=["rook"]\n' >> "$GITHUB_OUTPUT"
+          {
+            echo "### Pilot affected components"
+            echo
+            echo "- \`rook\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 🤖 Run release-please
         id: release-please

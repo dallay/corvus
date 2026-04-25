@@ -8,15 +8,51 @@ on:
       - published
 
 jobs:
-  publish-release:
-    # Canonical stable release handoff: release-please publishes the GitHub Release, then _publish will attach artifacts to the existing canonical GitHub Release.
+  resolve-release-scope:
+    runs-on: ubuntu-latest
     if: >-
       github.event_name == 'release' &&
       github.event.action == 'published' &&
       github.event.release.draft == false &&
       github.event.release.prerelease == false &&
-      startsWith(github.event.release.tag_name, 'v') &&
       github.repository == 'dallay/corvus'
+    outputs:
+      affected_components: ${{ steps.scope.outputs.affected_components }}
+      supported_release: ${{ steps.scope.outputs.supported_release }}
+    steps:
+      - name: 🧭 Resolve release scope from tag
+        id: scope
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          case "$RELEASE_TAG" in
+            rook-v*)
+              printf 'affected_components=["rook"]\n' >> "$GITHUB_OUTPUT"
+              printf 'supported_release=true\n' >> "$GITHUB_OUTPUT"
+              {
+                echo "### Release scope"
+                echo
+                echo "- Tag: \`$RELEASE_TAG\`"
+                echo "- Affected components: \`rook\`"
+              } >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              printf 'affected_components=[]\n' >> "$GITHUB_OUTPUT"
+              printf 'supported_release=false\n' >> "$GITHUB_OUTPUT"
+              {
+                echo "### Release scope"
+                echo
+                echo "- Tag: \`$RELEASE_TAG\`"
+                echo "- This pilot publish workflow only supports the rook component tag namespace."
+              } >> "$GITHUB_STEP_SUMMARY"
+              ;;
+          esac
+
+  publish-release:
+    # Canonical stable release handoff: release-please publishes the GitHub Release, then _publish will attach artifacts to the existing canonical GitHub Release.
+    needs: resolve-release-scope
+    if: ${{ needs.resolve-release-scope.outputs.supported_release == 'true' }}
     permissions:
       contents: write
       packages: write
@@ -26,6 +62,7 @@ jobs:
       prerelease: false
       release_tag: ${{ github.event.release.tag_name }}
       release_id: ${{ github.event.release.id }}
+      affected_components: ${{ needs.resolve-release-scope.outputs.affected_components }}
     secrets:
       SIGNING_IN_MEMORY_KEY: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
       SIGNING_IN_MEMORY_KEY_PASSWORD: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}

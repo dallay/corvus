@@ -3,8 +3,9 @@
 ## Purpose
 
 Define the canonical repo-wide release contract for Corvus so release orchestration, baseline
-recovery, version bump scope, artifact publication, and release notes behave consistently under a
-single `release-please`-driven release train.
+recovery, version bump scope, artifact publication, release notes, and component-scoped release
+planning behave consistently while the repository still operates under a single
+`release-please`-driven release train.
 
 ## Requirements
 
@@ -69,6 +70,30 @@ shipped stable release set.
 - THEN that package or manifest MUST NOT be version-bumped solely to mirror the repo-wide stable
   release version
 
+### Requirement: Releaseable Component Inventory Is Canonical
+
+The system MUST maintain a canonical inventory of releaseable components, their shipped artifacts,
+current version sources, and current publish channels before component-scoped release automation is
+introduced.
+
+#### Scenario: Maintainer inspects current release surfaces
+
+- GIVEN the repository still uses stable and beta `release-please` configs that model one package
+  `.`
+- WHEN a maintainer reviews release-management documentation
+- THEN they can identify the canonical component ids `corvus-runtime`, `rook`, `cerebro`, and
+  `gradle-kmp`
+- AND they can see the shipped artifacts, version source files, and active publish channels for
+  each component
+
+#### Scenario: Excluded or private surfaces remain explicit
+
+- GIVEN a package or app is present in the repository but is not part of the public shipped stable
+  artifact set
+- WHEN operators inspect the component inventory
+- THEN the surface is documented as excluded or private
+- AND its omission from release fan-out is treated as intentional policy rather than missing data
+
 ### Requirement: Publish Workflow Contract After Tag Creation
 
 The system MUST treat canonical tag creation as the handoff point from release orchestration to
@@ -131,11 +156,35 @@ the stable release contract or intentionally excluded by policy.
 - AND the package's omission from stable publish execution is treated as expected policy rather
   than an unexplained gap
 
+### Requirement: Release Impact Rules Are Explicit
+
+The system MUST maintain explicit path-based and shared release infrastructure impact rules that
+determine which releaseable components are affected by a change.
+
+#### Scenario: Maintainer evaluates a component-scoped change
+
+- GIVEN a change only touches files owned by one releaseable component
+- WHEN release impact is evaluated
+- THEN only that component is marked affected unless an explicit shared dependency rule says
+  otherwise
+
+#### Scenario: Maintainer evaluates a shared release infrastructure change
+
+- GIVEN a change touches shared release infrastructure, shared version state, or shared
+  release-management specifications
+- WHEN release impact is evaluated
+- THEN every component listed by the matching shared impact rule is marked affected
+- AND the reason for the fan-out is visible to operators
+
 ## Acceptance Criteria
 
 - Stable releases use one canonical repo-wide `release-please` PR/tag flow.
 - Baseline verification can distinguish healthy release state from manifest/tag/release drift.
 - Repo-wide version bumps are limited to shipped stable artifacts unless an exception is explicit.
+- The repository includes a canonical inventory for `corvus-runtime`, `rook`, `cerebro`, and
+  `gradle-kmp`, including current shipped artifacts, version sources, and publish channels.
 - Stable publish execution starts from the canonical `vX.Y.Z` tag contract.
 - Stable release notes have one canonical source of truth without competing changelog ownership.
 - Each runtime package that is versioned has an explicit publish-or-exclude policy.
+- The repository includes canonical path and shared release infrastructure impact rules for each
+  releaseable component.
