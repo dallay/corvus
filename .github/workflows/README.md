@@ -196,8 +196,9 @@ Release, then attaches assets to that existing release.
 Calls the reusable `_publish.yml` workflow with explicit release context:
 
 - `release: true` - Enables stable publication mode
-- `release_tag` - Canonical `vX.Y.Z` tag from the GitHub Release event
+- `release_tag` - Canonical component-scoped stable tag from the GitHub Release event (for example `rook-vX.Y.Z`, `corvus-runtime-vX.Y.Z`, or `cerebro-vX.Y.Z`)
 - `release_id` - Existing GitHub Release identifier used for asset upload
+- `affected_components` - Component set resolved from the published stable tag namespace, or overridden for multi-component stable handoff with an `affected_components:` line in the GitHub Release body, then passed into `_publish.yml`
 
 **Stable contract**:
 
@@ -212,7 +213,8 @@ Calls the reusable `_publish.yml` workflow with explicit release context:
 **Restrictions**:
 
 - Only runs on `dallay/corvus` repository
-- Requires a published, non-draft, non-prerelease GitHub Release with a `vX.Y.Z` tag
+- Requires a published, non-draft, non-prerelease GitHub Release with a supported component-scoped stable tag (`rook-vX.Y.Z`, `corvus-runtime-vX.Y.Z`, or `cerebro-vX.Y.Z`)
+- Multi-component stable handoff may override the tag-implied component set by adding a release body line like `affected_components: rook, corvus-runtime`
 
 ---
 

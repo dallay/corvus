@@ -67,7 +67,7 @@ jobs:
         id: component-flags
         shell: python
         env:
-          AFFECTED_COMPONENTS: ${{ inputs.affected_components || '["rook"]' }}
+          AFFECTED_COMPONENTS: ${{ inputs.affected_components || '[]' }}
         run: |
           import json
           import os
@@ -201,7 +201,7 @@ jobs:
         env:
           EXPECTED_VERSION: ${{ steps.release-context.outputs.release_version }}
           RELEASE_CHANNEL: ${{ steps.release-context.outputs.release_channel }}
-          AFFECTED_COMPONENTS: ${{ inputs.affected_components || '["rook"]' }}
+          AFFECTED_COMPONENTS: ${{ inputs.affected_components || '[]' }}
         run: |
 
           set -euo pipefail
@@ -215,7 +215,7 @@ jobs:
 
           expected = os.environ["EXPECTED_VERSION"]
           channel = os.environ["RELEASE_CHANNEL"].title()
-          affected_components_raw = os.environ.get("AFFECTED_COMPONENTS", '["rook"]')
+          affected_components_raw = os.environ.get("AFFECTED_COMPONENTS", '[]')
           try:
               affected_components = set(json.loads(affected_components_raw))
           except json.JSONDecodeError as exc:

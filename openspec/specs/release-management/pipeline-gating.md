@@ -2,9 +2,14 @@
 
 ## Status
 
-Design-only for release decoupling work associated with #652 and #653. This document describes the
-intended migration from repo-wide release gating toward component-aware validation and publication.
-It does not change any live workflows, required checks, or release automation in this step.
+Implemented in part for release decoupling work associated with #652 and #653. The repository now
+uses component-aware release scope resolution in `release-please.yml`, `release-please-beta.yml`,
+and `publish-release.yml`, with `_publish.yml` consuming `affected_components` to gate
+validation/publication by component. Stable handoff supports single-component resolution from tag
+namespace and optional multi-component override from the GitHub Release body via an
+`affected_components:` line. This document still describes the target operating model for
+remaining follow-up work such as explicit multi-component stable handoff evidence and further
+contract simplification.
 
 ## Problem
 
