@@ -47,6 +47,10 @@ jobs:
       release_major_minor: ${{ steps.release-context.outputs.release_major_minor }}
       release_major: ${{ steps.release-context.outputs.release_major }}
       npm_dist_tag: ${{ steps.release-context.outputs.npm_dist_tag }}
+      has_corvus_runtime: ${{ steps.component-flags.outputs.has_corvus_runtime }}
+      has_rook: ${{ steps.component-flags.outputs.has_rook }}
+      has_cerebro: ${{ steps.component-flags.outputs.has_cerebro }}
+      has_gradle_kmp: ${{ steps.component-flags.outputs.has_gradle_kmp }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
@@ -58,6 +62,28 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+
+      - name: 🧭 Resolve component flags
+        id: component-flags
+        shell: python
+        env:
+          AFFECTED_COMPONENTS: ${{ inputs.affected_components || '["rook"]' }}
+        run: |
+          import json
+          import os
+          import pathlib
+
+          affected = set(json.loads(os.environ["AFFECTED_COMPONENTS"]))
+          flags = {
+              "has_corvus_runtime": "corvus-runtime" in affected,
+              "has_rook": "rook" in affected,
+              "has_cerebro": "cerebro" in affected,
+              "has_gradle_kmp": "gradle-kmp" in affected,
+          }
+
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              for key, value in flags.items():
+                  output.write(f"{key}={'true' if value else 'false'}\\n")
 
       - name: 🦀 Resolve Rust channel
         if: ${{ inputs.release }}
@@ -293,6 +319,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 👻 Publish Gradle/Maven artifacts
+        if: ${{ steps.component-flags.outputs.has_gradle_kmp == 'true' }}
         id: publish-maven
         continue-on-error: true
         env:
@@ -313,7 +340,7 @@ jobs:
           ./gradlew -p gradle/build-logic publishToMavenCentral
 
       - name: 📦 Publish corvus-traits crate to crates.io
-        if: ${{ inputs.release }}
+        if: ${{ inputs.release && steps.component-flags.outputs.has_corvus_runtime == 'true' }}
         id: publish-cargo-corvus-traits
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -326,7 +353,7 @@ jobs:
           cargo publish --locked
 
       - name: 📦 Publish Rust crate to crates.io
-        if: ${{ inputs.release }}
+        if: ${{ inputs.release && steps.component-flags.outputs.has_corvus_runtime == 'true' }}
         id: publish-cargo
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -339,7 +366,7 @@ jobs:
           cargo publish --locked
 
       - name: 📦 Publish Rook crate to crates.io
-        if: ${{ inputs.release }}
+        if: ${{ inputs.release && steps.component-flags.outputs.has_rook == 'true' }}
         id: publish-cargo-rook
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -386,28 +413,28 @@ jobs:
            } >> "$GITHUB_STEP_SUMMARY"
 
   build-native-binaries:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_corvus_runtime == 'true' }}
     needs: publish
     permissions:
       contents: read
     uses: ./.github/workflows/_build-native-binaries.yml
 
   build-cerebro-binaries:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_cerebro == 'true' }}
     needs: publish
     permissions:
       contents: read
     uses: ./.github/workflows/_build-cerebro-binaries.yml
 
   build-rook-binaries:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_rook == 'true' }}
     needs: publish
     permissions:
       contents: read
     uses: ./.github/workflows/_build-rook-binaries.yml
 
   docker-image:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_corvus_runtime == 'true' }}
     needs: [publish, build-native-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -481,7 +508,7 @@ jobs:
           labels: ${{ steps.docker-meta.outputs.labels }}
 
   docker-image-cerebro:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_cerebro == 'true' }}
     needs: [publish, build-cerebro-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -555,7 +582,7 @@ jobs:
           labels: ${{ steps.docker-meta.outputs.labels }}
 
   docker-image-rook:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_rook == 'true' }}
     needs: [publish, build-rook-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -629,8 +656,8 @@ jobs:
           labels: ${{ steps.docker-meta.outputs.labels }}
 
   publish-npm-platforms:
-    if: ${{ inputs.release }}
-    needs: build-native-binaries
+    if: ${{ inputs.release && needs.publish.outputs.has_corvus_runtime == 'true' }}
+    needs: [publish, build-native-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -755,8 +782,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish-npm-base:
-    if: ${{ inputs.release }}
-    needs: publish-npm-platforms
+    if: ${{ inputs.release && needs.publish.outputs.has_corvus_runtime == 'true' }}
+    needs: [publish, publish-npm-platforms]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -817,7 +844,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish-npm-platforms-rook:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_rook == 'true' }}
     needs: [build-rook-binaries, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -916,7 +943,7 @@ jobs:
           npm publish "${npm_publish_args[@]}"
 
   publish-npm-base-rook:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_rook == 'true' }}
     needs: [publish-npm-platforms-rook, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 10
