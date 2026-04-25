@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "corvus"
-version = "3.6.1"
+version = "3.6.2"
 edition = "2021"
 build = "build.rs"
 authors = ["theonlyhennygod"]
@@ -109,7 +109,7 @@ chrono-tz = "0.10"
 cron = "0.15"
 
 # Cerebro MCP service client
-cerebro = { version = "3.6.1", path = "../../modules/cerebro" }
+cerebro = { version = "3.6.2", path = "../../modules/cerebro" }
 
 # Interactive CLI prompts
 dialoguer = { version = "0.12", features = ["fuzzy-select"] }
