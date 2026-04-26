@@ -8,6 +8,7 @@ val isCi = providers.environmentVariable("CI").orNull?.isNotBlank() == true
 val safeNettyVersion = "4.1.132.Final"
 val safeProtobufVersion = "3.25.9"
 val safeJacksonToolsVersion = "3.1.0"
+val dynamicVersionCacheDurationDays = 7
 
 val excludedLockingConfigurationPrefixes =
   listOf("allDevSourceSets", "composeHotReloadDev", "detachedConfiguration", "jvmDev", "spotless")
@@ -111,7 +112,7 @@ dependencyLocking {
 buildscript.configurations.configureEach {
   if (shouldUseDependencyLocking()) {
     resolutionStrategy {
-      cacheDynamicVersionsFor(7, TimeUnit.DAYS)
+      cacheDynamicVersionsFor(dynamicVersionCacheDurationDays, TimeUnit.DAYS)
       enforceSafeNettyVersion()
       enforceSafeProtobufVersion()
       enforceSafeJacksonToolsVersion()
@@ -123,7 +124,7 @@ buildscript.configurations.configureEach {
 configurations.configureEach {
   if (shouldUseDependencyLocking()) {
     resolutionStrategy {
-      cacheDynamicVersionsFor(7, TimeUnit.DAYS)
+      cacheDynamicVersionsFor(dynamicVersionCacheDurationDays, TimeUnit.DAYS)
       enforceSafeNettyVersion()
       enforceSafeProtobufVersion()
       enforceSafeJacksonToolsVersion()

@@ -20,10 +20,21 @@ import java.util.concurrent.Executors
  * - Default timeout 10m
  * - Default executor: virtual thread
  */
+private const val DEFAULT_CONNECT_TIMEOUT_MINUTES = 10L
+private const val DEFAULT_HEAD_TIMEOUT_MINUTES = 5L
+private const val TEMP_DOWNLOAD_DIR_PREFIX = "download_"
+private const val RANDOM_FILENAME_SEPARATOR = "-"
+private const val RANDOM_FILENAME_REPLACEMENT = ""
+private const val HTTP_CLIENT_THREAD_COUNTER_START = 0L
+
 val httpClient: HttpClient.Builder =
   HttpClient.newBuilder()
-    .executor(Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("vt-h-c", 0).factory()))
-    .connectTimeout(Duration.ofMinutes(10))
+    .executor(
+      Executors.newThreadPerTaskExecutor(
+        Thread.ofVirtual().name("vt-h-c", HTTP_CLIENT_THREAD_COUNTER_START).factory()
+      )
+    )
+    .connectTimeout(Duration.ofMinutes(DEFAULT_CONNECT_TIMEOUT_MINUTES))
     .followRedirects(HttpClient.Redirect.NORMAL)
 
 /** HTTP / URL related utility methods. */
@@ -49,7 +60,7 @@ object HttpUtils {
    */
   fun get(
     uri: URI,
-    timeout: Duration = Duration.ofMinutes(10),
+    timeout: Duration = Duration.ofMinutes(DEFAULT_CONNECT_TIMEOUT_MINUTES),
     connectTimeout: Duration = timeout,
   ): String? {
     val request = HttpRequest.newBuilder().uri(uri).GET().timeout(timeout).build()
@@ -71,7 +82,7 @@ object HttpUtils {
    */
   fun head(
     uri: URI,
-    timeout: Duration = Duration.ofMinutes(5),
+    timeout: Duration = Duration.ofMinutes(DEFAULT_HEAD_TIMEOUT_MINUTES),
     connectTimeout: Duration = timeout,
   ): Boolean {
     return runCatching {
@@ -96,15 +107,15 @@ object HttpUtils {
    */
   fun download(
     uri: URI,
-    timeout: Duration = Duration.ofMinutes(10),
+    timeout: Duration = Duration.ofMinutes(DEFAULT_CONNECT_TIMEOUT_MINUTES),
     connectTimeout: Duration = timeout,
   ): File {
     val url = uri.toString()
     val fileName =
       url.substringAfterLast("/", "").substringBeforeLast("?").ifBlank {
-        UUID.randomUUID().toString().replace("-", "")
+        UUID.randomUUID().toString().replace(RANDOM_FILENAME_SEPARATOR, RANDOM_FILENAME_REPLACEMENT)
       }
-    val filePath = Files.createTempDirectory("download_").resolve(fileName)
+    val filePath = Files.createTempDirectory(TEMP_DOWNLOAD_DIR_PREFIX).resolve(fileName)
     httpClient
       .connectTimeout(connectTimeout)
       .build()
