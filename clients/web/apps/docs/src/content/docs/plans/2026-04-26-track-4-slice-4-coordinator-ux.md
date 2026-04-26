@@ -1,3 +1,13 @@
+---
+title: Track 4 Slice 4 Coordinator UX Implementation Plan
+description: Implementation plan for Track 4 Slice 4 orchestration lifecycle visibility and coordinator UX improvements.
+owner: team-platform
+status: draft
+lastReviewed: 2026-04-26
+appliesTo: agent-runtime multi-agent orchestration
+docType: architecture
+---
+
 # Track 4 Slice 4 Coordinator UX Implementation Plan
 
 > **For agentic workers:** Implement this plan task-by-task using the `dispatching-parallel-agents`
