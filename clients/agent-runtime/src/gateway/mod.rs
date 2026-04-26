@@ -33,7 +33,6 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use hmac::KeyInit;
 use parking_lot::Mutex;
 use regex::Regex;
 use std::collections::hash_map::DefaultHasher;
@@ -3126,7 +3125,7 @@ async fn handle_whatsapp_verify(
 /// Returns true if the signature is valid, false otherwise.
 /// See: <https://developers.facebook.com/docs/graph-api/webhooks/getting-started#verification-requests>
 pub fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature_header: &str) -> bool {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
 
     // Signature format: "sha256=<hex_signature>"
