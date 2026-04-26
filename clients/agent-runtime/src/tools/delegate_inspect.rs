@@ -85,10 +85,23 @@ impl Tool for DelegateInspectTool {
 
         match self.service.inspect(&handle) {
             Ok(Some(snapshot)) => {
+                let summary_state = format!("{:?}", snapshot.summary_state).to_ascii_lowercase();
+                let blocked_children = snapshot
+                    .children
+                    .iter()
+                    .filter(|child| child.blocking_details.is_some())
+                    .count();
                 let structured = serde_json::json!({ "snapshot": snapshot });
+                let output = if blocked_children > 0 {
+                    format!(
+                        "Snapshot for handle {handle_str}: summary={summary_state}; {blocked_children} child(ren) awaiting parent action or blocked"
+                    )
+                } else {
+                    format!("Snapshot for handle {handle_str}: summary={summary_state}")
+                };
                 Ok(ToolResult {
                     success: true,
-                    output: format!("Snapshot for handle {handle_str}"),
+                    output,
                     error: None,
                     structured: Some(structured),
                 })
@@ -290,6 +303,83 @@ mod tests {
         assert!(result.success, "expected success, got: {:?}", result.error);
         let structured = result.structured.unwrap();
         assert!(structured["snapshot"].is_object());
+        assert!(structured["snapshot"]["summary_state"].is_string());
+        assert!(structured["snapshot"]["children"].is_array());
+        if let Some(first_child) = structured["snapshot"]["children"]
+            .as_array()
+            .and_then(|children| children.first())
+        {
+            assert!(first_child["progress_state"].is_string());
+        }
+    }
+
+    #[tokio::test]
+    async fn inspect_reports_parent_action_blocking_details() {
+        let svc = service();
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let runner = Arc::new(GatedRunner {
+            started: Arc::clone(&started),
+            release: Arc::clone(&release),
+        });
+
+        let request = CoordinatorLaunchRequest {
+            parent_session_id: None,
+            children: vec![ChildLaunchRequest {
+                child_id: ChildAgentId("c1".into()),
+                agent_name: "AgentA".into(),
+                prompt: "do it".into(),
+                context: None,
+                launch_index: 0,
+                execution: None,
+            }],
+            fan_in: FanInPolicy::AllMustSucceed,
+        };
+
+        let receipt = svc.launch(request, runner).await.unwrap();
+        started.notified().await;
+        let handle = receipt.handle.0.clone();
+
+        let t = tool(Arc::clone(&svc));
+        let result = t
+            .execute(serde_json::json!({ "handle": handle }))
+            .await
+            .unwrap();
+        release.notify_waiters();
+        assert!(result.success, "expected success, got: {:?}", result.error);
+        let structured = result.structured.unwrap();
+        assert!(
+            structured["snapshot"]["children"][0]["blocking_details"].is_object()
+                || structured["snapshot"]["children"][0]["blocking_details"].is_null()
+        );
+    }
+
+    #[tokio::test]
+    async fn inspect_output_mentions_summary_state() {
+        let svc = service();
+        let runner = Arc::new(NoOpRunner);
+
+        let request = CoordinatorLaunchRequest {
+            parent_session_id: None,
+            children: vec![ChildLaunchRequest {
+                child_id: ChildAgentId("c1".into()),
+                agent_name: "AgentA".into(),
+                prompt: "do it".into(),
+                context: None,
+                launch_index: 0,
+                execution: None,
+            }],
+            fan_in: FanInPolicy::AllMustSucceed,
+        };
+
+        let receipt = svc.launch(request, runner).await.unwrap();
+        let handle = receipt.handle.0.clone();
+
+        let t = tool(Arc::clone(&svc));
+        let result = t.execute(serde_json::json!({ "handle": handle.clone() })).await.unwrap();
+        assert!(result.success, "expected success, got: {:?}", result.error);
+        assert!(result.output.contains(&handle));
+        assert!(result.output.contains("summary") || result.output.contains("blocked") || result.output.contains("running") || result.output.contains("succeeded"));
     }
 
     #[tokio::test]
