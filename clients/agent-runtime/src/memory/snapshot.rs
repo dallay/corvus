@@ -6,6 +6,7 @@
 //! **Auto-Hydration**: if `brain.db` is missing but `MEMORY_SNAPSHOT.md` exists,
 //! re-indexes all entries back into a fresh SQLite database.
 
+use crate::memory::dream::DreamSessionStateRecord;
 use anyhow::Result;
 use chrono::Local;
 use rusqlite::{params, Connection};
@@ -15,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 /// Filename for the snapshot (lives at workspace root for Git visibility).
 pub const SNAPSHOT_FILENAME: &str = "MEMORY_SNAPSHOT.md";
+pub const DREAM_SNAPSHOT_STATE_FILENAME: &str = "DREAM_STATE_SNAPSHOT.json";
 
 /// Header written at the top of every snapshot file.
 const SNAPSHOT_HEADER: &str = "# 🧠 Corvus Memory Snapshot\n\n\
@@ -79,6 +81,8 @@ pub fn export_snapshot(workspace_dir: &Path) -> Result<usize> {
 
     let snapshot_path = snapshot_path(workspace_dir);
     fs::write(&snapshot_path, output)?;
+
+    export_dream_state_snapshot(workspace_dir)?;
 
     tracing::info!(
         "📸 Memory snapshot exported: {} core memories → {}",
@@ -168,6 +172,8 @@ pub fn hydrate_from_snapshot(workspace_dir: &Path) -> Result<usize> {
         }
     }
 
+    restore_dream_state_snapshot(workspace_dir)?;
+
     tracing::info!(
         "🧬 Memory hydration complete: {} entries restored from {}",
         hydrated,
@@ -203,7 +209,50 @@ fn snapshot_path(workspace_dir: &Path) -> PathBuf {
     workspace_dir.join(SNAPSHOT_FILENAME)
 }
 
+fn dream_state_path(workspace_dir: &Path) -> PathBuf {
+    workspace_dir.join("state").join("dream_state.json")
+}
+
+fn dream_snapshot_state_path(workspace_dir: &Path) -> PathBuf {
+    workspace_dir.join(DREAM_SNAPSHOT_STATE_FILENAME)
+}
+
 /// Parse the structured markdown snapshot back into (key, content) pairs.
+fn export_dream_state_snapshot(workspace_dir: &Path) -> Result<()> {
+    let state_path = dream_state_path(workspace_dir);
+    let snapshot_path = dream_snapshot_state_path(workspace_dir);
+
+    if !state_path.exists() {
+        let _ = fs::remove_file(snapshot_path);
+        return Ok(());
+    }
+
+    let raw = fs::read_to_string(state_path)?;
+    let json: serde_json::Value = serde_json::from_str(&raw)?;
+    fs::write(snapshot_path, serde_json::to_vec_pretty(&json)?)?;
+    Ok(())
+}
+
+fn restore_dream_state_snapshot(workspace_dir: &Path) -> Result<()> {
+    let snapshot_path = dream_snapshot_state_path(workspace_dir);
+    if !snapshot_path.exists() {
+        return Ok(());
+    }
+
+    let raw = fs::read_to_string(&snapshot_path)?;
+    let records = parse_dream_state_snapshot(&raw)?;
+    if records.is_empty() {
+        return Ok(());
+    }
+
+    let state_path = dream_state_path(workspace_dir);
+    if let Some(parent) = state_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(state_path, raw)?;
+    Ok(())
+}
+
 fn parse_snapshot(input: &str) -> Vec<(String, String)> {
     let mut entries = Vec::new();
     let mut current_key: Option<String> = None;
@@ -224,6 +273,17 @@ fn parse_snapshot(input: &str) -> Vec<(String, String)> {
 
     flush_current_entry(&mut entries, &mut current_key, &current_content);
     entries
+}
+
+fn parse_dream_state_snapshot(input: &str) -> Result<Vec<DreamSessionStateRecord>> {
+    #[derive(serde::Deserialize)]
+    struct DreamStateEnvelope {
+        #[serde(default)]
+        completed_sessions: Vec<DreamSessionStateRecord>,
+    }
+
+    let state: DreamStateEnvelope = serde_json::from_str(input)?;
+    Ok(state.completed_sessions)
 }
 
 fn extract_key_from_line(line: &str) -> Option<String> {
@@ -275,7 +335,21 @@ fn flush_current_entry(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::dream::{DreamSessionStatus, DreamTriggerReason};
     use tempfile::TempDir;
+
+    fn sample_dream_record(session_id: &str) -> DreamSessionStateRecord {
+        DreamSessionStateRecord {
+            session_id: session_id.to_string(),
+            status: DreamSessionStatus::Completed,
+            trigger_reason: DreamTriggerReason::Manual,
+            completion_recorded_at: "2026-04-26T10:00:00Z".into(),
+            last_attempt_at: Some("2026-04-26T10:05:00Z".into()),
+            completed_at: Some("2026-04-26T10:05:00Z".into()),
+            artifact_refs: vec![format!("dream/session/{session_id}")],
+            failure_reason: None,
+        }
+    }
 
     #[test]
     fn parse_snapshot_basic() {
@@ -338,6 +412,34 @@ Rule 3: Protect the user.
         assert_eq!(entries.len(), 1);
         assert!(entries[0].1.contains("Rule 1"));
         assert!(entries[0].1.contains("Rule 3"));
+    }
+
+    #[test]
+    fn snapshot_dream_state_sidecar_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path();
+        fs::create_dir_all(workspace.join("state")).unwrap();
+        let payload = serde_json::json!({
+            "completed_sessions": [sample_dream_record("sess-123")],
+            "last_successful_run_at": "2026-04-26T10:05:00Z",
+            "last_report": null
+        });
+        fs::write(
+            workspace.join("state").join("dream_state.json"),
+            serde_json::to_vec_pretty(&payload).unwrap(),
+        )
+        .unwrap();
+
+        export_dream_state_snapshot(workspace).unwrap();
+        let exported = fs::read_to_string(workspace.join(DREAM_SNAPSHOT_STATE_FILENAME)).unwrap();
+        let restored = parse_dream_state_snapshot(&exported).unwrap();
+
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].session_id, "sess-123");
+        assert_eq!(
+            restored[0].artifact_refs,
+            vec!["dream/session/sess-123".to_string()]
+        );
     }
 
     #[test]
@@ -475,7 +577,31 @@ Rule 3: Protect the user.
     }
 
     #[test]
-    fn hydrate_no_snapshot_returns_zero() {
+    fn hydrate_from_snapshot_restores_dream_state_sidecar() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path();
+        fs::write(
+            workspace.join(DREAM_SNAPSHOT_STATE_FILENAME),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "completed_sessions": [sample_dream_record("sess-restore")],
+                "last_successful_run_at": "2026-04-26T10:05:00Z",
+                "last_report": null
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        restore_dream_state_snapshot(workspace).unwrap();
+        let restored =
+            fs::read_to_string(workspace.join("state").join("dream_state.json")).unwrap();
+        let records = parse_dream_state_snapshot(&restored).unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].session_id, "sess-restore");
+    }
+
+    #[test]
+    fn hydrate_from_missing_snapshot_returns_zero() {
         let tmp = TempDir::new().unwrap();
         let count = hydrate_from_snapshot(tmp.path()).unwrap();
         assert_eq!(count, 0);

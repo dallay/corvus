@@ -1,0 +1,6 @@
+phase: propose
+completed_phases:
+  - explore
+  - propose
+change_name: 2026-04-26-dream-system
+artifact_store: openspec

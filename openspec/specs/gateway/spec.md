@@ -2378,6 +2378,154 @@ capture/replay semantics.
 
 ---
 
+### Requirement: Dream Eligibility for Completed Sessions
+
+The runtime MUST treat Dream as a post-session consolidation capability that evaluates completed
+sessions for Dream eligibility.
+
+A Dream run MUST target a specific completed session identity. Dream MUST NOT consolidate sessions
+that have not been recorded as completed.
+
+The eligibility decision MUST be deterministic for the same completed session inputs and runtime
+configuration.
+
+#### Scenario: Completed session becomes a Dream candidate
+
+- GIVEN a session `sess-123` has been recorded as completed
+- AND the runtime can access the relevant session history for `sess-123`
+- WHEN Dream eligibility is evaluated for `sess-123`
+- THEN the runtime MUST treat `sess-123` as a Dream candidate
+- AND the eligibility result MUST be derived from the completed session inputs rather than gateway transport details.
+
+#### Scenario: Active session is not Dream-eligible
+
+- GIVEN a session `sess-123` is still active and has not been recorded as completed
+- WHEN Dream eligibility is evaluated for `sess-123`
+- THEN the runtime MUST reject Dream consolidation for that session
+- AND no Dream artifact MUST be persisted.
+
+### Requirement: Dream Consolidation Output Contract
+
+For an eligible completed session, Dream MUST synthesize durable long-term memory artifacts that
+capture stable high-value knowledge from the completed session.
+
+The Dream output MUST be additive. Dream MUST NOT require preserving the full session transcript as
+the durable long-term memory artifact itself.
+
+The runtime SHOULD favor stable summaries, facts, or other high-value distilled outputs over
+verbatim transcript retention.
+
+#### Scenario: Eligible completed session produces durable distilled memory
+
+- GIVEN a completed session `sess-123` is Dream-eligible
+- WHEN Dream consolidates the session
+- THEN the runtime MUST produce one or more durable long-term memory artifacts for `sess-123`
+- AND those artifacts MUST represent distilled high-value information from the session
+- AND the artifacts MUST be persisted independently of the original request/response transport flow.
+
+#### Scenario: Dream does not require verbatim transcript persistence as output
+
+- GIVEN a completed session `sess-123` contains a multi-turn transcript
+- WHEN Dream completes consolidation for `sess-123`
+- THEN the durable Dream output MUST be allowed to omit verbatim transcript reproduction
+- AND the Dream contract MUST remain satisfied so long as stable high-value information is preserved.
+
+### Requirement: Dream Persistence Across Supported Backends
+
+Dream artifacts MUST survive restart, export, and reload flows across supported memory backends.
+
+For this change, supported backends are the runtime backends that already participate in Corvus
+memory persistence and snapshot hydration/export behavior, including SQLite, markdown, and runtime
+snapshot flows where supported.
+
+A backend that claims Dream support MUST persist both Dream artifacts and enough Dream state to
+avoid ambiguous replay for the same completed session.
+
+#### Scenario: Dream artifacts survive runtime restart and reload
+
+- GIVEN Dream has successfully consolidated completed session `sess-123`
+- AND the runtime persists Dream through a supported backend
+- WHEN the runtime is restarted and its persisted state is reloaded
+- THEN the Dream artifacts for `sess-123` MUST still be available
+- AND the runtime MUST preserve enough Dream state to avoid treating `sess-123` as unconsolidated solely because of the restart.
+
+#### Scenario: Snapshot export and hydration preserve Dream state
+
+- GIVEN Dream artifacts and Dream replay state exist for completed session `sess-123`
+- WHEN the runtime exports its persisted state and later hydrates from that exported state
+- THEN the hydrated runtime MUST restore the Dream artifacts for `sess-123`
+- AND it MUST restore enough Dream state to keep consolidation behavior unambiguous for that session.
+
+### Requirement: Dream Idempotency per Completed Session
+
+Dream consolidation for a completed session MUST be idempotent.
+
+The runtime MUST record enough Dream state to determine whether a completed session has already
+been consolidated or is otherwise no longer eligible for duplicate consolidation.
+
+Repeated Dream triggering for the same completed session MUST NOT create duplicate or ambiguous
+consolidation results.
+
+#### Scenario: Duplicate Dream trigger for completed session is suppressed
+
+- GIVEN completed session `sess-123` has already been successfully consolidated by Dream
+- WHEN Dream is triggered again for `sess-123`
+- THEN the runtime MUST detect that `sess-123` has already been consolidated
+- AND it MUST NOT create a second ambiguous consolidation result for the same completion event.
+
+#### Scenario: Repeated trigger after restore remains idempotent
+
+- GIVEN completed session `sess-123` was consolidated before runtime export or shutdown
+- AND the persisted Dream state is later restored
+- WHEN Dream is triggered again for `sess-123` after restore
+- THEN the runtime MUST preserve idempotent behavior for that session
+- AND it MUST NOT treat the restored runtime as permission to reconsolidate the same completion ambiguously.
+
+### Requirement: Gateway Dream Integration Is Trigger-Only
+
+Gateway behavior for Dream MUST be limited to invoking the runtime-defined session completion and
+Dream trigger integration points.
+
+The gateway MUST NOT become the behavioral source-of-truth for Dream eligibility, consolidation
+content, or persistence semantics.
+
+#### Scenario: Gateway delegates Dream semantics to runtime
+
+- GIVEN the gateway completes a request flow that reaches the runtime session-completion path
+- WHEN the gateway invokes the completion and Dream trigger integration points
+- THEN the gateway MUST rely on the runtime to determine Dream eligibility and consolidation behavior
+- AND the gateway MUST NOT define independent Dream eligibility rules.
+
+#### Scenario: Gateway acceptance does not require Dream-specific transport contract
+
+- GIVEN the runtime exposes Dream only through existing completion-trigger integration points
+- WHEN a gateway-served request completes successfully
+- THEN the gateway MUST remain valid without adding a new Dream-specific public HTTP contract
+- AND Dream behavior MUST remain an internal runtime concern unless another spec adds a public surface.
+
+### Requirement: Gateway Completion Hooks MUST Preserve Runtime Ordering and Idempotency
+
+When the gateway participates in a session flow that records completion and triggers Dream, it MUST
+invoke those runtime integration points in the runtime-defined order.
+
+The gateway MUST preserve the runtime contract that completion recording happens before Dream
+trigger evaluation, and repeated gateway completion handling for the same session MUST NOT require
+gateway-defined duplicate-consolidation logic.
+
+#### Scenario: Gateway calls completion recording before Dream trigger
+
+- GIVEN a gateway-served session `sess-123` reaches its completion path
+- WHEN the gateway invokes runtime integration for that completion
+- THEN the completion-recording hook MUST run before the Dream-trigger hook
+- AND Dream evaluation MUST consume the runtime-recorded completion state.
+
+#### Scenario: Replayed gateway completion path stays safe through runtime idempotency
+
+- GIVEN the gateway re-enters the same completion path for session `sess-123`
+- WHEN it invokes the runtime completion and Dream hooks again
+- THEN the gateway MUST rely on runtime idempotency for the completed session
+- AND the repeated gateway path MUST NOT require a second independent Dream result.
+
 ## Data Contracts
 
 ### ChatCompletionRequest (Input)

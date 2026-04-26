@@ -10,7 +10,8 @@ use anyhow::Context;
 use async_trait::async_trait;
 use chrono::Local;
 use parking_lot::Mutex;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -21,6 +22,35 @@ use uuid::Uuid;
 /// Maximum allowed open timeout (seconds) to avoid unreasonable waits.
 const SQLITE_OPEN_TIMEOUT_CAP_SECS: u64 = 300;
 const MAX_LIST_LIMIT: u32 = 1_000;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DreamSessionDbStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DreamTriggerDbReason {
+    TimeElapsed,
+    SessionCount,
+    Manual,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DreamSessionRow {
+    session_id: String,
+    status: DreamSessionDbStatus,
+    trigger_reason: DreamTriggerDbReason,
+    completion_recorded_at: String,
+    last_attempt_at: Option<String>,
+    completed_at: Option<String>,
+    artifact_refs: Vec<String>,
+    failure_reason: Option<String>,
+}
 
 /// SQLite-backed persistent memory — the brain
 ///
@@ -261,6 +291,24 @@ impl SqliteMemory {
                  ON tasks(priority, created_at DESC, id ASC);",
         )?;
 
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS dream_sessions (
+                 session_id              TEXT PRIMARY KEY,
+                 status                  TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+                 trigger_reason          TEXT NOT NULL CHECK (trigger_reason IN ('time_elapsed', 'session_count', 'manual')),
+                 completion_recorded_at  TEXT NOT NULL,
+                 last_attempt_at         TEXT,
+                 completed_at            TEXT,
+                 artifact_refs           TEXT NOT NULL DEFAULT '[]',
+                 failure_reason          TEXT,
+                 FOREIGN KEY(session_id) REFERENCES sessions(id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_dream_sessions_status
+                 ON dream_sessions(status);
+             CREATE INDEX IF NOT EXISTS idx_dream_sessions_completed_at
+                 ON dream_sessions(completed_at DESC);",
+        )?;
+
         Ok(())
     }
 
@@ -367,6 +415,119 @@ impl SqliteMemory {
         if exists == 0 {
             anyhow::bail!("unknown session: {session_id}");
         }
+        Ok(())
+    }
+
+    fn dream_status_to_str(status: &DreamSessionDbStatus) -> &'static str {
+        match status {
+            DreamSessionDbStatus::Pending => "pending",
+            DreamSessionDbStatus::Running => "running",
+            DreamSessionDbStatus::Completed => "completed",
+            DreamSessionDbStatus::Failed => "failed",
+        }
+    }
+
+    fn dream_status_from_row(value: String) -> rusqlite::Result<DreamSessionDbStatus> {
+        match value.as_str() {
+            "pending" => Ok(DreamSessionDbStatus::Pending),
+            "running" => Ok(DreamSessionDbStatus::Running),
+            "completed" => Ok(DreamSessionDbStatus::Completed),
+            "failed" => Ok(DreamSessionDbStatus::Failed),
+            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown dream status value: {value}"),
+                )),
+            )),
+        }
+    }
+
+    fn dream_trigger_reason_to_str(reason: &DreamTriggerDbReason) -> &'static str {
+        match reason {
+            DreamTriggerDbReason::TimeElapsed => "time_elapsed",
+            DreamTriggerDbReason::SessionCount => "session_count",
+            DreamTriggerDbReason::Manual => "manual",
+        }
+    }
+
+    fn dream_trigger_reason_from_row(value: String) -> rusqlite::Result<DreamTriggerDbReason> {
+        match value.as_str() {
+            "time_elapsed" => Ok(DreamTriggerDbReason::TimeElapsed),
+            "session_count" => Ok(DreamTriggerDbReason::SessionCount),
+            "manual" => Ok(DreamTriggerDbReason::Manual),
+            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown dream trigger reason value: {value}"),
+                )),
+            )),
+        }
+    }
+
+    fn load_dream_session_row(
+        conn: &Connection,
+        session_id: &str,
+    ) -> anyhow::Result<Option<DreamSessionRow>> {
+        conn.query_row(
+            "SELECT session_id, status, trigger_reason, completion_recorded_at,
+                    last_attempt_at, completed_at, artifact_refs, failure_reason
+             FROM dream_sessions WHERE session_id = ?1",
+            params![session_id],
+            |row| {
+                let artifact_refs: String = row.get(6)?;
+                let refs =
+                    serde_json::from_str::<Vec<String>>(&artifact_refs).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            6,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?;
+                Ok(DreamSessionRow {
+                    session_id: row.get(0)?,
+                    status: Self::dream_status_from_row(row.get::<_, String>(1)?)?,
+                    trigger_reason: Self::dream_trigger_reason_from_row(row.get::<_, String>(2)?)?,
+                    completion_recorded_at: row.get(3)?,
+                    last_attempt_at: row.get(4)?,
+                    completed_at: row.get(5)?,
+                    artifact_refs: refs,
+                    failure_reason: row.get(7)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    fn upsert_dream_session_row(tx: &Transaction<'_>, row: &DreamSessionRow) -> anyhow::Result<()> {
+        tx.execute(
+            "INSERT INTO dream_sessions (
+                session_id, status, trigger_reason, completion_recorded_at,
+                last_attempt_at, completed_at, artifact_refs, failure_reason
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(session_id) DO UPDATE SET
+                status = excluded.status,
+                trigger_reason = excluded.trigger_reason,
+                completion_recorded_at = excluded.completion_recorded_at,
+                last_attempt_at = excluded.last_attempt_at,
+                completed_at = excluded.completed_at,
+                artifact_refs = excluded.artifact_refs,
+                failure_reason = excluded.failure_reason",
+            params![
+                row.session_id,
+                Self::dream_status_to_str(&row.status),
+                Self::dream_trigger_reason_to_str(&row.trigger_reason),
+                row.completion_recorded_at,
+                row.last_attempt_at,
+                row.completed_at,
+                serde_json::to_string(&row.artifact_refs)?,
+                row.failure_reason,
+            ],
+        )?;
         Ok(())
     }
 
@@ -1978,6 +2139,233 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mem = SqliteMemory::new(tmp.path()).unwrap();
         (tmp, mem)
+    }
+
+    #[test]
+    fn sqlite_dream_state_persists_per_session_and_survives_reopen() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path();
+        let mem = SqliteMemory::new(workspace).unwrap();
+
+        {
+            let conn = mem.conn.lock();
+            conn.execute(
+                "INSERT INTO sessions (id, started_at, status, message_count, last_activity)
+                 VALUES (?1, ?2, 'ended', 1, ?2)",
+                params!["sess-123", "2026-04-26T10:00:00Z"],
+            )
+            .unwrap();
+        }
+
+        let core_key = "dream/session/sess-123";
+        let core_content = "Dream summary for completed session sess-123";
+
+        {
+            let conn = mem.conn.lock();
+            let tx = conn.unchecked_transaction().unwrap();
+            tx.execute(
+                "INSERT INTO memories (id, key, content, category, session_id, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, 'core', ?4, ?5, ?5)",
+                params![
+                    "artifact-1",
+                    core_key,
+                    core_content,
+                    "sess-123",
+                    "2026-04-26T10:05:00Z"
+                ],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO dream_sessions (
+                    session_id, status, trigger_reason, completion_recorded_at,
+                    last_attempt_at, completed_at, artifact_refs, failure_reason
+                 ) VALUES (?1, 'completed', 'manual', ?2, ?3, ?3, ?4, NULL)
+                 ON CONFLICT(session_id) DO UPDATE SET
+                    status = excluded.status,
+                    trigger_reason = excluded.trigger_reason,
+                    completion_recorded_at = excluded.completion_recorded_at,
+                    last_attempt_at = excluded.last_attempt_at,
+                    completed_at = excluded.completed_at,
+                    artifact_refs = excluded.artifact_refs,
+                    failure_reason = excluded.failure_reason",
+                params![
+                    "sess-123",
+                    "2026-04-26T10:00:00Z",
+                    "2026-04-26T10:05:00Z",
+                    "[\"dream/session/sess-123\"]"
+                ],
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        drop(mem);
+        let reopened = SqliteMemory::new(workspace).unwrap();
+        let conn = reopened.conn.lock();
+        let row: (String, String, String) = conn
+            .query_row(
+                "SELECT status, trigger_reason, artifact_refs FROM dream_sessions WHERE session_id = ?1",
+                params!["sess-123"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(row.0, "completed");
+        assert_eq!(row.1, "manual");
+        assert_eq!(row.2, "[\"dream/session/sess-123\"]");
+
+        let memory: (String, String) = conn
+            .query_row(
+                "SELECT key, content FROM memories WHERE session_id = ?1",
+                params!["sess-123"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(memory.0, core_key);
+        assert_eq!(memory.1, core_content);
+    }
+
+    #[test]
+    fn sqlite_dream_metadata_and_artifact_write_is_atomic() {
+        let (_tmp, mem) = temp_sqlite();
+        {
+            let conn = mem.conn.lock();
+            conn.execute(
+                "INSERT INTO sessions (id, started_at, status, message_count, last_activity)
+                 VALUES (?1, ?2, 'ended', 1, ?2)",
+                params!["sess-atomic", "2026-04-26T10:00:00Z"],
+            )
+            .unwrap();
+        }
+
+        let conn = mem.conn.lock();
+        let tx = conn.unchecked_transaction().unwrap();
+        tx.execute(
+            "INSERT INTO memories (id, key, content, category, session_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'core', ?4, ?5, ?5)",
+            params![
+                "artifact-atomic",
+                "dream/session/sess-atomic",
+                "atomic write",
+                "sess-atomic",
+                "2026-04-26T10:05:00Z"
+            ],
+        )
+        .unwrap();
+        tx.execute(
+            "INSERT INTO dream_sessions (session_id, status, trigger_reason, completion_recorded_at, artifact_refs)
+             VALUES (?1, 'running', 'manual', ?2, ?3)",
+            params![
+                "sess-atomic",
+                "2026-04-26T10:00:00Z",
+                "[\"dream/session/sess-atomic\"]"
+            ],
+        )
+        .unwrap();
+        tx.rollback().unwrap();
+
+        let artifact_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM memories WHERE session_id = ?1",
+                params!["sess-atomic"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let metadata_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM dream_sessions WHERE session_id = ?1",
+                params!["sess-atomic"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(artifact_count, 0);
+        assert_eq!(metadata_count, 0);
+    }
+
+    #[test]
+    fn sqlite_dream_duplicate_session_metadata_is_suppressed() {
+        let (_tmp, mem) = temp_sqlite();
+        {
+            let conn = mem.conn.lock();
+            conn.execute(
+                "INSERT INTO sessions (id, started_at, status, message_count, last_activity)
+                 VALUES (?1, ?2, 'ended', 1, ?2)",
+                params!["sess-dup", "2026-04-26T10:00:00Z"],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO dream_sessions (session_id, status, trigger_reason, completion_recorded_at, artifact_refs)
+                 VALUES (?1, 'completed', 'manual', ?2, ?3)",
+                params![
+                    "sess-dup",
+                    "2026-04-26T10:00:00Z",
+                    "[\"dream/session/sess-dup\"]"
+                ],
+            )
+            .unwrap();
+        }
+
+        let conn = mem.conn.lock();
+        let duplicate = conn.execute(
+            "INSERT INTO dream_sessions (session_id, status, trigger_reason, completion_recorded_at, artifact_refs)
+             VALUES (?1, 'completed', 'manual', ?2, ?3)",
+            params![
+                "sess-dup",
+                "2026-04-26T10:00:00Z",
+                "[\"dream/session/sess-dup\"]"
+            ],
+        );
+        assert!(duplicate.is_err());
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM dream_sessions WHERE session_id = ?1",
+                params!["sess-dup"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn sqlite_dream_retry_candidates_include_failed_and_pending_but_not_completed() {
+        let (_tmp, mem) = temp_sqlite();
+        let conn = mem.conn.lock();
+        for (session_id, status) in [
+            ("sess-pending", "pending"),
+            ("sess-failed", "failed"),
+            ("sess-completed", "completed"),
+        ] {
+            conn.execute(
+                "INSERT INTO sessions (id, started_at, status, message_count, last_activity)
+                 VALUES (?1, ?2, 'ended', 1, ?2)",
+                params![session_id, "2026-04-26T10:00:00Z"],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO dream_sessions (session_id, status, trigger_reason, completion_recorded_at, artifact_refs, failure_reason)
+                 VALUES (?1, ?2, 'manual', ?3, '[]', CASE WHEN ?2 = 'failed' THEN 'transient' ELSE NULL END)",
+                params![session_id, status, "2026-04-26T10:00:00Z"],
+            )
+            .unwrap();
+        }
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT session_id FROM dream_sessions
+                 WHERE status IN ('pending', 'failed')
+                 ORDER BY session_id ASC",
+            )
+            .unwrap();
+        let ids: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect();
+
+        assert_eq!(
+            ids,
+            vec!["sess-failed".to_string(), "sess-pending".to_string()]
+        );
     }
 
     #[tokio::test]
