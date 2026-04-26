@@ -25,6 +25,12 @@ async fn emits_started_and_finished_events() {
         .expect("finished event timeout")
         .expect("finished event");
     assert!(matches!(finished.kind, ToolCallEventKind::Finished));
+    assert_eq!(started.request_id, "1");
+    assert_eq!(finished.request_id, "1");
+    assert_eq!(started.tool_name, "mem_stats");
+    assert_eq!(finished.tool_name, "mem_stats");
+    assert_eq!(finished.status.as_deref(), Some("ok"));
+    assert!(finished.duration_ms.is_some());
 }
 
 #[tokio::test]

@@ -17,6 +17,7 @@ async fn main() -> Result<()> {
 
     let config_path = std::env::var("CEREBRO_CONFIG").ok().map(PathBuf::from);
     let config = CerebroConfig::load(config_path.as_deref())?.apply_env_overrides();
+    config.validate_startup_requirements()?;
     let addr = config.bind_addr();
     let service = Arc::new(CerebroService::from_config(config.clone()).await?);
     let listener = TcpListener::bind(&addr).await?;
