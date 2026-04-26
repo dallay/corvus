@@ -376,10 +376,18 @@ mod tests {
         let handle = receipt.handle.0.clone();
 
         let t = tool(Arc::clone(&svc));
-        let result = t.execute(serde_json::json!({ "handle": handle.clone() })).await.unwrap();
+        let result = t
+            .execute(serde_json::json!({ "handle": handle.clone() }))
+            .await
+            .unwrap();
         assert!(result.success, "expected success, got: {:?}", result.error);
         assert!(result.output.contains(&handle));
-        assert!(result.output.contains("summary") || result.output.contains("blocked") || result.output.contains("running") || result.output.contains("succeeded"));
+        assert!(
+            result.output.contains("summary")
+                || result.output.contains("blocked")
+                || result.output.contains("running")
+                || result.output.contains("succeeded")
+        );
     }
 
     #[tokio::test]
