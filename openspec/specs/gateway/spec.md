@@ -46,7 +46,7 @@ the field round-trips through the database.
 The in-memory `AccountService` implementation MUST also carry the `api_key` field.
 
 > **Security note (M1 scope)**: The `api_key` is stored as plaintext in SQLite for M1.
-> Encryption-at-rest is deferred to #591.
+> Encryption-at-rest is not covered by this requirement and would require a separate follow-up change if adopted.
 
 #### Scenario: api_key persists and round-trips through SQLite
 
@@ -2867,3 +2867,25 @@ All shared state (registry, engine, health service) is already `Clone` + `Send` 
 
 The `reqwest::Client` MUST be shared across requests (not created per-request) to enable
 connection pooling.
+
+### NFR-7: Release Decoupling Rollout Must Be Incremental and Reversible
+
+The release architecture transition from a repo-wide release train to component-scoped releases
+MUST be executed in explicit phases with rollback criteria for each phase.
+
+#### Scenario: Operators prepare the pilot rollout
+
+- GIVEN the repository has completed component inventory and impact mapping
+- WHEN operators prepare the first component-scoped release pilot
+- THEN they have a documented rollout phase sequence
+- AND they have explicit success and failure signals for the pilot
+- AND they know how to return to the last known-good release configuration
+
+#### Scenario: A rollout phase fails
+
+- GIVEN a release-decoupling phase causes tag drift, changelog confusion, or incorrect publish
+  scope
+- WHEN operators execute rollback
+- THEN they restore the last known-good release config, manifest state, and workflow contract for
+  the affected channel
+- AND they do not continue to the next phase until the failure is explained

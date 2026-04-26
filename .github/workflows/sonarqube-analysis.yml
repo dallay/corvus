@@ -29,6 +29,9 @@ jobs:
   sonar:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: read
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
@@ -38,9 +41,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: ℹ️ SONAR_TOKEN missing
+      - name: ❌ SONAR_TOKEN missing
         if: env.SONAR_TOKEN == ''
-        run: echo "SONAR_TOKEN is not configured. Skipping SonarQube scan and quality gate."
+        run: |
+          echo "SONAR_TOKEN is not configured. SonarQube analysis is required for this workflow." >&2
+          echo "Configure the SONAR_TOKEN repository secret or disable the workflow until SonarCloud is provisioned." >&2
+          exit 1
 
       - name: ☕ Setup Java
         if: env.SONAR_TOKEN != ''

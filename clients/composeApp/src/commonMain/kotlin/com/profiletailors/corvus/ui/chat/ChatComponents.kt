@@ -51,6 +51,11 @@ internal val DiagnosticsCardShape = RoundedCornerShape(16.dp)
 internal val ChatBubbleShape = RoundedCornerShape(18.dp)
 
 private const val SETTINGS_CONTENT_DESCRIPTION = "Settings"
+private const val COMPONENT_ANIMATION_DURATION_MS = 300
+private const val DISABLED_BUTTON_ALPHA = 0.5f
+private const val BUTTON_SHADOW_ALPHA = 0.3f
+private const val ACTIVE_STATUS_GLOW_ALPHA = 0.6f
+private const val INACTIVE_STATUS_GLOW_ALPHA = 0.2f
 
 @Immutable data class ChatMessage(val id: Int, val role: ChatRole, val content: String)
 
@@ -99,8 +104,8 @@ fun GradientButton(
     }
   val alpha by
     animateFloatAsState(
-      targetValue = if (enabled) 1f else 0.5f,
-      animationSpec = tween(300),
+      targetValue = if (enabled) 1f else DISABLED_BUTTON_ALPHA,
+      animationSpec = tween(COMPONENT_ANIMATION_DURATION_MS),
       label = "buttonAlpha",
     )
 
@@ -110,7 +115,7 @@ fun GradientButton(
         .shadow(
           elevation = 8.dp,
           shape = RoundedCornerShape(14.dp),
-          spotColor = corvusColors.glowPurple.copy(alpha = 0.3f),
+          spotColor = corvusColors.glowPurple.copy(alpha = BUTTON_SHADOW_ALPHA),
         )
         .clip(RoundedCornerShape(14.dp))
         .clickable(enabled = enabled, onClick = onClick)
@@ -243,13 +248,13 @@ fun StatusIndicator(active: Boolean, label: String, modifier: Modifier = Modifie
   val color by
     animateColorAsState(
       targetValue = if (active) corvusColors.connected else corvusColors.disconnected,
-      animationSpec = tween(300),
+      animationSpec = tween(COMPONENT_ANIMATION_DURATION_MS),
       label = "statusColor",
     )
   val glowAlpha by
     animateFloatAsState(
-      targetValue = if (active) 0.6f else 0.2f,
-      animationSpec = tween(300),
+      targetValue = if (active) ACTIVE_STATUS_GLOW_ALPHA else INACTIVE_STATUS_GLOW_ALPHA,
+      animationSpec = tween(COMPONENT_ANIMATION_DURATION_MS),
       label = "glowAlpha",
     )
 

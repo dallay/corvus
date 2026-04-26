@@ -2,21 +2,95 @@
 # https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#supported-keywords-for-jobs-that-call-a-reusable-workflow
 name: Publish Release
 
+permissions:
+  contents: read
+
 on:
   release:
     types:
       - published
 
 jobs:
-  publish-release:
-    # Canonical stable release handoff: release-please publishes the GitHub Release, then _publish will attach artifacts to the existing canonical GitHub Release.
+  resolve-release-scope:
+    runs-on: ubuntu-latest
     if: >-
       github.event_name == 'release' &&
       github.event.action == 'published' &&
       github.event.release.draft == false &&
       github.event.release.prerelease == false &&
-      startsWith(github.event.release.tag_name, 'v') &&
       github.repository == 'dallay/corvus'
+    outputs:
+      affected_components: ${{ steps.scope.outputs.affected_components }}
+      supported_release: ${{ steps.scope.outputs.supported_release }}
+    steps:
+      - name: 🧭 Resolve release scope from tag
+        id: scope
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import os
+          import re
+
+          release_tag = os.environ['RELEASE_TAG']
+          release_body = os.environ.get('RELEASE_BODY') or ''
+          supported_components = {'rook', 'corvus-runtime', 'cerebro'}
+
+          override_match = re.search(r'(?mi)^affected_components\s*:\s*(.+)$', release_body)
+          affected_components = []
+          resolution_reason = ''
+
+          if override_match:
+              requested = [item.strip() for item in override_match.group(1).split(',') if item.strip()]
+              invalid = [item for item in requested if item not in supported_components]
+              if invalid:
+                  raise RuntimeError(f'Unsupported affected_components override in release body: {invalid}')
+              if requested:
+                  affected_components = sorted(set(requested))
+                  resolution_reason = 'release body override'
+
+          if not affected_components:
+              tag_prefix_map = {
+                  'rook-v': ['rook'],
+                  'corvus-runtime-v': ['corvus-runtime'],
+                  'cerebro-v': ['cerebro'],
+              }
+              for prefix, components in tag_prefix_map.items():
+                  if release_tag.startswith(prefix):
+                      affected_components = components
+                      resolution_reason = 'tag namespace'
+                      break
+
+          supported_release = bool(affected_components)
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as handle:
+              handle.write(f"affected_components={json.dumps(affected_components)}\n")
+              handle.write(f"supported_release={'true' if supported_release else 'false'}\n")
+
+          lines = [
+              '### Release scope',
+              '',
+              f'- Tag: `{release_tag}`',
+          ]
+          if supported_release:
+              lines.extend([
+                  f'- Affected components: `{", ".join(affected_components)}`',
+                  f'- Resolution source: `{resolution_reason}`',
+              ])
+          else:
+              lines.append('- Supported component tag namespaces: `corvus-runtime-v*`, `cerebro-v*`, `rook-v*`')
+              lines.append('- Optional multi-component override: add `affected_components: rook, corvus-runtime` to the release body')
+
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as handle:
+              handle.write("\n".join(lines) + "\n")
+          PY
+
+  publish-release:
+    # Canonical stable release handoff: release-please publishes the GitHub Release, then _publish will attach artifacts to the existing canonical GitHub Release.
+    needs: resolve-release-scope
+    if: ${{ needs.resolve-release-scope.outputs.supported_release == 'true' }}
     permissions:
       contents: write
       packages: write
@@ -26,6 +100,7 @@ jobs:
       prerelease: false
       release_tag: ${{ github.event.release.tag_name }}
       release_id: ${{ github.event.release.id }}
+      affected_components: ${{ needs.resolve-release-scope.outputs.affected_components }}
     secrets:
       SIGNING_IN_MEMORY_KEY: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
       SIGNING_IN_MEMORY_KEY_PASSWORD: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}

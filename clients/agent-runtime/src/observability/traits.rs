@@ -341,6 +341,72 @@ pub enum ObserverMetric {
     QueueDepth(u64),
 }
 
+impl ObserverEvent {
+    pub fn agent_start(provider: impl Into<String>, model: impl Into<String>) -> Self {
+        Self::AgentStart {
+            provider: provider.into(),
+            model: model.into(),
+        }
+    }
+
+    pub fn llm_request(
+        provider: impl Into<String>,
+        model: impl Into<String>,
+        messages_count: usize,
+    ) -> Self {
+        Self::LlmRequest {
+            provider: provider.into(),
+            model: model.into(),
+            messages_count,
+        }
+    }
+
+    pub fn llm_response(
+        provider: impl Into<String>,
+        model: impl Into<String>,
+        duration: Duration,
+        success: bool,
+        error_message: Option<String>,
+    ) -> Self {
+        Self::LlmResponse {
+            provider: provider.into(),
+            model: model.into(),
+            duration,
+            success,
+            error_message,
+        }
+    }
+
+    pub fn agent_end(
+        provider: impl Into<String>,
+        model: impl Into<String>,
+        duration: Duration,
+        tokens_used: Option<u64>,
+        cost_usd: Option<f64>,
+    ) -> Self {
+        Self::AgentEnd {
+            provider: provider.into(),
+            model: model.into(),
+            duration,
+            tokens_used,
+            cost_usd,
+        }
+    }
+
+    pub fn error(component: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::Error {
+            component: component.into(),
+            message: message.into(),
+        }
+    }
+}
+
+impl ObserverMetric {
+    pub fn request_latency(duration: Duration) -> Self {
+        Self::RequestLatency(duration)
+    }
+}
+
 /// Core observability trait — implement for any backend
 pub trait Observer: Send + Sync + 'static {
     /// Record a discrete event

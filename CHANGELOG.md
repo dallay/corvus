@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.6.2](https://github.com/dallay/corvus/compare/v3.6.1...v3.6.2) (2026-04-25)
+
+
+### Bug Fixes
+
+* include rook in release-please version updates ([24356b0](https://github.com/dallay/corvus/commit/24356b00f7d722caf0aad53563cfee79ce55b99b))
+* include rook in release-please version updates ([08ec3c8](https://github.com/dallay/corvus/commit/08ec3c867847994ed3e448f7b0e468eb83e4cbc8))
+
 ## [3.6.1](https://github.com/dallay/corvus/compare/v3.6.0...v3.6.1) (2026-04-24)
 
 

@@ -105,32 +105,32 @@ const contractDocs = [
 
 test("release-please fan-out only includes shipped stable artifacts", () => {
   const config = readJson("release-please-config.json");
-  const extraFiles = config.packages["."]["extra-files"];
+  const runtimePackage = config.packages["clients/agent-runtime"];
+  const extraFiles = runtimePackage["extra-files"];
   const filePaths = new Set(extraFiles.map((entry) => entry.path));
   const cargoTomlTargets = new Set(
     extraFiles
-    .filter((entry) => entry.path === "clients/agent-runtime/Cargo.toml")
-    .map((entry) => entry.jsonpath),
+      .filter((entry) => entry.path === "clients/agent-runtime/Cargo.toml")
+      .map((entry) => entry.jsonpath),
   );
   const optionalDependencyPins = new Set(
     extraFiles
-    .filter((entry) => entry.path === "clients/agent-runtime/npm/corvus/package.json")
-    .map((entry) => entry.jsonpath),
+      .filter((entry) => entry.path === "clients/agent-runtime/npm/corvus/package.json")
+      .map((entry) => entry.jsonpath),
   );
 
   assert.equal(config["bootstrap-sha"], undefined);
   assert.equal(config["skip-github-release"], undefined);
   assert.equal(config["skip-changelog"], undefined);
+  assert.equal(runtimePackage.component, "corvus-runtime");
+  assert.equal(runtimePackage["release-type"], "rust");
   assert.ok(!filePaths.has("clients/web/**/package.json"));
   assert.ok(!filePaths.has("clients/agent-runtime/npm/**/package.json"));
   assert.ok(!filePaths.has("clients/agent-runtime/npm/corvus-cli/package.json"));
   assert.ok(!filePaths.has("clients/agent-runtime/npm/corvus-windows-arm64/package.json"));
 
   for (const expectedPath of [
-    "gradle.properties",
-    "gradle/build-logic/gradle.properties",
     "clients/agent-runtime/Cargo.toml",
-    "modules/cerebro/Cargo.toml",
     "clients/agent-runtime/npm/corvus/package.json",
     "clients/agent-runtime/npm/corvus-darwin-x64/package.json",
     "clients/agent-runtime/npm/corvus-darwin-arm64/package.json",
@@ -147,18 +147,20 @@ test("release-please fan-out only includes shipped stable artifacts", () => {
     ),
   );
   assert.ok(cargoTomlTargets.has("$.package.version"));
-  assert.ok(cargoTomlTargets.has("$.dependencies.cerebro.version"));
+  assert.ok(config.packages["modules/cerebro"]["extra-files"].some(
+    (entry) => entry.path === "modules/cerebro/Cargo.toml" && entry.jsonpath === "$.package.version",
+  ));
 });
 
 test("beta release-please config reuses shipped artifact fan-out with prerelease semantics", () => {
   const stableConfig = readJson("release-please-config.json");
   const betaConfig = readJson("release-please-beta-config.json");
-  const stablePackage = stableConfig.packages["."];
-  const betaPackage = betaConfig.packages["."];
+  const stablePackage = stableConfig.packages["clients/agent-runtime"];
+  const betaPackage = betaConfig.packages["clients/agent-runtime"];
 
   assert.deepEqual(betaPackage["extra-files"], stablePackage["extra-files"]);
   assert.equal(betaPackage["release-type"], stablePackage["release-type"]);
-  assert.equal(betaPackage["version-file"], stablePackage["version-file"]);
+  assert.equal(betaPackage.component, stablePackage.component);
   assert.equal(betaPackage.prerelease, true);
   assert.equal(betaPackage["prerelease-type"], "beta");
   assert.equal(betaPackage.versioning, "prerelease");
@@ -271,6 +273,12 @@ test("release workflows encode release-please-owned stable and beta governance",
       /permissions:\s+contents: write\s+packages: write/s,
       /secrets:\s+SIGNING_IN_MEMORY_KEY:/,
       /DOCKERHUB_TOKEN:/,
+      /corvus-runtime-v\*/,
+      /cerebro-v\*/,
+      /rook-v\*/,
+      /affected_components:\s*rook, corvus-runtime/,
+      /supported_release=\{'true' if supported_release else 'false'\}/,
+      /Resolution source:/,
     ],
     "publish-release workflow",
   );
@@ -344,6 +352,7 @@ test("rust lockfiles stay valid for --locked release commands", (t) => {
       execFileSync(cargoExecutable, ["metadata", "--locked", "--format-version", "1"], {
         cwd,
         stdio: "pipe",
+        maxBuffer: 1024 * 1024 * 32,
       });
     } catch (error) {
       const stderr = Buffer.isBuffer(error.stderr)

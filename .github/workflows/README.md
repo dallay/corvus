@@ -196,8 +196,9 @@ Release, then attaches assets to that existing release.
 Calls the reusable `_publish.yml` workflow with explicit release context:
 
 - `release: true` - Enables stable publication mode
-- `release_tag` - Canonical `vX.Y.Z` tag from the GitHub Release event
+- `release_tag` - Canonical component-scoped stable tag from the GitHub Release event (for example `rook-vX.Y.Z`, `corvus-runtime-vX.Y.Z`, or `cerebro-vX.Y.Z`)
 - `release_id` - Existing GitHub Release identifier used for asset upload
+- `affected_components` - Component set resolved from the published stable tag namespace, or overridden for multi-component stable handoff with an `affected_components:` line in the GitHub Release body, then passed into `_publish.yml`
 
 **Stable contract**:
 
@@ -212,7 +213,8 @@ Calls the reusable `_publish.yml` workflow with explicit release context:
 **Restrictions**:
 
 - Only runs on `dallay/corvus` repository
-- Requires a published, non-draft, non-prerelease GitHub Release with a `vX.Y.Z` tag
+- Requires a published, non-draft, non-prerelease GitHub Release with a supported component-scoped stable tag (`rook-vX.Y.Z`, `corvus-runtime-vX.Y.Z`, or `cerebro-vX.Y.Z`)
+- Multi-component stable handoff may override the tag-implied component set by adding a release body line like `affected_components: rook, corvus-runtime`
 
 ---
 
@@ -395,20 +397,14 @@ canonical stable tag, GitHub Release, and release notes.
 
 **What it does**:
 
-1. 📡 Validates PR is from a bot (github-actions, dependabot, or renovate)
-2. 📡 Gets PR branch info
-3. ✈ Checks out the PR branch
-4. 📦 Sets up build environment
-5. 🔏 Writes build-logic locks (if exists)
-6. 🔒 Writes global locks
-7. 💾 Commits and pushes changes directly to PR branch
-8. 💬 Adds 👍 reaction to the comment
+1. Historical workflow for maintainers to request a Renovate lockfile refresh from a PR comment
+2. It is currently disabled pending a safer replacement because privileged `issue_comment` workflows must not execute PR code
 
 **Key Points**:
 
-- Only works on PRs from automation bots
-- Directly commits to the PR branch
-- Fails if PR is not from an allowed bot
+- Disabled for security hardening
+- Keep `auto-fix-lockfile.yml` as the safe lockfile refresh path
+- Do not directly commit to untrusted PR branches from `issue_comment`
 
 ---
 

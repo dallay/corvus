@@ -22,6 +22,7 @@ val CyanDark = Color(0xFF0891B2)
 val GradientPurpleCyan = listOf(Purple, Cyan)
 val GradientCyanPurple = listOf(Cyan, Purple)
 val GradientPurpleLight = listOf(PurpleLight, CyanLight)
+private val LightGradientAccent = GradientCyanPurple
 
 // --- Accent Colors ---
 val GlowPurple = Color(0xFF8B5CF6)
@@ -29,6 +30,13 @@ val GlowCyan = Color(0xFF06B6D4)
 val SuccessGreen = Color(0xFF10B981)
 val WarningAmber = Color(0xFFF59E0B)
 val ErrorRed = Color(0xFFEF4444)
+
+private const val DARK_GLASS_SURFACE_HEX = 0xFF1A1F2E
+private const val DARK_GLASS_OVERLAY_HEX = 0x33FFFFFF
+private const val LIGHT_GLASS_SURFACE_HEX = 0xFFF8FAFC
+private const val LIGHT_GLASS_OVERLAY_HEX = 0x1A0F172A
+private const val BUBBLE_BACKGROUND_ALPHA = 0.12f
+private const val DARK_BUBBLE_BACKGROUND_ALPHA = 0.3f
 
 @Immutable
 data class CorvusColorPalette(
@@ -56,29 +64,29 @@ val DarkCorvusColors =
     connected = SuccessGreen,
     disconnected = ErrorRed,
     processing = WarningAmber,
-    glassSurface = Color(0xFF1A1F2E),
-    glassOverlay = Color(0x33FFFFFF),
+    glassSurface = Color(DARK_GLASS_SURFACE_HEX),
+    glassOverlay = Color(DARK_GLASS_OVERLAY_HEX),
     userBubble = Purple,
-    userBubbleBackground = PurpleDark.copy(alpha = 0.3f),
+    userBubbleBackground = PurpleDark.copy(alpha = DARK_BUBBLE_BACKGROUND_ALPHA),
     aiBubble = Cyan,
-    aiBubbleBackground = CyanDark.copy(alpha = 0.3f),
+    aiBubbleBackground = CyanDark.copy(alpha = DARK_BUBBLE_BACKGROUND_ALPHA),
   )
 
 val LightCorvusColors =
   CorvusColorPalette(
     gradientPrimary = GradientPurpleLight,
-    gradientAccent = GradientCyanPurple,
+    gradientAccent = LightGradientAccent,
     glowPurple = PurpleDark,
     glowCyan = CyanDark,
     connected = SuccessGreen,
     disconnected = ErrorRed,
     processing = WarningAmber,
-    glassSurface = Color(0xFFF8FAFC),
-    glassOverlay = Color(0x1A0F172A),
+    glassSurface = Color(LIGHT_GLASS_SURFACE_HEX),
+    glassOverlay = Color(LIGHT_GLASS_OVERLAY_HEX),
     userBubble = PurpleLight,
-    userBubbleBackground = Purple.copy(alpha = 0.12f),
+    userBubbleBackground = Purple.copy(alpha = BUBBLE_BACKGROUND_ALPHA),
     aiBubble = CyanDark,
-    aiBubbleBackground = Cyan.copy(alpha = 0.12f),
+    aiBubbleBackground = Cyan.copy(alpha = BUBBLE_BACKGROUND_ALPHA),
   )
 
 val LocalCorvusColors = staticCompositionLocalOf { DarkCorvusColors }

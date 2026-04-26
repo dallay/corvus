@@ -5,12 +5,10 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened]
 
-permissions:
-  contents: read
-  issues: write
-  pull-requests: write
-
 jobs:
   label:
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     uses: dallay/common-actions/.github/workflows/pr-size-labeler.yml@6ecd716dcfb6a9e8a9c494d1eac210cc1d73d75f # v2.0.0
-    secrets: inherit

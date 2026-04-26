@@ -117,6 +117,31 @@ La automatización beta publica las mismas superficies de artefactos que el cana
 - No crea GitHub Release.
 - No publica notas de release estables.
 
+## Migración a releases por componente
+
+La transición desde el release repo-wide actual hacia releases por componente se hace por fases.
+
+1. **Descubrimiento**
+   - mantener actualizado el inventario canónico de componentes releaseables
+   - mantener actualizado el mapa de impacto por paths y módulos compartidos
+2. **Transición controlada**
+   - definir rollout, señales de éxito y rollback antes de tocar automatización
+3. **Piloto de versionado**
+   - empezar con un componente piloto de superficie pequeña
+4. **Piloto de publish selectivo**
+   - validar y publicar solo componentes afectados
+5. **Expansión gradual**
+   - retirar supuestos repo-wide solo cuando el patrón ya esté probado
+
+### Regla de rollback
+
+Si una fase introduce drift de tags, changelog confuso o publicación fuera de alcance:
+
+- revierte juntos los archivos de configuración y manifiesto de `release-please` de esa fase
+- revierte juntos los workflows llamadores y `_publish.yml` si el problema está en gating/publicación
+- no crees tags competidores para “arreglar rápido” el estado
+- vuelve al último estado sano y documenta la causa antes de avanzar
+
 ## Diagnósticos a revisar durante un Release
 
 ### `release-please.yml`

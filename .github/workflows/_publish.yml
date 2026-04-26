@@ -16,6 +16,9 @@ on:
       release_id:
         type: string
         required: false
+      affected_components:
+        type: string
+        required: false
     secrets:
       SIGNING_IN_MEMORY_KEY:
         required: false
@@ -44,6 +47,10 @@ jobs:
       release_major_minor: ${{ steps.release-context.outputs.release_major_minor }}
       release_major: ${{ steps.release-context.outputs.release_major }}
       npm_dist_tag: ${{ steps.release-context.outputs.npm_dist_tag }}
+      has_corvus_runtime: ${{ steps.component-flags.outputs.has_corvus_runtime }}
+      has_rook: ${{ steps.component-flags.outputs.has_rook }}
+      has_cerebro: ${{ steps.component-flags.outputs.has_cerebro }}
+      has_gradle_kmp: ${{ steps.component-flags.outputs.has_gradle_kmp }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
@@ -55,6 +62,28 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+
+      - name: 🧭 Resolve component flags
+        id: component-flags
+        shell: python
+        env:
+          AFFECTED_COMPONENTS: ${{ inputs.affected_components || '[]' }}
+        run: |
+          import json
+          import os
+          import pathlib
+
+          affected = set(json.loads(os.environ["AFFECTED_COMPONENTS"]))
+          flags = {
+              "has_corvus_runtime": "corvus-runtime" in affected,
+              "has_rook": "rook" in affected,
+              "has_cerebro": "cerebro" in affected,
+              "has_gradle_kmp": "gradle-kmp" in affected,
+          }
+
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              for key, value in flags.items():
+                  output.write(f"{key}={'true' if value else 'false'}\\n")
 
       - name: 🦀 Resolve Rust channel
         if: ${{ inputs.release }}
@@ -172,7 +201,9 @@ jobs:
         env:
           EXPECTED_VERSION: ${{ steps.release-context.outputs.release_version }}
           RELEASE_CHANNEL: ${{ steps.release-context.outputs.release_channel }}
+          AFFECTED_COMPONENTS: ${{ inputs.affected_components || '[]' }}
         run: |
+
           set -euo pipefail
 
           python3 <<'PY'
@@ -184,6 +215,11 @@ jobs:
 
           expected = os.environ["EXPECTED_VERSION"]
           channel = os.environ["RELEASE_CHANNEL"].title()
+          affected_components_raw = os.environ.get("AFFECTED_COMPONENTS", '[]')
+          try:
+              affected_components = set(json.loads(affected_components_raw))
+          except json.JSONDecodeError as exc:
+              raise RuntimeError(f"Invalid AFFECTED_COMPONENTS payload: {affected_components_raw}") from exc
 
           def read_properties(path: str, key: str) -> str:
               for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
@@ -198,65 +234,81 @@ jobs:
           def read_json_version(path: str) -> str:
               return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["version"]
 
-          checks = [
-              ("version.txt", pathlib.Path("version.txt").read_text(encoding="utf-8").strip()),
-              ("gradle.properties", read_properties("gradle.properties", "VERSION")),
-              (
-                  "gradle/build-logic/gradle.properties",
-                  read_properties("gradle/build-logic/gradle.properties", "VERSION"),
-              ),
-              ("clients/agent-runtime/Cargo.toml", read_toml_version("clients/agent-runtime/Cargo.toml")),
-              ("clients/rook/Cargo.toml", read_toml_version("clients/rook/Cargo.toml")),
-              ("modules/cerebro/Cargo.toml", read_toml_version("modules/cerebro/Cargo.toml")),
-              (
-                  "clients/rook/npm/rook/package.json",
-                  read_json_version("clients/rook/npm/rook/package.json"),
-              ),
-              (
-                  "clients/rook/npm/rook-darwin-x64/package.json",
-                  read_json_version("clients/rook/npm/rook-darwin-x64/package.json"),
-              ),
-              (
-                  "clients/rook/npm/rook-darwin-arm64/package.json",
-                  read_json_version("clients/rook/npm/rook-darwin-arm64/package.json"),
-              ),
-              (
-                  "clients/rook/npm/rook-linux-x64/package.json",
-                  read_json_version("clients/rook/npm/rook-linux-x64/package.json"),
-              ),
-              (
-                  "clients/rook/npm/rook-linux-arm64/package.json",
-                  read_json_version("clients/rook/npm/rook-linux-arm64/package.json"),
-              ),
-              (
-                  "clients/rook/npm/rook-windows-x64/package.json",
-                  read_json_version("clients/rook/npm/rook-windows-x64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-darwin-x64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-darwin-x64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-darwin-arm64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-darwin-arm64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-linux-x64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-linux-x64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-linux-arm64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-linux-arm64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-windows-x64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-windows-x64/package.json"),
-              ),
-          ]
+          checks = []
+          if "gradle-kmp" in affected_components:
+              checks.extend([
+                  ("gradle.properties", read_properties("gradle.properties", "VERSION")),
+                  (
+                      "gradle/build-logic/gradle.properties",
+                      read_properties("gradle/build-logic/gradle.properties", "VERSION"),
+                  ),
+              ])
+
+          if "corvus-runtime" in affected_components:
+              checks.extend([
+                  ("clients/agent-runtime/Cargo.toml", read_toml_version("clients/agent-runtime/Cargo.toml")),
+                  (
+                      "clients/agent-runtime/npm/corvus/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-darwin-x64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-darwin-x64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-darwin-arm64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-darwin-arm64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-linux-x64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-linux-x64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-linux-arm64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-linux-arm64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-windows-x64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-windows-x64/package.json"),
+                  ),
+              ])
+
+          if "cerebro" in affected_components:
+              checks.extend([
+                  ("modules/cerebro/Cargo.toml", read_toml_version("modules/cerebro/Cargo.toml")),
+              ])
+
+          if "rook" in affected_components:
+              checks.extend([
+                  ("clients/rook/Cargo.toml", read_toml_version("clients/rook/Cargo.toml")),
+                  (
+                      "clients/rook/npm/rook/package.json",
+                      read_json_version("clients/rook/npm/rook/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-darwin-x64/package.json",
+                      read_json_version("clients/rook/npm/rook-darwin-x64/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-darwin-arm64/package.json",
+                      read_json_version("clients/rook/npm/rook-darwin-arm64/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-linux-x64/package.json",
+                      read_json_version("clients/rook/npm/rook-linux-x64/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-linux-arm64/package.json",
+                      read_json_version("clients/rook/npm/rook-linux-arm64/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-windows-x64/package.json",
+                      read_json_version("clients/rook/npm/rook-windows-x64/package.json"),
+                  ),
+              ])
+
+          if not checks:
+              raise RuntimeError(f"No version checks configured for affected components: {sorted(affected_components)}")
 
           failures = [(surface, actual) for surface, actual in checks if actual != expected]
 
@@ -310,6 +362,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 👻 Publish Gradle/Maven artifacts
+        if: ${{ steps.component-flags.outputs.has_gradle_kmp == 'true' }}
         id: publish-maven
         continue-on-error: true
         env:
@@ -330,7 +383,7 @@ jobs:
           ./gradlew -p gradle/build-logic publishToMavenCentral
 
       - name: 📦 Publish corvus-traits crate to crates.io
-        if: ${{ inputs.release }}
+        if: ${{ inputs.release && steps.component-flags.outputs.has_corvus_runtime == 'true' }}
         id: publish-cargo-corvus-traits
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -343,7 +396,7 @@ jobs:
           cargo publish --locked
 
       - name: 📦 Publish Rust crate to crates.io
-        if: ${{ inputs.release }}
+        if: ${{ inputs.release && steps.component-flags.outputs.has_corvus_runtime == 'true' }}
         id: publish-cargo
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -356,7 +409,7 @@ jobs:
           cargo publish --locked
 
       - name: 📦 Publish Rook crate to crates.io
-        if: ${{ inputs.release }}
+        if: ${{ inputs.release && steps.component-flags.outputs.has_rook == 'true' }}
         id: publish-cargo-rook
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -380,6 +433,10 @@ jobs:
           CARGO_OUTCOME: ${{ steps.publish-cargo.outcome }}
           CARGO_TRAITS_OUTCOME: ${{ steps.publish-cargo-corvus-traits.outcome }}
           CARGO_ROOK_OUTCOME: ${{ steps.publish-cargo-rook.outcome }}
+          HAS_CORVUS_RUNTIME: ${{ steps.component-flags.outputs.has_corvus_runtime }}
+          HAS_ROOK: ${{ steps.component-flags.outputs.has_rook }}
+          HAS_CEREBRO: ${{ steps.component-flags.outputs.has_cerebro }}
+          HAS_GRADLE_KMP: ${{ steps.component-flags.outputs.has_gradle_kmp }}
         run: |
           {
              echo "## ${RELEASE_CHANNEL^} release publish summary"
@@ -400,31 +457,69 @@ jobs:
              echo "- Stable notes source: release-please owns canonical stable release notes"
              echo "- Beta notes source: release-please owns canonical beta release notes"
              echo "- GitHub Release ownership: release-please owns the canonical GitHub Release and canonical ${RELEASE_CHANNEL} release notes; _publish.yml only publishes artifacts/assets"
+             echo
+             echo "### Component status"
+             echo
+             if [ "${HAS_CORVUS_RUNTIME}" = "true" ]; then
+               echo "#### corvus-runtime"
+               echo "- Policy: publishable"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Cargo publish (corvus): ${CARGO_OUTCOME}"
+               echo "- Cargo publish (corvus-traits): ${CARGO_TRAITS_OUTCOME}"
+               echo "- npm publication: delegated to component-scoped downstream jobs"
+               echo "- Docker publication: delegated to component-scoped downstream jobs"
+               echo
+             fi
+             if [ "${HAS_CEREBRO}" = "true" ]; then
+               echo "#### cerebro"
+               echo "- Policy: publishable"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Cargo/release asset publication: delegated to component-scoped downstream jobs"
+               echo "- Docker publication: delegated to component-scoped downstream jobs"
+               echo
+             fi
+             if [ "${HAS_ROOK}" = "true" ]; then
+               echo "#### rook"
+               echo "- Policy: publishable"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Cargo publish (rook): ${CARGO_ROOK_OUTCOME}"
+               echo "- npm publication: delegated to component-scoped downstream jobs"
+               echo "- Docker publication: delegated to component-scoped downstream jobs"
+               echo
+             fi
+             if [ "${HAS_GRADLE_KMP}" = "true" ]; then
+               echo "#### gradle-kmp"
+               echo "- Policy: validate-only"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Maven/Gradle publication step: ${MAVEN_OUTCOME}"
+               echo "- Release state ownership: not yet modeled as its own release-please manifest authority"
+               echo
+             fi
            } >> "$GITHUB_STEP_SUMMARY"
 
   build-native-binaries:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_corvus_runtime == 'true' }}
     needs: publish
     permissions:
       contents: read
     uses: ./.github/workflows/_build-native-binaries.yml
 
   build-cerebro-binaries:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_cerebro == 'true' }}
     needs: publish
     permissions:
       contents: read
     uses: ./.github/workflows/_build-cerebro-binaries.yml
 
   build-rook-binaries:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_rook == 'true' }}
     needs: publish
     permissions:
       contents: read
     uses: ./.github/workflows/_build-rook-binaries.yml
 
   docker-image:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_corvus_runtime == 'true' }}
     needs: [publish, build-native-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -498,7 +593,7 @@ jobs:
           labels: ${{ steps.docker-meta.outputs.labels }}
 
   docker-image-cerebro:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_cerebro == 'true' }}
     needs: [publish, build-cerebro-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -572,7 +667,7 @@ jobs:
           labels: ${{ steps.docker-meta.outputs.labels }}
 
   docker-image-rook:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_rook == 'true' }}
     needs: [publish, build-rook-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -646,8 +741,8 @@ jobs:
           labels: ${{ steps.docker-meta.outputs.labels }}
 
   publish-npm-platforms:
-    if: ${{ inputs.release }}
-    needs: build-native-binaries
+    if: ${{ inputs.release && needs.publish.outputs.has_corvus_runtime == 'true' }}
+    needs: [publish, build-native-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -721,7 +816,7 @@ jobs:
         id: publish-platform-package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+          NPM_DIST_TAG: latest
         run: |
           set -euo pipefail
           if [ -z "$NODE_AUTH_TOKEN" ]; then
@@ -759,7 +854,7 @@ jobs:
         if: ${{ always() }}
         env:
           PLATFORM_PUBLISH_OUTCOME: ${{ steps.publish-platform-package.outcome }}
-          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+          NPM_DIST_TAG: latest
         run: |
           {
             echo "## npm platform publish summary"
@@ -772,8 +867,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish-npm-base:
-    if: ${{ inputs.release }}
-    needs: publish-npm-platforms
+    if: ${{ inputs.release && needs.publish.outputs.has_corvus_runtime == 'true' }}
+    needs: [publish, publish-npm-platforms]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -792,7 +887,7 @@ jobs:
         id: publish-base-package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+          NPM_DIST_TAG: latest
         run: |
           set -euo pipefail
           if [ -z "$NODE_AUTH_TOKEN" ]; then
@@ -821,7 +916,7 @@ jobs:
         if: ${{ always() }}
         env:
           BASE_PUBLISH_OUTCOME: ${{ steps.publish-base-package.outcome }}
-          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+          NPM_DIST_TAG: latest
         run: |
           {
             echo "## npm base publish summary"
@@ -834,7 +929,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish-npm-platforms-rook:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_rook == 'true' }}
     needs: [build-rook-binaries, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -933,7 +1028,7 @@ jobs:
           npm publish "${npm_publish_args[@]}"
 
   publish-npm-base-rook:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_rook == 'true' }}
     needs: [publish-npm-platforms-rook, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -7,8 +7,12 @@ import java.util.concurrent.TimeUnit
 val isCi = providers.environmentVariable("CI").orNull?.isNotBlank() == true
 val safeNettyVersion = "4.1.132.Final"
 val safeProtobufVersion = "3.25.9"
-val safeJacksonToolsVersion = "3.1.0"
+val safeJacksonToolsVersion = "3.1.1"
 val dynamicVersionCacheDurationDays = 7
+val safeCommonsCompressVersion = "1.26.0"
+val safeJose4jVersion = "0.9.6"
+val safeBouncyCastleVersion = "1.84"
+val safeJdom2Version = "2.0.6.1"
 
 val excludedLockingConfigurationPrefixes =
   listOf("allDevSourceSets", "composeHotReloadDev", "detachedConfiguration", "jvmDev", "spotless")
@@ -93,6 +97,62 @@ fun ResolutionStrategy.enforceSafeJacksonToolsVersion() {
   }
 }
 
+fun ResolutionStrategy.enforceSafeCommonsCompressVersion() {
+  eachDependency {
+    if (
+      requested.group == "org.apache.commons" &&
+        requested.name == "commons-compress" &&
+        requested.version != safeCommonsCompressVersion
+    ) {
+      useVersion(safeCommonsCompressVersion)
+      because(
+        "Commons Compress $safeCommonsCompressVersion addresses the archive parsing vulnerabilities reported by Dependabot"
+      )
+    }
+  }
+}
+
+fun ResolutionStrategy.enforceSafeJose4jVersion() {
+  eachDependency {
+    if (
+      requested.group == "org.bitbucket.b_c" &&
+        requested.name == "jose4j" &&
+        requested.version != safeJose4jVersion
+    ) {
+      useVersion(safeJose4jVersion)
+      because(
+        "jose4j $safeJose4jVersion fixes the JWE decompression denial of service vulnerability"
+      )
+    }
+  }
+}
+
+fun ResolutionStrategy.enforceSafeBouncyCastleVersion() {
+  eachDependency {
+    if (requested.group == "org.bouncycastle" && requested.version != safeBouncyCastleVersion) {
+      useVersion(safeBouncyCastleVersion)
+      because(
+        "Bouncy Castle $safeBouncyCastleVersion fixes the vulnerable OpenPGP parsing dependencies"
+      )
+    }
+  }
+}
+
+fun ResolutionStrategy.enforceSafeJdom2Version() {
+  eachDependency {
+    if (
+      requested.group == "org.jdom" &&
+        requested.name == "jdom2" &&
+        requested.version != safeJdom2Version
+    ) {
+      useVersion(safeJdom2Version)
+      because(
+        "JDOM $safeJdom2Version fixes the XXE-related parser hardening issue reported by Dependabot"
+      )
+    }
+  }
+}
+
 fun findGradleWrapper(startDir: File): File? {
   val wrapperName =
     if (org.gradle.internal.os.OperatingSystem.current().isWindows) "gradlew.bat" else "gradlew"
@@ -116,6 +176,10 @@ buildscript.configurations.configureEach {
       enforceSafeNettyVersion()
       enforceSafeProtobufVersion()
       enforceSafeJacksonToolsVersion()
+      enforceSafeCommonsCompressVersion()
+      enforceSafeJose4jVersion()
+      enforceSafeBouncyCastleVersion()
+      enforceSafeJdom2Version()
       activateDependencyLocking()
     }
   }
@@ -128,6 +192,10 @@ configurations.configureEach {
       enforceSafeNettyVersion()
       enforceSafeProtobufVersion()
       enforceSafeJacksonToolsVersion()
+      enforceSafeCommonsCompressVersion()
+      enforceSafeJose4jVersion()
+      enforceSafeBouncyCastleVersion()
+      enforceSafeJdom2Version()
       activateDependencyLocking()
     }
   }

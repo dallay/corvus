@@ -5,11 +5,10 @@ on:
   schedule:
     - cron: "0 2 * * *"
 
-permissions:
-  issues: write
-  pull-requests: write
-
 jobs:
   stale:
+    permissions:
+      issues: write
+      pull-requests: write
     uses: dallay/common-actions/.github/workflows/stale.yml@6ecd716dcfb6a9e8a9c494d1eac210cc1d73d75f # v2.0.0
     secrets: inherit

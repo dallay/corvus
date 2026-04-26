@@ -71,6 +71,28 @@ and maintenance, but should not block normal development.
 - `Stale`: daily schedule, manual dispatch
 - `PR Hygiene`: every 12 hours schedule, manual dispatch
 
+## Migration Direction: Component-Aware Gating
+
+Current live workflow behavior remains repo-scoped: the merge gate is still the small deterministic
+set described above, and stable publication still begins only after the canonical repo-wide release
+exists.
+
+The documented migration direction for release decoupling is to add component-aware release gating
+without changing canonical release ownership:
+
+- keep `release-please` as the repo-wide authority for the stable release PR, tag, GitHub Release,
+  and release notes,
+- introduce component-scoped release state so each managed component has explicit version,
+  eligibility, and publish-policy metadata,
+- derive future stable-release validation from the subset of components that are release-eligible
+  for that cycle,
+- classify managed components as `publish`, `validate-only`, or `excluded`,
+- and avoid treating unrelated private or excluded components as automatic stable-release blockers
+  solely because they live in the repository.
+
+This is a documentation and design direction only. It does **not** mean current required checks,
+workflow triggers, or publish logic are already component-aware.
+
 ## Fast Triage Guide
 
 1. `CI Required Gate` failing: start with `.github/workflows/ci.yml`.
@@ -86,3 +108,5 @@ and maintenance, but should not block normal development.
 - Prefer explicit workflow permissions (least privilege).
 - Use path filters for expensive workflows when practical.
 - Avoid mixing onboarding/community automation with merge-gating logic.
+- When updating CI documentation, distinguish current live gates from planned component-aware
+  release gating so operators do not infer behavior that workflows do not yet implement.
