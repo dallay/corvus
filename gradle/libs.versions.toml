@@ -70,7 +70,7 @@ com-gradle-develocity = { id = "com.gradle.develocity", version = "4.3.2" }
 org-ec4j-editorconfig = { id = "org.ec4j.editorconfig", version = "0.1.0" }
 com-diffplug-spotless = { id = "com.diffplug.spotless", version = "8.4.0" }
 com-github-node-gradle-node = { id = "com.github.node-gradle.node", version = "7.1.0" }
-dev-detekt = { id = "dev.detekt", version = "2.0.0-alpha.2" }
+dev-detekt = { id = "dev.detekt", version = "2.0.0-alpha.3" }
 org-jetbrains-dokka = { id = "org.jetbrains.dokka", version = "2.2.0-Beta" }
 me-champeau-jmh = { id = "me.champeau.jmh", version = "0.7.3" }
 org-gradlex-jvm-dependency-conflict-resolution = { id = "org.gradlex.jvm-dependency-conflict-resolution", version = "2.5" }
