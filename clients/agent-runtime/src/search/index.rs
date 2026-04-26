@@ -766,11 +766,11 @@ fn workspace_fingerprint(workspace_dir: &Path) -> anyhow::Result<String> {
     hasher.update(SCHEMA_VERSION.as_bytes());
     hasher.update(FORMAT_VERSION.as_bytes());
     hasher.update(DISCOVERY_RULES_VERSION.as_bytes());
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex::encode(hasher.finalize()))
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex::encode(Sha256::digest(bytes))
 }
 
 #[cfg(not(windows))]
