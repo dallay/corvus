@@ -1,17 +1,28 @@
 pub mod handlers;
 pub mod types;
 
+use crate::health::StartupDependencyState;
 use crate::registry::RookRegistry;
 use axum::{routing::get, Router};
+use std::sync::Arc;
 
-pub fn build_router(registry: RookRegistry) -> Router {
+#[derive(Clone)]
+pub struct AdminState {
+    pub registry: RookRegistry,
+    pub startup: Arc<StartupDependencyState>,
+}
+
+pub fn build_router(state: AdminState) -> Router {
     Router::new()
         .route("/health", get(handlers::handle_health))
+        .route("/health/live", get(handlers::handle_live_health))
+        .route("/health/ready", get(handlers::handle_ready_health))
         .route(
             "/health/accounts",
             get(handlers::handle_list_account_health),
         )
         .route("/health/summary", get(handlers::handle_health_summary))
+        .route("/usage", get(handlers::handle_get_usage))
         .route("/audit/events", get(handlers::handle_list_audit_events))
         .route(
             "/accounts",
@@ -53,11 +64,11 @@ pub fn build_router(registry: RookRegistry) -> Router {
         )
         .route(
             "/settings",
-            get(handlers::handle_get_settings).put(handlers::handle_put_settings),
+            get(handlers::handle_get_settings).put(handlers::handle_update_settings),
         )
-        .route("/usage", get(handlers::handle_get_usage))
-        .with_state(registry)
+        .with_state(state)
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -115,6 +126,20 @@ mod tests {
         RookRegistry::open_in_memory().await.unwrap()
     }
 
+    fn test_admin_state(registry: RookRegistry) -> AdminState {
+        test_admin_state_with_startup(registry, crate::health::StartupDependencyState::all_ready())
+    }
+
+    fn test_admin_state_with_startup(
+        registry: RookRegistry,
+        startup: crate::health::StartupDependencyState,
+    ) -> AdminState {
+        AdminState {
+            registry,
+            startup: std::sync::Arc::new(startup),
+        }
+    }
+
     async fn request_json(app: axum::Router, path: &str) -> (StatusCode, Value) {
         let response = app
             .oneshot(Request::get(path).body(Body::empty()).unwrap())
@@ -166,7 +191,7 @@ mod tests {
     #[tokio::test]
     async fn admin_router_preserves_health_and_usage_placeholder() {
         let registry = test_api_app().await;
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (health_status, health_body) = request_text(app.clone(), "/api/health").await;
         assert_eq!(health_status, StatusCode::OK);
@@ -184,32 +209,63 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn admin_router_lists_and_gets_redacted_accounts() {
+    async fn admin_router_live_health_reports_ok_json() {
         let registry = test_api_app().await;
-        let account = make_account("Primary OpenAI", Some("sk-secret"));
-        let account_id = account.id;
-        registry.accounts().create(account).await.unwrap();
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let (status, json) = request_json(app, "/api/health/live").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json, json!({ "status": "ok" }));
+    }
 
-        let (list_status, list_json) = request_json(app.clone(), "/api/accounts").await;
-        assert_eq!(list_status, StatusCode::OK);
-        assert_eq!(list_json.as_array().unwrap().len(), 1);
-        assert_eq!(list_json[0]["has_api_key"], json!(true));
-        assert!(list_json[0].get("api_key").is_none());
+    #[tokio::test]
+    async fn admin_router_ready_health_reports_ok_when_all_dependencies_ready() {
+        let registry = test_api_app().await;
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
-        let (get_status, get_json) =
-            request_json(app, &format!("/api/accounts/{account_id}")).await;
-        assert_eq!(get_status, StatusCode::OK);
-        assert_eq!(get_json["id"], json!(account_id.to_string()));
-        assert_eq!(get_json["display_name"], json!("Primary OpenAI"));
-        assert!(get_json.get("api_key").is_none());
+        let (status, json) = request_json(app, "/api/health/ready").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            json,
+            json!({
+                "status": "ok",
+                "checks": {
+                    "config": { "ready": true },
+                    "database": { "ready": true },
+                    "router": { "ready": true },
+                    "assets": { "ready": true }
+                }
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn admin_router_ready_health_reports_service_unavailable_when_dependency_missing() {
+        let registry = test_api_app().await;
+        let app = axum::Router::new().nest(
+            "/api",
+            build_router(test_admin_state_with_startup(
+                registry,
+                crate::health::StartupDependencyState {
+                    config_ready: true,
+                    database_ready: false,
+                    router_ready: true,
+                    assets_ready: true,
+                },
+            )),
+        );
+
+        let (status, json) = request_json(app, "/api/health/ready").await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(json["status"], json!("fail"));
+        assert_eq!(json["checks"]["database"]["ready"], json!(false));
+        assert_eq!(json["checks"]["config"]["ready"], json!(true));
     }
 
     #[tokio::test]
     async fn admin_router_records_and_lists_recent_audit_events() {
         let registry = test_api_app().await;
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (create_status, create_json) = send_json(
             app.clone(),
@@ -245,7 +301,7 @@ mod tests {
     async fn admin_router_returns_structured_not_found_for_unknown_account() {
         let registry = test_api_app().await;
         let missing = crate::domain::AccountId::generate();
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (status, json) = request_json(app, &format!("/api/accounts/{missing}")).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
@@ -265,7 +321,7 @@ mod tests {
         let route_id = route.id;
         registry.routes().create(route).await.unwrap();
 
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (pools_status, pools_json) = request_json(app.clone(), "/api/pools").await;
         assert_eq!(pools_status, StatusCode::OK);
@@ -301,7 +357,7 @@ mod tests {
         };
         registry.settings().save(settings).await.unwrap();
 
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
         let (status, json) = request_json(app, "/api/settings").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(json["gateway_port"], json!(4141));
@@ -328,7 +384,7 @@ mod tests {
         registry.health().mark_success(healthy_id).await;
         registry.health().mark_failure(unhealthy_id, 60).await;
 
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (accounts_status, accounts_json) =
             request_json(app.clone(), "/api/health/accounts").await;
@@ -369,7 +425,7 @@ mod tests {
     #[tokio::test]
     async fn admin_router_creates_updates_and_deletes_accounts_with_redaction() {
         let registry = test_api_app().await;
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (create_status, create_json) = send_json(
             app.clone(),
@@ -437,7 +493,7 @@ mod tests {
         let account_id = account.id;
         registry.accounts().create(account).await.unwrap();
 
-        let app = axum::Router::new().nest("/api", build_router(registry.clone()));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry.clone())));
 
         let (update_status, update_json) = send_json(
             app,
@@ -475,7 +531,7 @@ mod tests {
         let account_id = account.id;
         registry.accounts().create(account).await.unwrap();
 
-        let app = axum::Router::new().nest("/api", build_router(registry.clone()));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry.clone())));
 
         let (update_status, update_json) = send_json(
             app,
@@ -507,7 +563,7 @@ mod tests {
     async fn admin_router_returns_not_found_for_updating_or_deleting_missing_account() {
         let registry = test_api_app().await;
         let missing = crate::domain::AccountId::generate();
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (update_status, update_json) = send_json(
             app.clone(),
@@ -544,7 +600,7 @@ mod tests {
         let account = make_account("Pool Member", None);
         let account_id = account.id;
         registry.accounts().create(account).await.unwrap();
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (create_status, create_json) = send_json(
             app.clone(),
@@ -596,7 +652,7 @@ mod tests {
         let pool = make_pool(account_id);
         let pool_id = pool.id;
         registry.pools().create(pool).await.unwrap();
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (create_status, create_json) = send_json(
             app.clone(),
@@ -656,7 +712,7 @@ mod tests {
     #[tokio::test]
     async fn admin_router_put_settings_persists_and_round_trips() {
         let registry = test_api_app().await;
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (put_status, put_json) = send_json(
             app.clone(),
@@ -695,7 +751,7 @@ mod tests {
         let pool = make_pool(existing_id);
         let pool_id = pool.id;
         registry.pools().create(pool).await.unwrap();
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (add_status, add_json) = send_json(
             app.clone(),
@@ -736,7 +792,7 @@ mod tests {
         let pool = make_pool(existing_id);
         let pool_id = pool.id;
         registry.pools().create(pool).await.unwrap();
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let missing_account = crate::domain::AccountId::generate();
         let (missing_account_status, missing_account_json) = send_json(
@@ -779,7 +835,7 @@ mod tests {
         };
         let pool_id = pool.id;
         registry.pools().create(pool).await.unwrap();
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (remove_status, remove_json) = send_json(
             app.clone(),
@@ -810,7 +866,7 @@ mod tests {
         registry.accounts().create(account).await.unwrap();
         let pool = make_pool(account_id);
         registry.pools().create(pool).await.unwrap();
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (status, json) = send_json(
             app.clone(),
@@ -836,7 +892,7 @@ mod tests {
         let pool_id = pool.id;
         registry.pools().create(pool).await.unwrap();
         registry.routes().create(make_route(pool_id)).await.unwrap();
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (status, json) = send_json(
             app,
@@ -866,7 +922,7 @@ mod tests {
             fallback_pool_id: Some(fallback_pool_id),
         };
         registry.pools().create(primary_pool).await.unwrap();
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (status, json) = send_json(
             app,
@@ -906,7 +962,7 @@ mod tests {
             capability_constraints: vec![],
         };
         registry.routes().create(primary_route).await.unwrap();
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (status, json) = send_json(
             app,
@@ -922,7 +978,7 @@ mod tests {
     #[tokio::test]
     async fn admin_router_returns_not_found_for_missing_pool_and_route_mutations() {
         let registry = test_api_app().await;
-        let app = axum::Router::new().nest("/api", build_router(registry));
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
         let missing_pool = crate::domain::PoolId::generate();
         let missing_route = crate::domain::RouteId::generate();
         let missing_account = crate::domain::AccountId::generate();

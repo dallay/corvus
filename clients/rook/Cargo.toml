@@ -31,6 +31,7 @@ futures-util = "0.3"
 # Serialization
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
+toml = "0.8"
 
 # Error handling
 thiserror = "2.0"
@@ -70,3 +71,4 @@ corvus-traits = { version = "0.1.0", path = "../agent-runtime/crates/corvus-trai
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+tempfile = "3.14"

@@ -9,6 +9,7 @@ use crate::config::{IdempotencyConfig, InboundAuthConfig, RateLimitConfig, Trans
 use crate::dashboard;
 use crate::domain::RookError;
 use crate::gateway::{self, GatewayState};
+use crate::health::StartupDependencyState;
 use crate::idempotency::middleware::{apply_chat_idempotency, ChatIdempotencyMiddlewareState};
 use crate::registry::RookRegistry;
 use crate::routing::RoutingEngine;
@@ -80,13 +81,45 @@ async fn build_app_with_registry(
     registry: RookRegistry,
 ) -> Result<Router, RookError> {
     let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
-    build_app_with_registry_and_idempotency(config, registry, idempotency_service).await
+    build_app_with_registry_and_startup_state(
+        config,
+        registry,
+        idempotency_service,
+        Arc::new(StartupDependencyState {
+            config_ready: true,
+            database_ready: true,
+            router_ready: true,
+            assets_ready: dashboard::assets_ready(),
+        }),
+    )
+    .await
 }
 
+#[cfg(test)]
 async fn build_app_with_registry_and_idempotency(
     config: ServerConfig,
     registry: RookRegistry,
     idempotency_service: SharedIdempotencyService,
+) -> Result<Router, RookError> {
+    build_app_with_registry_and_startup_state(
+        config,
+        registry,
+        idempotency_service,
+        Arc::new(StartupDependencyState {
+            config_ready: true,
+            database_ready: true,
+            router_ready: true,
+            assets_ready: dashboard::assets_ready(),
+        }),
+    )
+    .await
+}
+
+async fn build_app_with_registry_and_startup_state(
+    config: ServerConfig,
+    registry: RookRegistry,
+    idempotency_service: SharedIdempotencyService,
+    startup_state: Arc<StartupDependencyState>,
 ) -> Result<Router, RookError> {
     config.inbound_auth.validate()?;
     config.transport.validate()?;
@@ -132,7 +165,10 @@ async fn build_app_with_registry_and_idempotency(
         config: Arc::new(config.idempotency.chat_completions.clone()),
         service: idempotency_service,
     };
-    let admin_router = admin::build_router(registry)
+    let admin_router = admin::build_router(admin::AdminState {
+        registry,
+        startup: startup_state,
+    })
         .layer(middleware::from_fn_with_state(
             inbound_auth.clone(),
             admin_inbound_auth,
@@ -589,6 +625,53 @@ mod tests {
         );
         result.unwrap().unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn health_routes_preserve_compatibility_and_report_startup_state() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let app = build_app_with_registry(ServerConfig::default(), registry)
+            .await
+            .unwrap();
+
+        let (health_status, health_body) = request_text(app.clone(), "/api/health").await;
+        assert_eq!(health_status, StatusCode::OK);
+        assert_eq!(health_body, b"ok");
+
+        let (live_status, live_json) = request_json(app.clone(), "/api/health/live").await;
+        assert_eq!(live_status, StatusCode::OK);
+        assert_eq!(live_json, json!({ "status": "ok" }));
+
+        let (ready_status, ready_json) = request_json(app, "/api/health/ready").await;
+        assert_eq!(ready_status, StatusCode::OK);
+        assert_eq!(ready_json["status"], json!("ok"));
+        assert_eq!(ready_json["checks"]["config"]["ready"], json!(true));
+        assert_eq!(ready_json["checks"]["database"]["ready"], json!(true));
+        assert_eq!(ready_json["checks"]["router"]["ready"], json!(true));
+    }
+
+    #[tokio::test]
+    async fn ready_route_returns_service_unavailable_for_startup_dependency_failure() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
+        let app = build_app_with_registry_and_startup_state(
+            ServerConfig::default(),
+            registry,
+            idempotency_service,
+            Arc::new(StartupDependencyState {
+                config_ready: true,
+                database_ready: false,
+                router_ready: true,
+                assets_ready: true,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let (ready_status, ready_json) = request_json(app, "/api/health/ready").await;
+        assert_eq!(ready_status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(ready_json["status"], json!("fail"));
+        assert_eq!(ready_json["checks"]["database"]["ready"], json!(false));
     }
 
     #[tokio::test]
