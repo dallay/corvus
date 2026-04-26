@@ -23,6 +23,12 @@ impl EnvVarGuard {
         std::env::set_var(key, value);
         Self { key, previous }
     }
+
+    fn unset(key: &'static str) -> Self {
+        let previous = std::env::var(key).ok();
+        std::env::remove_var(key);
+        Self { key, previous }
+    }
 }
 
 impl Drop for EnvVarGuard {
@@ -122,6 +128,58 @@ fn embedded_bind_allows_override_for_non_loopback() {
     config.surreal.embedded_bind = Some("0.0.0.0:8000".to_string());
     config.surreal.embedded_allow_non_loopback = true;
     assert!(config.validate_storage().is_ok());
+}
+
+#[test]
+fn startup_validation_requires_auth_token_for_non_loopback_host() {
+    let mut config = base_config();
+    config.host = "0.0.0.0".to_string();
+
+    let error = config
+        .validate_startup_requirements()
+        .expect_err("startup validation should fail");
+
+    assert!(error.to_string().contains("auth token is required"));
+}
+
+#[test]
+fn startup_validation_allows_loopback_without_auth_token_for_local_dev() {
+    let config = base_config();
+
+    assert!(config.validate_startup_requirements().is_ok());
+}
+
+#[test]
+fn startup_validation_allows_non_loopback_with_real_auth_token() {
+    let mut config = base_config();
+    config.host = "0.0.0.0".to_string();
+    config.auth_token = Some(SecretString::new(
+        "secrettoken".to_string().into_boxed_str(),
+    ));
+    config.surreal.username = Some("operator".to_string());
+    config.surreal.password = Some(SecretString::new(
+        "secure-password".to_string().into_boxed_str(),
+    ));
+
+    assert!(config.validate_startup_requirements().is_ok());
+}
+
+#[test]
+fn startup_validation_rejects_whitespace_only_auth_token_for_non_loopback() {
+    let _env_guard = ENV_LOCK.lock().expect("env lock");
+    let _auth_guard = EnvVarGuard::unset("CEREBRO_AUTH_TOKEN");
+    let _audit_guard = EnvVarGuard::unset("CEREBRO_AUDIT_TOKEN");
+
+    let mut config = base_config();
+    config.host = "0.0.0.0".to_string();
+    config.auth_token = Some(SecretString::new("  \t\n".to_string().into_boxed_str()));
+
+    let error = config
+        .apply_env_overrides()
+        .validate_startup_requirements()
+        .expect_err("startup validation should fail");
+
+    assert!(error.to_string().contains("auth token is required"));
 }
 
 struct BufferWriter(Arc<Mutex<Vec<u8>>>);

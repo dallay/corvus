@@ -15,10 +15,12 @@ RUN case "$TARGETARCH" in \
   *) echo "Unsupported TARGETARCH=$TARGETARCH" && exit 1 ;; \
 esac
 
-# WARNING: Override surreal password in production via mounted config or env
-# Default config: bind to all interfaces for container use
+# Bundled config is for local/demo boot only.
+# The default host is 127.0.0.1 inside the container, so docker -p will not expose Cerebro
+# unless operators override host (for example to 0.0.0.0) and provide a real auth_token.
+# Production deployments must provide explicit config and secrets via mount or environment.
 RUN printf '%s\n' \
-  'host = "0.0.0.0"' \
+  'host = "127.0.0.1"' \
   'port = 4040' \
   'storage_mode = "embedded_surreal"' \
   '' \
@@ -26,7 +28,7 @@ RUN printf '%s\n' \
   'namespace = "cerebro"' \
   'database = "cerebro"' \
   'username = "root"' \
-  'password = "CHANGE_ME_BEFORE_PRODUCTION"' \
+  'password = "local-dev-only"' \
   > /etc/cerebro/config.toml
 
 RUN chmod +x /tmp/cerebro \
@@ -43,6 +45,6 @@ ENV HOME=/cerebro-data
 WORKDIR /cerebro-data
 USER 65532:65532
 EXPOSE 4040
-# NOTE: Distroless has no shell; use orchestrator probes (K8s, Compose) against POST /mcp
+# NOTE: Distroless has no shell; production orchestrators should use GET /healthz and GET /readyz probes.
 ENTRYPOINT ["cerebro"]
 CMD ["serve", "--config", "/etc/cerebro/config.toml"]

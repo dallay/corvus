@@ -84,6 +84,17 @@ jobs:
         working-directory: clients/cerebro
         run: cargo build --release --locked --target ${{ matrix.target }} --bin cerebro
 
+      - name: 🔎 Smoke test built binary (Unix)
+        if: runner.os != 'Windows'
+        working-directory: clients/cerebro
+        run: ./target/${{ matrix.target }}/release/cerebro --help > /dev/null
+
+      - name: 🔎 Smoke test built binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "clients/cerebro/target/${{ matrix.target }}/release/cerebro.exe" --help | Out-Null
+
       - name: 📦 Package artifact (Unix)
         if: runner.os != 'Windows'
         working-directory: clients/cerebro

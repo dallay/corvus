@@ -78,6 +78,7 @@ async fn run_server(config_path: Option<PathBuf>, tui: bool) -> Result<()> {
 
     let mut config = CerebroConfig::load(config_path.as_deref())?.apply_env_overrides();
     config.tui.enabled = config.tui.enabled || tui;
+    config.validate_startup_requirements()?;
     let addr = config.bind_addr();
     let service = Arc::new(CerebroService::from_config(config.clone()).await?);
     let listener = TcpListener::bind(&addr).await?;
