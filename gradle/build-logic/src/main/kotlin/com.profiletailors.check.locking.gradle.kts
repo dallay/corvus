@@ -222,18 +222,17 @@ val writeLocks =
     val wrapper =
       gradleWrapperProvider.get()
         ?: error("Could not locate Gradle wrapper starting from ${rootDir.absolutePath}")
-    val isUnix = org.gradle.internal.os.OperatingSystem.current().isUnix
-
-    val lockFiles = lockFilesProvider.get()
-    val backupFiles =
-      lockFiles.associateWith { lockFile ->
-        layout.buildDirectory.file("tmp/locks/${lockFile.asFile.name}.bak").get().asFile
-      }
 
     workingDir = rootDir
     commandLine(wrapper.absolutePath, dependenciesTaskPath.get(), "--write-locks")
 
     doFirst {
+      val lockFiles = lockFilesProvider.get()
+      val backupFiles =
+        lockFiles.associateWith { lockFile ->
+          layout.buildDirectory.file("tmp/locks/${lockFile.asFile.name}.bak").get().asFile
+        }
+
       backupFiles.forEach { (lockFile, backup) ->
         val file = lockFile.asFile
         if (file.exists()) {
@@ -244,8 +243,9 @@ val writeLocks =
     }
 
     doLast {
+      val isUnix = org.gradle.internal.os.OperatingSystem.current().isUnix
       if (!isUnix) {
-        lockFiles.forEach { lockFile ->
+        lockFilesProvider.get().forEach { lockFile ->
           val file = lockFile.asFile
           if (file.exists()) {
             file.writeText(
@@ -264,13 +264,13 @@ tasks.register("checkLocks") {
   notCompatibleWithConfigurationCache("Runs nested Gradle commands to validate dependency locks.")
   dependsOn(writeLocks)
 
-  val lockFiles = lockFilesProvider.get()
-  val backupFiles =
-    lockFiles.associateWith { lockFile ->
-      layout.buildDirectory.file("tmp/locks/${lockFile.asFile.name}.bak").get().asFile
-    }
-
   doLast {
+    val lockFiles = lockFilesProvider.get()
+    val backupFiles =
+      lockFiles.associateWith { lockFile ->
+        layout.buildDirectory.file("tmp/locks/${lockFile.asFile.name}.bak").get().asFile
+      }
+
     lockFiles.forEach { lockFile ->
       val file = lockFile.asFile
       val backup = backupFiles.getValue(lockFile)
