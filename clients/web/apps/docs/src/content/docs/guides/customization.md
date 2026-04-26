@@ -46,7 +46,7 @@ Corvus is an agentic platform with these core components:
   Compose UI for desktop, Android, and iOS with a common core bootstrap.
 - **Web Applications** (`clients/web`) — Astro/Vue web apps including the operator dashboard,
   documentation site, and marketing pages.
-- **Cerebro Memory Service** (`modules/cerebro`) — Standalone MCP memory service with embedded
+- **Cerebro Memory Service** (`clients/cerebro`) — Standalone MCP memory service client with embedded
   SurrealDB, 13 memory tools, and optional TUI dashboard.
 
 ## Documentation Site

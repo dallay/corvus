@@ -60,7 +60,7 @@
   Vanniktech publish tasks actually exist for this repository layout.
 - [x] 5.2 Add the `cerebro` dependency version to `clients/agent-runtime/Cargo.toml` and teach
   `release-please-config.json` to keep that dependency pin aligned with future repo-wide bumps.
-- [x] 5.3 Refresh `clients/agent-runtime/Cargo.lock` and `modules/cerebro/Cargo.lock` so release
+- [x] 5.3 Refresh `clients/agent-runtime/Cargo.lock` and `clients/cerebro/Cargo.lock` so release
   workflows using `--locked` no longer fail on stale lockfiles.
 - [x] 5.4 Extend lightweight release-contract regression coverage for the Gradle publish invocation
   and Rust dependency-version alignment without requiring a full build.

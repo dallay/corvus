@@ -42,7 +42,7 @@ La automatización estable valida y publica solo artefactos enviados:
 
 - artefactos Gradle/KMP, incluida la publicación de build-logic
 - crate `clients/agent-runtime`
-- assets de release de `modules/cerebro`
+- assets de release de `clients/cerebro`
 - paquetes npm del runtime:
   - `@dallay/corvus`
   - `@dallay/corvus-darwin-x64`
@@ -80,7 +80,7 @@ La automatización beta publica las mismas superficies de artefactos que el cana
 
 - artefactos Gradle/KMP, incluida la publicación de build-logic
 - crate `clients/agent-runtime`
-- assets de release de `modules/cerebro`
+- assets de release de `clients/cerebro`
 - paquetes npm de runtime enviados
 - imágenes Docker
 - archivos nativos y checksums adjuntos al GitHub Release

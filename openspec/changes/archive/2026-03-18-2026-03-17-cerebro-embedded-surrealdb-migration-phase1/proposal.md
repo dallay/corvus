@@ -14,7 +14,7 @@ to move to the embedded storage path without relying on alias/bridge behavior al
 - Migration tooling beyond alias/bridge, including import of legacy SurrealDB data and validation of
   migrated content.
 - Operational guidance for running the migration tooling and verifying results.
-- Explicit confirmation that MCP server/tools already exist in `modules/cerebro/` and are reused.
+- Explicit confirmation that MCP server/tools already exist in `clients/cerebro/` and are reused.
 
 ### Out of Scope
 
@@ -24,7 +24,7 @@ to move to the embedded storage path without relying on alias/bridge behavior al
 
 ## Assumptions
 
-- The existing MCP server and 13-tool surface in `modules/cerebro/` remain the core interface for
+- The existing MCP server and 13-tool surface in `clients/cerebro/` remain the core interface for
   memory operations.
 - Legacy SurrealDB data is accessible in a form that can be exported or connected for migration.
 - Embedded SurrealDB can run with acceptable performance for default local deployments.
@@ -41,7 +41,7 @@ deployments while preserving secure configuration defaults and MCP access patter
 
 | Area                                                     | Impact   | Description                                                          |
 |----------------------------------------------------------|----------|----------------------------------------------------------------------|
-| `modules/cerebro/`                                       | Modified | Default storage mode selection and migration tooling implementation. |
+| `clients/cerebro/`                                       | Modified | Default storage mode selection and migration tooling implementation. |
 | `openspec/specs/cerebro/spec.md`                         | Modified | Update deltas to reflect migration tooling now in scope.             |
 | `clients/web/apps/docs/src/content/docs/guides/cerebro/` | Modified | Update migration guidance to include import/validate tooling.        |
 

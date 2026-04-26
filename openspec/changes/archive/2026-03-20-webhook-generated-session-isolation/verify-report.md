@@ -37,7 +37,7 @@ Assessment: complete. The contingent tasks are now explicitly resolved as not ap
 
 - ⚠️ `cargo fmt --manifest-path "clients/agent-runtime/Cargo.toml" --all -- --check`
     - Exit `1`: workspace-level failure due a pre-existing missing file reference outside the scoped
-      Rust surface (`modules/cerebro/src/bin/cerebro.rs`); touched `clients/agent-runtime/**/*.rs`
+      Rust surface (`clients/cerebro/src/bin/cerebro.rs`); touched `clients/agent-runtime/**/*.rs`
       files were formatted directly before merge.
 - ✅ `cargo clippy --manifest-path "clients/agent-runtime/Cargo.toml" --all-targets -- -D warnings`
     - Exit `0`

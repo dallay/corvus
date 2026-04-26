@@ -2,9 +2,9 @@
 
 ## Phase 1: Infrastructure
 
-- [x] 1.1 Add Cerebro workspace crate skeleton at `modules/cerebro/` (add `Cargo.toml`,
+- [x] 1.1 Add Cerebro workspace crate skeleton at `clients/cerebro/` (add `Cargo.toml`,
   `src/main.rs`, `src/lib.rs`) and register it in root workspace members.
-- [x] 1.2 Define Cerebro service config schema and defaults in `modules/cerebro/src/config.rs`
+- [x] 1.2 Define Cerebro service config schema and defaults in `clients/cerebro/src/config.rs`
   (host/port, auth token, storage mode, worker toggles).
 - [x] 1.3 Remove SurrealDB feature/dependency from `clients/agent-runtime/Cargo.toml` and delete
   `clients/agent-runtime/src/memory/surreal.rs`.
@@ -40,11 +40,11 @@
 - [x] 2.9 REFACTOR: Remove dead memory backend branches and update related trait docs in
   `clients/agent-runtime/src/memory/traits.rs`.
 - [x] 2.10 RED: Add failing MCP tool contract tests for Cerebro (input validation, soft-delete
-  behavior, drill-in recall) in `modules/cerebro/tests/mcp_tools_contract.rs`.
+  behavior, drill-in recall) in `clients/cerebro/tests/mcp_tools_contract.rs`.
 - [x] 2.11 GREEN: Implement Cerebro MCP handlers and storage abstractions in
-  `modules/cerebro/src/` (e.g., `server.rs`, `tools.rs`, `storage/`) to satisfy tool contract tests.
+  `clients/cerebro/src/` (e.g., `server.rs`, `tools.rs`, `storage/`) to satisfy tool contract tests.
 - [x] 2.12 REFACTOR: Extract shared validation and error mapping into
-  `modules/cerebro/src/validation.rs` and `modules/cerebro/src/errors.rs`.
+  `clients/cerebro/src/validation.rs` and `clients/cerebro/src/errors.rs`.
 - [x] 2.13 RED: Add failing tests to ensure memory_store blocks sensitive data before MCP calls.
 - [x] 2.14 GREEN: Implement local sensitive-data guard in
   `clients/agent-runtime/src/tools/memory_store.rs`.
@@ -56,7 +56,7 @@
   `clients/agent-runtime/tests/memory_cerebro_integration.rs`.
 - [x] 3.2 Add security tests for endpoint policy and auth token requirements in
   `clients/agent-runtime/tests/mcp_config_validation.rs` and
-  `modules/cerebro/tests/mcp_auth_policy.rs`.
+  `clients/cerebro/tests/mcp_auth_policy.rs`.
 - [x] 3.3 Run `cargo fmt --all -- --check` to verify code formatting compliance (or document why
   this
   check was skipped in test log notes).
@@ -76,7 +76,7 @@
   legacy tool alias behavior, and links to the migration guide and MCP schemas.
 - [x] 4.3 Update `clients/agent-runtime/examples/custom_memory.rs` to reflect MCP-backed long-term
   memory usage and link the migration guide.
-- [x] 4.4 Update root `README.md` to note the new `modules/cerebro` module, removal of the
+- [x] 4.4 Update root `README.md` to note the new `clients/cerebro` module, removal of the
   SurrealDB memory backend, and links to the migration guide and MCP schemas.
 - [x] 4.5 Add machine-readable JSON schema files for the 13 Cerebro tools in
   `clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/`, and link them from the

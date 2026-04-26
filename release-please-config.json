@@ -69,13 +69,13 @@
         }
       ]
     },
-    "modules/cerebro": {
+    "clients/cerebro": {
       "component": "cerebro",
       "release-type": "rust",
       "extra-files": [
         {
           "type": "toml",
-          "path": "modules/cerebro/Cargo.toml",
+          "path": "clients/cerebro/Cargo.toml",
           "jsonpath": "$.package.version"
         }
       ]

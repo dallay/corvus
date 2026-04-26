@@ -35,8 +35,8 @@ for event emission rather than adding new network surfaces.
 
 | Area                                             | Impact    | Description                                                             |
 |--------------------------------------------------|-----------|-------------------------------------------------------------------------|
-| `modules/cerebro/`                               | Modified  | Add in-process TUI entrypoint, feature flag, and event bus plumbing     |
-| `modules/cerebro/src/`                           | Modified  | Emit tool-call events from MCP request handling and wire TUI subscriber |
+| `clients/cerebro/`                               | Modified  | Add in-process TUI entrypoint, feature flag, and event bus plumbing     |
+| `clients/cerebro/src/`                           | Modified  | Emit tool-call events from MCP request handling and wire TUI subscriber |
 | `clients/agent-runtime/src/tools/mcp/cerebro.rs` | Reference | Existing MCP integration referenced for tool-call stream semantics      |
 | `openspec/specs/cerebro/spec.md`                 | Reference | Existing optional TUI requirement for alignment                         |
 
@@ -51,7 +51,7 @@ for event emission rather than adding new network surfaces.
 ## Rollback Plan
 
 Disable the feature flag and remove TUI wiring from startup while keeping the event bus optional.
-If instability persists, revert the event bus changes in `modules/cerebro/` and restore the prior
+If instability persists, revert the event bus changes in `clients/cerebro/` and restore the prior
 MCP execution path without local subscribers.
 
 ## Dependencies

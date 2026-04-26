@@ -29,7 +29,7 @@ Targeted validation executed during verify:
 - ./gradlew -p gradle/build-logic help --task publishToMavenCentral
 - ./gradlew -p gradle/build-logic help --task publishAllPublicationsToMavenCentralRepository
 - cargo metadata --locked --format-version 1   (cwd: clients/agent-runtime)
-- cargo metadata --locked --format-version 1   (cwd: modules/cerebro)
+- cargo metadata --locked --format-version 1   (cwd: clients/cerebro)
 
 Results:
 - publishToMavenCentral exists in gradle/build-logic
@@ -128,11 +128,11 @@ git tag --list 'v*' --sort=version:refname => includes v1.0.0
 
 2. **Publishable `cerebro` dependency in `clients/agent-runtime/Cargo.toml`** — ✅ Verified  
    `clients/agent-runtime/Cargo.toml` now declares
-   `cerebro = { version = "1.0.0", path = "../../modules/cerebro" }`.
+   `cerebro = { version = "1.0.0", path = "../../clients/cerebro" }`.
 
 3. **Rust lockfiles valid for `--locked`** — ✅ Verified  
    `cargo metadata --locked --format-version 1` succeeded in both `clients/agent-runtime` and
-   `modules/cerebro`.
+   `clients/cerebro`.
 
 4. **Future `cerebro` dependency bumps stay aligned** — ✅ Verified  
    `release-please-config.json` includes `$.dependencies.cerebro.version` for

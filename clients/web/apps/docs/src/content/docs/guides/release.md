@@ -42,7 +42,7 @@ Stable publish automation validates and publishes only shipped artifacts:
 
 - Gradle/KMP artifacts, including build-logic publication
 - `clients/agent-runtime` crate
-- `modules/cerebro` release assets
+- `clients/cerebro` release assets
 - npm runtime packages:
   - `@dallay/corvus`
   - `@dallay/corvus-darwin-x64`
@@ -80,7 +80,7 @@ Beta publish automation ships the same artifact surfaces as the stable channel:
 
 - Gradle/KMP artifacts, including build-logic publication
 - `clients/agent-runtime` crate
-- `modules/cerebro` release assets
+- `clients/cerebro` release assets
 - the shipped runtime npm packages
 - Docker images
 - Native archives and checksums attached to the GitHub Release

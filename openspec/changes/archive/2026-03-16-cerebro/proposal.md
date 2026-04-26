@@ -10,7 +10,7 @@ from the agent runtime so memory persistence flows through Cerebro via MCP.
 
 ### In Scope
 
-- Create a new Rust module/binary `modules/cerebro` implementing the MCP memory service defined in
+- Create a new Rust module/binary `clients/cerebro` implementing the MCP memory service defined in
   `openspec/changes/cerebro/cerebro.md`.
 - Shift agent runtime memory integration to the MCP protocol (Cerebro), replacing the SurrealDB
   backend in `clients/agent-runtime`.
@@ -26,7 +26,7 @@ from the agent runtime so memory persistence flows through Cerebro via MCP.
 
 The **initial alias/bridge strategy** is limited to runtime tool aliasing and a lightweight
 in-process bridge in `clients/agent-runtime` that forwards reads/writes to the Cerebro MCP service
-in `modules/cerebro`, as defined in `openspec/changes/cerebro/cerebro.md`. It explicitly excludes
+in `clients/cerebro`, as defined in `openspec/changes/cerebro/cerebro.md`. It explicitly excludes
 bulk migration/ETL/import/export; historical data must be migrated manually or via future tooling.
 
 ## Approach
@@ -42,7 +42,7 @@ Cerebro, retaining legacy tool names as aliases during a transition period.
 
 | Area                                          | Impact           | Description                                                    |
 |-----------------------------------------------|------------------|----------------------------------------------------------------|
-| `modules/cerebro`                             | New              | New Rust crate/binary providing MCP memory service.            |
+| `clients/cerebro`                             | New              | New Rust crate/binary providing MCP memory service.            |
 | `clients/agent-runtime/src/memory/`           | Modified/Removed | Remove SurrealDB backend and re-wire memory factory to MCP.    |
 | `clients/agent-runtime/src/config/schema.rs`  | Modified         | Adjust `MemoryConfig` for Cerebro/MCP selection and defaults.  |
 | `clients/agent-runtime/Cargo.toml`            | Modified         | Remove `memory-surreal` feature and update dependencies.       |

@@ -76,17 +76,17 @@ jobs:
 
       - name: 🔨 Build binary (Linux)
         if: runner.os == 'Linux'
-        working-directory: modules/cerebro
+        working-directory: clients/cerebro
         run: cargo build --release --locked --target ${{ matrix.target }} --bin cerebro
 
       - name: 🔨 Build binary (macOS/Windows)
         if: runner.os != 'Linux'
-        working-directory: modules/cerebro
+        working-directory: clients/cerebro
         run: cargo build --release --locked --target ${{ matrix.target }} --bin cerebro
 
       - name: 📦 Package artifact (Unix)
         if: runner.os != 'Windows'
-        working-directory: modules/cerebro
+        working-directory: clients/cerebro
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -98,13 +98,13 @@ jobs:
         shell: pwsh
         run: |
           Set-StrictMode -Version Latest
-          New-Item -ItemType Directory -Force -Path modules/cerebro/dist | Out-Null
-          Copy-Item "modules/cerebro/target/${{ matrix.target }}/release/cerebro.exe" "modules/cerebro/dist/${{ matrix.artifact_name }}.exe"
-          Compress-Archive -Path "modules/cerebro/dist/${{ matrix.artifact_name }}.exe" -DestinationPath "modules/cerebro/dist/${{ matrix.artifact_name }}.zip" -Force
+          New-Item -ItemType Directory -Force -Path clients/cerebro/dist | Out-Null
+          Copy-Item "clients/cerebro/target/${{ matrix.target }}/release/cerebro.exe" "clients/cerebro/dist/${{ matrix.artifact_name }}.exe"
+          Compress-Archive -Path "clients/cerebro/dist/${{ matrix.artifact_name }}.exe" -DestinationPath "clients/cerebro/dist/${{ matrix.artifact_name }}.zip" -Force
 
       - name: ⬆ Upload release artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.artifact_name }}
-          path: modules/cerebro/dist/${{ matrix.artifact_name }}.${{ matrix.archive_ext }}
+          path: clients/cerebro/dist/${{ matrix.artifact_name }}.${{ matrix.archive_ext }}
           if-no-files-found: error

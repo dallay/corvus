@@ -12,7 +12,7 @@ closing all product decisions around how Cerebro is installed, named, and versio
 
 ## Context
 
-Cerebro is a standalone Rust MCP memory service (`modules/cerebro/`) at version 0.1.0.
+Cerebro is a standalone Rust MCP memory service (`clients/cerebro/`) at version 0.1.0.
 The agent-runtime (`corvus`) already has a mature distribution model: crates.io, npm
 (6 platform packages), Docker (multi-arch), GitHub Releases (5 targets), and monorepo
 versioning via release-please. Cerebro has ZERO distribution infrastructure today.
@@ -77,7 +77,7 @@ SHOULD targets = Intel Mac + Windows for broader compatibility.
 **Align with monorepo version.**
 
 - Cerebro bumps from 0.1.0 to current monorepo version (0.4.0).
-- release-please config updated to include `modules/cerebro/Cargo.toml` in extra-files.
+- release-please config updated to include `clients/cerebro/Cargo.toml` in extra-files.
 - Single version across the repo eliminates "which cerebro works with which corvus?" confusion.
 - Jump from 0.1.0 to 0.4.0 is acceptable: semver pre-1.0 carries no stability promise.
 
