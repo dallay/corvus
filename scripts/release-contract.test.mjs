@@ -147,8 +147,8 @@ test("release-please fan-out only includes shipped stable artifacts", () => {
     ),
   );
   assert.ok(cargoTomlTargets.has("$.package.version"));
-  assert.ok(config.packages["modules/cerebro"]["extra-files"].some(
-    (entry) => entry.path === "modules/cerebro/Cargo.toml" && entry.jsonpath === "$.package.version",
+  assert.ok(config.packages["clients/cerebro"]["extra-files"].some(
+    (entry) => entry.path === "clients/cerebro/Cargo.toml" && entry.jsonpath === "$.package.version",
   ));
 });
 
@@ -327,12 +327,12 @@ test("release workflows encode release-please-owned stable and beta governance",
 
 test("cargo publish contract keeps local cerebro path and release version aligned", () => {
   const cargoToml = readText("clients/agent-runtime/Cargo.toml");
-  const cerebroToml = readText("modules/cerebro/Cargo.toml");
+  const cerebroToml = readText("clients/cerebro/Cargo.toml");
 
   assert.match(
     cargoToml,
     new RegExp(
-      `cerebro = \\{ version = "${escapeRegex(releaseVersion)}", path = "\\.\\.\\/\\.\\.\\/modules\\/cerebro" \\}`,
+      `cerebro = \\{ version = "${escapeRegex(releaseVersion)}", path = "\\.\\.\\/\\.\\.\\/clients\\/cerebro" \\}`,
     ),
   );
   assert.match(cerebroToml, new RegExp(`^version = "${escapeRegex(releaseVersion)}"$`, "m"));
@@ -347,7 +347,7 @@ test("rust lockfiles stay valid for --locked release commands", (t) => {
     return;
   }
 
-  for (const cwd of ["clients/agent-runtime", "modules/cerebro"]) {
+  for (const cwd of ["clients/agent-runtime", "clients/cerebro"]) {
     try {
       execFileSync(cargoExecutable, ["metadata", "--locked", "--format-version", "1"], {
         cwd,

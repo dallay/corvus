@@ -59,7 +59,7 @@ jobs:
           exclusive = {
               "clients/agent-runtime/": {"corvus-runtime", "cerebro"},
               "clients/rook/": {"rook"},
-              "modules/cerebro/": {"cerebro"},
+              "clients/cerebro/": {"cerebro"},
               "gradle/": {"gradle-kmp"},
               "gradle.properties": {"gradle-kmp"},
           }

@@ -11,7 +11,7 @@ fan out to multiple components when changed.
 | --- | --- | --- |
 | `clients/agent-runtime/` | `corvus-runtime` | includes the runtime crate, npm wrappers, and runtime-specific packaging/version wiring |
 | `clients/rook/` | `rook` | includes the rook crate, npm wrappers, and rook-specific release packaging |
-| `modules/cerebro/` | `cerebro` | includes the memory service crate and shipped binaries |
+| `clients/cerebro/` | `cerebro` | includes the standalone memory service client crate and shipped binaries |
 | `gradle/` | `gradle-kmp` | includes Gradle build logic and publication-specific configuration |
 | `gradle.properties` | `gradle-kmp` | top-level Gradle publication version source |
 

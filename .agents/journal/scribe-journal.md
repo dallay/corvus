@@ -2,7 +2,7 @@
 
 ## 2026-04-12 - Full Documentation Accuracy Audit - Complete
 
-**Verification:** Systematic comparison of all documentation files in `clients/web/apps/docs/src/content/docs/` (both en/ and es/) against the actual codebase implementation in `clients/agent-runtime/`, `modules/cerebro/`, and root-level build/tooling files.
+**Verification:** Systematic comparison of all documentation files in `clients/web/apps/docs/src/content/docs/` (both en/ and es/) against the actual codebase implementation in `clients/agent-runtime/`, `clients/cerebro/`, and root-level build/tooling files.
 
 ### Structure Assessment
 - **Bilingual Parity:** ✅ Perfect. 53 files in English (root-level default), 53 files in Spanish (`es/`). 1:1 file mapping with identical directory structures.
@@ -15,10 +15,10 @@
 - **`make dev-up`**: Verified exists at Makefile:308.
 
 ### Cerebro CLI (`cerebro/cli-reference.md`)
-- **Accuracy:** ✅ Fully implemented. Verified at `modules/cerebro/src/bin/cerebro.rs`. Two binaries: `cerebro` (full CLI) and `cerebro-serve` (lightweight server). Commands `serve` and `migrate import/validate` match docs exactly.
+- **Accuracy:** ✅ Fully implemented. Verified at `clients/cerebro/src/bin/cerebro.rs`. Two binaries: `cerebro` (full CLI) and `cerebro-serve` (lightweight server). Commands `serve` and `migrate import/validate` match docs exactly.
 
 ### Cerebro Configuration (`cerebro/configuration.md`)
-- **Accuracy:** ✅ All config fields, env vars, storage modes, and TUI settings verified against `modules/cerebro/` source. `remote_surreal` correctly marked as "not yet implemented" in both docs and code.
+- **Accuracy:** ✅ All config fields, env vars, storage modes, and TUI settings verified against `clients/cerebro/` source. `remote_surreal` correctly marked as "not yet implemented" in both docs and code.
 
 ### Architecture (`clients/agent-runtime/architecture.md`)
 - **Accuracy:** ✅ High. All components verified as implemented:
@@ -88,7 +88,7 @@ All three identified issues have been fixed:
 - `make docs-build` — ✅ PASSED (80 pages built, search index generated, no broken links)
 
 ### Notes
-- Glossary: "Firejail" = Linux user-space sandbox (confirmed implemented). "Landlock" = Linux kernel-level sandbox (confirmed). "Cerebro" = standalone MCP memory service in `modules/cerebro/` (confirmed).
+- Glossary: "Firejail" = Linux user-space sandbox (confirmed implemented). "Landlock" = Linux kernel-level sandbox (confirmed). "Cerebro" = standalone MCP memory service client in `clients/cerebro/` (confirmed).
 - Remaining gap: `cost` command subcommands (`summary`, `history`, `reset`) exist in code but are not yet in the CLI reference doc. Low priority.
 
 ## 2026-04-15 - CLI Reference Update - Complete
