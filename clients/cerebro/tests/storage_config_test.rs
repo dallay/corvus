@@ -124,6 +124,25 @@ fn embedded_bind_allows_override_for_non_loopback() {
     assert!(config.validate_storage().is_ok());
 }
 
+#[test]
+fn startup_validation_requires_auth_token_for_non_loopback_host() {
+    let mut config = base_config();
+    config.host = "0.0.0.0".to_string();
+
+    let error = config
+        .validate_startup_requirements()
+        .expect_err("startup validation should fail");
+
+    assert!(error.to_string().contains("auth token is required"));
+}
+
+#[test]
+fn startup_validation_allows_loopback_without_auth_token_for_local_dev() {
+    let config = base_config();
+
+    assert!(config.validate_startup_requirements().is_ok());
+}
+
 struct BufferWriter(Arc<Mutex<Vec<u8>>>);
 
 impl<'a> MakeWriter<'a> for BufferWriter {

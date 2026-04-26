@@ -279,6 +279,25 @@ impl CerebroConfig {
         Ok(())
     }
 
+    pub fn validate_startup_requirements(&self) -> Result<(), crate::errors::CerebroError> {
+        self.validate_storage()?;
+
+        let auth_is_present = self
+            .auth_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty());
+
+        if !is_loopback_host(&self.host) && !auth_is_present {
+            return Err(crate::errors::CerebroError::Validation(
+                "auth token is required for non-loopback startup".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     fn validate_embedded_surreal(&self) -> Result<(), crate::errors::CerebroError> {
         let bind_host = self
             .surreal

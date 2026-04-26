@@ -4,9 +4,10 @@ use crate::storage::{storage_from_config, Storage};
 use crate::tools::CerebroTools;
 use crate::tui::event_bus::{EventBus, ToolCallEvent, ToolCallEventKind};
 use crate::tui::redaction::RedactionPolicy;
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::HeaderMap;
-use axum::routing::post;
+use axum::http::StatusCode;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
 use secrecy::ExposeSecret;
@@ -77,7 +78,10 @@ impl CerebroService {
 
     pub fn router(self: Arc<Self>) -> Router {
         Router::new()
+            .route("/healthz", get(handle_health))
+            .route("/readyz", get(handle_ready))
             .route("/mcp", post(handle_mcp))
+            .layer(DefaultBodyLimit::max(1024 * 1024))
             .with_state(self)
     }
 
@@ -121,12 +125,30 @@ impl CerebroService {
             };
         }
 
+        let tool_name = request.params.name.clone();
+        let request_id = request.id.to_string();
+        let start = Instant::now();
+        let request_kind = if self.config.audit_token.is_some() {
+            "auth_or_audit"
+        } else {
+            "auth"
+        };
+        let span = tracing::info_span!(
+            "cerebro_mcp_request",
+            request_id = %request_id,
+            tool_name = %tool_name,
+            auth_mode = %request_kind,
+        );
+        let _enter = span.enter();
+
         let auth_context = match self.authorize(auth_header) {
             Ok(context) => context,
-            Err(error) => return error_response(id, error),
+            Err(error) => {
+                tracing::warn!(error = %error, "authorization failed");
+                return error_response(id, error);
+            }
         };
 
-        let tool_name = request.params.name.clone();
         let redaction = self.tools.redaction_for_tool(&tool_name);
         let redacted_args = self
             .tools
@@ -135,8 +157,6 @@ impl CerebroService {
                 self.redaction
                     .redact_with_allowlist(&value, redaction.allowed_arg_fields)
             });
-        let request_id = request.id.to_string();
-        let start = Instant::now();
         self.event_bus.publish(ToolCallEvent {
             kind: ToolCallEventKind::Started,
             request_id: request_id.clone(),
@@ -155,6 +175,7 @@ impl CerebroService {
             .await
         {
             Ok(output) => {
+                let duration_ms = start.elapsed().as_millis() as u64;
                 let safe_output = self
                     .tools
                     .extract_safe_output(&tool_name, &output)
@@ -167,12 +188,13 @@ impl CerebroService {
                     request_id,
                     tool_name,
                     timestamp: Utc::now().to_rfc3339(),
-                    duration_ms: Some(start.elapsed().as_millis() as u64),
+                    duration_ms: Some(duration_ms),
                     status: Some("ok".to_string()),
                     redacted_args: None,
                     redacted_output: safe_output,
                     error: None,
                 });
+                tracing::info!(duration_ms, status = "ok", "tool call completed");
                 JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id,
@@ -181,18 +203,20 @@ impl CerebroService {
                 }
             }
             Err(error) => {
+                let duration_ms = start.elapsed().as_millis() as u64;
                 let redacted_error = self.redaction.redact_text(&error.to_string());
                 self.event_bus.publish(ToolCallEvent {
                     kind: ToolCallEventKind::Failed,
                     request_id,
                     tool_name,
                     timestamp: Utc::now().to_rfc3339(),
-                    duration_ms: Some(start.elapsed().as_millis() as u64),
+                    duration_ms: Some(duration_ms),
                     status: Some("error".to_string()),
                     redacted_args: None,
                     redacted_output: None,
                     error: Some(redacted_error),
                 });
+                tracing::warn!(duration_ms, error = %error, status = "error", "tool call failed");
                 error_response(id, error)
             }
         };
@@ -217,15 +241,7 @@ impl CerebroService {
             .map(str::trim)
             .filter(|token| !token.is_empty());
 
-        let header = auth_header.unwrap_or("");
-        let token = header
-            .strip_prefix("Bearer ")
-            .ok_or(CerebroError::Unauthorized)?
-            .trim();
-
-        if token.is_empty() {
-            return Err(CerebroError::Unauthorized);
-        }
+        let token = parse_bearer_token(auth_header)?;
 
         if audit_token.is_some_and(|audit| token == audit) {
             return Ok(AuthContext { is_audit: true });
@@ -237,6 +253,20 @@ impl CerebroService {
 
         Err(CerebroError::Unauthorized)
     }
+}
+
+fn parse_bearer_token(auth_header: Option<&str>) -> Result<&str, CerebroError> {
+    let header = auth_header.unwrap_or("");
+    let token = header
+        .strip_prefix("Bearer ")
+        .ok_or(CerebroError::Unauthorized)?
+        .trim();
+
+    if token.is_empty() {
+        return Err(CerebroError::Unauthorized);
+    }
+
+    Ok(token)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -258,14 +288,29 @@ fn error_response(id: Value, error: CerebroError) -> JsonRpcResponse {
     }
 }
 
+async fn handle_health() -> Json<Value> {
+    Json(json!({ "status": "ok" }))
+}
+
+async fn handle_ready(State(service): State<Arc<CerebroService>>) -> (StatusCode, Json<Value>) {
+    match service.storage().count().await {
+        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ready" }))),
+        Err(error) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "status": "not_ready",
+                "error": error.to_string(),
+            })),
+        ),
+    }
+}
+
 async fn handle_mcp(
     State(service): State<Arc<CerebroService>>,
     headers: HeaderMap,
     Json(request): Json<JsonRpcRequest>,
 ) -> Json<JsonRpcResponse> {
-    let auth_header = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok());
-    let response = service.handle_json_rpc(request, auth_header).await;
-    Json(response)
+    let auth_header = headers.get("authorization").and_then(|value| value.to_str().ok());
+    Json(service.handle_json_rpc(request, auth_header).await)
 }
+

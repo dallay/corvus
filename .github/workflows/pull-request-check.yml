@@ -132,6 +132,12 @@ jobs:
           cargo metadata --manifest-path clients/cerebro/Cargo.toml --locked --format-version 1 --no-deps > /dev/null
           echo "✅ All Cargo.lock files are consistent with their Cargo.toml"
 
+      - name: 🦀 Check Cerebro crate
+        run: cargo check --manifest-path clients/cerebro/Cargo.toml
+
+      - name: 🧪 Test Cerebro crate
+        run: cargo test --manifest-path clients/cerebro/Cargo.toml --locked
+
       - name: 🏗 Run main checks
         run: ./gradlew check
 

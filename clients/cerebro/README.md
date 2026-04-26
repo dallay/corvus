@@ -33,3 +33,46 @@ cargo test
 # Run the MCP server with TUI
 cargo run -- serve --tui
 ```
+
+## Production deployment
+
+Cerebro's bundled container config is for local/demo boot only.
+
+For production deployments you must provide explicit configuration for at least:
+- `auth_token`
+- non-placeholder storage credentials
+- host/bind behavior appropriate for your network boundary
+- orchestrator health/readiness probes
+
+Recommended pattern:
+- mount a real config file at `/etc/cerebro/config.toml`
+- inject secrets via environment or secret manager
+- treat the built-in config as a non-production fallback only
+
+## Health probes
+
+- `GET /healthz` — process liveness
+- `GET /readyz` — service readiness, including a storage availability check
+- `POST /mcp` — authenticated application traffic only, not for orchestrator health probes
+
+## Request limits
+
+Cerebro enforces a conservative HTTP request body limit on the router to reduce abuse and accidental oversized payloads.
+Adjust this only with clear operational justification and matching test coverage.
+
+## CI expectations
+
+Cerebro changes are expected to pass:
+- explicit PR checks for `cargo check` and `cargo test`
+- release binary build smoke verification
+- broader monorepo checks where applicable
+
+## Observability
+
+Cerebro emits structured tracing logs for:
+- service startup/shutdown
+- MCP request lifecycle
+- tool execution outcome and latency
+- storage fallback warnings
+
+Production deployments should forward these logs to centralized log storage and alert on repeated readiness or authorization failures.
