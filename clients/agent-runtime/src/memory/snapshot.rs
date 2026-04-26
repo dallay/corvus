@@ -219,13 +219,19 @@ fn export_dream_state_snapshot(workspace_dir: &Path) -> Result<()> {
     let snapshot_path = dream_snapshot_state_path(workspace_dir);
 
     if !state_path.exists() {
-        let _ = fs::remove_file(snapshot_path);
+        match fs::remove_file(&snapshot_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                tracing::debug!(path = %snapshot_path.display(), ?error, "failed to remove Dream snapshot sidecar");
+            }
+        }
         return Ok(());
     }
 
-    let raw = fs::read_to_string(state_path)?;
-    let json: serde_json::Value = serde_json::from_str(&raw)?;
-    fs::write(snapshot_path, serde_json::to_vec_pretty(&json)?)?;
+    let raw = fs::read_to_string(&state_path)?;
+    let _: serde_json::Value = serde_json::from_str(&raw)?;
+    fs::copy(&state_path, &snapshot_path)?;
     Ok(())
 }
 
@@ -236,7 +242,7 @@ fn restore_dream_state_snapshot(workspace_dir: &Path) -> Result<()> {
     }
 
     let raw = fs::read_to_string(&snapshot_path)?;
-    let _records = parse_dream_state_snapshot(&raw)?;
+    validate_dream_state_snapshot(&raw)?;
 
     let state_path = dream_state_path(workspace_dir);
     if let Some(parent) = state_path.parent() {
@@ -268,15 +274,15 @@ fn parse_snapshot(input: &str) -> Vec<(String, String)> {
     entries
 }
 
-fn parse_dream_state_snapshot(input: &str) -> Result<Vec<DreamSessionStateRecord>> {
+fn validate_dream_state_snapshot(input: &str) -> Result<()> {
     #[derive(serde::Deserialize)]
     struct DreamStateEnvelope {
         #[serde(default)]
         completed_sessions: Vec<DreamSessionStateRecord>,
     }
 
-    let state: DreamStateEnvelope = serde_json::from_str(input)?;
-    Ok(state.completed_sessions)
+    let _state: DreamStateEnvelope = serde_json::from_str(input)?;
+    Ok(())
 }
 
 fn extract_key_from_line(line: &str) -> Option<String> {
@@ -425,14 +431,14 @@ Rule 3: Protect the user.
 
         export_dream_state_snapshot(workspace).unwrap();
         let exported = fs::read_to_string(workspace.join(DREAM_SNAPSHOT_STATE_FILENAME)).unwrap();
-        let restored = parse_dream_state_snapshot(&exported).unwrap();
+        validate_dream_state_snapshot(&exported).unwrap();
 
-        assert_eq!(restored.len(), 1);
-        assert_eq!(restored[0].session_id, "sess-123");
         assert_eq!(
-            restored[0].artifact_refs,
-            vec!["dream/session/sess-123".to_string()]
+            exported,
+            fs::read_to_string(workspace.join("state").join("dream_state.json")).unwrap()
         );
+        assert!(exported.contains("sess-123"));
+        assert!(exported.contains("dream/session/sess-123"));
     }
 
     #[test]
@@ -600,10 +606,9 @@ Rule 3: Protect the user.
         restore_dream_state_snapshot(workspace).unwrap();
         let restored =
             fs::read_to_string(workspace.join("state").join("dream_state.json")).unwrap();
-        let records = parse_dream_state_snapshot(&restored).unwrap();
+        validate_dream_state_snapshot(&restored).unwrap();
 
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].session_id, "sess-restore");
+        assert!(restored.contains("sess-restore"));
     }
 
     #[test]

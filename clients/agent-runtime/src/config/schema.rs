@@ -1634,6 +1634,18 @@ pub struct DreamTriggerConfig {
     pub time_hours: i64,
 }
 
+impl DreamTriggerConfig {
+    pub fn validate(&self) -> Result<()> {
+        if self.session_count == 0 {
+            anyhow::bail!("runtime.dream.session_count must be greater than zero");
+        }
+        if self.time_hours <= 0 {
+            anyhow::bail!("runtime.dream.time_hours must be greater than zero");
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DockerRuntimeConfig {
     /// Runtime image used to execute shell commands.
@@ -3221,7 +3233,8 @@ impl Config {
         self.validate_account_pools()?;
         self.validate_skills_config()?;
         self.validate_multimodal_config()?;
-        self.validate_audio_config()
+        self.validate_audio_config()?;
+        self.runtime.dream.validate()
     }
 
     fn validate_cost_config(&self) -> Result<()> {
@@ -4416,6 +4429,28 @@ tool_dispatcher = "xml"
         assert!(err
             .to_string()
             .contains("agents.child.timeout_ms must be greater than zero"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_dream_session_count_zero() {
+        let mut config = Config::default();
+        config.runtime.dream.session_count = 0;
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("runtime.dream.session_count must be greater than zero"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_dream_time_hours_non_positive() {
+        let mut config = Config::default();
+        config.runtime.dream.time_hours = 0;
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("runtime.dream.time_hours must be greater than zero"));
     }
 
     #[test]

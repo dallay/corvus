@@ -587,7 +587,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn close_stale_sessions_records_dream_completion_input() {
+    async fn close_stale_sessions_marks_session_dream_eligible() {
         let tmp = TempDir::new().unwrap();
         let workspace = tmp.path();
 

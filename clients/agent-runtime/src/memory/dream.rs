@@ -116,6 +116,7 @@ struct DreamState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DreamEligibility {
     Eligible,
+    RetryAfterFailure,
     NotCompleted,
     AlreadyConsolidated,
 }
@@ -140,6 +141,9 @@ pub fn run_now(
     trigger_reason: DreamTriggerReason,
 ) -> Result<Option<MemoryConsolidationReport>> {
     let Some(lock_guard) = DreamLockGuard::acquire(workspace_dir)? else {
+        let pending_count = load_state(workspace_dir)
+            .map(|state| pending_session_ids(&state).len())
+            .unwrap_or(0);
         return Ok(Some(MemoryConsolidationReport {
             trigger_reason,
             status: DreamRunStatus::Skipped,
@@ -151,7 +155,7 @@ pub fn run_now(
             duplicates_removed: 0,
             retained_lines: 0,
             launch_contract: launch_contract(workspace_dir),
-            sessions_considered: 0,
+            sessions_considered: pending_count,
             sessions_processed: 0,
             session_reports: vec![],
         }));
@@ -364,6 +368,9 @@ pub fn dream_eligibility(workspace_dir: &Path, session_id: &str) -> Result<Dream
             Some(record) if record.status == DreamSessionStatus::Completed => {
                 DreamEligibility::AlreadyConsolidated
             }
+            Some(record) if record.status == DreamSessionStatus::Failed => {
+                DreamEligibility::RetryAfterFailure
+            }
             Some(_) => DreamEligibility::Eligible,
         },
     )
@@ -554,8 +561,10 @@ fn load_state(workspace_dir: &Path) -> Result<DreamState> {
     if !path.exists() {
         return Ok(DreamState::default());
     }
-    let raw = fs::read_to_string(path)?;
-    Ok(serde_json::from_str(&raw).unwrap_or_default())
+    let raw = fs::read_to_string(&path)?;
+    serde_json::from_str(&raw).map_err(|error| {
+        anyhow::anyhow!("failed to parse Dream state '{}': {error}", path.display())
+    })
 }
 
 fn store_state(workspace_dir: &Path, state: &DreamState) -> Result<()> {
@@ -666,6 +675,27 @@ mod tests {
         let eligibility = dream_eligibility(tmp.path(), "sess-123").unwrap();
         assert_eq!(eligibility, DreamEligibility::AlreadyConsolidated);
         assert!(run_if_triggered(tmp.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn failed_session_is_marked_retry_after_failure() {
+        let tmp = TempDir::new().unwrap();
+        let record = record_session_completion(tmp.path(), "sess-failed").unwrap();
+        let state_path = tmp.path().join("state").join(DREAM_STATE_FILE);
+        let raw = fs::read_to_string(&state_path).unwrap();
+        let mut state: DreamState = serde_json::from_str(&raw).unwrap();
+        let failed = state
+            .completed_sessions
+            .iter_mut()
+            .find(|entry| entry.session_id == "sess-failed")
+            .unwrap();
+        failed.status = DreamSessionStatus::Failed;
+        failed.last_attempt_at = Some(record.completion_recorded_at.clone());
+        failed.failure_reason = Some("transient backend error".to_string());
+        fs::write(&state_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+
+        let eligibility = dream_eligibility(tmp.path(), "sess-failed").unwrap();
+        assert_eq!(eligibility, DreamEligibility::RetryAfterFailure);
     }
 
     #[test]

@@ -70,13 +70,13 @@ No incomplete tasks were found in `openspec/changes/2026-04-26-dream-system/task
 | Gateway Dream Integration Is Trigger-Only | Gateway acceptance does not require Dream-specific transport contract | `clients/agent-runtime/src/gateway/mod.rs > generated_session_completion_records_before_dream_evaluation` | ⚠️ PARTIAL |
 | Gateway Completion Hooks MUST Preserve Runtime Ordering and Idempotency | Gateway calls completion recording before Dream trigger | `clients/agent-runtime/src/gateway/mod.rs > generated_session_completion_records_before_dream_evaluation` | ✅ COMPLIANT |
 | Gateway Completion Hooks MUST Preserve Runtime Ordering and Idempotency | Replayed gateway completion path stays safe through runtime idempotency | `clients/agent-runtime/src/gateway/mod.rs > generated_session_completion_remains_runtime_idempotent_on_repeat` | ✅ COMPLIANT |
-| SESS-5: Stale Session Auto-Close | Hygiene pass closes stale session and produces a Dream trigger input | `clients/agent-runtime/src/memory/hygiene.rs > close_stale_sessions_records_dream_completion_input` | ✅ COMPLIANT |
+| SESS-5: Stale Session Auto-Close | Hygiene pass closes stale session and produces a Dream trigger input | `clients/agent-runtime/src/memory/hygiene.rs > close_stale_sessions_marks_session_dream_eligible` | ✅ COMPLIANT |
 | Session Completion Must Produce a Deterministic Dream Trigger Input | Dream runs only after completion is recorded | `clients/agent-runtime/src/gateway/mod.rs > generated_session_completion_records_before_dream_evaluation` | ✅ COMPLIANT |
 | Session Completion Must Produce a Deterministic Dream Trigger Input | Failed or missing completion record blocks Dream evaluation | `clients/agent-runtime/src/gateway/mod.rs > generated_session_completion_blocks_dream_without_recorded_completion` | ✅ COMPLIANT |
 | Session Completion and Dream Triggering Must Be Idempotent Together | Repeated completion handling does not duplicate Dream work | `clients/agent-runtime/src/gateway/mod.rs > generated_session_completion_remains_runtime_idempotent_on_repeat` | ✅ COMPLIANT |
 | Session Completion and Dream Triggering Must Be Idempotent Together | Duplicate completion record without prior Dream result remains safe | `clients/agent-runtime/src/memory/dream.rs > busy_run_does_not_consume_pending_session_and_succeeds_after_lock_release` | ⚠️ PARTIAL |
 
-**Compliance summary**: 10/17 scenarios compliant, 7 partial, 0 failing, 0 untested.
+**Compliance summary**: 10/17 scenarios compliant, 6 partial, 0 failing, 0 untested.
 
 **Remaining partial scenarios**
 
