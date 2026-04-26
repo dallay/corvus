@@ -28,6 +28,8 @@ const SNAPSHOT_HEADER: &str = "# 🧠 Corvus Memory Snapshot\n\n\
 ///
 /// Returns the number of entries exported.
 pub fn export_snapshot(workspace_dir: &Path) -> Result<usize> {
+    export_dream_state_snapshot(workspace_dir)?;
+
     let db_path = workspace_dir.join("memory").join("brain.db");
     if !db_path.exists() {
         tracing::debug!("snapshot export skipped: brain.db does not exist");
@@ -81,8 +83,6 @@ pub fn export_snapshot(workspace_dir: &Path) -> Result<usize> {
 
     let snapshot_path = snapshot_path(workspace_dir);
     fs::write(&snapshot_path, output)?;
-
-    export_dream_state_snapshot(workspace_dir)?;
 
     tracing::info!(
         "📸 Memory snapshot exported: {} core memories → {}",
@@ -144,7 +144,6 @@ pub fn hydrate_from_snapshot(workspace_dir: &Path) -> Result<usize> {
     )?;
 
     let now = Local::now().to_rfc3339();
-    let mut hydrated = 0;
 
     for (key, content) in &entries {
         let id = uuid::Uuid::new_v4().to_string();
@@ -161,7 +160,6 @@ pub fn hydrate_from_snapshot(workspace_dir: &Path) -> Result<usize> {
                     "INSERT INTO memories_fts(key, content) VALUES (?1, ?2)",
                     params![key, content],
                 );
-                hydrated += 1;
             }
             Ok(_) => {
                 tracing::debug!("hydrate: key '{key}' already exists, skipping");
@@ -172,15 +170,13 @@ pub fn hydrate_from_snapshot(workspace_dir: &Path) -> Result<usize> {
         }
     }
 
-    restore_dream_state_snapshot(workspace_dir)?;
-
-    tracing::info!(
-        "🧬 Memory hydration complete: {} entries restored from {}",
-        hydrated,
-        snapshot.display()
-    );
-
-    Ok(hydrated)
+    if let Err(error) = restore_dream_state_snapshot(workspace_dir) {
+        tracing::warn!(
+            ?error,
+            "dream state snapshot restore skipped during hydration"
+        );
+    }
+    Ok(entries.len())
 }
 
 /// Check if we should auto-hydrate on startup.
@@ -240,10 +236,7 @@ fn restore_dream_state_snapshot(workspace_dir: &Path) -> Result<()> {
     }
 
     let raw = fs::read_to_string(&snapshot_path)?;
-    let records = parse_dream_state_snapshot(&raw)?;
-    if records.is_empty() {
-        return Ok(());
-    }
+    let _records = parse_dream_state_snapshot(&raw)?;
 
     let state_path = dream_state_path(workspace_dir);
     if let Some(parent) = state_path.parent() {
@@ -445,8 +438,21 @@ Rule 3: Protect the user.
     #[test]
     fn export_no_db_returns_zero() {
         let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("state")).unwrap();
+        fs::write(
+            tmp.path().join("state").join("dream_state.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "completed_sessions": [sample_dream_record("sess-export")],
+                "last_successful_run_at": null,
+                "last_report": null
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
         let count = export_snapshot(tmp.path()).unwrap();
         assert_eq!(count, 0);
+        assert!(tmp.path().join(DREAM_SNAPSHOT_STATE_FILENAME).exists());
     }
 
     #[test]
@@ -598,6 +604,31 @@ Rule 3: Protect the user.
 
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].session_id, "sess-restore");
+    }
+
+    #[test]
+    fn restore_dream_state_snapshot_preserves_metadata_with_empty_records() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path();
+        fs::write(
+            workspace.join(DREAM_SNAPSHOT_STATE_FILENAME),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "completed_sessions": [],
+                "last_successful_run_at": "2026-04-26T10:05:00Z",
+                "last_report": {"status": "completed"}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        restore_dream_state_snapshot(workspace).unwrap();
+        let restored =
+            fs::read_to_string(workspace.join("state").join("dream_state.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&restored).unwrap();
+
+        assert_eq!(json["last_successful_run_at"], "2026-04-26T10:05:00Z");
+        assert_eq!(json["completed_sessions"], serde_json::json!([]));
+        assert!(json.get("last_report").is_some());
     }
 
     #[test]

@@ -1,16 +1,19 @@
 use anyhow::Result;
 use chrono::{Duration, Local, Utc};
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::fs;
+use std::fs::{self, File};
 use std::path::{Path, PathBuf};
+
+use crate::config::DreamTriggerConfig;
 
 const DREAM_STATE_FILE: &str = "dream_state.json";
 const DREAM_LOCK_FILE: &str = "dream.lock";
 const DREAM_MEMORY_LINE_BUDGET: usize = 200;
 const DREAM_MEMORY_BYTE_BUDGET: usize = 25 * 1024;
-const DREAM_SESSION_TRIGGER_COUNT: usize = 5;
-const DREAM_TIME_TRIGGER_HOURS: i64 = 24;
+
+pub type DreamConfig = DreamTriggerConfig;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -118,8 +121,15 @@ pub enum DreamEligibility {
 }
 
 pub fn run_if_triggered(workspace_dir: &Path) -> Result<Option<MemoryConsolidationReport>> {
+    run_if_triggered_with_config(workspace_dir, &DreamConfig::default())
+}
+
+pub fn run_if_triggered_with_config(
+    workspace_dir: &Path,
+    config: &DreamConfig,
+) -> Result<Option<MemoryConsolidationReport>> {
     let state = load_state(workspace_dir)?;
-    let Some(trigger_reason) = due_trigger_reason(&state)? else {
+    let Some(trigger_reason) = due_trigger_reason(&state, config)? else {
         return Ok(None);
     };
     run_now(workspace_dir, trigger_reason)
@@ -194,10 +204,8 @@ pub fn run_now(
     }
 
     let mut session_reports = Vec::new();
-    let mut artifact_refs = Vec::new();
     for session_id in &session_ids {
         let artifact_ref = artifact_ref_for_session(session_id);
-        artifact_refs.push(artifact_ref.clone());
         merged_lines.push(format!("Dream summary for completed session {session_id}"));
         session_reports.push(DreamSessionReport {
             session_id: session_id.clone(),
@@ -221,6 +229,15 @@ pub fn run_now(
     let pruned = prune_to_budget(&deduped.lines);
     let retained_lines = pruned.len();
 
+    let completed_session_ids: Vec<String> = session_ids
+        .iter()
+        .filter(|session_id| {
+            let expected = format!("Dream summary for completed session {session_id}");
+            pruned.iter().any(|line| line == &expected)
+        })
+        .cloned()
+        .collect();
+
     let mut rendered = String::from("# Long-Term Memory\n\n");
     for line in &pruned {
         rendered.push_str("- ");
@@ -237,7 +254,7 @@ pub fn run_now(
         touched_files: vec![display_path(&core_path)],
     });
 
-    mark_sessions_completed(&mut state, &session_ids, &artifact_refs, &trigger_reason);
+    mark_sessions_completed(&mut state, &completed_session_ids, &trigger_reason);
 
     let report = MemoryConsolidationReport {
         trigger_reason,
@@ -251,8 +268,20 @@ pub fn run_now(
         retained_lines,
         launch_contract: launch_contract(workspace_dir),
         sessions_considered: session_ids.len(),
-        sessions_processed: session_ids.len(),
-        session_reports,
+        sessions_processed: completed_session_ids.len(),
+        session_reports: session_reports
+            .into_iter()
+            .map(|mut report| {
+                if !completed_session_ids
+                    .iter()
+                    .any(|id| id == &report.session_id)
+                {
+                    report.status = DreamSessionStatus::Pending;
+                    report.artifact_refs.clear();
+                }
+                report
+            })
+            .collect(),
     };
 
     state.last_successful_run_at = report.finished_at.clone();
@@ -267,18 +296,32 @@ pub fn record_session_completion(
     workspace_dir: &Path,
     session_id: &str,
 ) -> Result<DreamSessionStateRecord> {
+    let Some(_lock_guard) = DreamLockGuard::acquire(workspace_dir)? else {
+        return Ok(load_state(workspace_dir)?
+            .completed_sessions
+            .into_iter()
+            .find(|record| record.session_id == session_id)
+            .unwrap_or_else(|| DreamSessionStateRecord {
+                session_id: session_id.to_string(),
+                status: DreamSessionStatus::Pending,
+                trigger_reason: DreamTriggerReason::SessionCount,
+                completion_recorded_at: Utc::now().to_rfc3339(),
+                last_attempt_at: None,
+                completed_at: None,
+                artifact_refs: vec![],
+                failure_reason: Some("dream lock busy while recording completion".to_string()),
+            }));
+    };
+
     let mut state = load_state(workspace_dir)?;
     let now = Utc::now().to_rfc3339();
     let artifact_ref = artifact_ref_for_session(session_id);
 
     let core_path = workspace_dir.join("MEMORY.md");
+    let expected_line = format!("- Dream summary for completed session {session_id}");
     let artifact_already_written = core_path.exists()
         && fs::read_to_string(&core_path)
-            .map(|content| {
-                content.contains(&format!(
-                    "- Dream summary for completed session {session_id}"
-                ))
-            })
+            .map(|content| content.lines().any(|line| line.trim() == expected_line))
             .unwrap_or(false);
 
     if let Some(existing) = state
@@ -341,7 +384,10 @@ pub fn dream_eligibility(workspace_dir: &Path, session_id: &str) -> Result<Dream
     )
 }
 
-fn due_trigger_reason(state: &DreamState) -> Result<Option<DreamTriggerReason>> {
+fn due_trigger_reason(
+    state: &DreamState,
+    config: &DreamConfig,
+) -> Result<Option<DreamTriggerReason>> {
     let pending_count = state
         .completed_sessions
         .iter()
@@ -352,7 +398,7 @@ fn due_trigger_reason(state: &DreamState) -> Result<Option<DreamTriggerReason>> 
             )
         })
         .count();
-    if pending_count >= DREAM_SESSION_TRIGGER_COUNT {
+    if pending_count >= config.session_count {
         return Ok(Some(DreamTriggerReason::SessionCount));
     }
 
@@ -366,7 +412,7 @@ fn due_trigger_reason(state: &DreamState) -> Result<Option<DreamTriggerReason>> 
 
     let parsed = chrono::DateTime::parse_from_rfc3339(last_run_at)?.with_timezone(&Utc);
     if pending_count > 0
-        && Utc::now().signed_duration_since(parsed) >= Duration::hours(DREAM_TIME_TRIGGER_HOURS)
+        && Utc::now().signed_duration_since(parsed) >= Duration::hours(config.time_hours)
     {
         return Ok(Some(DreamTriggerReason::TimeElapsed));
     }
@@ -391,7 +437,6 @@ fn pending_session_ids(state: &DreamState) -> Vec<String> {
 fn mark_sessions_completed(
     state: &mut DreamState,
     session_ids: &[String],
-    artifact_refs: &[String],
     trigger_reason: &DreamTriggerReason,
 ) {
     let completed_at = Utc::now().to_rfc3339();
@@ -409,7 +454,6 @@ fn mark_sessions_completed(
             record.failure_reason = None;
         }
     }
-    let _ = artifact_refs;
 }
 
 fn artifact_ref_for_session(session_id: &str) -> String {
@@ -543,7 +587,10 @@ fn display_path(path: &Path) -> String {
 }
 
 struct DreamLockGuard {
+    #[allow(dead_code)]
     path: PathBuf,
+    #[allow(dead_code)]
+    file: File,
 }
 
 impl DreamLockGuard {
@@ -552,21 +599,24 @@ impl DreamLockGuard {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        match fs::OpenOptions::new()
+        let file = fs::OpenOptions::new()
+            .read(true)
             .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            Ok(_) => Ok(Some(Self { path })),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
+            .create(true)
+            .truncate(false)
+            .open(&path)?;
+        match file.try_lock_exclusive() {
+            Ok(()) => Ok(Some(Self { path, file })),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::AlreadyExists
+                ) =>
+            {
+                Ok(None)
+            }
             Err(error) => Err(error.into()),
         }
-    }
-}
-
-impl Drop for DreamLockGuard {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
     }
 }
 
@@ -616,6 +666,73 @@ mod tests {
         let eligibility = dream_eligibility(tmp.path(), "sess-123").unwrap();
         assert_eq!(eligibility, DreamEligibility::AlreadyConsolidated);
         assert!(run_if_triggered(tmp.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn run_if_triggered_honors_non_default_trigger_config() {
+        let tmp = TempDir::new().unwrap();
+        record_session_completion(tmp.path(), "sess-a").unwrap();
+        record_session_completion(tmp.path(), "sess-b").unwrap();
+        let config = DreamConfig {
+            session_count: 2,
+            time_hours: 999,
+        };
+
+        let report = run_if_triggered_with_config(tmp.path(), &config)
+            .unwrap()
+            .unwrap();
+        assert_eq!(report.trigger_reason, DreamTriggerReason::SessionCount);
+
+        let tmp = TempDir::new().unwrap();
+        record_session_completion(tmp.path(), "sess-a").unwrap();
+        record_session_completion(tmp.path(), "sess-b").unwrap();
+        let state_path = tmp.path().join("state").join(DREAM_STATE_FILE);
+        let raw = fs::read_to_string(&state_path).unwrap();
+        let mut state: DreamState = serde_json::from_str(&raw).unwrap();
+        state.last_successful_run_at = Some(Utc::now().to_rfc3339());
+        fs::write(&state_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+        let config = DreamConfig {
+            session_count: 3,
+            time_hours: 999,
+        };
+
+        assert!(run_if_triggered_with_config(tmp.path(), &config)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn record_session_completion_uses_exact_summary_line_match() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("MEMORY.md"),
+            "# Long-Term Memory\n\n- Dream summary for completed session sess-123-extra\n",
+        )
+        .unwrap();
+
+        let record = record_session_completion(tmp.path(), "sess-123").unwrap();
+
+        assert_eq!(record.status, DreamSessionStatus::Pending);
+    }
+
+    #[test]
+    fn concurrent_record_session_completion_preserves_all_entries() {
+        let tmp = TempDir::new().unwrap();
+        std::thread::scope(|scope| {
+            for session_id in ["sess-1", "sess-2", "sess-3", "sess-4"] {
+                let workspace = tmp.path().to_path_buf();
+                scope.spawn(move || {
+                    record_session_completion(&workspace, session_id).unwrap();
+                });
+            }
+        });
+
+        for session_id in ["sess-1", "sess-2", "sess-3", "sess-4"] {
+            assert_eq!(
+                dream_eligibility(tmp.path(), session_id).unwrap(),
+                DreamEligibility::Eligible
+            );
+        }
     }
 
     #[test]

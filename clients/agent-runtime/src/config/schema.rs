@@ -1617,9 +1617,21 @@ pub struct RuntimeConfig {
     #[serde(default = "default_runtime_kind")]
     pub kind: String,
 
+    /// Dream trigger thresholds for long-term memory consolidation.
+    #[serde(default)]
+    pub dream: DreamTriggerConfig,
+
     /// Docker runtime settings (used when `kind = "docker"`).
     #[serde(default)]
     pub docker: DockerRuntimeConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DreamTriggerConfig {
+    #[serde(default = "default_dream_session_count")]
+    pub session_count: usize,
+    #[serde(default = "default_dream_time_hours")]
+    pub time_hours: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1657,6 +1669,14 @@ fn default_runtime_kind() -> String {
     "native".into()
 }
 
+fn default_dream_session_count() -> usize {
+    5
+}
+
+fn default_dream_time_hours() -> i64 {
+    24
+}
+
 fn default_docker_image() -> String {
     "alpine:3.20".into()
 }
@@ -1687,10 +1707,20 @@ impl Default for DockerRuntimeConfig {
     }
 }
 
+impl Default for DreamTriggerConfig {
+    fn default() -> Self {
+        Self {
+            session_count: default_dream_session_count(),
+            time_hours: default_dream_time_hours(),
+        }
+    }
+}
+
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             kind: default_runtime_kind(),
+            dream: DreamTriggerConfig::default(),
             docker: DockerRuntimeConfig::default(),
         }
     }

@@ -487,6 +487,9 @@ transactions.
 **Global lock:** retain a coarse lock such as `dream.lock` to serialize a Dream run over a workspace.
 This prevents overlapping scanners/pruners and is especially important for markdown/file backends.
 
+**Stale-lock recovery:** ADR-5, §6.4, and §11 require a documented recovery posture for `dream.lock`.
+Use OS-level advisory file locking where available so process death automatically releases the held lock even if the lock file path remains on disk. When a reclaim attempt detects an existing `dream.lock` file but cannot acquire the OS lock, treat the run as busy and log the refusal. If an operator suspects a stale file-path artifact, validate that no active Corvus process still holds the lock (for example via process inspection or a retry after the suspected owner exits) before deleting `dream.lock`. Any manual reclaim should log the workspace path, detection reason, and validation outcome so postmortems can distinguish a safe cleanup from a live-lock contention event.
+
 **Per-session state:** use durable state to prevent duplicate output even if:
 
 - gateway retries completion,

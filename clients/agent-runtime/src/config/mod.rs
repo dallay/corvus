@@ -5,15 +5,15 @@ pub use schema::{
     default_mcp_capabilities, AccountPoolStrategy, AgentConfig, AudioConfig, AuditConfig,
     AutonomyConfig, BrowserComputerUseConfig, BrowserConfig, ChannelsConfig, ClassificationRule,
     CodeSessionConfig, ComposioConfig, Config, CostConfig, CronConfig, DelegateAgentConfig,
-    DelegateExecutionMode, DiscordConfig, DockerRuntimeConfig, ExecutionMode, GatewayConfig,
-    HardwareConfig, HardwareTransport, HeartbeatConfig, HttpRequestConfig, IMessageConfig,
-    IdentityConfig, LarkConfig, MatrixConfig, McpConfig, McpServerConfig, MemoryCerebroConfig,
-    MemoryConfig, MissionConfig, ModelRouteConfig, MultimodalConfig, ObservabilityConfig,
-    PeripheralBoardConfig, PeripheralsConfig, ProviderAccountConfig, ProviderAccountPoolConfig,
-    QueryClassificationConfig, ReliabilityConfig, ResourceLimitsConfig, RuntimeConfig,
-    SandboxBackend, SandboxConfig, SchedulerConfig, SecretsConfig, SecurityConfig, SkillsConfig,
-    SlackConfig, StreamMode, TelegramConfig, TunnelConfig, UpdateConfig, WebSearchConfig,
-    WebhookConfig,
+    DelegateExecutionMode, DiscordConfig, DockerRuntimeConfig, DreamTriggerConfig, ExecutionMode,
+    GatewayConfig, HardwareConfig, HardwareTransport, HeartbeatConfig, HttpRequestConfig,
+    IMessageConfig, IdentityConfig, LarkConfig, MatrixConfig, McpConfig, McpServerConfig,
+    MemoryCerebroConfig, MemoryConfig, MissionConfig, ModelRouteConfig, MultimodalConfig,
+    ObservabilityConfig, PeripheralBoardConfig, PeripheralsConfig, ProviderAccountConfig,
+    ProviderAccountPoolConfig, QueryClassificationConfig, ReliabilityConfig, ResourceLimitsConfig,
+    RuntimeConfig, SandboxBackend, SandboxConfig, SchedulerConfig, SecretsConfig, SecurityConfig,
+    SkillsConfig, SlackConfig, StreamMode, TelegramConfig, TunnelConfig, UpdateConfig,
+    WebSearchConfig, WebhookConfig,
 };
 
 #[cfg(test)]
@@ -128,6 +128,7 @@ always_ask = []
     fn reexported_runtime_config_docker_settings() {
         let runtime = RuntimeConfig {
             kind: "docker".to_string(),
+            dream: DreamTriggerConfig::default(),
             docker: DockerRuntimeConfig {
                 image: "custom:latest".to_string(),
                 network: "bridge".to_string(),
@@ -148,6 +149,13 @@ always_ask = []
         let gateway = GatewayConfig::default();
         assert_eq!(gateway.port, 3000);
         assert_eq!(gateway.host, "127.0.0.1");
+    }
+
+    #[test]
+    fn reexported_dream_trigger_config_defaults() {
+        let dream = DreamTriggerConfig::default();
+        assert_eq!(dream.session_count, 5);
+        assert_eq!(dream.time_hours, 24);
     }
 
     #[test]

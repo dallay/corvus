@@ -96,7 +96,7 @@ No incomplete tasks were found in `openspec/changes/2026-04-26-dream-system/task
 | Dream Eligibility for Completed Sessions | ✅ Implemented | `dream_eligibility`, `record_session_completion`, and tests in `memory/dream.rs` enforce completed-session gating and deterministic session-based identity. |
 | Dream Consolidation Output Contract | ✅ Implemented | `run_now` writes distilled `Dream summary for completed session {session_id}` entries into `MEMORY.md`, using deterministic artifact refs rather than transcript persistence. |
 | Dream Persistence Across Supported Backends | ✅ Implemented | SQLite adds `dream_sessions`; snapshot exports `DREAM_STATE_SNAPSHOT.json`; state sidecar `dream_state.json` is restored on hydrate. |
-| Dream Idempotency per Completed Session | ✅ Implemented | Session state machine `pending|running|completed|failed` plus `artifact_ref_for_session` and repeated-trigger suppression are present. |
+| Dream Idempotency per Completed Session | ✅ Implemented | Session state machine `pending\|running\|completed\|failed` plus `artifact_ref_for_session` and repeated-trigger suppression are present. |
 | Gateway Dream Integration Is Trigger-Only | ✅ Implemented | Gateway finalization path ends session, records completion, then invokes Dream; no gateway-side eligibility logic or Dream-specific persistence logic was found. |
 | Gateway Completion Hooks MUST Preserve Runtime Ordering and Idempotency | ✅ Implemented | `finalize_generated_session_if_needed` calls `end_session` before `record_session_completion` before `run_dream_if_triggered`. |
 | SESS-5: Stale Session Auto-Close | ✅ Implemented | `close_stale_sessions` updates sessions, then calls `memory::record_session_completion` for each affected stale session. |

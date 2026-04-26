@@ -1701,7 +1701,11 @@ async fn finalize_generated_session_if_needed(
 
     let workspace_dir = state.config.lock().workspace_dir.clone();
     if let Err(error) = crate::memory::record_session_completion(&workspace_dir, session_id) {
-        tracing::debug!("dream session completion recording failed: {error}");
+        tracing::debug!(
+            session_id = session_id,
+            ?error,
+            "dream session completion recording failed"
+        );
         return;
     }
     if let Err(error) = crate::memory::run_dream_if_triggered(&workspace_dir) {
