@@ -80,6 +80,9 @@ pub trait Storage: Send + Sync {
         include_deleted: bool,
     ) -> Result<Vec<MemoryRecord>, CerebroError>;
     async fn count(&self) -> Result<usize, CerebroError>;
+    async fn ready(&self) -> Result<(), CerebroError> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]

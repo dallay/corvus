@@ -37,6 +37,7 @@ cargo run -- serve --tui
 ## Production deployment
 
 Cerebro's bundled container config is for local/demo boot only.
+The bundled Docker config binds `host = "127.0.0.1"` inside the container, so `docker -p` port mapping will not expose the service unless you override the host (for example to `0.0.0.0`) and supply a real `auth_token`.
 
 For production deployments you must provide explicit configuration for at least:
 - `auth_token`
@@ -44,20 +45,24 @@ For production deployments you must provide explicit configuration for at least:
 - host/bind behavior appropriate for your network boundary
 - orchestrator health/readiness probes
 
+The service will refuse to start if you bind to a non-loopback address without an `auth_token`.
+When using embedded SurrealDB on a non-loopback bind, Cerebro also rejects demo credentials such as `local-dev-only`, `CHANGE_ME_BEFORE_PRODUCTION`, and `root`.
+
 Recommended pattern:
 - mount a real config file at `/etc/cerebro/config.toml`
 - inject secrets via environment or secret manager
+- override `host` to a non-loopback address only when your network boundary and credentials are ready
 - treat the built-in config as a non-production fallback only
 
 ## Health probes
 
 - `GET /healthz` — process liveness
-- `GET /readyz` — service readiness, including a storage availability check
-- `POST /mcp` — authenticated application traffic only, not for orchestrator health probes
+- `GET /readyz` — service readiness, including a storage connectivity check
+- `POST /mcp` — authenticated application traffic only, not a substitute for the probe endpoints above
 
 ## Request limits
 
-Cerebro enforces a conservative HTTP request body limit on the router to reduce abuse and accidental oversized payloads.
+Cerebro enforces a 1 MiB (1,048,576 bytes) HTTP request body limit on the router to reduce abuse and accidental oversized payloads.
 Adjust this only with clear operational justification and matching test coverage.
 
 ## CI expectations

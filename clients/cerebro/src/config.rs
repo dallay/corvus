@@ -1,5 +1,6 @@
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::fs;
 use std::net::IpAddr;
 use std::path::Path;
@@ -161,11 +162,34 @@ fn default_tui_redact_fields() -> Vec<String> {
         "auth".to_string(),
         "authorization".to_string(),
         "api_key".to_string(),
-        "apikey".to_string(),
-        "cookie".to_string(),
-        "session".to_string(),
-        "credential".to_string(),
     ]
+}
+
+fn normalize_secret(secret: Option<SecretString>) -> Option<SecretString> {
+    secret.and_then(|secret| {
+        let trimmed = secret.expose_secret().trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(SecretString::new(trimmed.to_string().into_boxed_str()))
+        }
+    })
+}
+
+fn is_demo_credential(value: &str) -> bool {
+    matches!(
+        value.trim(),
+        "local-dev-only" | "CHANGE_ME_BEFORE_PRODUCTION" | "root"
+    )
+}
+
+fn non_demo_secret(secret: Option<&SecretString>) -> Option<Cow<'_, str>> {
+    let value = secret?.expose_secret().trim();
+    if value.is_empty() || is_demo_credential(value) {
+        None
+    } else {
+        Some(Cow::Borrowed(value))
+    }
 }
 
 impl Default for CerebroConfig {
@@ -221,17 +245,15 @@ impl CerebroConfig {
     }
 
     pub fn apply_env_overrides(mut self) -> Self {
+        self.auth_token = normalize_secret(self.auth_token.take());
+        self.audit_token = normalize_secret(self.audit_token.take());
+        self.surreal.password = normalize_secret(self.surreal.password.take());
+
         if let Ok(token) = std::env::var("CEREBRO_AUTH_TOKEN") {
-            let token = token.trim();
-            if !token.is_empty() {
-                self.auth_token = Some(SecretString::new(token.to_string().into_boxed_str()));
-            }
+            self.auth_token = normalize_secret(Some(SecretString::new(token.into_boxed_str())));
         }
         if let Ok(token) = std::env::var("CEREBRO_AUDIT_TOKEN") {
-            let token = token.trim();
-            if !token.is_empty() {
-                self.audit_token = Some(SecretString::new(token.to_string().into_boxed_str()));
-            }
+            self.audit_token = normalize_secret(Some(SecretString::new(token.into_boxed_str())));
         }
         if env_flag("CEREBRO_TUI_ENABLED") {
             self.tui.enabled = true;
@@ -282,17 +304,29 @@ impl CerebroConfig {
     pub fn validate_startup_requirements(&self) -> Result<(), crate::errors::CerebroError> {
         self.validate_storage()?;
 
-        let auth_is_present = self
-            .auth_token
-            .as_ref()
-            .map(ExposeSecret::expose_secret)
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty());
+        let auth_is_present = self.auth_token.is_some();
 
         if !is_loopback_host(&self.host) && !auth_is_present {
             return Err(crate::errors::CerebroError::Validation(
                 "auth token is required for non-loopback startup".to_string(),
             ));
+        }
+
+        if !is_loopback_host(&self.host) && self.storage_mode == StorageMode::EmbeddedSurreal {
+            let password = non_demo_secret(self.surreal.password.as_ref()).ok_or_else(|| {
+                crate::errors::CerebroError::Validation(
+                    "secure SurrealDB credentials are required for non-loopback embedded startup; set a non-demo password or mount real credentials"
+                        .to_string(),
+                )
+            })?;
+
+            if self.surreal.username.as_deref().map(str::trim) == Some("root") && password == "root"
+            {
+                return Err(crate::errors::CerebroError::Validation(
+                    "secure SurrealDB credentials are required for non-loopback embedded startup; set a non-demo password or mount real credentials"
+                        .to_string(),
+                ));
+            }
         }
 
         Ok(())
@@ -320,16 +354,11 @@ impl CerebroConfig {
             .as_deref()
             .map(str::trim)
             .is_some_and(|value| !value.is_empty());
-        let has_password = self
-            .surreal
-            .password
-            .as_ref()
-            .map(ExposeSecret::expose_secret)
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty());
+        let has_password = non_demo_secret(self.surreal.password.as_ref()).is_some();
         if !has_username || !has_password {
             return Err(crate::errors::CerebroError::Validation(
-                "embedded surrealdb credentials are required".to_string(),
+                "embedded surrealdb credentials are required and cannot use demo credentials"
+                    .to_string(),
             ));
         }
 
@@ -402,6 +431,13 @@ mod secret_string_opt {
         D: Deserializer<'de>,
     {
         let value = Option::<String>::deserialize(deserializer)?;
-        Ok(value.map(|value| SecretString::new(value.into_boxed_str())))
+        Ok(value.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(SecretString::new(trimmed.to_string().into_boxed_str()))
+            }
+        }))
     }
 }

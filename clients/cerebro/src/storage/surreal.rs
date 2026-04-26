@@ -473,4 +473,10 @@ impl Storage for SurrealStorage {
             .map_err(|err| CerebroError::Storage(format!("surrealdb count failed: {err}")))?;
         Ok(records.len())
     }
+
+    async fn ready(&self) -> Result<(), CerebroError> {
+        self.db.query("RETURN 1;").await.map(|_| ()).map_err(|err| {
+            CerebroError::Storage(format!("surrealdb readiness probe failed: {err}"))
+        })
+    }
 }

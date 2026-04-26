@@ -1,8 +1,65 @@
+use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use cerebro::{CerebroConfig, CerebroService, InMemoryStorage, StorageMode};
+use cerebro::{
+    errors::CerebroError, storage::MemoryRecord, CerebroConfig, CerebroService, InMemoryStorage,
+    Storage, StorageMode,
+};
+use std::any::Any;
 use std::sync::Arc;
 use tower::util::ServiceExt;
+
+struct FailingReadyStorage;
+
+#[async_trait]
+impl Storage for FailingReadyStorage {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    async fn save(&self, _record: MemoryRecord) -> Result<(), CerebroError> {
+        unreachable!("save is not used in readiness test")
+    }
+
+    async fn get(&self, _memory_id: &str) -> Result<Option<MemoryRecord>, CerebroError> {
+        unreachable!("get is not used in readiness test")
+    }
+
+    async fn delete(&self, _memory_id: &str, _hard_delete: bool) -> Result<bool, CerebroError> {
+        unreachable!("delete is not used in readiness test")
+    }
+
+    async fn search(
+        &self,
+        _query: &str,
+        _limit: usize,
+        _include_deleted: bool,
+        _scope: Option<&str>,
+        _topic_key: Option<&str>,
+    ) -> Result<Vec<MemoryRecord>, CerebroError> {
+        unreachable!("search is not used in readiness test")
+    }
+
+    async fn timeline(
+        &self,
+        _memory_id: &str,
+        _before: usize,
+        _after: usize,
+        _include_deleted: bool,
+    ) -> Result<Vec<MemoryRecord>, CerebroError> {
+        unreachable!("timeline is not used in readiness test")
+    }
+
+    async fn count(&self) -> Result<usize, CerebroError> {
+        unreachable!("count is not used in readiness test")
+    }
+
+    async fn ready(&self) -> Result<(), CerebroError> {
+        Err(CerebroError::Storage(
+            "simulated readiness failure".to_string(),
+        ))
+    }
+}
 
 #[tokio::test]
 async fn healthz_returns_ok() {
@@ -46,4 +103,26 @@ async fn readyz_returns_ok_for_initialized_service() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn readyz_returns_service_unavailable_when_storage_readiness_fails() {
+    let config = CerebroConfig {
+        storage_mode: StorageMode::InMemory,
+        ..Default::default()
+    };
+    let service = Arc::new(CerebroService::new(config, Arc::new(FailingReadyStorage)));
+    let app = service.router();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/readyz")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }

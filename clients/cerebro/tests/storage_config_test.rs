@@ -143,6 +143,35 @@ fn startup_validation_allows_loopback_without_auth_token_for_local_dev() {
     assert!(config.validate_startup_requirements().is_ok());
 }
 
+#[test]
+fn startup_validation_allows_non_loopback_with_real_auth_token() {
+    let mut config = base_config();
+    config.host = "0.0.0.0".to_string();
+    config.auth_token = Some(SecretString::new(
+        "secrettoken".to_string().into_boxed_str(),
+    ));
+    config.surreal.username = Some("operator".to_string());
+    config.surreal.password = Some(SecretString::new(
+        "secure-password".to_string().into_boxed_str(),
+    ));
+
+    assert!(config.validate_startup_requirements().is_ok());
+}
+
+#[test]
+fn startup_validation_rejects_whitespace_only_auth_token_for_non_loopback() {
+    let mut config = base_config();
+    config.host = "0.0.0.0".to_string();
+    config.auth_token = Some(SecretString::new("  \t\n".to_string().into_boxed_str()));
+
+    let error = config
+        .apply_env_overrides()
+        .validate_startup_requirements()
+        .expect_err("startup validation should fail");
+
+    assert!(error.to_string().contains("auth token is required"));
+}
+
 struct BufferWriter(Arc<Mutex<Vec<u8>>>);
 
 impl<'a> MakeWriter<'a> for BufferWriter {

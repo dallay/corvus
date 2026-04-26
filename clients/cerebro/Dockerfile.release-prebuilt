@@ -16,6 +16,8 @@ RUN case "$TARGETARCH" in \
 esac
 
 # Bundled config is for local/demo boot only.
+# The default host is 127.0.0.1 inside the container, so docker -p will not expose Cerebro
+# unless operators override host (for example to 0.0.0.0) and provide a real auth_token.
 # Production deployments must provide explicit config and secrets via mount or environment.
 RUN printf '%s\n' \
   'host = "127.0.0.1"' \

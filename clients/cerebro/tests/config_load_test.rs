@@ -1,4 +1,5 @@
 use cerebro::CerebroConfig;
+use secrecy::ExposeSecret;
 use std::fs;
 use tempfile::tempdir;
 
@@ -26,7 +27,17 @@ password = "secret"
 
     assert_eq!(config.host, "127.0.0.1");
     assert_eq!(config.port, 5050);
-    assert!(config.auth_token.is_some());
+    assert_eq!(
+        config.auth_token.as_ref().map(ExposeSecret::expose_secret),
+        Some("top-secret")
+    );
     assert_eq!(config.surreal.username.as_deref(), Some("root"));
-    assert!(config.surreal.password.is_some());
+    assert_eq!(
+        config
+            .surreal
+            .password
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("secret")
+    );
 }

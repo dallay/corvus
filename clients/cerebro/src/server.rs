@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Instant;
+use subtle::ConstantTimeEq;
+use tracing::Instrument;
 
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcRequest {
@@ -47,6 +49,8 @@ pub struct JsonRpcResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<JsonRpcError>,
 }
+
+const MAX_REQUEST_BODY_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone)]
 pub struct CerebroService {
@@ -81,7 +85,7 @@ impl CerebroService {
             .route("/healthz", get(handle_health))
             .route("/readyz", get(handle_ready))
             .route("/mcp", post(handle_mcp))
-            .layer(DefaultBodyLimit::max(1024 * 1024))
+            .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_BYTES))
             .with_state(self)
     }
 
@@ -126,7 +130,11 @@ impl CerebroService {
         }
 
         let tool_name = request.params.name.clone();
-        let request_id = request.id.to_string();
+        let request_id = request
+            .id
+            .as_str()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| request.id.to_string());
         let start = Instant::now();
         let request_kind = if self.config.audit_token.is_some() {
             "auth_or_audit"
@@ -139,87 +147,90 @@ impl CerebroService {
             tool_name = %tool_name,
             auth_mode = %request_kind,
         );
-        let _enter = span.enter();
 
-        let auth_context = match self.authorize(auth_header) {
-            Ok(context) => context,
-            Err(error) => {
-                tracing::warn!(error = %error, "authorization failed");
-                return error_response(id, error);
-            }
-        };
+        let response = async {
+            let auth_context = match self.authorize(auth_header) {
+                Ok(context) => context,
+                Err(error) => {
+                    tracing::warn!(error = %error, "authorization failed");
+                    return error_response(id, error);
+                }
+            };
 
-        let redaction = self.tools.redaction_for_tool(&tool_name);
-        let redacted_args = self
-            .tools
-            .extract_safe_args(&tool_name, &request.params.arguments)
-            .and_then(|value| {
-                self.redaction
-                    .redact_with_allowlist(&value, redaction.allowed_arg_fields)
-            });
-        self.event_bus.publish(ToolCallEvent {
-            kind: ToolCallEventKind::Started,
-            request_id: request_id.clone(),
-            tool_name: tool_name.clone(),
-            timestamp: Utc::now().to_rfc3339(),
-            duration_ms: None,
-            status: Some("started".to_string()),
-            redacted_args,
-            redacted_output: None,
-            error: None,
-        });
-
-        let response = match self
-            .tools
-            .handle(&tool_name, request.params.arguments, &auth_context)
-            .await
-        {
-            Ok(output) => {
-                let duration_ms = start.elapsed().as_millis() as u64;
-                let safe_output = self
-                    .tools
-                    .extract_safe_output(&tool_name, &output)
-                    .and_then(|value| {
-                        self.redaction
-                            .redact_with_allowlist(&value, redaction.allowed_output_fields)
-                    });
-                self.event_bus.publish(ToolCallEvent {
-                    kind: ToolCallEventKind::Finished,
-                    request_id,
-                    tool_name,
-                    timestamp: Utc::now().to_rfc3339(),
-                    duration_ms: Some(duration_ms),
-                    status: Some("ok".to_string()),
-                    redacted_args: None,
-                    redacted_output: safe_output,
-                    error: None,
+            let redaction = self.tools.redaction_for_tool(&tool_name);
+            let redacted_args = self
+                .tools
+                .extract_safe_args(&tool_name, &request.params.arguments)
+                .and_then(|value| {
+                    self.redaction
+                        .redact_with_allowlist(&value, redaction.allowed_arg_fields)
                 });
-                tracing::info!(duration_ms, status = "ok", "tool call completed");
-                JsonRpcResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: Some(json!({ "output": output })),
-                    error: None,
+            self.event_bus.publish(ToolCallEvent {
+                kind: ToolCallEventKind::Started,
+                request_id: request_id.clone(),
+                tool_name: tool_name.clone(),
+                timestamp: Utc::now().to_rfc3339(),
+                duration_ms: None,
+                status: Some("started".to_string()),
+                redacted_args,
+                redacted_output: None,
+                error: None,
+            });
+
+            match self
+                .tools
+                .handle(&tool_name, request.params.arguments, &auth_context)
+                .instrument(span)
+                .await
+            {
+                Ok(output) => {
+                    let duration_ms = start.elapsed().as_millis() as u64;
+                    let safe_output = self
+                        .tools
+                        .extract_safe_output(&tool_name, &output)
+                        .and_then(|value| {
+                            self.redaction
+                                .redact_with_allowlist(&value, redaction.allowed_output_fields)
+                        });
+                    self.event_bus.publish(ToolCallEvent {
+                        kind: ToolCallEventKind::Finished,
+                        request_id,
+                        tool_name,
+                        timestamp: Utc::now().to_rfc3339(),
+                        duration_ms: Some(duration_ms),
+                        status: Some("ok".to_string()),
+                        redacted_args: None,
+                        redacted_output: safe_output,
+                        error: None,
+                    });
+                    tracing::info!(duration_ms, status = "ok", "tool call completed");
+                    JsonRpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        id,
+                        result: Some(json!({ "output": output })),
+                        error: None,
+                    }
+                }
+                Err(error) => {
+                    let duration_ms = start.elapsed().as_millis() as u64;
+                    let redacted_error = self.redaction.redact_text(&error.to_string());
+                    self.event_bus.publish(ToolCallEvent {
+                        kind: ToolCallEventKind::Failed,
+                        request_id,
+                        tool_name,
+                        timestamp: Utc::now().to_rfc3339(),
+                        duration_ms: Some(duration_ms),
+                        status: Some("error".to_string()),
+                        redacted_args: None,
+                        redacted_output: None,
+                        error: Some(redacted_error),
+                    });
+                    tracing::warn!(duration_ms, error = %error, status = "error", "tool call failed");
+                    error_response(id, error)
                 }
             }
-            Err(error) => {
-                let duration_ms = start.elapsed().as_millis() as u64;
-                let redacted_error = self.redaction.redact_text(&error.to_string());
-                self.event_bus.publish(ToolCallEvent {
-                    kind: ToolCallEventKind::Failed,
-                    request_id,
-                    tool_name,
-                    timestamp: Utc::now().to_rfc3339(),
-                    duration_ms: Some(duration_ms),
-                    status: Some("error".to_string()),
-                    redacted_args: None,
-                    redacted_output: None,
-                    error: Some(redacted_error),
-                });
-                tracing::warn!(duration_ms, error = %error, status = "error", "tool call failed");
-                error_response(id, error)
-            }
-        };
+        }
+        .await;
         response
     }
 
@@ -229,25 +240,23 @@ impl CerebroService {
             .auth_token
             .as_ref()
             .map(ExposeSecret::expose_secret)
-            .map(str::trim)
-            .filter(|token| !token.is_empty())
             .ok_or(CerebroError::Unauthorized)?;
 
         let audit_token = self
             .config
             .audit_token
             .as_ref()
-            .map(ExposeSecret::expose_secret)
-            .map(str::trim)
-            .filter(|token| !token.is_empty());
+            .map(ExposeSecret::expose_secret);
 
         let token = parse_bearer_token(auth_header)?;
 
-        if audit_token.is_some_and(|audit| token == audit) {
+        if audit_token
+            .is_some_and(|audit| token.as_bytes().ct_eq(audit.as_bytes()).unwrap_u8() == 1)
+        {
             return Ok(AuthContext { is_audit: true });
         }
 
-        if token == expected {
+        if token.as_bytes().ct_eq(expected.as_bytes()).unwrap_u8() == 1 {
             return Ok(AuthContext { is_audit: false });
         }
 
@@ -257,11 +266,17 @@ impl CerebroService {
 
 fn parse_bearer_token(auth_header: Option<&str>) -> Result<&str, CerebroError> {
     let header = auth_header.unwrap_or("");
-    let token = header
-        .strip_prefix("Bearer ")
-        .ok_or(CerebroError::Unauthorized)?
-        .trim();
+    let (scheme, rest) = header
+        .split_once(char::is_whitespace)
+        .ok_or(CerebroError::Unauthorized)?;
 
+    if !scheme.eq_ignore_ascii_case("Bearer") {
+        return Err(CerebroError::Unauthorized);
+    }
+
+    let token = rest
+        .trim_start_matches(|c: char| c.is_ascii_whitespace())
+        .trim();
     if token.is_empty() {
         return Err(CerebroError::Unauthorized);
     }
@@ -293,7 +308,7 @@ async fn handle_health() -> Json<Value> {
 }
 
 async fn handle_ready(State(service): State<Arc<CerebroService>>) -> (StatusCode, Json<Value>) {
-    match service.storage().count().await {
+    match service.storage().ready().await {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "ready" }))),
         Err(error) => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -310,7 +325,8 @@ async fn handle_mcp(
     headers: HeaderMap,
     Json(request): Json<JsonRpcRequest>,
 ) -> Json<JsonRpcResponse> {
-    let auth_header = headers.get("authorization").and_then(|value| value.to_str().ok());
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok());
     Json(service.handle_json_rpc(request, auth_header).await)
 }
-

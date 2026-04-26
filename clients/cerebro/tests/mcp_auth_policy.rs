@@ -100,7 +100,7 @@ async fn rejects_auth_with_empty_bearer_token() {
 }
 
 #[tokio::test]
-async fn rejects_bearer_token_with_wrong_case_prefix() {
+async fn accepts_bearer_token_with_lowercase_prefix() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
         auth_token: Some(SecretString::new("secret".to_string().into())),
@@ -118,9 +118,10 @@ async fn rejects_bearer_token_with_wrong_case_prefix() {
         },
     };
 
-    let response = service.handle_json_rpc(request, Some("bearer secret")).await;
-    let error = response.error.expect("expected auth error");
-    assert_eq!(error.code, -32001);
+    let response = service
+        .handle_json_rpc(request, Some("bearer secret"))
+        .await;
+    assert!(response.error.is_none());
 }
 
 #[tokio::test]
@@ -148,4 +149,3 @@ async fn accepts_requests_with_valid_audit_token() {
         .await;
     assert!(response.error.is_none());
 }
-
