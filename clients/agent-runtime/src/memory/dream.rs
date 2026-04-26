@@ -296,22 +296,7 @@ pub fn record_session_completion(
     workspace_dir: &Path,
     session_id: &str,
 ) -> Result<DreamSessionStateRecord> {
-    let Some(_lock_guard) = DreamLockGuard::acquire(workspace_dir)? else {
-        return Ok(load_state(workspace_dir)?
-            .completed_sessions
-            .into_iter()
-            .find(|record| record.session_id == session_id)
-            .unwrap_or_else(|| DreamSessionStateRecord {
-                session_id: session_id.to_string(),
-                status: DreamSessionStatus::Pending,
-                trigger_reason: DreamTriggerReason::SessionCount,
-                completion_recorded_at: Utc::now().to_rfc3339(),
-                last_attempt_at: None,
-                completed_at: None,
-                artifact_refs: vec![],
-                failure_reason: Some("dream lock busy while recording completion".to_string()),
-            }));
-    };
+    let _lock_guard = DreamLockGuard::acquire_blocking(workspace_dir)?;
 
     let mut state = load_state(workspace_dir)?;
     let now = Utc::now().to_rfc3339();
@@ -617,6 +602,21 @@ impl DreamLockGuard {
             }
             Err(error) => Err(error.into()),
         }
+    }
+
+    fn acquire_blocking(workspace_dir: &Path) -> Result<Self> {
+        let path = dream_lock_path(workspace_dir);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)?;
+        file.lock_exclusive()?;
+        Ok(Self { path, file })
     }
 }
 
