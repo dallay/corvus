@@ -3,6 +3,8 @@
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
+import org.gradle.api.file.RegularFile
+import org.gradle.api.provider.Provider
 
 val isCi = providers.environmentVariable("CI").orNull?.isNotBlank() == true
 val safeNettyVersion = "4.1.132.Final"
@@ -201,10 +203,10 @@ configurations.configureEach {
   }
 }
 
-val lockFilesProvider = provider {
+val lockFilesProvider: Provider<List<RegularFile>> = provider {
   listOf(
-    layout.projectDirectory.file("buildscript-gradle.lockfile").asFile,
-    layout.projectDirectory.file("gradle.lockfile").asFile,
+    layout.projectDirectory.file("buildscript-gradle.lockfile"),
+    layout.projectDirectory.file("gradle.lockfile"),
   )
 }
 
@@ -220,14 +222,21 @@ val writeLocks =
     val wrapper =
       gradleWrapperProvider.get()
         ?: error("Could not locate Gradle wrapper starting from ${rootDir.absolutePath}")
+    val isUnix = org.gradle.internal.os.OperatingSystem.current().isUnix
+
+    val lockFiles = lockFilesProvider.get()
+    val backupFiles =
+      lockFiles.associateWith { lockFile ->
+        layout.buildDirectory.file("tmp/locks/${lockFile.asFile.name}.bak").get().asFile
+      }
 
     workingDir = rootDir
     commandLine(wrapper.absolutePath, dependenciesTaskPath.get(), "--write-locks")
 
     doFirst {
-      lockFilesProvider.get().forEach { file ->
+      backupFiles.forEach { (lockFile, backup) ->
+        val file = lockFile.asFile
         if (file.exists()) {
-          val backup = layout.buildDirectory.file("tmp/locks/${file.name}.bak").get().asFile
           backup.parentFile.mkdirs()
           file.copyTo(backup, overwrite = true)
         }
@@ -235,8 +244,9 @@ val writeLocks =
     }
 
     doLast {
-      if (!org.gradle.internal.os.OperatingSystem.current().isUnix) {
-        lockFilesProvider.get().forEach { file ->
+      if (!isUnix) {
+        lockFiles.forEach { lockFile ->
+          val file = lockFile.asFile
           if (file.exists()) {
             file.writeText(
               file.readText().replace(System.lineSeparator(), "\n"),
@@ -254,9 +264,16 @@ tasks.register("checkLocks") {
   notCompatibleWithConfigurationCache("Runs nested Gradle commands to validate dependency locks.")
   dependsOn(writeLocks)
 
+  val lockFiles = lockFilesProvider.get()
+  val backupFiles =
+    lockFiles.associateWith { lockFile ->
+      layout.buildDirectory.file("tmp/locks/${lockFile.asFile.name}.bak").get().asFile
+    }
+
   doLast {
-    lockFilesProvider.get().forEach { file ->
-      val backup = layout.buildDirectory.file("tmp/locks/${file.name}.bak").get().asFile
+    lockFiles.forEach { lockFile ->
+      val file = lockFile.asFile
+      val backup = backupFiles.getValue(lockFile)
       if (backup.exists() && file.exists()) {
         val backupContent = backup.readText()
         val currentContent = file.readText()
