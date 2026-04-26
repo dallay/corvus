@@ -46,10 +46,10 @@ cargo test --manifest-path clients/agent-runtime/Cargo.toml --test memory_cerebr
 cargo test --manifest-path clients/agent-runtime/Cargo.toml --test memory_cerebro_integration
 1 passed
 
-cargo test --manifest-path modules/cerebro/Cargo.toml --test mcp_tools_contract
+cargo test --manifest-path clients/cerebro/Cargo.toml --test mcp_tools_contract
 4 passed
 
-cargo test --manifest-path modules/cerebro/Cargo.toml --test mcp_auth_policy
+cargo test --manifest-path clients/cerebro/Cargo.toml --test mcp_auth_policy
 2 passed
 ```
 
@@ -66,8 +66,8 @@ regions: 76.29%
 
 | Requirement                           | Scenario                                              | Test                                                                                                                                         | Result      |
 |---------------------------------------|-------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|-------------|
-| Cerebro MCP Tool Surface              | Save and recall through Cerebro (happy path)          | `modules/cerebro/tests/mcp_tools_contract.rs > drill_in_recall_returns_full_observation`                                                     | ✅ COMPLIANT |
-| Cerebro MCP Tool Surface              | Invalid tool input (edge case)                        | `modules/cerebro/tests/mcp_tools_contract.rs > rejects_invalid_mem_save_payload`                                                             | ✅ COMPLIANT |
+| Cerebro MCP Tool Surface              | Save and recall through Cerebro (happy path)          | `clients/cerebro/tests/mcp_tools_contract.rs > drill_in_recall_returns_full_observation`                                                     | ✅ COMPLIANT |
+| Cerebro MCP Tool Surface              | Invalid tool input (edge case)                        | `clients/cerebro/tests/mcp_tools_contract.rs > rejects_invalid_mem_save_payload`                                                             | ✅ COMPLIANT |
 | Separation of Memory Scopes           | Local memory remains private (happy path)             | `clients/agent-runtime/tests/memory_backend_selection.rs > default_memory_loader_does_not_emit_mcp_calls`                                    | ✅ COMPLIANT |
 | Separation of Memory Scopes           | Long-term memory routed to Cerebro (edge case)        | `clients/agent-runtime/tests/memory_cerebro_integration.rs > runtime_round_trips_to_cerebro`                                                 | ✅ COMPLIANT |
 | Separation of Memory Scopes           | Sensitive data blocked (API key pattern)              | `clients/agent-runtime/src/tools/memory_store.rs > store_blocks_api_key_pattern`                                                             | ✅ COMPLIANT |
@@ -78,8 +78,8 @@ regions: 76.29%
 | Legacy Tool Aliases                   | Missing Cerebro endpoint for legacy tools (edge case) | `clients/agent-runtime/tests/memory_cerebro_aliases.rs > legacy_memory_store_requires_cerebro_endpoint`                                      | ✅ COMPLIANT |
 | Secure Configuration Defaults         | Secure endpoint default (happy path)                  | `clients/agent-runtime/tests/mcp_config_validation.rs > accepts_secure_https_cerebro_endpoint + accepts_secure_wss_cerebro_endpoint`         | ✅ COMPLIANT |
 | Secure Configuration Defaults         | Insecure endpoint without opt-in (edge case)          | `clients/agent-runtime/tests/mcp_config_validation.rs > rejects_insecure_cerebro_endpoint_without_loopback_opt_in`                           | ✅ COMPLIANT |
-| Data Hygiene Defaults                 | Deleted memory is hidden (happy path)                 | `modules/cerebro/tests/mcp_tools_contract.rs > soft_deleted_memories_are_hidden_by_default`                                                  | ✅ COMPLIANT |
-| Data Hygiene Defaults                 | Direct fetch of deleted memory (edge case)            | `modules/cerebro/tests/mcp_tools_contract.rs > soft_deleted_memories_are_hidden_by_default + deleted_fetch_without_record_returns_not_found` | ✅ COMPLIANT |
+| Data Hygiene Defaults                 | Deleted memory is hidden (happy path)                 | `clients/cerebro/tests/mcp_tools_contract.rs > soft_deleted_memories_are_hidden_by_default`                                                  | ✅ COMPLIANT |
+| Data Hygiene Defaults                 | Direct fetch of deleted memory (edge case)            | `clients/cerebro/tests/mcp_tools_contract.rs > soft_deleted_memories_are_hidden_by_default + deleted_fetch_without_record_returns_not_found` | ✅ COMPLIANT |
 
 **Compliance summary**: 14/14 scenarios compliant
 
@@ -89,12 +89,12 @@ regions: 76.29%
 
 | Requirement                           | Status        | Notes                                                                                                                                                     |
 |---------------------------------------|---------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Cerebro MCP Tool Surface              | ✅ Implemented | Tool dispatch for full MCP surface in `modules/cerebro/src/tools.rs`.                                                                                     |
+| Cerebro MCP Tool Surface              | ✅ Implemented | Tool dispatch for full MCP surface in `clients/cerebro/src/tools.rs`.                                                                                     |
 | Separation of Memory Scopes           | ✅ Implemented | MCP routing for long-term tools in `clients/agent-runtime/src/tools/memory_store.rs`; local loader in `clients/agent-runtime/src/agent/memory_loader.rs`. |
 | Remove SurrealDB Backend from Runtime | ✅ Implemented | No Surreal feature in `clients/agent-runtime/Cargo.toml`; backend selection in `clients/agent-runtime/src/memory/mod.rs`.                                 |
 | Legacy Tool Aliases                   | ✅ Implemented | Alias mapping in `clients/agent-runtime/src/tools/mcp/normalize.rs`.                                                                                      |
 | Secure Configuration Defaults         | ✅ Implemented | Endpoint/auth validation in `clients/agent-runtime/src/config/schema.rs`.                                                                                 |
-| Data Hygiene Defaults                 | ✅ Implemented | Deleted handling in `modules/cerebro/src/tools.rs` (mem_search + mem_get_observation).                                                                    |
+| Data Hygiene Defaults                 | ✅ Implemented | Deleted handling in `clients/cerebro/src/tools.rs` (mem_search + mem_get_observation).                                                                    |
 
 ---
 

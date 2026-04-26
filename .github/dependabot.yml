@@ -78,9 +78,9 @@ updates:
       rust-runtime-dependencies:
         patterns: ["*"]
 
-  # Rust Runtime - Cerebro Module
+  # Rust Runtime - Cerebro Client
   - package-ecosystem: "cargo"
-    directory: "/modules/cerebro"
+    directory: "/clients/cerebro"
     schedule:
       interval: "weekly"
     commit-message:

@@ -129,7 +129,7 @@ jobs:
           set -euo pipefail
           # cargo metadata --locked fails fast if Cargo.lock is stale, without compiling.
           cargo metadata --manifest-path clients/agent-runtime/Cargo.toml --locked --format-version 1 --no-deps > /dev/null
-          cargo metadata --manifest-path modules/cerebro/Cargo.toml --locked --format-version 1 --no-deps > /dev/null
+          cargo metadata --manifest-path clients/cerebro/Cargo.toml --locked --format-version 1 --no-deps > /dev/null
           echo "✅ All Cargo.lock files are consistent with their Cargo.toml"
 
       - name: 🏗 Run main checks

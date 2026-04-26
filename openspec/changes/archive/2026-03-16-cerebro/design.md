@@ -30,7 +30,7 @@ adapters, preserving existing tool names via aliases during migration.
 
 ### Modules
 
-- **Cerebro (`modules/cerebro`)**
+- **Cerebro (`clients/cerebro`)**
     - Rust binary exposing MCP JSON-RPC tools.
     - Owns long-term memory storage, hygiene, and enrichment pipeline.
 - **agent-runtime (existing)**

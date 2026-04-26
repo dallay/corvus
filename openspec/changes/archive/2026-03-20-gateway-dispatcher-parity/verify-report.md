@@ -47,7 +47,7 @@ marked complete.
 5. Explicit Rust hygiene checks for `clients/agent-runtime/**/*.rs`:
     - `cargo fmt --manifest-path "clients/agent-runtime/Cargo.toml" --all -- --check` -> exit `1`
       during later review because the workspace references a pre-existing missing file (
-      `modules/cerebro/src/bin/cerebro.rs`); this was not caused by the
+      `clients/cerebro/src/bin/cerebro.rs`); this was not caused by the
       `clients/agent-runtime/**/*.rs` edits.
     -
    `cargo clippy --manifest-path "clients/agent-runtime/Cargo.toml" --all-targets -- -D warnings` ->
