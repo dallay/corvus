@@ -21,7 +21,7 @@ Overview page (`index.mdx`) in both EN and ES.
 - Write `cerebro/index.mdx` (EN) — Overview page covering what Cerebro is, key concepts, when to use
   it
 - Write `es/cerebro/index.mdx` (ES) — Spanish translation
-- Source content from `modules/cerebro/README.md` and `openspec/specs/cerebro/spec.md`
+- Source content from `clients/cerebro/README.md` and `openspec/specs/cerebro/spec.md`
 - Installation info included as a section within Overview (SHOULD priority, can be brief)
 
 ### Acceptance Criteria
@@ -46,7 +46,7 @@ backend options, and defaults.
 
 - Create `src/content/docs/cerebro/configuration.md` (EN)
 - Create `src/content/docs/es/cerebro/configuration.md` (ES)
-- Extract configuration details from `modules/cerebro/src/config.rs`
+- Extract configuration details from `clients/cerebro/src/config.rs`
 - Document all `CORVUS_CEREBRO_*` env var overrides from
   `clients/agent-runtime/src/config/schema.rs`
 - Cover storage backends: kv-rocksdb (default), disk, in-memory, remote SurrealDB
@@ -82,9 +82,9 @@ startup verification.
 
 ### Source Files
 
-- `modules/cerebro/src/bin/cerebro.rs` — full CLI entry point
-- `modules/cerebro/src/main.rs` — cerebro-serve binary
-- `modules/cerebro/src/server.rs` — Axum HTTP/MCP router, health endpoint
+- `clients/cerebro/src/bin/cerebro.rs` — full CLI entry point
+- `clients/cerebro/src/main.rs` — cerebro-serve binary
+- `clients/cerebro/src/server.rs` — Axum HTTP/MCP router, health endpoint
 
 ### Acceptance Criteria
 
@@ -116,8 +116,8 @@ Document Cerebro's CLI commands and flags extracted from clap definitions.
 
 ### Source Files
 
-- `modules/cerebro/src/bin/cerebro.rs` — clap definitions for CLI
-- `modules/cerebro/src/migration/` — migration subcommand logic
+- `clients/cerebro/src/bin/cerebro.rs` — clap definitions for CLI
+- `clients/cerebro/src/migration/` — migration subcommand logic
 
 ### Acceptance Criteria
 
@@ -154,7 +154,7 @@ Cerebro memory tools.
 ### Source Files
 
 - `clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/*.json` — 13 schema files
-- `modules/cerebro/src/tools.rs` — tool implementations
+- `clients/cerebro/src/tools.rs` — tool implementations
 
 ### Acceptance Criteria
 
@@ -269,8 +269,8 @@ dashboard.
 
 ### Source Files
 
-- `modules/cerebro/src/storage/` — storage backend implementations
-- `modules/cerebro/src/tui/` — TUI dashboard module
+- `clients/cerebro/src/storage/` — storage backend implementations
+- `clients/cerebro/src/tui/` — TUI dashboard module
 
 ### Acceptance Criteria
 

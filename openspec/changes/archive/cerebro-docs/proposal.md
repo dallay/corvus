@@ -12,7 +12,7 @@ closing all product and content structure decisions before implementation starts
 
 ## Context
 
-Cerebro is a standalone Rust MCP memory service (`modules/cerebro/`) with its own binaries
+Cerebro is a standalone Rust MCP memory service (`clients/cerebro/`) with its own binaries
 (`cerebro`, `cerebro-serve`), configuration surface, protocol (MCP over HTTP), and deployment
 lifecycle. Today it has only one migration guide under `guides/cerebro/` and 13 MCP schema
 JSON files — no dedicated section.
@@ -64,7 +64,7 @@ Minimum launch = 6 pages.
 | guides/architecture.md           | KEEP — cross-link to Cerebro Overview      |
 | guides/surrealdb.md              | KEEP — not Cerebro-specific                |
 | guides/configuration.md          | KEEP — add cross-link to Cerebro Config    |
-| modules/cerebro/README.md        | KEEP — dev-facing                          |
+| clients/cerebro/README.md        | KEEP — dev-facing                          |
 | openspec/specs/cerebro/spec.md   | KEEP — internal spec                       |
 
 ## Decision 5: Bilingual Parity EN/ES

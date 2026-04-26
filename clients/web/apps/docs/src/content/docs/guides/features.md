@@ -19,7 +19,7 @@ in this repository.
 - [x] **clients/web**: Web application workspace (Astro/Vue apps: docs, dashboard, marketing).
 - [x] **clients/agent-runtime**: Rust agent runtime (gateway + daemon + CLI + 22+ providers + 14 channels + 32+ tools).
 - [x] **modules/agent-core-kmp**: Shared Kotlin Multiplatform core bootstrap.
-- [x] **modules/cerebro**: Standalone MCP memory service (SurrealDB, 13 memory tools, optional TUI).
+- [x] **clients/cerebro**: Standalone MCP memory service client (SurrealDB, 13 memory tools, optional TUI).
 - [x] **gradle/build-logic**: Centralized convention plugins.
 - [x] **gradle/aggregation**: Aggregated reporting for tests and coverage.
 - [x] **gradle/versions**: Dependency version management and consistency checks.
