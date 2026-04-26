@@ -34,8 +34,9 @@ rules:
       - cargo clippy --all-targets -- -D warnings
       - cargo test
       - make web-test-all
-      - pnpm check
+      - pnpm --dir clients/web check
     rules:
       - Compare implementation against every spec scenario
+      - Scope verification commands to the owning workspace when the repository is a monorepo
   archive:
     - Warn before merging destructive deltas (large removals)

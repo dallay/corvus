@@ -19,9 +19,10 @@ pub use backend::{
 };
 #[allow(unused_imports)]
 pub use dream::{
-    record_session_completion, run_if_triggered as run_dream_if_triggered,
-    run_now as run_dream_now, DreamLaunchContract, DreamLockState, DreamPhase, DreamPhaseResult,
-    DreamRunStatus, DreamTriggerReason, MemoryConsolidationReport,
+    dream_eligibility, record_session_completion, run_if_triggered as run_dream_if_triggered,
+    run_now as run_dream_now, DreamConfig, DreamEligibility, DreamLaunchContract, DreamLockState,
+    DreamPhase, DreamPhaseResult, DreamRunStatus, DreamSessionReport, DreamSessionStateRecord,
+    DreamSessionStatus, DreamTriggerReason, MemoryConsolidationReport,
 };
 pub use lucid::LucidMemory;
 pub use markdown::MarkdownMemory;
