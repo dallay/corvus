@@ -167,11 +167,20 @@ fn default_tui_redact_fields() -> Vec<String> {
 
 fn normalize_secret(secret: Option<SecretString>) -> Option<SecretString> {
     secret.and_then(|secret| {
-        let trimmed = secret.expose_secret().trim();
-        if trimmed.is_empty() {
-            None
+        let should_trim = {
+            let exposed = secret.expose_secret();
+            let trimmed = exposed.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            trimmed != exposed
+        };
+
+        if should_trim {
+            let trimmed = secret.expose_secret().trim().to_string();
+            Some(SecretString::new(trimmed.into_boxed_str()))
         } else {
-            Some(SecretString::new(trimmed.to_string().into_boxed_str()))
+            Some(secret)
         }
     })
 }
@@ -179,7 +188,7 @@ fn normalize_secret(secret: Option<SecretString>) -> Option<SecretString> {
 fn is_demo_credential(value: &str) -> bool {
     matches!(
         value.trim(),
-        "local-dev-only" | "CHANGE_ME_BEFORE_PRODUCTION" | "root"
+        "local-dev-only" | "CHANGE_ME_BEFORE_PRODUCTION"
     )
 }
 
@@ -310,23 +319,6 @@ impl CerebroConfig {
             return Err(crate::errors::CerebroError::Validation(
                 "auth token is required for non-loopback startup".to_string(),
             ));
-        }
-
-        if !is_loopback_host(&self.host) && self.storage_mode == StorageMode::EmbeddedSurreal {
-            let password = non_demo_secret(self.surreal.password.as_ref()).ok_or_else(|| {
-                crate::errors::CerebroError::Validation(
-                    "secure SurrealDB credentials are required for non-loopback embedded startup; set a non-demo password or mount real credentials"
-                        .to_string(),
-                )
-            })?;
-
-            if self.surreal.username.as_deref().map(str::trim) == Some("root") && password == "root"
-            {
-                return Err(crate::errors::CerebroError::Validation(
-                    "secure SurrealDB credentials are required for non-loopback embedded startup; set a non-demo password or mount real credentials"
-                        .to_string(),
-                ));
-            }
         }
 
         Ok(())

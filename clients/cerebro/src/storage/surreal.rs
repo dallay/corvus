@@ -475,8 +475,14 @@ impl Storage for SurrealStorage {
     }
 
     async fn ready(&self) -> Result<(), CerebroError> {
-        self.db.query("RETURN 1;").await.map(|_| ()).map_err(|err| {
+        let response = self.db.query("RETURN 1;").await.map_err(|err| {
             CerebroError::Storage(format!("surrealdb readiness probe failed: {err}"))
-        })
+        })?;
+
+        response.check().map_err(|err| {
+            CerebroError::Storage(format!("surrealdb readiness probe failed: {err}"))
+        })?;
+
+        Ok(())
     }
 }

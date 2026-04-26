@@ -1,10 +1,11 @@
 use async_trait::async_trait;
-use axum::body::Body;
+use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use cerebro::{
     errors::CerebroError, storage::MemoryRecord, CerebroConfig, CerebroService, InMemoryStorage,
     Storage, StorageMode,
 };
+use serde_json::Value;
 use std::any::Any;
 use std::sync::Arc;
 use tower::util::ServiceExt;
@@ -125,4 +126,17 @@ async fn readyz_returns_service_unavailable_when_storage_readiness_fails() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should be readable");
+    let payload: Value = serde_json::from_slice(&body).expect("body should be valid json");
+    assert_eq!(
+        payload.get("status").and_then(Value::as_str),
+        Some("not_ready")
+    );
+    assert!(payload
+        .get("error")
+        .and_then(Value::as_str)
+        .is_some_and(|error| !error.is_empty()));
 }

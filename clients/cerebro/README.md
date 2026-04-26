@@ -60,6 +60,8 @@ Recommended pattern:
 - `GET /readyz` — service readiness, including a storage connectivity check
 - `POST /mcp` — authenticated application traffic only, not a substitute for the probe endpoints above
 
+These probe endpoints are intentionally unauthenticated. Restrict access with network policy, ingress rules, or private service topology rather than exposing them broadly on the public Internet.
+
 ## Request limits
 
 Cerebro enforces a 1 MiB (1,048,576 bytes) HTTP request body limit on the router to reduce abuse and accidental oversized payloads.

@@ -23,6 +23,12 @@ impl EnvVarGuard {
         std::env::set_var(key, value);
         Self { key, previous }
     }
+
+    fn unset(key: &'static str) -> Self {
+        let previous = std::env::var(key).ok();
+        std::env::remove_var(key);
+        Self { key, previous }
+    }
 }
 
 impl Drop for EnvVarGuard {
@@ -160,6 +166,10 @@ fn startup_validation_allows_non_loopback_with_real_auth_token() {
 
 #[test]
 fn startup_validation_rejects_whitespace_only_auth_token_for_non_loopback() {
+    let _env_guard = ENV_LOCK.lock().expect("env lock");
+    let _auth_guard = EnvVarGuard::unset("CEREBRO_AUTH_TOKEN");
+    let _audit_guard = EnvVarGuard::unset("CEREBRO_AUDIT_TOKEN");
+
     let mut config = base_config();
     config.host = "0.0.0.0".to_string();
     config.auth_token = Some(SecretString::new("  \t\n".to_string().into_boxed_str()));

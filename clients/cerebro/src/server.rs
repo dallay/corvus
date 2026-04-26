@@ -136,18 +136,14 @@ impl CerebroService {
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| request.id.to_string());
         let start = Instant::now();
-        let request_kind = if self.config.audit_token.is_some() {
-            "auth_or_audit"
-        } else {
-            "auth"
-        };
         let span = tracing::info_span!(
             "cerebro_mcp_request",
             request_id = %request_id,
             tool_name = %tool_name,
-            auth_mode = %request_kind,
+            auth_mode = tracing::field::Empty,
         );
 
+        let span_for_response = span.clone();
         let response = async {
             let auth_context = match self.authorize(auth_header) {
                 Ok(context) => context,
@@ -156,6 +152,15 @@ impl CerebroService {
                     return error_response(id, error);
                 }
             };
+
+            span_for_response.record(
+                "auth_mode",
+                if auth_context.is_audit {
+                    "audit"
+                } else {
+                    "operator"
+                },
+            );
 
             let redaction = self.tools.redaction_for_tool(&tool_name);
             let redacted_args = self
@@ -177,12 +182,7 @@ impl CerebroService {
                 error: None,
             });
 
-            match self
-                .tools
-                .handle(&tool_name, request.params.arguments, &auth_context)
-                .instrument(span)
-                .await
-            {
+            match self.tools.handle(&tool_name, request.params.arguments, &auth_context).await {
                 Ok(output) => {
                     let duration_ms = start.elapsed().as_millis() as u64;
                     let safe_output = self
@@ -230,6 +230,7 @@ impl CerebroService {
                 }
             }
         }
+        .instrument(span)
         .await;
         response
     }
@@ -267,16 +268,14 @@ impl CerebroService {
 fn parse_bearer_token(auth_header: Option<&str>) -> Result<&str, CerebroError> {
     let header = auth_header.unwrap_or("");
     let (scheme, rest) = header
-        .split_once(char::is_whitespace)
+        .split_once(|c: char| c.is_ascii_whitespace())
         .ok_or(CerebroError::Unauthorized)?;
 
     if !scheme.eq_ignore_ascii_case("Bearer") {
         return Err(CerebroError::Unauthorized);
     }
 
-    let token = rest
-        .trim_start_matches(|c: char| c.is_ascii_whitespace())
-        .trim();
+    let token = rest.trim();
     if token.is_empty() {
         return Err(CerebroError::Unauthorized);
     }
