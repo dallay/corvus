@@ -2,6 +2,7 @@ pub mod handlers;
 pub mod types;
 
 use crate::health::StartupDependencyState;
+use crate::observability::Observability;
 use crate::registry::RookRegistry;
 use axum::{routing::get, Router};
 use std::sync::Arc;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 pub struct AdminState {
     pub registry: RookRegistry,
     pub startup: Arc<StartupDependencyState>,
+    pub observability: Arc<Observability>,
 }
 
 pub fn build_router(state: AdminState) -> Router {
@@ -22,6 +24,7 @@ pub fn build_router(state: AdminState) -> Router {
             get(handlers::handle_list_account_health),
         )
         .route("/health/summary", get(handlers::handle_health_summary))
+        .route("/metrics", get(handlers::handle_get_metrics))
         .route("/usage", get(handlers::handle_get_usage))
         .route("/audit/events", get(handlers::handle_list_audit_events))
         .route(
@@ -137,6 +140,9 @@ mod tests {
         AdminState {
             registry,
             startup: std::sync::Arc::new(startup),
+            observability: std::sync::Arc::new(
+                crate::observability::Observability::bootstrap().unwrap(),
+            ),
         }
     }
 

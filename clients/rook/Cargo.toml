@@ -23,7 +23,7 @@ clap = { version = "4.5", features = ["derive"] }
 tokio = { version = "1.42", default-features = false, features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal"] }
 
 # HTTP gateway
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "matched-path"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 bytes = "1.0"
 futures-util = "0.3"
@@ -40,6 +40,7 @@ anyhow = "1.0"
 # Logging
 tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi", "env-filter"] }
+prometheus-client = "0.23"
 
 # IDs
 uuid = { version = "1.23", default-features = false, features = ["v4", "std", "serde"] }

@@ -13,6 +13,7 @@ pub mod domain;
 pub mod gateway;
 pub mod health;
 pub mod idempotency;
+pub mod observability;
 pub mod registry;
 pub mod routing;
 pub mod server;

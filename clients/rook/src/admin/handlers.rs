@@ -16,10 +16,10 @@ use axum::{
     extract::Json as ExtractJson,
     extract::{
         rejection::{JsonRejection, PathRejection},
-        Path, State,
-        Query,
+        Path, Query, State,
     },
-    http::StatusCode,
+    http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use chrono::Utc;
@@ -237,6 +237,25 @@ pub async fn handle_ready_health(
 
 pub async fn handle_get_usage() -> Json<UsageStatusView> {
     Json(UsageStatusView::placeholder())
+}
+
+pub async fn handle_get_metrics(State(state): State<AdminState>) -> Response {
+    match state.observability.render_prometheus() {
+        Ok(body) => (
+            StatusCode::OK,
+            [(CONTENT_TYPE, HeaderValue::from_static("text/plain; version=0.0.4; charset=utf-8"))],
+            body,
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(admin_error_response(
+                "internal_error",
+                format!("failed to render metrics: {error}"),
+            )),
+        )
+            .into_response(),
+    }
 }
 
 pub async fn handle_list_audit_events(
@@ -782,6 +801,9 @@ mod tests {
             State(AdminState {
                 registry: registry.clone(),
                 startup: std::sync::Arc::new(crate::health::StartupDependencyState::all_ready()),
+                observability: std::sync::Arc::new(
+                    crate::observability::Observability::bootstrap().unwrap(),
+                ),
             }),
             req,
         )

@@ -11,6 +11,7 @@ use crate::domain::RookError;
 use crate::gateway::{self, GatewayState};
 use crate::health::StartupDependencyState;
 use crate::idempotency::middleware::{apply_chat_idempotency, ChatIdempotencyMiddlewareState};
+use crate::observability::Observability;
 use crate::registry::RookRegistry;
 use crate::routing::RoutingEngine;
 use crate::services::idempotency::SharedIdempotencyService;
@@ -132,42 +133,53 @@ async fn build_app_with_registry_and_startup_state(
         .build()
         .map_err(|e| RookError::Gateway(format!("failed to build HTTP client: {e}")))?;
 
+    let observability = Arc::new(
+        Observability::bootstrap()
+            .map_err(|error| RookError::Gateway(format!("failed to bootstrap observability: {error}")))?,
+    );
     let gateway_state = GatewayState {
         registry: registry.clone(),
         engine,
         client,
+        observability: observability.clone(),
     };
-
     let inbound_auth = config.inbound_auth.clone();
     let transport_config = Arc::new(config.transport.clone());
     let rate_limit_state = RateLimitState::new(&config.rate_limits);
     let admin_transport = TransportMiddlewareState {
         config: transport_config.clone(),
         surface: RouteSurface::AdminApi,
+        observability: observability.clone(),
     };
     let gateway_transport = TransportMiddlewareState {
         config: transport_config,
         surface: RouteSurface::GatewayV1,
+        observability: observability.clone(),
     };
     let admin_rate_limit = RateLimitMiddlewareState {
         state: rate_limit_state.clone(),
         surface: RateLimitedSurface::AdminApi,
+        observability: observability.clone(),
     };
     let models_rate_limit = RateLimitMiddlewareState {
         state: rate_limit_state.clone(),
         surface: RateLimitedSurface::GatewayModels,
+        observability: observability.clone(),
     };
     let chat_rate_limit = RateLimitMiddlewareState {
         state: rate_limit_state,
         surface: RateLimitedSurface::GatewayChatCompletions,
+        observability: observability.clone(),
     };
     let chat_idempotency = ChatIdempotencyMiddlewareState {
         config: Arc::new(config.idempotency.chat_completions.clone()),
         service: idempotency_service,
+        observability: observability.clone(),
     };
     let admin_router = admin::build_router(admin::AdminState {
         registry,
         startup: startup_state,
+        observability,
     })
         .layer(middleware::from_fn_with_state(
             inbound_auth.clone(),
@@ -625,6 +637,85 @@ mod tests {
         );
         result.unwrap().unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn metrics_route_counts_requests_with_stable_endpoint_labels() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let app = build_app_with_registry(ServerConfig::default(), registry)
+            .await
+            .unwrap();
+
+        let (health_status, _) = request_text(app.clone(), "/api/health").await;
+        assert_eq!(health_status, StatusCode::OK);
+
+        let missing_account_id = uuid::Uuid::nil();
+        let missing_account_path = format!("/api/accounts/{missing_account_id}");
+        let missing_response = app
+            .clone()
+            .oneshot(Request::get(&missing_account_path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(missing_response.status(), StatusCode::NOT_FOUND);
+
+        let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
+        assert_eq!(metrics_status, StatusCode::OK);
+        let text = String::from_utf8(metrics_body).unwrap();
+        assert!(text.contains("rook_http_requests_total_total{surface=\"admin_api\",endpoint=\"/api/health\",status_class=\"2xx\"} 1"));
+        assert!(text.contains("rook_http_requests_total_total{surface=\"admin_api\",endpoint=\"/api/accounts/{account_id}\",status_class=\"4xx\"} 1"));
+        assert!(text.contains("rook_http_request_duration_seconds_count{surface=\"admin_api\",endpoint=\"/api/health\",status_class=\"2xx\"} 1"));
+        assert!(text.contains("rook_http_request_duration_seconds_count{surface=\"admin_api\",endpoint=\"/api/accounts/{account_id}\",status_class=\"4xx\"} 1"));
+    }
+
+    #[tokio::test]
+    async fn metrics_route_counts_rate_limit_rejections() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let app = build_app_with_registry(limited_server_config(), registry)
+            .await
+            .unwrap();
+
+        let (first_status, _) = request_text(app.clone(), "/api/health").await;
+        assert_eq!(first_status, StatusCode::OK);
+
+        let second_response = app
+            .clone()
+            .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(second_response.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
+        assert_eq!(metrics_status, StatusCode::OK);
+        let text = String::from_utf8(metrics_body).unwrap();
+        assert!(text.contains("rook_rate_limit_rejections_total_total{surface=\"admin_api\",endpoint=\"/api/health\"} 1"));
+    }
+
+    #[tokio::test]
+    async fn metrics_route_exposes_prometheus_scrape_output() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let app = build_app_with_registry(ServerConfig::default(), registry)
+            .await
+            .unwrap();
+
+        let response = app
+            .oneshot(Request::get("/api/metrics").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .unwrap(),
+            "text/plain; version=0.0.4; charset=utf-8"
+        );
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("# TYPE rook_http_requests_total counter"));
+        assert!(text.contains("# TYPE rook_http_request_duration_seconds histogram"));
+        assert!(text.contains("# TYPE rook_rate_limit_rejections_total counter"));
+        assert!(text.contains("# TYPE rook_idempotency_outcomes_total counter"));
+        assert!(text.contains("# TYPE rook_upstream_outcomes_total counter"));
     }
 
     #[tokio::test]
@@ -1202,6 +1293,237 @@ mod tests {
         let body = to_bytes(chat.into_body(), usize::MAX).await.unwrap();
         let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
         assert_eq!(json["error"]["code"], json!("invalid_idempotency_key"));
+    }
+
+    #[tokio::test]
+    async fn metrics_route_counts_upstream_success_http_error_and_route_rejected_outcomes() {
+        use axum::{routing::post, Json, Router};
+        use std::net::SocketAddr;
+
+        async fn ok_handler() -> Json<serde_json::Value> {
+            Json(json!({"id": "chat-ok"}))
+        }
+
+        async fn error_handler() -> (StatusCode, Json<serde_json::Value>) {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "boom"})),
+            )
+        }
+
+        let ok_upstream = Router::new().route("/v1/chat/completions", post(ok_handler));
+        let ok_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ok_addr: SocketAddr = ok_listener.local_addr().unwrap();
+        let _ok_server = tokio::spawn(async move { axum::serve(ok_listener, ok_upstream).await.unwrap() });
+
+        let error_upstream = Router::new().route("/v1/chat/completions", post(error_handler));
+        let error_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let error_addr: SocketAddr = error_listener.local_addr().unwrap();
+        let _error_server = tokio::spawn(async move { axum::serve(error_listener, error_upstream).await.unwrap() });
+
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        seed_route(
+            &registry,
+            "gpt-4o-ok",
+            ProviderVendor::OpenAi,
+            Some(format!("http://{ok_addr}")),
+            Some("sk-ok".to_string()),
+        )
+        .await;
+        seed_route(
+            &registry,
+            "gpt-4o-error",
+            ProviderVendor::OpenAi,
+            Some(format!("http://{error_addr}")),
+            Some("sk-error".to_string()),
+        )
+        .await;
+        let app = build_app_with_registry(ServerConfig::default(), registry)
+            .await
+            .unwrap();
+
+        let success = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o-ok","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(success.status(), StatusCode::OK);
+
+        let upstream_error = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o-error","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(upstream_error.status(), StatusCode::BAD_GATEWAY);
+
+        let rejected = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model":"missing-model","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
+        assert_eq!(metrics_status, StatusCode::OK);
+        let text = String::from_utf8(metrics_body).unwrap();
+        assert!(text.contains("rook_upstream_outcomes_total_total{vendor=\"open_ai\",outcome=\"success\"} 1"));
+        assert!(text.contains("rook_upstream_outcomes_total_total{vendor=\"open_ai\",outcome=\"http_error\"} 1"));
+        assert!(text.contains("rook_upstream_outcomes_total_total{vendor=\"unrouted\",outcome=\"route_rejected\"} 1"));
+    }
+
+    #[tokio::test]
+    async fn metrics_route_counts_idempotency_pass_replay_and_conflict_outcomes() {
+        use axum::{routing::post, Json, Router};
+        use std::net::SocketAddr;
+
+        async fn blocking_handler(
+            State((counter, notify)): State<(Arc<AtomicUsize>, Arc<Notify>)>,
+        ) -> Json<serde_json::Value> {
+            counter.fetch_add(1, Ordering::SeqCst);
+            notify.notified().await;
+            Json(json!({"id": "chat-final"}))
+        }
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let notify = Arc::new(Notify::new());
+        let upstream = Router::new()
+            .route("/v1/chat/completions", post(blocking_handler))
+            .with_state((counter.clone(), notify.clone()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let _server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        seed_route(
+            &registry,
+            "gpt-4o",
+            ProviderVendor::OpenAi,
+            Some(format!("http://{addr}")),
+            Some("sk-test".to_string()),
+        )
+        .await;
+        let app = build_app_with_registry(ServerConfig::default(), registry)
+            .await
+            .unwrap();
+
+        let first_app = app.clone();
+        let first = tokio::spawn(async move {
+            first_app
+                .oneshot(
+                    Request::builder()
+                        .method(axum::http::Method::POST)
+                        .uri("/v1/chat/completions")
+                        .header("content-type", "application/json")
+                        .header("idempotency-key", "chat-123")
+                        .body(Body::from(
+                            json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]})
+                                .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+        });
+
+        while counter.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+
+        let in_progress = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .header("idempotency-key", "chat-123")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(in_progress.status(), StatusCode::CONFLICT);
+
+        let mismatch = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .header("idempotency-key", "chat-123")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o","messages":[{"role":"user","content":"Different"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(mismatch.status(), StatusCode::CONFLICT);
+
+        notify.notify_waiters();
+        let finished = first.await.unwrap();
+        assert_eq!(finished.status(), StatusCode::OK);
+
+        let replay = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .header("idempotency-key", "chat-123")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(replay.status(), StatusCode::OK);
+        assert_eq!(replay.headers().get("idempotency-replayed").unwrap(), "true");
+
+        let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
+        assert_eq!(metrics_status, StatusCode::OK);
+        let text = String::from_utf8(metrics_body).unwrap();
+        assert!(text.contains("rook_idempotency_outcomes_total_total{surface=\"chat_completions\",outcome=\"pass\"} 1"));
+        assert!(text.contains("rook_idempotency_outcomes_total_total{surface=\"chat_completions\",outcome=\"replay\"} 1"));
+        assert!(text.contains("rook_idempotency_outcomes_total_total{surface=\"chat_completions\",outcome=\"conflict\"} 2"));
     }
 
     #[tokio::test]

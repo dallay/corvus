@@ -1,9 +1,10 @@
 use crate::admin::types::admin_rate_limited_response;
 use crate::config::{RateLimitConfig, SurfaceRateLimitPolicy};
 use crate::gateway::types::gateway_rate_limited_response;
+use crate::observability::Observability;
 use crate::transport::context::RateLimitedSurface;
 use axum::body::Body;
-use axum::extract::{Request, State};
+use axum::extract::{MatchedPath, Request, State};
 use axum::middleware::Next;
 use axum::response::Response;
 use std::collections::HashMap;
@@ -32,6 +33,7 @@ pub struct RateLimitState {
 pub struct RateLimitMiddlewareState {
     pub state: RateLimitState,
     pub surface: RateLimitedSurface,
+    pub observability: Arc<Observability>,
 }
 
 impl RateLimitState {
@@ -67,6 +69,22 @@ impl RateLimitState {
     }
 }
 
+fn metrics_surface(surface: RateLimitedSurface) -> &'static str {
+    match surface {
+        RateLimitedSurface::AdminApi => "admin_api",
+        RateLimitedSurface::GatewayModels => "gateway_models",
+        RateLimitedSurface::GatewayChatCompletions => "gateway_chat_completions",
+    }
+}
+
+fn normalized_endpoint(request: &Request<Body>) -> String {
+    request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|matched| matched.as_str().to_string())
+        .unwrap_or_else(|| request.uri().path().to_string())
+}
+
 pub fn evaluate_surface_limit(
     now: Instant,
     policy: &SurfaceRateLimitPolicy,
@@ -98,16 +116,28 @@ pub async fn apply_rate_limit(
     request: Request<Body>,
     next: Next,
 ) -> Response {
+    let endpoint = normalized_endpoint(&request);
+    if endpoint == "/api/metrics" {
+        return next.run(request).await;
+    }
+
     match state.state.check(state.surface).await {
         RateLimitDecision::Allow => next.run(request).await,
         RateLimitDecision::Reject {
             retry_after_seconds,
-        } => match state.surface {
-            RateLimitedSurface::AdminApi => admin_rate_limited_response(retry_after_seconds),
-            RateLimitedSurface::GatewayModels | RateLimitedSurface::GatewayChatCompletions => {
-                gateway_rate_limited_response(retry_after_seconds)
+        } => {
+            state
+                .observability
+                .rate_limit_rejections_total()
+                .inc(metrics_surface(state.surface), &endpoint);
+            match state.surface {
+                RateLimitedSurface::AdminApi => admin_rate_limited_response(retry_after_seconds),
+                RateLimitedSurface::GatewayModels
+                | RateLimitedSurface::GatewayChatCompletions => {
+                    gateway_rate_limited_response(retry_after_seconds)
+                }
             }
-        },
+        }
     }
 }
 
