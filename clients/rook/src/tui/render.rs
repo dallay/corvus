@@ -231,7 +231,11 @@ fn render_routes(frame: &mut ratatui::Frame, area: Rect, state: &LoadState<Route
             .iter()
             .enumerate()
             .map(|(index, row)| {
-                let prefix = if index == model.selected_index { ">" } else { " " };
+                let prefix = if index == model.selected_index {
+                    ">"
+                } else {
+                    " "
+                };
                 ListItem::new(format!(
                     "{prefix} {} → {}",
                     row.route.logical_model, row.target_pool_label

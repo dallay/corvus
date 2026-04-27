@@ -91,7 +91,9 @@ impl SqliteDb {
     pub async fn open_in_memory() -> Result<Self, RookError> {
         // max_connections(1) ensures a single connection so the in-memory
         // database is not dropped between pool checkouts.
-        let options = SqliteConnectOptions::new().in_memory(true).foreign_keys(true);
+        let options = SqliteConnectOptions::new()
+            .in_memory(true)
+            .foreign_keys(true);
 
         let pool = sqlx::pool::PoolOptions::<sqlx::Sqlite>::new()
             .max_connections(1)
