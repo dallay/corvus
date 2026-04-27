@@ -23,7 +23,8 @@ pub struct JsonRpcRequest {
     pub jsonrpc: String,
     pub id: Value,
     pub method: String,
-    pub params: JsonRpcParams,
+    #[serde(default)]
+    pub params: Option<JsonRpcParams>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,7 +117,7 @@ impl CerebroService {
             };
         }
 
-        if request.method != "tools/call" {
+        if request.method != "tools/call" && request.method != "tools/list" {
             return JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id,
@@ -129,7 +130,30 @@ impl CerebroService {
             };
         }
 
-        let tool_name = request.params.name.clone();
+        if request.method == "tools/list" {
+            let tools = self.tools.list_manifest();
+            return JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id,
+                result: Some(json!({ "tools": tools })),
+                error: None,
+            };
+        }
+
+        let Some(params) = request.params else {
+            return JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id,
+                result: None,
+                error: Some(JsonRpcError {
+                    code: -32602,
+                    message: "missing params".to_string(),
+                    data: None,
+                }),
+            };
+        };
+
+        let tool_name = params.name.clone();
         let request_id = request
             .id
             .as_str()
@@ -165,7 +189,7 @@ impl CerebroService {
             let redaction = self.tools.redaction_for_tool(&tool_name);
             let redacted_args = self
                 .tools
-                .extract_safe_args(&tool_name, &request.params.arguments)
+                .extract_safe_args(&tool_name, &params.arguments)
                 .and_then(|value| {
                     self.redaction
                         .redact_with_allowlist(&value, redaction.allowed_arg_fields)
@@ -182,7 +206,7 @@ impl CerebroService {
                 error: None,
             });
 
-            match self.tools.handle(&tool_name, request.params.arguments, &auth_context).await {
+            match self.tools.handle(&tool_name, params.arguments, &auth_context).await {
                 Ok(output) => {
                     let duration_ms = start.elapsed().as_millis() as u64;
                     let safe_output = self

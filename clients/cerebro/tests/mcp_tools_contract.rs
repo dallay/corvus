@@ -1,6 +1,25 @@
 use cerebro::{CerebroConfig, CerebroService, InMemoryStorage};
 use secrecy::SecretString;
-use serde_json::json;
+use serde_json::{json, Value};
+
+const IMPLEMENTED_TOOLS: [&str; 8] = [
+    "mem_save",
+    "mem_search",
+    "mem_delete",
+    "mem_get_observation",
+    "mem_update",
+    "mem_suggest_topic_key",
+    "mem_timeline",
+    "mem_stats",
+];
+
+const DEFERRED_TOOLS: [&str; 5] = [
+    "mem_save_prompt",
+    "mem_session_start",
+    "mem_session_end",
+    "mem_session_summary",
+    "mem_context",
+];
 
 async fn call_tool(
     service: &CerebroService,
@@ -12,12 +31,88 @@ async fn call_tool(
         jsonrpc: "2.0".to_string(),
         id: json!("1"),
         method: "tools/call".to_string(),
-        params: cerebro::server::JsonRpcParams {
+        params: Some(cerebro::server::JsonRpcParams {
             name: name.to_string(),
             arguments,
-        },
+        }),
     };
     service.handle_json_rpc(request, auth_header).await
+}
+
+async fn list_tools(
+    service: &CerebroService,
+    auth_header: Option<&str>,
+) -> cerebro::JsonRpcResponse {
+    let request = cerebro::JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: json!("list"),
+        method: "tools/list".to_string(),
+        params: None,
+    };
+    service.handle_json_rpc(request, auth_header).await
+}
+
+fn response_result(response: &cerebro::JsonRpcResponse) -> &Value {
+    response
+        .result
+        .as_ref()
+        .expect("expected JSON-RPC result payload")
+}
+
+#[tokio::test]
+async fn tools_list_publishes_only_callable_implemented_inventory() {
+    let storage = InMemoryStorage::new();
+    let config = CerebroConfig {
+        auth_token: Some(SecretString::new("secret".to_string().into())),
+        ..CerebroConfig::default()
+    };
+    let service = CerebroService::new(config, storage);
+
+    let response = list_tools(&service, Some("Bearer secret")).await;
+    assert!(response.error.is_none(), "tools/list should succeed");
+
+    let tools = response_result(&response)
+        .get("tools")
+        .and_then(Value::as_array)
+        .expect("tools/list should return tools array");
+    let names: Vec<&str> = tools
+        .iter()
+        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+        .collect();
+
+    assert_eq!(names, IMPLEMENTED_TOOLS);
+    for tool in DEFERRED_TOOLS {
+        assert!(
+            !names.contains(&tool),
+            "deferred tool {tool} must not be advertised as callable"
+        );
+    }
+}
+
+#[tokio::test]
+async fn deferred_tools_return_structured_not_implemented_errors() {
+    let storage = InMemoryStorage::new();
+    let config = CerebroConfig {
+        auth_token: Some(SecretString::new("secret".to_string().into())),
+        ..CerebroConfig::default()
+    };
+    let service = CerebroService::new(config, storage);
+
+    for tool in DEFERRED_TOOLS {
+        let response = call_tool(
+            &service,
+            Some("Bearer secret"),
+            tool,
+            json!({ "input": {} }),
+        )
+        .await;
+        let error = response.error.expect("expected NotImplemented error");
+        assert_eq!(error.code, -32004, "{tool} should use not implemented code");
+        assert!(
+            error.message.contains(tool),
+            "{tool} should mention the deferred tool name in the error message"
+        );
+    }
 }
 
 #[tokio::test]

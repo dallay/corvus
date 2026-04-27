@@ -8,6 +8,7 @@ pub const CEREBRO_TOOL_GET_OBSERVATION: &str = "mem_get_observation";
 pub const CEREBRO_TOOL_TIMELINE: &str = "mem_timeline";
 pub const CEREBRO_TOOL_STATS: &str = "mem_stats";
 pub const CEREBRO_TOOL_UPDATE: &str = "mem_update";
+pub const CEREBRO_TOOL_SUGGEST_TOPIC_KEY: &str = "mem_suggest_topic_key";
 pub const CEREBRO_TOOL_SAVE_PROMPT: &str = "mem_save_prompt";
 pub const CEREBRO_TOOL_SESSION_START: &str = "mem_session_start";
 pub const CEREBRO_TOOL_SESSION_END: &str = "mem_session_end";
@@ -16,7 +17,7 @@ pub const CEREBRO_TOOL_CONTEXT: &str = "mem_context";
 
 // Tools recognized by the Cerebro gateway.
 // This is the superset used for tool-name classification/routing.
-pub const CEREBRO_GATEWAY_ALLOWLIST: [&str; 12] = [
+pub const CEREBRO_GATEWAY_ALLOWLIST: [&str; 13] = [
     CEREBRO_TOOL_RECALL,
     CEREBRO_TOOL_GET_OBSERVATION,
     CEREBRO_TOOL_TIMELINE,
@@ -24,6 +25,7 @@ pub const CEREBRO_GATEWAY_ALLOWLIST: [&str; 12] = [
     CEREBRO_TOOL_STORE,
     CEREBRO_TOOL_UPDATE,
     CEREBRO_TOOL_FORGET,
+    CEREBRO_TOOL_SUGGEST_TOPIC_KEY,
     CEREBRO_TOOL_SESSION_START,
     CEREBRO_TOOL_SESSION_END,
     CEREBRO_TOOL_SESSION_SUMMARY,
@@ -32,13 +34,12 @@ pub const CEREBRO_GATEWAY_ALLOWLIST: [&str; 12] = [
 ];
 
 // Subset of `CEREBRO_GATEWAY_ALLOWLIST` that is intentionally planned/not-yet-implemented.
-// Keep only tools here that should be recognized but treated as planned.
-// `mem_context` is intentionally excluded because it is considered available.
-pub const CEREBRO_PLANNED_TOOLS: [&str; 4] = [
+pub const CEREBRO_PLANNED_TOOLS: [&str; 5] = [
     CEREBRO_TOOL_SAVE_PROMPT,
     CEREBRO_TOOL_SESSION_START,
     CEREBRO_TOOL_SESSION_END,
     CEREBRO_TOOL_SESSION_SUMMARY,
+    CEREBRO_TOOL_CONTEXT,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -382,7 +383,7 @@ mod tests {
 
     #[test]
     fn allowlist_contains_all_gateway_facing_tools() {
-        assert_eq!(CEREBRO_GATEWAY_ALLOWLIST.len(), 12);
+        assert_eq!(CEREBRO_GATEWAY_ALLOWLIST.len(), 13);
         for tool in CEREBRO_GATEWAY_ALLOWLIST {
             assert!(is_cerebro_gateway_tool(tool));
         }
@@ -392,7 +393,8 @@ mod tests {
     fn planned_tools_are_tracked_separately() {
         assert!(is_cerebro_planned_tool(CEREBRO_TOOL_SESSION_SUMMARY));
         assert!(is_cerebro_planned_tool(CEREBRO_TOOL_SAVE_PROMPT));
-        assert!(!is_cerebro_planned_tool(CEREBRO_TOOL_CONTEXT));
+        assert!(is_cerebro_planned_tool(CEREBRO_TOOL_CONTEXT));
         assert!(!is_cerebro_planned_tool(CEREBRO_TOOL_TIMELINE));
+        assert!(!is_cerebro_planned_tool(CEREBRO_TOOL_SUGGEST_TOPIC_KEY));
     }
 }

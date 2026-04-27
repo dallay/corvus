@@ -41,11 +41,20 @@ function queueDefaultRequests(options?: { remoteUnavailable?: boolean }) {
             mem_save: { state: remoteToolState },
             mem_update: { state: remoteToolState },
             mem_delete: { state: remoteToolState },
-            mem_save_prompt: { state: remoteToolState },
-            mem_session_start: { state: remoteToolState },
-            mem_session_end: { state: remoteToolState },
-            mem_session_summary: { state: remoteToolState },
-            mem_context: { state: remoteToolState },
+            mem_suggest_topic_key: { state: remoteToolState },
+            mem_save_prompt: {
+              state: options?.remoteUnavailable ? "unreachable" : "not_implemented",
+            },
+            mem_session_start: {
+              state: options?.remoteUnavailable ? "unreachable" : "not_implemented",
+            },
+            mem_session_end: {
+              state: options?.remoteUnavailable ? "unreachable" : "not_implemented",
+            },
+            mem_session_summary: {
+              state: options?.remoteUnavailable ? "unreachable" : "not_implemented",
+            },
+            mem_context: { state: options?.remoteUnavailable ? "unreachable" : "not_implemented" },
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }

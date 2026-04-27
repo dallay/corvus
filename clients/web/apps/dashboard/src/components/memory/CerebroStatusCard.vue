@@ -15,6 +15,7 @@ const orderedTools: CerebroToolName[] = [
   "mem_save",
   "mem_update",
   "mem_delete",
+  "mem_suggest_topic_key",
   "mem_context",
   "mem_session_start",
   "mem_session_end",
