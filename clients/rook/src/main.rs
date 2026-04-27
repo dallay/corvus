@@ -4,7 +4,11 @@
 
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};
-use rook::config::{discover_default_config_path, RookConfig, RookConfigExportView};
+use rook::config::{
+    discover_default_config_path, load_effective_config, CliRookConfigOverlay, LoadRookConfigInput,
+    PartialChatCompletionsIdempotencyConfig, PartialIdempotencyConfig, PartialInboundAuthConfig,
+    PartialRateLimitConfig, PartialSurfaceRateLimitPolicy, RookConfig, RookConfigExportView,
+};
 use rook::doctor;
 use rook::registry::RookRegistry;
 use rook::server::ServerConfig;
@@ -106,16 +110,24 @@ async fn main() -> Result<()> {
 }
 
 async fn run_cli(cli: Cli) -> Result<()> {
-    run_cli_with_tui_runner_and_output(cli, |registry, dashboard_url| async move {
-        rook::tui::run_standalone(registry, dashboard_url).await
-    }, |line| {
-        println!("{line}");
-        Ok(())
-    })
+    run_cli_with_tui_runner_and_output(
+        cli,
+        |registry, dashboard_url| async move {
+            rook::tui::run_standalone(registry, dashboard_url).await
+        },
+        |line| {
+            println!("{line}");
+            Ok(())
+        },
+    )
     .await
 }
 
-async fn run_cli_with_tui_runner_and_output<F, Fut, O>(cli: Cli, tui_runner: F, output: O) -> Result<()>
+async fn run_cli_with_tui_runner_and_output<F, Fut, O>(
+    cli: Cli,
+    tui_runner: F,
+    output: O,
+) -> Result<()>
 where
     F: Fn(RookRegistry, String) -> Fut,
     Fut: std::future::Future<Output = Result<(), rook::domain::RookError>>,
@@ -152,7 +164,7 @@ where
             chat_rate_limit_window_seconds,
             chat_idempotency_replay_window_seconds,
         } => {
-            let config_path = discover_default_config_path(&env);
+            let config_path = discover_default_config_path(env);
             let config = build_serve_config(
                 ServeOverrides {
                     host,
@@ -170,7 +182,7 @@ where
                     chat_idempotency_replay_window_seconds,
                 },
                 config_path.as_deref(),
-                &env,
+                env,
             )?;
             rook::server::run(config).await?;
         }
@@ -183,7 +195,7 @@ where
             .await?;
         }
         Commands::Doctor => {
-            let config_path = discover_default_config_path(&env);
+            let config_path = discover_default_config_path(env);
             let report = doctor::run_with_config_path(config_path.as_deref(), env).await;
             output(doctor::render_report(&report))?;
             doctor::ensure_success(&report)?;
@@ -191,8 +203,12 @@ where
         Commands::Config {
             action: ConfigCommands::Export,
         } => {
-            let config_path = discover_default_config_path(&env);
-            let config = build_export_config_from_path(config_path.as_deref(), env)?;
+            let config_path = discover_default_config_path(env);
+            let config = build_export_config_from_path(
+                config_path.as_deref(),
+                env,
+                CliRookConfigOverlay::default(),
+            )?;
             output(render_config_export(&config)?)?;
         }
     }
@@ -203,8 +219,13 @@ where
 fn build_export_config_from_path(
     file_path: Option<&std::path::Path>,
     env: &std::collections::HashMap<String, String>,
+    cli: CliRookConfigOverlay,
 ) -> Result<RookConfig> {
-    Ok(RookConfig::from_sources_with_path(file_path, env)?)
+    Ok(load_effective_config(LoadRookConfigInput {
+        file_path,
+        env,
+        cli: Some(cli),
+    })?)
 }
 
 fn build_serve_config(
@@ -212,57 +233,26 @@ fn build_serve_config(
     file_path: Option<&std::path::Path>,
     env: &std::collections::HashMap<String, String>,
 ) -> Result<ServerConfig> {
-    let mut config = RookConfig::from_sources_with_path_unvalidated(file_path, env)?;
+    let config = load_effective_config(LoadRookConfigInput {
+        file_path,
+        env,
+        cli: Some(input.into_cli_overlay()),
+    })?;
 
-    if let Some(host) = input.host {
-        config.host = host;
-    }
-    if let Some(port) = input.port {
-        config.port = port;
-    }
-    if input.enable_tui {
-        config.enable_tui = true;
-    }
-    if let Some(db_path) = input.db_path {
-        config.db_path = db_path.into();
-    }
-    if input.inbound_auth_enabled {
-        config.inbound_auth.enabled = true;
-    }
-    if let Some(inbound_auth_token) = input.inbound_auth_token {
-        config.inbound_auth.bearer_token = Some(inbound_auth_token);
-    }
-    if let Some(max_requests) = input.api_rate_limit_max_requests {
-        config.rate_limits.api.max_requests = max_requests;
-    }
-    if let Some(window_seconds) = input.api_rate_limit_window_seconds {
-        config.rate_limits.api.window_seconds = window_seconds;
-    }
-    if let Some(max_requests) = input.models_rate_limit_max_requests {
-        config.rate_limits.v1_models.max_requests = max_requests;
-    }
-    if let Some(window_seconds) = input.models_rate_limit_window_seconds {
-        config.rate_limits.v1_models.window_seconds = window_seconds;
-    }
-    if let Some(max_requests) = input.chat_rate_limit_max_requests {
-        config.rate_limits.v1_chat_completions.max_requests = max_requests;
-    }
-    if let Some(window_seconds) = input.chat_rate_limit_window_seconds {
-        config.rate_limits.v1_chat_completions.window_seconds = window_seconds;
-    }
-    if let Some(replay_window_seconds) = input.chat_idempotency_replay_window_seconds {
-        config.idempotency.chat_completions.replay_window_seconds = replay_window_seconds;
-    }
-
-    config.validate()?;
     Ok(config.to_server_config())
 }
 
 fn render_config_export(config: &RookConfig) -> Result<String> {
-    Ok(serde_json::to_string_pretty(&RookConfigExportView::from_config(config))?)
+    Ok(serde_json::to_string_pretty(
+        &RookConfigExportView::from_config(config),
+    )?)
 }
 
-async fn launch_tui_with_runner<F, Fut>(db_path: &str, dashboard_url: String, tui_runner: F) -> Result<()>
+async fn launch_tui_with_runner<F, Fut>(
+    db_path: &str,
+    dashboard_url: String,
+    tui_runner: F,
+) -> Result<()>
 where
     F: Fn(RookRegistry, String) -> Fut,
     Fut: std::future::Future<Output = Result<(), rook::domain::RookError>>,
@@ -272,6 +262,7 @@ where
     Ok(())
 }
 
+#[derive(Clone)]
 struct ServeOverrides {
     host: Option<String>,
     port: Option<u16>,
@@ -286,6 +277,72 @@ struct ServeOverrides {
     chat_rate_limit_max_requests: Option<u32>,
     chat_rate_limit_window_seconds: Option<u64>,
     chat_idempotency_replay_window_seconds: Option<u64>,
+}
+
+impl ServeOverrides {
+    fn into_cli_overlay(self) -> CliRookConfigOverlay {
+        CliRookConfigOverlay {
+            host: self.host,
+            port: self.port,
+            enable_tui: self.enable_tui.then_some(true),
+            db_path: self.db_path.map(Into::into),
+            inbound_auth: option_if(
+                self.inbound_auth_enabled || self.inbound_auth_token.is_some(),
+                PartialInboundAuthConfig {
+                    enabled: self.inbound_auth_enabled.then_some(true),
+                    bearer_token: self.inbound_auth_token,
+                },
+            ),
+            transport: None,
+            rate_limits: option_if(
+                self.api_rate_limit_max_requests.is_some()
+                    || self.api_rate_limit_window_seconds.is_some()
+                    || self.models_rate_limit_max_requests.is_some()
+                    || self.models_rate_limit_window_seconds.is_some()
+                    || self.chat_rate_limit_max_requests.is_some()
+                    || self.chat_rate_limit_window_seconds.is_some(),
+                PartialRateLimitConfig {
+                    api: option_if(
+                        self.api_rate_limit_max_requests.is_some()
+                            || self.api_rate_limit_window_seconds.is_some(),
+                        PartialSurfaceRateLimitPolicy {
+                            max_requests: self.api_rate_limit_max_requests,
+                            window_seconds: self.api_rate_limit_window_seconds,
+                        },
+                    ),
+                    v1_models: option_if(
+                        self.models_rate_limit_max_requests.is_some()
+                            || self.models_rate_limit_window_seconds.is_some(),
+                        PartialSurfaceRateLimitPolicy {
+                            max_requests: self.models_rate_limit_max_requests,
+                            window_seconds: self.models_rate_limit_window_seconds,
+                        },
+                    ),
+                    v1_chat_completions: option_if(
+                        self.chat_rate_limit_max_requests.is_some()
+                            || self.chat_rate_limit_window_seconds.is_some(),
+                        PartialSurfaceRateLimitPolicy {
+                            max_requests: self.chat_rate_limit_max_requests,
+                            window_seconds: self.chat_rate_limit_window_seconds,
+                        },
+                    ),
+                },
+            ),
+            idempotency: option_if(
+                self.chat_idempotency_replay_window_seconds.is_some(),
+                PartialIdempotencyConfig {
+                    chat_completions: Some(PartialChatCompletionsIdempotencyConfig {
+                        enabled: None,
+                        replay_window_seconds: self.chat_idempotency_replay_window_seconds,
+                    }),
+                },
+            ),
+        }
+    }
+}
+
+fn option_if<T>(condition: bool, value: T) -> Option<T> {
+    condition.then_some(value)
 }
 
 #[cfg(test)]
@@ -332,8 +389,12 @@ mod tests {
             ("ROOK_DB_PATH".to_string(), "/env/rook.db".to_string()),
         ]);
 
-        let config = build_export_config_from_path(Some(config_path.as_path()), &env)
-            .expect("effective config should assemble from path");
+        let config = build_export_config_from_path(
+            Some(config_path.as_path()),
+            &env,
+            CliRookConfigOverlay::default(),
+        )
+        .expect("effective config should assemble from path");
 
         assert_eq!(config.host, "0.0.0.0");
         assert_eq!(config.port, 7575);
@@ -431,6 +492,86 @@ mod tests {
     }
 
     #[test]
+    fn serve_and_config_export_share_effective_config_resolution() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let config_path = temp_dir.path().join("config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+            host = "1.1.1.1"
+            port = 6464
+            db_path = "/file/rook.db"
+
+            [inbound_auth]
+            enabled = true
+            bearer_token = "file-token"
+            "#,
+        )
+        .expect("config file should be written");
+
+        let env = std::collections::HashMap::from([
+            ("HOME".to_string(), temp_dir.path().display().to_string()),
+            ("ROOK_PORT".to_string(), "7474".to_string()),
+            ("ROOK_DB_PATH".to_string(), "/env/rook.db".to_string()),
+            (
+                "ROOK_INBOUND_AUTH_TOKEN".to_string(),
+                "env-token".to_string(),
+            ),
+        ]);
+        let rook_dir = temp_dir.path().join(".config").join("rook");
+        std::fs::create_dir_all(&rook_dir).expect("rook config dir should exist");
+        std::fs::copy(&config_path, rook_dir.join("config.toml"))
+            .expect("default config path should be populated");
+
+        let serve_overrides = ServeOverrides {
+            host: Some("3.3.3.3".to_string()),
+            port: Some(8484),
+            enable_tui: true,
+            db_path: Some("/cli/rook.db".to_string()),
+            inbound_auth_enabled: true,
+            inbound_auth_token: Some("cli-token".to_string()),
+            api_rate_limit_max_requests: None,
+            api_rate_limit_window_seconds: None,
+            models_rate_limit_max_requests: None,
+            models_rate_limit_window_seconds: None,
+            chat_rate_limit_max_requests: None,
+            chat_rate_limit_window_seconds: None,
+            chat_idempotency_replay_window_seconds: None,
+        };
+
+        let serve = build_serve_config(serve_overrides.clone(), Some(config_path.as_path()), &env)
+            .expect("serve config should resolve");
+
+        let export = build_export_config_from_path(
+            Some(config_path.as_path()),
+            &env,
+            serve_overrides.into_cli_overlay(),
+        )
+        .expect("export config should resolve");
+        let rendered = render_config_export(&export).expect("export should render");
+
+        assert_eq!(serve.host, export.host);
+        assert_eq!(serve.port, export.port);
+        assert_eq!(serve.db_path.as_deref(), Some("/cli/rook.db"));
+        assert_eq!(export.db_path, std::path::PathBuf::from("/cli/rook.db"));
+        assert_eq!(
+            serve.inbound_auth.bearer_token.as_deref(),
+            Some("cli-token")
+        );
+        assert_eq!(
+            export.inbound_auth.bearer_token.as_deref(),
+            Some("cli-token")
+        );
+
+        assert!(rendered.contains("\"host\": \"3.3.3.3\""));
+        assert!(rendered.contains("\"port\": 8484"));
+        assert!(rendered.contains("\"db_path\": \"/cli/rook.db\""));
+        assert!(rendered.contains("\"bearer_token\": \"[redacted]\""));
+        assert!(!rendered.contains("env-token"));
+        assert!(!rendered.contains("cli-token"));
+    }
+
+    #[test]
     fn build_serve_config_uses_cli_over_shared_config_inputs() {
         let env = std::collections::HashMap::from([("ROOK_PORT".to_string(), "7171".to_string())]);
 
@@ -459,11 +600,17 @@ mod tests {
         assert_eq!(config.port, 8181);
         assert!(config.enable_tui);
         assert_eq!(config.db_path.as_deref(), Some("/cli/rook.db"));
-        assert_eq!(config.inbound_auth.bearer_token.as_deref(), Some("cli-token"));
+        assert_eq!(
+            config.inbound_auth.bearer_token.as_deref(),
+            Some("cli-token")
+        );
         assert_eq!(config.rate_limits.api.max_requests, 88);
         assert_eq!(config.rate_limits.v1_models.max_requests, 99);
         assert_eq!(config.rate_limits.v1_chat_completions.max_requests, 77);
-        assert_eq!(config.idempotency.chat_completions.replay_window_seconds, 7200);
+        assert_eq!(
+            config.idempotency.chat_completions.replay_window_seconds,
+            7200
+        );
     }
 
     #[test]
@@ -590,10 +737,8 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_command_returns_error_on_invalid_effective_config() {
-        let env = std::collections::HashMap::from([(
-            "ROOK_PORT".to_string(),
-            "not-a-port".to_string(),
-        )]);
+        let env =
+            std::collections::HashMap::from([("ROOK_PORT".to_string(), "not-a-port".to_string())]);
 
         let result = run_cli_with_tui_runner_output_and_env(
             Cli {
@@ -686,10 +831,8 @@ mod tests {
 
     #[tokio::test]
     async fn config_export_command_returns_error_on_invalid_effective_config() {
-        let env = std::collections::HashMap::from([(
-            "ROOK_PORT".to_string(),
-            "not-a-port".to_string(),
-        )]);
+        let env =
+            std::collections::HashMap::from([("ROOK_PORT".to_string(), "not-a-port".to_string())]);
 
         let result = run_cli_with_tui_runner_output_and_env(
             Cli {
@@ -706,6 +849,36 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn build_serve_config_returns_error_on_invalid_effective_config() {
+        let env = std::collections::HashMap::from([(
+            "ROOK_INBOUND_AUTH_ENABLED".to_string(),
+            "true".to_string(),
+        )]);
+
+        let result = build_serve_config(
+            ServeOverrides {
+                host: None,
+                port: None,
+                enable_tui: false,
+                db_path: None,
+                inbound_auth_enabled: false,
+                inbound_auth_token: None,
+                api_rate_limit_max_requests: None,
+                api_rate_limit_window_seconds: None,
+                models_rate_limit_max_requests: None,
+                models_rate_limit_window_seconds: None,
+                chat_rate_limit_max_requests: None,
+                chat_rate_limit_window_seconds: None,
+                chat_idempotency_replay_window_seconds: None,
+            },
+            None,
+            &env,
+        );
+
+        assert!(result.is_err());
+    }
+
     #[tokio::test]
     async fn tui_command_launches_real_runner_with_effective_db_path() {
         let captured = Arc::new(Mutex::new(None::<String>));
@@ -718,10 +891,8 @@ mod tests {
             move |_registry, dashboard_url| {
                 let captured_for_runner = captured_for_runner.clone();
                 async move {
-                    *captured_for_runner.lock().unwrap() = Some(format!(
-                        "{}|{}",
-                        DEFAULT_ROOK_DB_PATH, dashboard_url
-                    ));
+                    *captured_for_runner.lock().unwrap() =
+                        Some(format!("{}|{}", DEFAULT_ROOK_DB_PATH, dashboard_url));
                     Ok(())
                 }
             },

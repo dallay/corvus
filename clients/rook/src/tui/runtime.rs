@@ -45,7 +45,10 @@ impl Drop for TerminalSession {
     }
 }
 
-pub async fn run_standalone(registry: RookRegistry, dashboard_url: String) -> Result<(), RookError> {
+pub async fn run_standalone(
+    registry: RookRegistry,
+    dashboard_url: String,
+) -> Result<(), RookError> {
     run_app(registry, dashboard_url, None).await
 }
 
@@ -79,7 +82,8 @@ async fn run_app(
             break;
         }
 
-        let maybe_event = poll_terminal_event(Duration::from_millis(100)).map_err(RookError::Config)?;
+        let maybe_event =
+            poll_terminal_event(Duration::from_millis(100)).map_err(RookError::Config)?;
         if let Some(event) = maybe_event {
             handle_runtime_event(&mut app, event, &query, &tx, &mut last_refresh);
         }

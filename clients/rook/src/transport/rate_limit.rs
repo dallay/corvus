@@ -132,8 +132,7 @@ pub async fn apply_rate_limit(
                 .inc(metrics_surface(state.surface), endpoint.clone());
             match state.surface {
                 RateLimitedSurface::AdminApi => admin_rate_limited_response(retry_after_seconds),
-                RateLimitedSurface::GatewayModels
-                | RateLimitedSurface::GatewayChatCompletions => {
+                RateLimitedSurface::GatewayModels | RateLimitedSurface::GatewayChatCompletions => {
                     gateway_rate_limited_response(retry_after_seconds)
                 }
             }

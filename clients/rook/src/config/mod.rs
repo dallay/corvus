@@ -22,12 +22,19 @@ use std::str::FromStr;
 
 pub fn discover_default_config_path(env_map: &HashMap<String, String>) -> Option<PathBuf> {
     if let Some(xdg_config_home) = env_map.get("XDG_CONFIG_HOME") {
-        return Some(PathBuf::from(xdg_config_home).join("rook").join("config.toml"));
+        return Some(
+            PathBuf::from(xdg_config_home)
+                .join("rook")
+                .join("config.toml"),
+        );
     }
 
-    env_map
-        .get("HOME")
-        .map(|home| PathBuf::from(home).join(".config").join("rook").join("config.toml"))
+    env_map.get("HOME").map(|home| {
+        PathBuf::from(home)
+            .join(".config")
+            .join("rook")
+            .join("config.toml")
+    })
 }
 
 pub fn discover_default_config_path_from_env() -> Option<PathBuf> {
@@ -64,84 +71,102 @@ impl Default for RookConfig {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct PartialRookConfig {
-    host: Option<String>,
-    port: Option<u16>,
-    enable_tui: Option<bool>,
-    db_path: Option<PathBuf>,
-    inbound_auth: Option<PartialInboundAuthConfig>,
-    transport: Option<PartialTransportConfig>,
-    rate_limits: Option<PartialRateLimitConfig>,
-    idempotency: Option<PartialIdempotencyConfig>,
+pub struct PartialRookConfig {
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub enable_tui: Option<bool>,
+    pub db_path: Option<PathBuf>,
+    pub inbound_auth: Option<PartialInboundAuthConfig>,
+    pub transport: Option<PartialTransportConfig>,
+    pub rate_limits: Option<PartialRateLimitConfig>,
+    pub idempotency: Option<PartialIdempotencyConfig>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct PartialInboundAuthConfig {
-    enabled: Option<bool>,
-    bearer_token: Option<String>,
+pub struct PartialInboundAuthConfig {
+    pub enabled: Option<bool>,
+    pub bearer_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct PartialTransportConfig {
-    request_id: Option<PartialRequestIdConfig>,
-    trusted_proxy: Option<PartialTrustedProxyConfig>,
+pub struct PartialTransportConfig {
+    pub request_id: Option<PartialRequestIdConfig>,
+    pub trusted_proxy: Option<PartialTrustedProxyConfig>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct PartialRequestIdConfig {
-    inbound_header_name: Option<String>,
-    response_header_name: Option<String>,
-    max_length: Option<usize>,
+pub struct PartialRequestIdConfig {
+    pub inbound_header_name: Option<String>,
+    pub response_header_name: Option<String>,
+    pub max_length: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct PartialTrustedProxyConfig {
-    enabled: Option<bool>,
-    trusted_cidrs: Option<Vec<String>>,
-    allowed_headers: Option<PartialTrustedForwardedHeaders>,
+pub struct PartialTrustedProxyConfig {
+    pub enabled: Option<bool>,
+    pub trusted_cidrs: Option<Vec<String>>,
+    pub allowed_headers: Option<PartialTrustedForwardedHeaders>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct PartialTrustedForwardedHeaders {
-    forwarded: Option<bool>,
-    x_forwarded_for: Option<bool>,
-    x_forwarded_host: Option<bool>,
-    x_forwarded_proto: Option<bool>,
-    x_forwarded_port: Option<bool>,
-    x_real_ip: Option<bool>,
+pub struct PartialTrustedForwardedHeaders {
+    pub forwarded: Option<bool>,
+    pub x_forwarded_for: Option<bool>,
+    pub x_forwarded_host: Option<bool>,
+    pub x_forwarded_proto: Option<bool>,
+    pub x_forwarded_port: Option<bool>,
+    pub x_real_ip: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct PartialRateLimitConfig {
-    api: Option<PartialSurfaceRateLimitPolicy>,
-    v1_models: Option<PartialSurfaceRateLimitPolicy>,
-    v1_chat_completions: Option<PartialSurfaceRateLimitPolicy>,
+pub struct PartialRateLimitConfig {
+    pub api: Option<PartialSurfaceRateLimitPolicy>,
+    pub v1_models: Option<PartialSurfaceRateLimitPolicy>,
+    pub v1_chat_completions: Option<PartialSurfaceRateLimitPolicy>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct PartialSurfaceRateLimitPolicy {
-    max_requests: Option<u32>,
-    window_seconds: Option<u64>,
+pub struct PartialSurfaceRateLimitPolicy {
+    pub max_requests: Option<u32>,
+    pub window_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct PartialIdempotencyConfig {
-    chat_completions: Option<PartialChatCompletionsIdempotencyConfig>,
+pub struct PartialIdempotencyConfig {
+    pub chat_completions: Option<PartialChatCompletionsIdempotencyConfig>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct PartialChatCompletionsIdempotencyConfig {
-    enabled: Option<bool>,
-    replay_window_seconds: Option<u64>,
+pub struct PartialChatCompletionsIdempotencyConfig {
+    pub enabled: Option<bool>,
+    pub replay_window_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CliRookConfigOverlay {
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub enable_tui: Option<bool>,
+    pub db_path: Option<PathBuf>,
+    pub inbound_auth: Option<PartialInboundAuthConfig>,
+    pub transport: Option<PartialTransportConfig>,
+    pub rate_limits: Option<PartialRateLimitConfig>,
+    pub idempotency: Option<PartialIdempotencyConfig>,
+}
+
+pub struct LoadRookConfigInput<'a> {
+    pub file_path: Option<&'a Path>,
+    pub env: &'a HashMap<String, String>,
+    pub cli: Option<CliRookConfigOverlay>,
 }
 
 impl RookConfig {
@@ -162,115 +187,23 @@ impl RookConfig {
             .map_err(|error| RookError::Config(format!("invalid rook config TOML: {error}")))?;
 
         let mut config = Self::default();
-
-        if let Some(host) = partial.host {
-            config.host = host;
-        }
-        if let Some(port) = partial.port {
-            config.port = port;
-        }
-        if let Some(enable_tui) = partial.enable_tui {
-            config.enable_tui = enable_tui;
-        }
-        if let Some(db_path) = partial.db_path {
-            config.db_path = db_path;
-        }
-        if let Some(inbound_auth) = partial.inbound_auth {
-            if let Some(enabled) = inbound_auth.enabled {
-                config.inbound_auth.enabled = enabled;
-            }
-            if let Some(bearer_token) = inbound_auth.bearer_token {
-                config.inbound_auth.bearer_token = Some(bearer_token);
-            }
-        }
-        if let Some(transport) = partial.transport {
-            if let Some(request_id) = transport.request_id {
-                if let Some(inbound_header_name) = request_id.inbound_header_name {
-                    config.transport.request_id.inbound_header_name = inbound_header_name;
-                }
-                if let Some(response_header_name) = request_id.response_header_name {
-                    config.transport.request_id.response_header_name = response_header_name;
-                }
-                if let Some(max_length) = request_id.max_length {
-                    config.transport.request_id.max_length = max_length;
-                }
-            }
-            if let Some(trusted_proxy) = transport.trusted_proxy {
-                if let Some(enabled) = trusted_proxy.enabled {
-                    config.transport.trusted_proxy.enabled = enabled;
-                }
-                if let Some(trusted_cidrs) = trusted_proxy.trusted_cidrs {
-                    config.transport.trusted_proxy.trusted_cidrs = trusted_cidrs;
-                }
-                if let Some(allowed_headers) = trusted_proxy.allowed_headers {
-                    if let Some(forwarded) = allowed_headers.forwarded {
-                        config.transport.trusted_proxy.allowed_headers.forwarded = forwarded;
-                    }
-                    if let Some(x_forwarded_for) = allowed_headers.x_forwarded_for {
-                        config.transport.trusted_proxy.allowed_headers.x_forwarded_for = x_forwarded_for;
-                    }
-                    if let Some(x_forwarded_host) = allowed_headers.x_forwarded_host {
-                        config.transport.trusted_proxy.allowed_headers.x_forwarded_host = x_forwarded_host;
-                    }
-                    if let Some(x_forwarded_proto) = allowed_headers.x_forwarded_proto {
-                        config.transport.trusted_proxy.allowed_headers.x_forwarded_proto = x_forwarded_proto;
-                    }
-                    if let Some(x_forwarded_port) = allowed_headers.x_forwarded_port {
-                        config.transport.trusted_proxy.allowed_headers.x_forwarded_port = x_forwarded_port;
-                    }
-                    if let Some(x_real_ip) = allowed_headers.x_real_ip {
-                        config.transport.trusted_proxy.allowed_headers.x_real_ip = x_real_ip;
-                    }
-                }
-            }
-        }
-        if let Some(rate_limits) = partial.rate_limits {
-            if let Some(api) = rate_limits.api {
-                if let Some(max_requests) = api.max_requests {
-                    config.rate_limits.api.max_requests = max_requests;
-                }
-                if let Some(window_seconds) = api.window_seconds {
-                    config.rate_limits.api.window_seconds = window_seconds;
-                }
-            }
-            if let Some(v1_models) = rate_limits.v1_models {
-                if let Some(max_requests) = v1_models.max_requests {
-                    config.rate_limits.v1_models.max_requests = max_requests;
-                }
-                if let Some(window_seconds) = v1_models.window_seconds {
-                    config.rate_limits.v1_models.window_seconds = window_seconds;
-                }
-            }
-            if let Some(v1_chat_completions) = rate_limits.v1_chat_completions {
-                if let Some(max_requests) = v1_chat_completions.max_requests {
-                    config.rate_limits.v1_chat_completions.max_requests = max_requests;
-                }
-                if let Some(window_seconds) = v1_chat_completions.window_seconds {
-                    config.rate_limits.v1_chat_completions.window_seconds = window_seconds;
-                }
-            }
-        }
-        if let Some(idempotency) = partial.idempotency {
-            if let Some(chat_completions) = idempotency.chat_completions {
-                if let Some(enabled) = chat_completions.enabled {
-                    config.idempotency.chat_completions.enabled = enabled;
-                }
-                if let Some(replay_window_seconds) = chat_completions.replay_window_seconds {
-                    config.idempotency.chat_completions.replay_window_seconds = replay_window_seconds;
-                }
-            }
-        }
-
+        partial.apply_to(&mut config);
         Ok(config)
     }
 
-    pub fn from_sources(file_toml: Option<&str>, env: &HashMap<String, String>) -> Result<Self, RookError> {
-        let mut config = match file_toml {
-            Some(file_toml) => Self::from_toml_str(file_toml)?,
-            None => Self::default(),
-        };
+    pub fn from_sources(
+        file_toml: Option<&str>,
+        env: &HashMap<String, String>,
+    ) -> Result<Self, RookError> {
+        let mut config = Self::default();
 
-        config.apply_env_overrides(env)?;
+        if let Some(file_toml) = file_toml {
+            let partial: PartialRookConfig = toml::from_str(file_toml)
+                .map_err(|error| RookError::Config(format!("invalid rook config TOML: {error}")))?;
+            partial.apply_to(&mut config);
+        }
+
+        parse_env_overlay(env)?.apply_to(&mut config);
         config.validate()?;
         Ok(config)
     }
@@ -279,154 +212,39 @@ impl RookConfig {
         file_path: Option<&Path>,
         env: &HashMap<String, String>,
     ) -> Result<Self, RookError> {
-        let config = Self::from_sources_with_path_unvalidated(file_path, env)?;
-        config.validate()?;
-        Ok(config)
+        load_effective_config(LoadRookConfigInput {
+            file_path,
+            env,
+            cli: None,
+        })
     }
 
     pub fn from_sources_with_path_unvalidated(
         file_path: Option<&Path>,
         env: &HashMap<String, String>,
     ) -> Result<Self, RookError> {
-        let mut config = Self::load_from_optional_file(file_path)?;
-        config.apply_env_overrides(env)?;
+        let mut config = Self::default();
+        load_file_overlay(file_path)?.apply_to(&mut config);
+        parse_env_overlay(env)?.apply_to(&mut config);
         Ok(config)
     }
 
     pub fn apply_env_overrides(&mut self, env: &HashMap<String, String>) -> Result<(), RookError> {
-        if let Some(host) = env.get("ROOK_HOST") {
-            self.host = host.clone();
-        }
-
-        if let Some(port) = override_from_env::<u16>(env, "ROOK_PORT")? {
-            self.port = port;
-        }
-
-        if let Some(enable_tui) = env.get("ROOK_ENABLE_TUI") {
-            self.enable_tui = parse_bool_env("ROOK_ENABLE_TUI", enable_tui)?;
-        }
-
-        if let Some(db_path) = env.get("ROOK_DB_PATH") {
-            self.db_path = PathBuf::from(db_path);
-        }
-
-        if let Some(enabled) = env.get("ROOK_INBOUND_AUTH_ENABLED") {
-            self.inbound_auth.enabled = parse_bool_env("ROOK_INBOUND_AUTH_ENABLED", enabled)?;
-        }
-
-        if let Some(token) = env.get("ROOK_INBOUND_AUTH_TOKEN") {
-            self.inbound_auth.bearer_token = Some(token.clone());
-        }
-
-        if let Some(inbound_header_name) = env.get("ROOK_TRANSPORT_REQUEST_ID_INBOUND_HEADER_NAME") {
-            self.transport.request_id.inbound_header_name = inbound_header_name.clone();
-        }
-
-        if let Some(response_header_name) = env.get("ROOK_TRANSPORT_REQUEST_ID_RESPONSE_HEADER_NAME") {
-            self.transport.request_id.response_header_name = response_header_name.clone();
-        }
-
-        if let Some(max_length) = override_from_env::<usize>(env, "ROOK_TRANSPORT_REQUEST_ID_MAX_LENGTH")? {
-            self.transport.request_id.max_length = max_length;
-        }
-
-        if let Some(enabled) = env.get("ROOK_TRANSPORT_TRUSTED_PROXY_ENABLED") {
-            self.transport.trusted_proxy.enabled =
-                parse_bool_env("ROOK_TRANSPORT_TRUSTED_PROXY_ENABLED", enabled)?;
-        }
-
-        if let Some(trusted_cidrs) = env.get("ROOK_TRANSPORT_TRUSTED_PROXY_TRUSTED_CIDRS") {
-            self.transport.trusted_proxy.trusted_cidrs = trusted_cidrs
-                .split(',')
-                .map(str::trim)
-                .filter(|cidr| !cidr.is_empty())
-                .map(ToOwned::to_owned)
-                .collect();
-        }
-
-        if let Some(forwarded) = env.get("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_FORWARDED") {
-            self.transport.trusted_proxy.allowed_headers.forwarded =
-                parse_bool_env("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_FORWARDED", forwarded)?;
-        }
-
-        if let Some(x_forwarded_for) = env.get("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_FOR") {
-            self.transport.trusted_proxy.allowed_headers.x_forwarded_for = parse_bool_env(
-                "ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_FOR",
-                x_forwarded_for,
-            )?;
-        }
-
-        if let Some(x_forwarded_host) = env.get("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_HOST") {
-            self.transport.trusted_proxy.allowed_headers.x_forwarded_host = parse_bool_env(
-                "ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_HOST",
-                x_forwarded_host,
-            )?;
-        }
-
-        if let Some(x_forwarded_proto) = env.get("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_PROTO") {
-            self.transport.trusted_proxy.allowed_headers.x_forwarded_proto = parse_bool_env(
-                "ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_PROTO",
-                x_forwarded_proto,
-            )?;
-        }
-
-        if let Some(x_forwarded_port) = env.get("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_PORT") {
-            self.transport.trusted_proxy.allowed_headers.x_forwarded_port = parse_bool_env(
-                "ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_PORT",
-                x_forwarded_port,
-            )?;
-        }
-
-        if let Some(x_real_ip) = env.get("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_REAL_IP") {
-            self.transport.trusted_proxy.allowed_headers.x_real_ip =
-                parse_bool_env("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_REAL_IP", x_real_ip)?;
-        }
-
-        if let Some(max_requests) = override_from_env::<u32>(env, "ROOK_API_RATE_LIMIT_MAX_REQUESTS")? {
-            self.rate_limits.api.max_requests = max_requests;
-        }
-
-        if let Some(window_seconds) = override_from_env::<u64>(env, "ROOK_API_RATE_LIMIT_WINDOW_SECONDS")? {
-            self.rate_limits.api.window_seconds = window_seconds;
-        }
-
-        if let Some(max_requests) = override_from_env::<u32>(env, "ROOK_V1_MODELS_RATE_LIMIT_MAX_REQUESTS")? {
-            self.rate_limits.v1_models.max_requests = max_requests;
-        }
-
-        if let Some(window_seconds) = override_from_env::<u64>(env, "ROOK_V1_MODELS_RATE_LIMIT_WINDOW_SECONDS")? {
-            self.rate_limits.v1_models.window_seconds = window_seconds;
-        }
-
-        if let Some(max_requests) = override_from_env::<u32>(env, "ROOK_V1_CHAT_RATE_LIMIT_MAX_REQUESTS")? {
-            self.rate_limits.v1_chat_completions.max_requests = max_requests;
-        }
-
-        if let Some(window_seconds) = override_from_env::<u64>(env, "ROOK_V1_CHAT_RATE_LIMIT_WINDOW_SECONDS")? {
-            self.rate_limits.v1_chat_completions.window_seconds = window_seconds;
-        }
-
-        if let Some(enabled) = env.get("ROOK_CHAT_IDEMPOTENCY_ENABLED") {
-            self.idempotency.chat_completions.enabled =
-                parse_bool_env("ROOK_CHAT_IDEMPOTENCY_ENABLED", enabled)?;
-        }
-
-        if let Some(replay_window_seconds) =
-            override_from_env::<u64>(env, "ROOK_CHAT_IDEMPOTENCY_REPLAY_WINDOW_SECONDS")?
-        {
-            self.idempotency.chat_completions.replay_window_seconds = replay_window_seconds;
-        }
-
+        parse_env_overlay(env)?.apply_to(self);
         Ok(())
     }
 
     pub fn validate(&self) -> Result<(), RookError> {
         if self.host.trim().is_empty() {
-            return Err(RookError::Config("server host must not be blank".to_string()));
+            return Err(RookError::Config(
+                "server host must not be blank".to_string(),
+            ));
         }
 
         if self.db_path.as_os_str().is_empty() {
-            return Err(RookError::Config("database path must not be blank".to_string()));
+            return Err(RookError::Config(
+                "database path must not be blank".to_string(),
+            ));
         }
 
         self.inbound_auth.validate()?;
@@ -447,6 +265,403 @@ impl RookConfig {
             rate_limits: self.rate_limits.clone(),
             idempotency: self.idempotency.clone(),
         }
+    }
+}
+
+impl PartialRookConfig {
+    fn apply_to(self, target: &mut RookConfig) {
+        if let Some(host) = self.host {
+            target.host = host;
+        }
+        if let Some(port) = self.port {
+            target.port = port;
+        }
+        if let Some(enable_tui) = self.enable_tui {
+            target.enable_tui = enable_tui;
+        }
+        if let Some(db_path) = self.db_path {
+            target.db_path = db_path;
+        }
+        if let Some(inbound_auth) = self.inbound_auth {
+            inbound_auth.apply_to(&mut target.inbound_auth);
+        }
+        if let Some(transport) = self.transport {
+            transport.apply_to(&mut target.transport);
+        }
+        if let Some(rate_limits) = self.rate_limits {
+            rate_limits.apply_to(&mut target.rate_limits);
+        }
+        if let Some(idempotency) = self.idempotency {
+            idempotency.apply_to(&mut target.idempotency);
+        }
+    }
+}
+
+impl PartialInboundAuthConfig {
+    fn apply_to(self, target: &mut InboundAuthConfig) {
+        if let Some(enabled) = self.enabled {
+            target.enabled = enabled;
+        }
+        if let Some(bearer_token) = self.bearer_token {
+            target.bearer_token = Some(bearer_token);
+        }
+    }
+}
+
+impl PartialTransportConfig {
+    fn apply_to(self, target: &mut TransportConfig) {
+        if let Some(request_id) = self.request_id {
+            request_id.apply_to(&mut target.request_id);
+        }
+        if let Some(trusted_proxy) = self.trusted_proxy {
+            trusted_proxy.apply_to(&mut target.trusted_proxy);
+        }
+    }
+}
+
+impl PartialRequestIdConfig {
+    fn apply_to(self, target: &mut RequestIdConfig) {
+        if let Some(inbound_header_name) = self.inbound_header_name {
+            target.inbound_header_name = inbound_header_name;
+        }
+        if let Some(response_header_name) = self.response_header_name {
+            target.response_header_name = response_header_name;
+        }
+        if let Some(max_length) = self.max_length {
+            target.max_length = max_length;
+        }
+    }
+}
+
+impl PartialTrustedProxyConfig {
+    fn apply_to(self, target: &mut TrustedProxyConfig) {
+        if let Some(enabled) = self.enabled {
+            target.enabled = enabled;
+        }
+        if let Some(trusted_cidrs) = self.trusted_cidrs {
+            target.trusted_cidrs = trusted_cidrs;
+        }
+        if let Some(allowed_headers) = self.allowed_headers {
+            allowed_headers.apply_to(&mut target.allowed_headers);
+        }
+    }
+}
+
+impl PartialTrustedForwardedHeaders {
+    fn apply_to(self, target: &mut TrustedForwardedHeaders) {
+        if let Some(forwarded) = self.forwarded {
+            target.forwarded = forwarded;
+        }
+        if let Some(x_forwarded_for) = self.x_forwarded_for {
+            target.x_forwarded_for = x_forwarded_for;
+        }
+        if let Some(x_forwarded_host) = self.x_forwarded_host {
+            target.x_forwarded_host = x_forwarded_host;
+        }
+        if let Some(x_forwarded_proto) = self.x_forwarded_proto {
+            target.x_forwarded_proto = x_forwarded_proto;
+        }
+        if let Some(x_forwarded_port) = self.x_forwarded_port {
+            target.x_forwarded_port = x_forwarded_port;
+        }
+        if let Some(x_real_ip) = self.x_real_ip {
+            target.x_real_ip = x_real_ip;
+        }
+    }
+}
+
+impl PartialRateLimitConfig {
+    fn apply_to(self, target: &mut RateLimitConfig) {
+        if let Some(api) = self.api {
+            api.apply_to(&mut target.api);
+        }
+        if let Some(v1_models) = self.v1_models {
+            v1_models.apply_to(&mut target.v1_models);
+        }
+        if let Some(v1_chat_completions) = self.v1_chat_completions {
+            v1_chat_completions.apply_to(&mut target.v1_chat_completions);
+        }
+    }
+}
+
+impl PartialSurfaceRateLimitPolicy {
+    fn apply_to(self, target: &mut SurfaceRateLimitPolicy) {
+        if let Some(max_requests) = self.max_requests {
+            target.max_requests = max_requests;
+        }
+        if let Some(window_seconds) = self.window_seconds {
+            target.window_seconds = window_seconds;
+        }
+    }
+}
+
+impl PartialIdempotencyConfig {
+    fn apply_to(self, target: &mut IdempotencyConfig) {
+        if let Some(chat_completions) = self.chat_completions {
+            chat_completions.apply_to(&mut target.chat_completions);
+        }
+    }
+}
+
+impl PartialChatCompletionsIdempotencyConfig {
+    fn apply_to(self, target: &mut ChatCompletionsIdempotencyConfig) {
+        if let Some(enabled) = self.enabled {
+            target.enabled = enabled;
+        }
+        if let Some(replay_window_seconds) = self.replay_window_seconds {
+            target.replay_window_seconds = replay_window_seconds;
+        }
+    }
+}
+
+impl CliRookConfigOverlay {
+    fn apply_to(self, target: &mut RookConfig) {
+        PartialRookConfig {
+            host: self.host,
+            port: self.port,
+            enable_tui: self.enable_tui,
+            db_path: self.db_path,
+            inbound_auth: self.inbound_auth,
+            transport: self.transport,
+            rate_limits: self.rate_limits,
+            idempotency: self.idempotency,
+        }
+        .apply_to(target);
+    }
+}
+
+fn load_file_overlay(file_path: Option<&Path>) -> Result<PartialRookConfig, RookError> {
+    match file_path {
+        Some(path) if path.exists() => {
+            let content = fs::read_to_string(path).map_err(RookError::Io)?;
+            toml::from_str(&content)
+                .map_err(|error| RookError::Config(format!("invalid rook config TOML: {error}")))
+        }
+        Some(_) | None => Ok(PartialRookConfig::default()),
+    }
+}
+
+fn parse_env_overlay(env: &HashMap<String, String>) -> Result<PartialRookConfig, RookError> {
+    Ok(PartialRookConfig {
+        host: env.get("ROOK_HOST").cloned(),
+        port: override_from_env::<u16>(env, "ROOK_PORT")?,
+        enable_tui: env
+            .get("ROOK_ENABLE_TUI")
+            .map(|value| parse_bool_env("ROOK_ENABLE_TUI", value))
+            .transpose()?,
+        db_path: env.get("ROOK_DB_PATH").map(PathBuf::from),
+        inbound_auth: partial_if_any(PartialInboundAuthConfig {
+            enabled: env
+                .get("ROOK_INBOUND_AUTH_ENABLED")
+                .map(|value| parse_bool_env("ROOK_INBOUND_AUTH_ENABLED", value))
+                .transpose()?,
+            bearer_token: env.get("ROOK_INBOUND_AUTH_TOKEN").cloned(),
+        }),
+        transport: partial_if_any(PartialTransportConfig {
+            request_id: partial_if_any(PartialRequestIdConfig {
+                inbound_header_name: env
+                    .get("ROOK_TRANSPORT_REQUEST_ID_INBOUND_HEADER_NAME")
+                    .cloned(),
+                response_header_name: env
+                    .get("ROOK_TRANSPORT_REQUEST_ID_RESPONSE_HEADER_NAME")
+                    .cloned(),
+                max_length: override_from_env::<usize>(
+                    env,
+                    "ROOK_TRANSPORT_REQUEST_ID_MAX_LENGTH",
+                )?,
+            }),
+            trusted_proxy: partial_if_any(PartialTrustedProxyConfig {
+                enabled: env
+                    .get("ROOK_TRANSPORT_TRUSTED_PROXY_ENABLED")
+                    .map(|value| parse_bool_env("ROOK_TRANSPORT_TRUSTED_PROXY_ENABLED", value))
+                    .transpose()?,
+                trusted_cidrs: env.get("ROOK_TRANSPORT_TRUSTED_PROXY_TRUSTED_CIDRS").map(
+                    |trusted_cidrs| {
+                        trusted_cidrs
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|cidr| !cidr.is_empty())
+                            .map(ToOwned::to_owned)
+                            .collect()
+                    },
+                ),
+                allowed_headers: partial_if_any(PartialTrustedForwardedHeaders {
+                    forwarded: env
+                        .get("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_FORWARDED")
+                        .map(|value| {
+                            parse_bool_env("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_FORWARDED", value)
+                        })
+                        .transpose()?,
+                    x_forwarded_for: env
+                        .get("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_FOR")
+                        .map(|value| {
+                            parse_bool_env(
+                                "ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_FOR",
+                                value,
+                            )
+                        })
+                        .transpose()?,
+                    x_forwarded_host: env
+                        .get("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_HOST")
+                        .map(|value| {
+                            parse_bool_env(
+                                "ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_HOST",
+                                value,
+                            )
+                        })
+                        .transpose()?,
+                    x_forwarded_proto: env
+                        .get("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_PROTO")
+                        .map(|value| {
+                            parse_bool_env(
+                                "ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_PROTO",
+                                value,
+                            )
+                        })
+                        .transpose()?,
+                    x_forwarded_port: env
+                        .get("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_PORT")
+                        .map(|value| {
+                            parse_bool_env(
+                                "ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_FORWARDED_PORT",
+                                value,
+                            )
+                        })
+                        .transpose()?,
+                    x_real_ip: env
+                        .get("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_REAL_IP")
+                        .map(|value| {
+                            parse_bool_env("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_REAL_IP", value)
+                        })
+                        .transpose()?,
+                }),
+            }),
+        }),
+        rate_limits: partial_if_any(PartialRateLimitConfig {
+            api: partial_if_any(PartialSurfaceRateLimitPolicy {
+                max_requests: override_from_env::<u32>(env, "ROOK_API_RATE_LIMIT_MAX_REQUESTS")?,
+                window_seconds: override_from_env::<u64>(
+                    env,
+                    "ROOK_API_RATE_LIMIT_WINDOW_SECONDS",
+                )?,
+            }),
+            v1_models: partial_if_any(PartialSurfaceRateLimitPolicy {
+                max_requests: override_from_env::<u32>(
+                    env,
+                    "ROOK_V1_MODELS_RATE_LIMIT_MAX_REQUESTS",
+                )?,
+                window_seconds: override_from_env::<u64>(
+                    env,
+                    "ROOK_V1_MODELS_RATE_LIMIT_WINDOW_SECONDS",
+                )?,
+            }),
+            v1_chat_completions: partial_if_any(PartialSurfaceRateLimitPolicy {
+                max_requests: override_from_env::<u32>(
+                    env,
+                    "ROOK_V1_CHAT_RATE_LIMIT_MAX_REQUESTS",
+                )?,
+                window_seconds: override_from_env::<u64>(
+                    env,
+                    "ROOK_V1_CHAT_RATE_LIMIT_WINDOW_SECONDS",
+                )?,
+            }),
+        }),
+        idempotency: partial_if_any(PartialIdempotencyConfig {
+            chat_completions: partial_if_any(PartialChatCompletionsIdempotencyConfig {
+                enabled: env
+                    .get("ROOK_CHAT_IDEMPOTENCY_ENABLED")
+                    .map(|value| parse_bool_env("ROOK_CHAT_IDEMPOTENCY_ENABLED", value))
+                    .transpose()?,
+                replay_window_seconds: override_from_env::<u64>(
+                    env,
+                    "ROOK_CHAT_IDEMPOTENCY_REPLAY_WINDOW_SECONDS",
+                )?,
+            }),
+        }),
+    })
+}
+
+pub fn load_effective_config(input: LoadRookConfigInput<'_>) -> Result<RookConfig, RookError> {
+    let mut config = RookConfig::default();
+    load_file_overlay(input.file_path)?.apply_to(&mut config);
+    parse_env_overlay(input.env)?.apply_to(&mut config);
+    if let Some(cli) = input.cli {
+        cli.apply_to(&mut config);
+    }
+    config.validate()?;
+    Ok(config)
+}
+
+trait PartialOverlay {
+    fn is_empty(&self) -> bool;
+}
+
+impl PartialOverlay for PartialInboundAuthConfig {
+    fn is_empty(&self) -> bool {
+        self.enabled.is_none() && self.bearer_token.is_none()
+    }
+}
+
+impl PartialOverlay for PartialRequestIdConfig {
+    fn is_empty(&self) -> bool {
+        self.inbound_header_name.is_none()
+            && self.response_header_name.is_none()
+            && self.max_length.is_none()
+    }
+}
+
+impl PartialOverlay for PartialTrustedForwardedHeaders {
+    fn is_empty(&self) -> bool {
+        self.forwarded.is_none()
+            && self.x_forwarded_for.is_none()
+            && self.x_forwarded_host.is_none()
+            && self.x_forwarded_proto.is_none()
+            && self.x_forwarded_port.is_none()
+            && self.x_real_ip.is_none()
+    }
+}
+
+impl PartialOverlay for PartialTrustedProxyConfig {
+    fn is_empty(&self) -> bool {
+        self.enabled.is_none() && self.trusted_cidrs.is_none() && self.allowed_headers.is_none()
+    }
+}
+
+impl PartialOverlay for PartialTransportConfig {
+    fn is_empty(&self) -> bool {
+        self.request_id.is_none() && self.trusted_proxy.is_none()
+    }
+}
+
+impl PartialOverlay for PartialSurfaceRateLimitPolicy {
+    fn is_empty(&self) -> bool {
+        self.max_requests.is_none() && self.window_seconds.is_none()
+    }
+}
+
+impl PartialOverlay for PartialRateLimitConfig {
+    fn is_empty(&self) -> bool {
+        self.api.is_none() && self.v1_models.is_none() && self.v1_chat_completions.is_none()
+    }
+}
+
+impl PartialOverlay for PartialChatCompletionsIdempotencyConfig {
+    fn is_empty(&self) -> bool {
+        self.enabled.is_none() && self.replay_window_seconds.is_none()
+    }
+}
+
+impl PartialOverlay for PartialIdempotencyConfig {
+    fn is_empty(&self) -> bool {
+        self.chat_completions.is_none()
+    }
+}
+
+fn partial_if_any<T: PartialOverlay>(partial: T) -> Option<T> {
+    if partial.is_empty() {
+        None
+    } else {
+        Some(partial)
     }
 }
 
@@ -562,7 +777,9 @@ impl RookConfigExportView {
             inbound_auth: InboundAuthExportView {
                 enabled: config.inbound_auth.enabled,
                 bearer_token: if config.inbound_auth.enabled {
-                    Some(redact_optional_secret(config.inbound_auth.bearer_token.as_deref()))
+                    Some(redact_optional_secret(
+                        config.inbound_auth.bearer_token.as_deref(),
+                    ))
                 } else {
                     None
                 },
@@ -873,15 +1090,176 @@ impl TransportConfig {
 #[cfg(test)]
 mod tests {
     use super::{
-        ChatCompletionsIdempotencyConfig, IdempotencyConfig, InboundAuthConfig,
-        InboundAuthOperatorState, RateLimitConfig, RequestIdConfig, SurfaceRateLimitPolicy,
-        TransportConfig, TrustedForwardedHeaders, TrustedProxyConfig,
+        load_effective_config, parse_env_overlay, ChatCompletionsIdempotencyConfig,
+        CliRookConfigOverlay, IdempotencyConfig, InboundAuthConfig, InboundAuthOperatorState,
+        LoadRookConfigInput, PartialChatCompletionsIdempotencyConfig, PartialIdempotencyConfig,
+        PartialInboundAuthConfig, PartialRateLimitConfig, PartialSurfaceRateLimitPolicy,
+        RateLimitConfig, RequestIdConfig, SurfaceRateLimitPolicy, TransportConfig,
+        TrustedForwardedHeaders, TrustedProxyConfig,
     };
     use serde_json::json;
 
     #[test]
     fn rook_config_default_will_exist_for_phase_1() {
         let _ = super::RookConfig::default();
+    }
+
+    #[test]
+    fn load_effective_config_applies_defaults_then_file_then_env_then_cli() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let config_path = temp_dir.path().join("rook.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+            host = "1.1.1.1"
+            port = 6464
+            db_path = "/file/rook.db"
+
+            [inbound_auth]
+            enabled = true
+            bearer_token = "file-token"
+
+            [rate_limits.api]
+            max_requests = 71
+            window_seconds = 41
+            "#,
+        )
+        .expect("config file should be written");
+
+        let env = std::collections::HashMap::from([
+            ("ROOK_HOST".to_string(), "2.2.2.2".to_string()),
+            ("ROOK_PORT".to_string(), "7474".to_string()),
+            ("ROOK_DB_PATH".to_string(), "/env/rook.db".to_string()),
+            (
+                "ROOK_INBOUND_AUTH_TOKEN".to_string(),
+                "env-token".to_string(),
+            ),
+            (
+                "ROOK_API_RATE_LIMIT_MAX_REQUESTS".to_string(),
+                "81".to_string(),
+            ),
+        ]);
+
+        let config = load_effective_config(LoadRookConfigInput {
+            file_path: Some(config_path.as_path()),
+            env: &env,
+            cli: Some(CliRookConfigOverlay {
+                host: Some("3.3.3.3".to_string()),
+                port: Some(8484),
+                enable_tui: Some(true),
+                db_path: Some(std::path::PathBuf::from("/cli/rook.db")),
+                inbound_auth: Some(PartialInboundAuthConfig {
+                    enabled: Some(true),
+                    bearer_token: Some("cli-token".to_string()),
+                }),
+                transport: None,
+                rate_limits: Some(PartialRateLimitConfig {
+                    api: Some(PartialSurfaceRateLimitPolicy {
+                        max_requests: Some(91),
+                        window_seconds: None,
+                    }),
+                    v1_models: None,
+                    v1_chat_completions: None,
+                }),
+                idempotency: Some(PartialIdempotencyConfig {
+                    chat_completions: Some(PartialChatCompletionsIdempotencyConfig {
+                        enabled: None,
+                        replay_window_seconds: Some(3600),
+                    }),
+                }),
+            }),
+        })
+        .expect("effective config should assemble");
+
+        assert_eq!(config.host, "3.3.3.3");
+        assert_eq!(config.port, 8484);
+        assert!(config.enable_tui);
+        assert_eq!(config.db_path, std::path::PathBuf::from("/cli/rook.db"));
+        assert_eq!(
+            config.inbound_auth.bearer_token.as_deref(),
+            Some("cli-token")
+        );
+        assert_eq!(config.rate_limits.api.max_requests, 91);
+        assert_eq!(config.rate_limits.api.window_seconds, 41);
+        assert_eq!(
+            config.idempotency.chat_completions.replay_window_seconds,
+            3600
+        );
+    }
+
+    #[test]
+    fn parse_env_overlay_maps_supported_rook_variables_and_ignores_unknown_ones() {
+        let env = std::collections::HashMap::from([
+            ("ROOK_ENABLE_TUI".to_string(), "yes".to_string()),
+            (
+                "ROOK_TRANSPORT_TRUSTED_PROXY_ENABLED".to_string(),
+                "true".to_string(),
+            ),
+            (
+                "ROOK_TRANSPORT_TRUSTED_PROXY_TRUSTED_CIDRS".to_string(),
+                "10.0.0.0/8, 192.168.0.0/16".to_string(),
+            ),
+            (
+                "ROOK_CHAT_IDEMPOTENCY_REPLAY_WINDOW_SECONDS".to_string(),
+                "1234".to_string(),
+            ),
+            ("ROOK_UNSUPPORTED".to_string(), "ignored".to_string()),
+        ]);
+
+        let overlay = parse_env_overlay(&env).expect("env overlay should parse");
+
+        assert_eq!(overlay.enable_tui, Some(true));
+        assert_eq!(
+            overlay
+                .transport
+                .as_ref()
+                .and_then(|transport| transport.trusted_proxy.as_ref())
+                .and_then(|proxy| proxy.enabled),
+            Some(true)
+        );
+        assert_eq!(
+            overlay
+                .transport
+                .as_ref()
+                .and_then(|transport| transport.trusted_proxy.as_ref())
+                .and_then(|proxy| proxy.trusted_cidrs.clone()),
+            Some(vec!["10.0.0.0/8".to_string(), "192.168.0.0/16".to_string()])
+        );
+        assert_eq!(
+            overlay
+                .idempotency
+                .as_ref()
+                .and_then(|idempotency| idempotency.chat_completions.as_ref())
+                .and_then(|chat| chat.replay_window_seconds),
+            Some(1234)
+        );
+    }
+
+    #[test]
+    fn rook_config_export_view_never_serializes_secret_like_literals() {
+        let output = serde_json::to_string(&super::RookConfigExportView::from_config(
+            &super::RookConfig {
+                inbound_auth: InboundAuthConfig {
+                    enabled: true,
+                    bearer_token: Some("super-secret-token".to_string()),
+                },
+                ..Default::default()
+            },
+        ))
+        .expect("export view should serialize");
+
+        for forbidden in [
+            "super-secret-token",
+            "sk-secret",
+            "Bearer secret-value",
+            "session_cookie=abc123",
+        ] {
+            assert!(
+                !output.contains(forbidden),
+                "export output leaked forbidden literal: {forbidden}"
+            );
+        }
+        assert!(output.contains("[redacted]"));
     }
 
     #[test]
@@ -895,7 +1273,10 @@ mod tests {
         });
 
         assert!(config.inbound_auth.enabled);
-        assert_eq!(config.inbound_auth.bearer_token.as_deref(), Some("[redacted]"));
+        assert_eq!(
+            config.inbound_auth.bearer_token.as_deref(),
+            Some("[redacted]")
+        );
     }
 
     #[test]
@@ -922,7 +1303,10 @@ mod tests {
             ..Default::default()
         });
 
-        assert_eq!(config.inbound_auth.bearer_token.as_deref(), Some("[not configured]"));
+        assert_eq!(
+            config.inbound_auth.bearer_token.as_deref(),
+            Some("[not configured]")
+        );
     }
 
     #[test]
@@ -970,7 +1354,10 @@ mod tests {
             ..Default::default()
         });
 
-        assert_eq!(config.transport.request_id.inbound_header_name, "x-correlation-id");
+        assert_eq!(
+            config.transport.request_id.inbound_header_name,
+            "x-correlation-id"
+        );
         assert_eq!(config.transport.request_id.max_length, 256);
         assert!(config.transport.trusted_proxy.enabled);
         assert_eq!(
@@ -1030,7 +1417,10 @@ mod tests {
         assert_eq!(config.host, "0.0.0.0");
         assert_eq!(config.port, 5151);
         assert!(config.enable_tui);
-        assert_eq!(config.db_path, std::path::PathBuf::from("/tmp/rook-test.db"));
+        assert_eq!(
+            config.db_path,
+            std::path::PathBuf::from("/tmp/rook-test.db")
+        );
     }
 
     #[test]
@@ -1043,7 +1433,9 @@ mod tests {
             ("ROOK_DB_PATH".to_string(), "/var/lib/rook.db".to_string()),
         ]);
 
-        config.apply_env_overrides(&env).expect("env overrides should apply");
+        config
+            .apply_env_overrides(&env)
+            .expect("env overrides should apply");
 
         assert_eq!(config.host, "0.0.0.0");
         assert_eq!(config.port, 5252);
@@ -1054,10 +1446,8 @@ mod tests {
     #[test]
     fn rook_config_apply_env_overrides_rejects_invalid_port() {
         let mut config = super::RookConfig::default();
-        let env = std::collections::HashMap::from([(
-            "ROOK_PORT".to_string(),
-            "not-a-port".to_string(),
-        )]);
+        let env =
+            std::collections::HashMap::from([("ROOK_PORT".to_string(), "not-a-port".to_string())]);
 
         let error = config
             .apply_env_overrides(&env)
@@ -1079,8 +1469,11 @@ mod tests {
 
         assert_eq!(server_config.host, "0.0.0.0");
         assert_eq!(server_config.port, 6262);
-        assert_eq!(server_config.enable_tui, true);
-        assert_eq!(server_config.db_path.as_deref(), Some("/tmp/rook-config.db"));
+        assert!(server_config.enable_tui);
+        assert_eq!(
+            server_config.db_path.as_deref(),
+            Some("/tmp/rook-config.db")
+        );
     }
 
     #[test]
@@ -1146,8 +1539,11 @@ mod tests {
         )
         .expect("toml config should parse nested fields");
 
-        assert_eq!(config.inbound_auth.enabled, true);
-        assert_eq!(config.inbound_auth.bearer_token.as_deref(), Some("file-token"));
+        assert!(config.inbound_auth.enabled);
+        assert_eq!(
+            config.inbound_auth.bearer_token.as_deref(),
+            Some("file-token")
+        );
         assert_eq!(config.rate_limits.api.max_requests, 71);
         assert_eq!(config.rate_limits.api.window_seconds, 41);
         assert_eq!(config.rate_limits.v1_models.max_requests, 72);
@@ -1159,17 +1555,29 @@ mod tests {
         let mut config = super::RookConfig::default();
         let env = std::collections::HashMap::from([
             ("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string()),
-            ("ROOK_INBOUND_AUTH_TOKEN".to_string(), "env-token".to_string()),
-            ("ROOK_API_RATE_LIMIT_MAX_REQUESTS".to_string(), "81".to_string()),
-            ("ROOK_API_RATE_LIMIT_WINDOW_SECONDS".to_string(), "51".to_string()),
+            (
+                "ROOK_INBOUND_AUTH_TOKEN".to_string(),
+                "env-token".to_string(),
+            ),
+            (
+                "ROOK_API_RATE_LIMIT_MAX_REQUESTS".to_string(),
+                "81".to_string(),
+            ),
+            (
+                "ROOK_API_RATE_LIMIT_WINDOW_SECONDS".to_string(),
+                "51".to_string(),
+            ),
         ]);
 
         config
             .apply_env_overrides(&env)
             .expect("env overrides should apply nested fields");
 
-        assert_eq!(config.inbound_auth.enabled, true);
-        assert_eq!(config.inbound_auth.bearer_token.as_deref(), Some("env-token"));
+        assert!(config.inbound_auth.enabled);
+        assert_eq!(
+            config.inbound_auth.bearer_token.as_deref(),
+            Some("env-token")
+        );
         assert_eq!(config.rate_limits.api.max_requests, 81);
         assert_eq!(config.rate_limits.api.window_seconds, 51);
     }
@@ -1191,8 +1599,11 @@ mod tests {
 
         assert_eq!(config.rate_limits.v1_chat_completions.max_requests, 91);
         assert_eq!(config.rate_limits.v1_chat_completions.window_seconds, 61);
-        assert_eq!(config.idempotency.chat_completions.enabled, false);
-        assert_eq!(config.idempotency.chat_completions.replay_window_seconds, 1234);
+        assert!(!config.idempotency.chat_completions.enabled);
+        assert_eq!(
+            config.idempotency.chat_completions.replay_window_seconds,
+            1234
+        );
     }
 
     #[test]
@@ -1233,8 +1644,11 @@ mod tests {
         assert_eq!(config.rate_limits.v1_models.window_seconds, 52);
         assert_eq!(config.rate_limits.v1_chat_completions.max_requests, 83);
         assert_eq!(config.rate_limits.v1_chat_completions.window_seconds, 53);
-        assert_eq!(config.idempotency.chat_completions.enabled, false);
-        assert_eq!(config.idempotency.chat_completions.replay_window_seconds, 4321);
+        assert!(!config.idempotency.chat_completions.enabled);
+        assert_eq!(
+            config.idempotency.chat_completions.replay_window_seconds,
+            4321
+        );
     }
 
     #[test]
@@ -1256,8 +1670,11 @@ mod tests {
             .expect("config should load from file path");
 
         assert_eq!(config.host, "0.0.0.0");
-        assert_eq!(config.inbound_auth.enabled, true);
-        assert_eq!(config.inbound_auth.bearer_token.as_deref(), Some("file-token"));
+        assert!(config.inbound_auth.enabled);
+        assert_eq!(
+            config.inbound_auth.bearer_token.as_deref(),
+            Some("file-token")
+        );
     }
 
     #[test]
@@ -1279,8 +1696,8 @@ mod tests {
             temp_dir.path().display().to_string(),
         )]);
 
-        let path = super::discover_default_config_path(&env)
-            .expect("default config path should resolve");
+        let path =
+            super::discover_default_config_path(&env).expect("default config path should resolve");
 
         assert_eq!(path, temp_dir.path().join("rook").join("config.toml"));
     }
@@ -1306,13 +1723,28 @@ mod tests {
         )
         .expect("toml transport config should parse");
 
-        assert_eq!(config.transport.request_id.inbound_header_name, "x-correlation-id");
-        assert_eq!(config.transport.request_id.response_header_name, "x-correlation-id");
+        assert_eq!(
+            config.transport.request_id.inbound_header_name,
+            "x-correlation-id"
+        );
+        assert_eq!(
+            config.transport.request_id.response_header_name,
+            "x-correlation-id"
+        );
         assert_eq!(config.transport.request_id.max_length, 64);
         assert!(config.transport.trusted_proxy.enabled);
-        assert_eq!(config.transport.trusted_proxy.trusted_cidrs, vec!["10.0.0.0/8"]);
+        assert_eq!(
+            config.transport.trusted_proxy.trusted_cidrs,
+            vec!["10.0.0.0/8"]
+        );
         assert!(config.transport.trusted_proxy.allowed_headers.forwarded);
-        assert!(config.transport.trusted_proxy.allowed_headers.x_forwarded_for);
+        assert!(
+            config
+                .transport
+                .trusted_proxy
+                .allowed_headers
+                .x_forwarded_for
+        );
         assert!(config.transport.trusted_proxy.allowed_headers.x_real_ip);
     }
 
@@ -1350,8 +1782,14 @@ mod tests {
             .apply_env_overrides(&env)
             .expect("transport env overrides should apply");
 
-        assert_eq!(config.transport.request_id.inbound_header_name, "x-correlation-id");
-        assert_eq!(config.transport.request_id.response_header_name, "x-correlation-id");
+        assert_eq!(
+            config.transport.request_id.inbound_header_name,
+            "x-correlation-id"
+        );
+        assert_eq!(
+            config.transport.request_id.response_header_name,
+            "x-correlation-id"
+        );
         assert_eq!(config.transport.request_id.max_length, 64);
         assert!(config.transport.trusted_proxy.enabled);
         assert_eq!(

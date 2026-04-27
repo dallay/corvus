@@ -19,7 +19,10 @@ use crate::registry::RookRegistry;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
-pub async fn run_standalone(registry: RookRegistry, dashboard_url: String) -> Result<(), RookError> {
+pub async fn run_standalone(
+    registry: RookRegistry,
+    dashboard_url: String,
+) -> Result<(), RookError> {
     runtime::run_standalone(registry, dashboard_url).await
 }
 

@@ -1,16 +1,20 @@
-use crate::admin::{types::{
-    AccountView, AddPoolMemberRequest, AdminErrorResponse, AuditEventView, CreateAccountRequest,
-    CreatePoolRequest, CreateRouteRequest, HealthAccountView, HealthSummaryView,
-    ListAuditEventsQuery, PoolView, RouteView, SettingsView, UpdateAccountRequest,
-    UpdatePoolRequest, UpdateRouteRequest, UpdateSettingsRequest, UsageStatusView,
-}, AdminState};
-use crate::health::{HealthResponse, ReadinessResponse};
+use crate::admin::{
+    types::{
+        AccountView, AddPoolMemberRequest, AdminErrorResponse, AuditEventView,
+        CreateAccountRequest, CreatePoolRequest, CreateRouteRequest, HealthAccountView,
+        HealthSummaryView, ListAuditEventsQuery, PoolView, RouteView, SettingsView,
+        UpdateAccountRequest, UpdatePoolRequest, UpdateRouteRequest, UpdateSettingsRequest,
+        UsageStatusView,
+    },
+    AdminState,
+};
 use crate::db::audit::{AdminAuditListQuery, StoredAdminAuditEvent};
 use crate::domain::{ProviderAccount, ProviderPool, RookError};
+use crate::health::{HealthResponse, ReadinessResponse};
 use crate::registry::RookRegistry;
 use crate::services::{
-    account::AccountService as _, audit::AuditService as _, health::HealthService as _, pool::PoolService as _,
-    route::RouteService as _, settings::SettingsService as _,
+    account::AccountService as _, audit::AuditService as _, health::HealthService as _,
+    pool::PoolService as _, route::RouteService as _, settings::SettingsService as _,
 };
 use axum::{
     extract::Json as ExtractJson,
@@ -23,7 +27,7 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use tracing::error;
 use uuid::Uuid;
 
@@ -228,9 +232,7 @@ pub async fn handle_ready_health(
     let readiness = startup.readiness();
     let status = match readiness.status {
         crate::health::HealthStatus::Fail => StatusCode::SERVICE_UNAVAILABLE,
-        crate::health::HealthStatus::Ok | crate::health::HealthStatus::Degraded => {
-            StatusCode::OK
-        }
+        crate::health::HealthStatus::Ok | crate::health::HealthStatus::Degraded => StatusCode::OK,
     };
 
     (status, Json(readiness))
@@ -721,9 +723,7 @@ pub async fn handle_list_account_health(
     Json(list_health_account_views(&registry).await)
 }
 
-pub async fn handle_health_summary(
-    State(state): State<AdminState>,
-) -> Json<HealthSummaryView> {
+pub async fn handle_health_summary(State(state): State<AdminState>) -> Json<HealthSummaryView> {
     let registry = state.registry;
     Json(build_health_summary_view(&registry).await)
 }
@@ -827,7 +827,10 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].action, "account_created");
         assert_eq!(events[0].resource_kind, "account");
-        assert_eq!(events[0].resource_id.as_deref(), Some(account_id.to_string().as_str()));
+        assert_eq!(
+            events[0].resource_id.as_deref(),
+            Some(account_id.to_string().as_str())
+        );
     }
 
     #[test]

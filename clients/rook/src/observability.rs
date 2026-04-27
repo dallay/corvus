@@ -186,11 +186,7 @@ pub struct UpstreamOutcomesHandle {
 }
 
 impl UpstreamOutcomesHandle {
-    pub fn inc(
-        &self,
-        vendor: impl Into<Cow<'static, str>>,
-        outcome: impl Into<Cow<'static, str>>,
-    ) {
+    pub fn inc(&self, vendor: impl Into<Cow<'static, str>>, outcome: impl Into<Cow<'static, str>>) {
         self.family
             .get_or_create(&UpstreamOutcomeLabels::new(vendor, outcome))
             .inc();
@@ -205,7 +201,11 @@ pub struct HttpRequestLabels {
 }
 
 impl HttpRequestLabels {
-    fn new(surface: impl Into<Cow<'static, str>>, endpoint: impl Into<Cow<'static, str>>, status_class: impl Into<Cow<'static, str>>) -> Self {
+    fn new(
+        surface: impl Into<Cow<'static, str>>,
+        endpoint: impl Into<Cow<'static, str>>,
+        status_class: impl Into<Cow<'static, str>>,
+    ) -> Self {
         Self {
             surface: surface.into(),
             endpoint: endpoint.into(),
@@ -295,28 +295,34 @@ mod tests {
     fn metric_handles_record_samples_into_registry_output() {
         let metrics = Observability::bootstrap();
 
-        metrics.http_requests_total().inc("admin_api", "/api/health", "2xx");
+        metrics
+            .http_requests_total()
+            .inc("admin_api", "/api/health", "2xx");
         metrics
             .rate_limit_rejections_total()
             .inc("admin_api", "/api/health");
         metrics
             .idempotency_outcomes_total()
             .inc("gateway_chat_completions", "replay");
-        metrics
-            .upstream_outcomes_total()
-            .inc("open_ai", "success");
-        metrics
-            .http_request_duration_seconds()
-            .observe("gateway_models", "/v1/models", "2xx", 0.125);
+        metrics.upstream_outcomes_total().inc("open_ai", "success");
+        metrics.http_request_duration_seconds().observe(
+            "gateway_models",
+            "/v1/models",
+            "2xx",
+            0.125,
+        );
 
         let rendered = metrics
             .render_prometheus()
             .expect("metrics should render in prometheus text format");
 
         assert!(rendered.contains("rook_http_requests_total{surface=\"admin_api\",endpoint=\"/api/health\",status_class=\"2xx\"} 1"));
-        assert!(rendered.contains("rook_rate_limit_rejections_total{surface=\"admin_api\",endpoint=\"/api/health\"} 1"));
+        assert!(rendered.contains(
+            "rook_rate_limit_rejections_total{surface=\"admin_api\",endpoint=\"/api/health\"} 1"
+        ));
         assert!(rendered.contains("rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"replay\"} 1"));
-        assert!(rendered.contains("rook_upstream_outcomes_total{vendor=\"open_ai\",outcome=\"success\"} 1"));
+        assert!(rendered
+            .contains("rook_upstream_outcomes_total{vendor=\"open_ai\",outcome=\"success\"} 1"));
         assert!(rendered.contains("rook_http_request_duration_seconds_sum{surface=\"gateway_models\",endpoint=\"/v1/models\",status_class=\"2xx\"} 0.125"));
         assert!(rendered.contains("rook_http_request_duration_seconds_count{surface=\"gateway_models\",endpoint=\"/v1/models\",status_class=\"2xx\"} 1"));
     }
