@@ -22,7 +22,7 @@ use crate::idempotency::types::{ChatIdempotencyScope, ReserveResult, StoredGatew
 use crate::services::idempotency::SharedIdempotencyService;
 use axum::Json;
 
-const IDEMPOTENCY_SURFACE: &str = "chat_completions";
+const IDEMPOTENCY_SURFACE: &str = "gateway_chat_completions";
 
 #[derive(Clone, Debug)]
 pub struct ChatIdempotencyMiddlewareState {

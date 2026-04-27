@@ -217,19 +217,20 @@ pub async fn handle_health() -> &'static str {
 }
 
 pub async fn handle_live_health(
-    State(state): State<AdminState>,
+    State(startup): State<std::sync::Arc<crate::health::StartupDependencyState>>,
 ) -> (StatusCode, Json<HealthResponse>) {
-    (StatusCode::OK, Json(state.startup.liveness()))
+    (StatusCode::OK, Json(startup.liveness()))
 }
 
 pub async fn handle_ready_health(
-    State(state): State<AdminState>,
+    State(startup): State<std::sync::Arc<crate::health::StartupDependencyState>>,
 ) -> (StatusCode, Json<ReadinessResponse>) {
-    let readiness = state.startup.readiness();
-    let status = if matches!(readiness.status, crate::health::HealthStatus::Ok) {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
+    let readiness = startup.readiness();
+    let status = match readiness.status {
+        crate::health::HealthStatus::Fail => StatusCode::SERVICE_UNAVAILABLE,
+        crate::health::HealthStatus::Ok | crate::health::HealthStatus::Degraded => {
+            StatusCode::OK
+        }
     };
 
     (status, Json(readiness))
@@ -253,7 +254,7 @@ pub async fn handle_get_metrics(State(state): State<AdminState>) -> Response {
         )
             .into_response(),
         Err(error) => {
-            tracing::error!(error = %error, "failed to render metrics");
+            error!(error = %error, "failed to render metrics");
             internal_error_response().into_response()
         }
     }

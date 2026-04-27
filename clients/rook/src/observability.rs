@@ -301,7 +301,7 @@ mod tests {
             .inc("admin_api", "/api/health");
         metrics
             .idempotency_outcomes_total()
-            .inc("chat_completions", "replay");
+            .inc("gateway_chat_completions", "replay");
         metrics
             .upstream_outcomes_total()
             .inc("open_ai", "success");
@@ -315,7 +315,7 @@ mod tests {
 
         assert!(rendered.contains("rook_http_requests_total{surface=\"admin_api\",endpoint=\"/api/health\",status_class=\"2xx\"} 1"));
         assert!(rendered.contains("rook_rate_limit_rejections_total{surface=\"admin_api\",endpoint=\"/api/health\"} 1"));
-        assert!(rendered.contains("rook_idempotency_outcomes_total{surface=\"chat_completions\",outcome=\"replay\"} 1"));
+        assert!(rendered.contains("rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"replay\"} 1"));
         assert!(rendered.contains("rook_upstream_outcomes_total{vendor=\"open_ai\",outcome=\"success\"} 1"));
         assert!(rendered.contains("rook_http_request_duration_seconds_sum{surface=\"gateway_models\",endpoint=\"/v1/models\",status_class=\"2xx\"} 0.125"));
         assert!(rendered.contains("rook_http_request_duration_seconds_count{surface=\"gateway_models\",endpoint=\"/v1/models\",status_class=\"2xx\"} 1"));

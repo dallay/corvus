@@ -4,7 +4,7 @@ pub mod types;
 use crate::health::StartupDependencyState;
 use crate::observability::Observability;
 use crate::registry::RookRegistry;
-use axum::{routing::get, Router};
+use axum::{extract::FromRef, routing::get, Router};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -14,17 +14,32 @@ pub struct AdminState {
     pub observability: Arc<Observability>,
 }
 
+impl FromRef<AdminState> for Arc<StartupDependencyState> {
+    fn from_ref(state: &AdminState) -> Self {
+        state.startup.clone()
+    }
+}
+
 pub fn build_router(state: AdminState) -> Router {
+    operational_router(state.clone()).merge(management_router(state))
+}
+
+pub fn operational_router(state: AdminState) -> Router {
     Router::new()
         .route("/health", get(handlers::handle_health))
         .route("/health/live", get(handlers::handle_live_health))
         .route("/health/ready", get(handlers::handle_ready_health))
+        .route("/metrics", get(handlers::handle_get_metrics))
+        .with_state(state)
+}
+
+pub fn management_router(state: AdminState) -> Router {
+    Router::new()
         .route(
             "/health/accounts",
             get(handlers::handle_list_account_health),
         )
         .route("/health/summary", get(handlers::handle_health_summary))
-        .route("/metrics", get(handlers::handle_get_metrics))
         .route("/usage", get(handlers::handle_get_usage))
         .route("/audit/events", get(handlers::handle_list_audit_events))
         .route(
@@ -266,6 +281,32 @@ mod tests {
         assert_eq!(json["status"], json!("fail"));
         assert_eq!(json["checks"]["database"]["ready"], json!(false));
         assert_eq!(json["checks"]["config"]["ready"], json!(true));
+    }
+
+    #[tokio::test]
+    async fn admin_router_ready_health_reports_ok_when_only_assets_are_missing() {
+        let registry = test_api_app().await;
+        let app = axum::Router::new().nest(
+            "/api",
+            build_router(test_admin_state_with_startup(
+                registry,
+                crate::health::StartupDependencyState {
+                    config_ready: true,
+                    database_ready: true,
+                    router_ready: true,
+                    assets_ready: false,
+                },
+            )),
+        );
+
+        let (status, json) = request_json(app, "/api/health/ready").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["status"], json!("degraded"));
+        assert_eq!(json["checks"]["assets"]["ready"], json!(false));
+        assert_eq!(
+            json["checks"]["assets"]["reason"],
+            json!("embedded dashboard assets are missing")
+        );
     }
 
     #[tokio::test]

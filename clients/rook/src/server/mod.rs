@@ -182,19 +182,27 @@ async fn build_app_with_registry_and_startup_state(
         service: idempotency_service,
         observability: observability.clone(),
     };
-    let admin_router = admin::build_router(admin::AdminState {
+    let admin_state = admin::AdminState {
         registry,
         startup: startup_state,
         observability,
-    })
+    };
+    let admin_router = admin::operational_router(admin_state.clone())
         .layer(middleware::from_fn_with_state(
             inbound_auth.clone(),
             admin_inbound_auth,
         ))
-        .layer(middleware::from_fn_with_state(
-            admin_rate_limit,
-            apply_rate_limit,
-        ))
+        .merge(
+            admin::management_router(admin_state)
+                .layer(middleware::from_fn_with_state(
+                    inbound_auth.clone(),
+                    admin_inbound_auth,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    admin_rate_limit,
+                    apply_rate_limit,
+                )),
+        )
         .layer(middleware::from_fn_with_state(
             admin_transport,
             apply_transport_baseline,
@@ -680,12 +688,12 @@ mod tests {
             .await
             .unwrap();
 
-        let (first_status, _) = request_text(app.clone(), "/api/health").await;
+        let (first_status, _) = request_text(app.clone(), "/api/accounts").await;
         assert_eq!(first_status, StatusCode::OK);
 
         let second_response = app
             .clone()
-            .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
+            .oneshot(Request::get("/api/accounts").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(second_response.status(), StatusCode::TOO_MANY_REQUESTS);
@@ -693,7 +701,34 @@ mod tests {
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
-        assert!(text.contains("rook_rate_limit_rejections_total{surface=\"admin_api\",endpoint=\"/api/health\"} 1"));
+        assert!(text.contains("rook_rate_limit_rejections_total{surface=\"admin_api\",endpoint=\"/api/accounts\"} 1"));
+    }
+
+    #[tokio::test]
+    async fn operational_admin_routes_bypass_admin_rate_limit() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let app = build_app_with_registry(limited_server_config(), registry)
+            .await
+            .unwrap();
+
+        let (first_accounts_status, _) = request_text(app.clone(), "/api/accounts").await;
+        assert_eq!(first_accounts_status, StatusCode::OK);
+
+        let exhausted_accounts = app
+            .clone()
+            .oneshot(Request::get("/api/accounts").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(exhausted_accounts.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        let (live_status, _) = request_json(app.clone(), "/api/health/live").await;
+        assert_eq!(live_status, StatusCode::OK);
+
+        let (ready_status, _) = request_json(app.clone(), "/api/health/ready").await;
+        assert_eq!(ready_status, StatusCode::OK);
+
+        let (metrics_status, _) = request_text(app, "/api/metrics").await;
+        assert_eq!(metrics_status, StatusCode::OK);
     }
 
     #[tokio::test]
@@ -769,6 +804,30 @@ mod tests {
         assert_eq!(ready_status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(ready_json["status"], json!("fail"));
         assert_eq!(ready_json["checks"]["database"]["ready"], json!(false));
+    }
+
+    #[tokio::test]
+    async fn ready_route_returns_ok_for_degraded_assets_state() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
+        let app = build_app_with_registry_and_startup_state(
+            ServerConfig::default(),
+            registry,
+            idempotency_service,
+            Arc::new(StartupDependencyState {
+                config_ready: true,
+                database_ready: true,
+                router_ready: true,
+                assets_ready: false,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let (ready_status, ready_json) = request_json(app, "/api/health/ready").await;
+        assert_eq!(ready_status, StatusCode::OK);
+        assert_eq!(ready_json["status"], json!("degraded"));
+        assert_eq!(ready_json["checks"]["assets"]["ready"], json!(false));
     }
 
     #[tokio::test]
@@ -1014,7 +1073,7 @@ mod tests {
         let (api_ok, _, _) = request_with_bearer(
             app.clone(),
             axum::http::Method::GET,
-            "/api/health",
+            "/api/accounts",
             None,
             None,
         )
@@ -1024,7 +1083,7 @@ mod tests {
         let (api_limited, api_headers, api_body) = request_with_bearer(
             app.clone(),
             axum::http::Method::GET,
-            "/api/health",
+            "/api/accounts",
             None,
             None,
         )
@@ -1527,10 +1586,10 @@ mod tests {
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
-        assert!(text.contains("rook_idempotency_outcomes_total{surface=\"chat_completions\",outcome=\"pass\"} 1"));
-        assert!(text.contains("rook_idempotency_outcomes_total{surface=\"chat_completions\",outcome=\"replay\"} 1"));
-        assert!(text.contains("rook_idempotency_outcomes_total{surface=\"chat_completions\",outcome=\"in_progress\"} 1"));
-        assert!(text.contains("rook_idempotency_outcomes_total{surface=\"chat_completions\",outcome=\"key_mismatch\"} 1"));
+        assert!(text.contains("rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"pass\"} 1"));
+        assert!(text.contains("rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"replay\"} 1"));
+        assert!(text.contains("rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"in_progress\"} 1"));
+        assert!(text.contains("rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"key_mismatch\"} 1"));
     }
 
     #[tokio::test]

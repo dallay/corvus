@@ -380,7 +380,7 @@ Route/endpoint labels can become too granular if emitted from arbitrary handler 
 **Mitigation**:
 
 - label by stable route surface and coarse endpoint class where possible
-- define metric families centrally in `observability/metrics.rs`
+- define metric families centrally in `observability.rs`
 - emit through middleware/helper wrappers only
 
 ### Risk: route additions accidentally change existing `/api/health` behavior
@@ -401,9 +401,6 @@ Affected modules:
 
 - `clients/rook/src/main.rs`
 - `clients/rook/src/config/mod.rs`
-- `clients/rook/src/config/file.rs`
-- `clients/rook/src/config/env.rs`
-- `clients/rook/src/config/export.rs`
 - `clients/rook/src/server/mod.rs`
 
 Approach:
@@ -435,9 +432,8 @@ runtime config, not an unrelated or larger schema.
 Affected modules:
 
 - `clients/rook/src/main.rs`
-- `clients/rook/src/doctor/mod.rs`
-- `clients/rook/src/doctor/checks.rs`
-- `clients/rook/src/config/*`
+- `clients/rook/src/doctor.rs`
+- `clients/rook/src/config/mod.rs`
 - `clients/rook/src/registry/*` via existing open helpers
 - dashboard asset module(s) already used by the router
 
@@ -464,7 +460,7 @@ Affected modules:
 - `clients/rook/src/server/mod.rs`
 - `clients/rook/src/admin/mod.rs`
 - `clients/rook/src/admin/handlers.rs`
-- `clients/rook/src/health/mod.rs`
+- `clients/rook/src/health.rs`
 - possibly `clients/rook/src/lib.rs` to export the new module
 
 Approach:
@@ -495,9 +491,8 @@ Affected modules:
 
 - `clients/rook/src/server/mod.rs`
 - `clients/rook/src/admin/mod.rs`
-- `clients/rook/src/admin/handlers.rs` or `observability/handlers.rs`
-- `clients/rook/src/observability/mod.rs`
-- `clients/rook/src/observability/metrics.rs`
+- `clients/rook/src/admin/handlers.rs`
+- `clients/rook/src/observability.rs`
 - existing middleware and gateway helper boundaries
 
 Approach:

@@ -15,7 +15,6 @@ pub mod settings;
 use crate::domain::RookError;
 use chrono::Utc;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
-use std::str::FromStr;
 #[cfg(unix)]
 use std::{fs, os::unix::fs::PermissionsExt};
 
@@ -59,7 +58,7 @@ impl SqliteDb {
     /// `path` should be an absolute file path or a path understood by SQLite
     /// (e.g., `"./rook.db"`).
     pub async fn open(path: &str) -> Result<Self, RookError> {
-        let pool = Self::connect(path, "rwc").await?;
+        let pool = Self::connect(path, false).await?;
 
         #[cfg(unix)]
         tighten_db_permissions(path)?;
@@ -70,14 +69,15 @@ impl SqliteDb {
 
     /// Open an existing SQLite database at `path` without applying migrations.
     pub async fn open_readonly(path: &str) -> Result<Self, RookError> {
-        let pool = Self::connect(path, "ro").await?;
+        let pool = Self::connect(path, true).await?;
         Ok(Self { pool })
     }
 
-    async fn connect(path: &str, mode: &str) -> Result<SqlitePool, RookError> {
-        let url = format!("sqlite:{path}?mode={mode}");
-        let options = SqliteConnectOptions::from_str(&url)
-            .map_err(|e| RookError::Registry(format!("failed to parse database URL {path}: {e}")))?
+    async fn connect(path: &str, readonly: bool) -> Result<SqlitePool, RookError> {
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .read_only(readonly)
+            .create_if_missing(!readonly)
             .foreign_keys(true);
 
         SqlitePool::connect_with(options)
@@ -91,9 +91,7 @@ impl SqliteDb {
     pub async fn open_in_memory() -> Result<Self, RookError> {
         // max_connections(1) ensures a single connection so the in-memory
         // database is not dropped between pool checkouts.
-        let options = SqliteConnectOptions::from_str("sqlite::memory:")
-            .map_err(|e| RookError::Registry(format!("failed to parse in-memory URL: {e}")))?
-            .foreign_keys(true);
+        let options = SqliteConnectOptions::new().in_memory(true).foreign_keys(true);
 
         let pool = sqlx::pool::PoolOptions::<sqlx::Sqlite>::new()
             .max_connections(1)

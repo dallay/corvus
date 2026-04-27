@@ -457,12 +457,63 @@ pub struct RookConfigExportView {
     pub enable_tui: bool,
     pub db_path: String,
     pub inbound_auth: InboundAuthExportView,
+    pub transport: TransportExportView,
+    pub rate_limits: RateLimitExportView,
+    pub idempotency: IdempotencyExportView,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct InboundAuthExportView {
     pub enabled: bool,
     pub bearer_token: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TransportExportView {
+    pub request_id: RequestIdExportView,
+    pub trusted_proxy: TrustedProxyExportView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RequestIdExportView {
+    pub inbound_header_name: String,
+    pub response_header_name: String,
+    pub max_length: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TrustedProxyExportView {
+    pub enabled: bool,
+    pub trusted_cidrs: Vec<String>,
+    pub allowed_headers: TrustedForwardedHeadersExportView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TrustedForwardedHeadersExportView {
+    pub forwarded: bool,
+    pub x_forwarded_for: bool,
+    pub x_forwarded_host: bool,
+    pub x_forwarded_proto: bool,
+    pub x_forwarded_port: bool,
+    pub x_real_ip: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RateLimitExportView {
+    pub api: SurfaceRateLimitPolicy,
+    pub v1_models: SurfaceRateLimitPolicy,
+    pub v1_chat_completions: SurfaceRateLimitPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IdempotencyExportView {
+    pub chat_completions: ChatCompletionsIdempotencyExportView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChatCompletionsIdempotencyExportView {
+    pub enabled: bool,
+    pub replay_window_seconds: u64,
 }
 
 fn parse_numeric_env<T: FromStr>(name: &str, value: &str) -> Result<T, RookError>
@@ -494,6 +545,13 @@ fn parse_bool_env(name: &str, value: &str) -> Result<bool, RookError> {
     }
 }
 
+fn redact_optional_secret(secret: Option<&str>) -> String {
+    match secret {
+        Some(value) if !value.trim().is_empty() => "[redacted]".to_string(),
+        _ => "[not configured]".to_string(),
+    }
+}
+
 impl RookConfigExportView {
     pub fn from_config(config: &RookConfig) -> Self {
         Self {
@@ -504,12 +562,58 @@ impl RookConfigExportView {
             inbound_auth: InboundAuthExportView {
                 enabled: config.inbound_auth.enabled,
                 bearer_token: if config.inbound_auth.enabled {
-                    Some(match config.inbound_auth.bearer_token.as_deref() {
-                        Some(token) if !token.trim().is_empty() => "[redacted]".to_string(),
-                        _ => "[not configured]".to_string(),
-                    })
+                    Some(redact_optional_secret(config.inbound_auth.bearer_token.as_deref()))
                 } else {
                     None
+                },
+            },
+            transport: TransportExportView {
+                request_id: RequestIdExportView {
+                    inbound_header_name: config.transport.request_id.inbound_header_name.clone(),
+                    response_header_name: config.transport.request_id.response_header_name.clone(),
+                    max_length: config.transport.request_id.max_length,
+                },
+                trusted_proxy: TrustedProxyExportView {
+                    enabled: config.transport.trusted_proxy.enabled,
+                    trusted_cidrs: config.transport.trusted_proxy.trusted_cidrs.clone(),
+                    allowed_headers: TrustedForwardedHeadersExportView {
+                        forwarded: config.transport.trusted_proxy.allowed_headers.forwarded,
+                        x_forwarded_for: config
+                            .transport
+                            .trusted_proxy
+                            .allowed_headers
+                            .x_forwarded_for,
+                        x_forwarded_host: config
+                            .transport
+                            .trusted_proxy
+                            .allowed_headers
+                            .x_forwarded_host,
+                        x_forwarded_proto: config
+                            .transport
+                            .trusted_proxy
+                            .allowed_headers
+                            .x_forwarded_proto,
+                        x_forwarded_port: config
+                            .transport
+                            .trusted_proxy
+                            .allowed_headers
+                            .x_forwarded_port,
+                        x_real_ip: config.transport.trusted_proxy.allowed_headers.x_real_ip,
+                    },
+                },
+            },
+            rate_limits: RateLimitExportView {
+                api: config.rate_limits.api.clone(),
+                v1_models: config.rate_limits.v1_models.clone(),
+                v1_chat_completions: config.rate_limits.v1_chat_completions.clone(),
+            },
+            idempotency: IdempotencyExportView {
+                chat_completions: ChatCompletionsIdempotencyExportView {
+                    enabled: config.idempotency.chat_completions.enabled,
+                    replay_window_seconds: config
+                        .idempotency
+                        .chat_completions
+                        .replay_window_seconds,
                 },
             },
         }
@@ -819,6 +923,69 @@ mod tests {
         });
 
         assert_eq!(config.inbound_auth.bearer_token.as_deref(), Some("[not configured]"));
+    }
+
+    #[test]
+    fn rook_config_export_view_includes_transport_rate_limits_and_idempotency() {
+        let config = super::RookConfigExportView::from_config(&super::RookConfig {
+            transport: TransportConfig {
+                request_id: RequestIdConfig {
+                    inbound_header_name: "x-correlation-id".to_string(),
+                    response_header_name: "x-correlation-id".to_string(),
+                    max_length: 256,
+                },
+                trusted_proxy: TrustedProxyConfig {
+                    enabled: true,
+                    trusted_cidrs: vec!["10.0.0.0/8".to_string()],
+                    allowed_headers: TrustedForwardedHeaders {
+                        forwarded: true,
+                        x_forwarded_for: true,
+                        x_forwarded_host: false,
+                        x_forwarded_proto: true,
+                        x_forwarded_port: false,
+                        x_real_ip: true,
+                    },
+                },
+            },
+            rate_limits: RateLimitConfig {
+                api: SurfaceRateLimitPolicy {
+                    max_requests: 10,
+                    window_seconds: 30,
+                },
+                v1_models: SurfaceRateLimitPolicy {
+                    max_requests: 20,
+                    window_seconds: 40,
+                },
+                v1_chat_completions: SurfaceRateLimitPolicy {
+                    max_requests: 5,
+                    window_seconds: 50,
+                },
+            },
+            idempotency: IdempotencyConfig {
+                chat_completions: ChatCompletionsIdempotencyConfig {
+                    enabled: true,
+                    replay_window_seconds: 7200,
+                },
+            },
+            ..Default::default()
+        });
+
+        assert_eq!(config.transport.request_id.inbound_header_name, "x-correlation-id");
+        assert_eq!(config.transport.request_id.max_length, 256);
+        assert!(config.transport.trusted_proxy.enabled);
+        assert_eq!(
+            config.transport.trusted_proxy.trusted_cidrs,
+            vec!["10.0.0.0/8".to_string()]
+        );
+        assert!(config.transport.trusted_proxy.allowed_headers.forwarded);
+        assert_eq!(config.rate_limits.api.max_requests, 10);
+        assert_eq!(config.rate_limits.v1_models.window_seconds, 40);
+        assert_eq!(config.rate_limits.v1_chat_completions.max_requests, 5);
+        assert!(config.idempotency.chat_completions.enabled);
+        assert_eq!(
+            config.idempotency.chat_completions.replay_window_seconds,
+            7200
+        );
     }
 
     #[test]
