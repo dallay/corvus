@@ -6,6 +6,18 @@ import java.math.BigDecimal
 object JsonParser {
   const val MAX_DEPTH = 512
 
+  private const val ROOT_ERROR_OFFSET = 0
+  private const val INITIAL_LINE = 1
+  private const val INITIAL_COLUMN = 1
+  private const val UNESCAPED_CONTROL_CHAR_THRESHOLD = 0x20
+  private const val UNICODE_ESCAPE_LENGTH = 4
+  private const val HIGH_SURROGATE_MIN = 0xD800
+  private const val HIGH_SURROGATE_MAX = 0xDBFF
+  private const val LOW_SURROGATE_MIN = 0xDC00
+  private const val LOW_SURROGATE_MAX = 0xDFFF
+  private const val CODE_POINT_OFFSET = 0x10000
+  private const val SURROGATE_MULTIPLIER = 0x400
+
   enum class NumberMode {
     PERFORMANCE,
     PRECISE,
@@ -17,7 +29,12 @@ object JsonParser {
   fun parseMap(jsonString: String): Map<String, Any?> {
     val result = parse(jsonString)
     if (result !is Map<*, *>) {
-      throw JsonException("Root value is not a JSON object", 0, 1, 1)
+      throw JsonException(
+        "Root value is not a JSON object",
+        ROOT_ERROR_OFFSET,
+        INITIAL_LINE,
+        INITIAL_COLUMN,
+      )
     }
     return result as Map<String, Any?>
   }
@@ -26,7 +43,12 @@ object JsonParser {
   fun parseList(jsonString: String): List<Any?> {
     val result = parse(jsonString)
     if (result !is List<*>) {
-      throw JsonException("Root value is not a JSON array", 0, 1, 1)
+      throw JsonException(
+        "Root value is not a JSON array",
+        ROOT_ERROR_OFFSET,
+        INITIAL_LINE,
+        INITIAL_COLUMN,
+      )
     }
     return result
   }
@@ -97,7 +119,9 @@ object JsonParser {
           '"' -> return sb.toString()
           '\\' -> handleEscapeSequence(sb)
           else -> {
-            if (c.code < 0x20) fail("Unescaped control character: 0x${c.code.toString(16)}")
+            if (c.code < UNESCAPED_CONTROL_CHAR_THRESHOLD) {
+              fail("Unescaped control character: 0x${c.code.toString(16)}")
+            }
             sb.append(c)
           }
         }
@@ -124,29 +148,36 @@ object JsonParser {
     }
 
     private fun parseUnicodeEscape(sb: StringBuilder) {
-      if (index + 4 > length) fail("Incomplete unicode escape")
-      val hex = String(chars, index, 4)
-      index += 4
-      col += 4
+      if (index + UNICODE_ESCAPE_LENGTH > length) fail("Incomplete unicode escape")
+      val hex = String(chars, index, UNICODE_ESCAPE_LENGTH)
+      index += UNICODE_ESCAPE_LENGTH
+      col += UNICODE_ESCAPE_LENGTH
       try {
         when (val codePoint = hex.toInt(16)) {
-          in 0xD800..0xDBFF -> {
-            if (index + 6 > length || chars[index] != '\\' || chars[index + 1] != 'u') {
+          in HIGH_SURROGATE_MIN..HIGH_SURROGATE_MAX -> {
+            if (
+              index + (UNICODE_ESCAPE_LENGTH + 2) > length ||
+                chars[index] != '\\' ||
+                chars[index + 1] != 'u'
+            ) {
               fail("Missing low surrogate")
             }
             index += 2
             col += 2
-            val lowHex = String(chars, index, 4)
+            val lowHex = String(chars, index, UNICODE_ESCAPE_LENGTH)
             val lowCode = lowHex.toInt(16)
-            if (lowCode !in 0xDC00..0xDFFF) {
+            if (lowCode !in LOW_SURROGATE_MIN..LOW_SURROGATE_MAX) {
               fail("Invalid low surrogate: \\u$lowHex")
             }
-            index += 4
-            col += 4
-            val fullCode = 0x10000 + (codePoint - 0xD800) * 0x400 + (lowCode - 0xDC00)
+            index += UNICODE_ESCAPE_LENGTH
+            col += UNICODE_ESCAPE_LENGTH
+            val fullCode =
+              CODE_POINT_OFFSET +
+                (codePoint - HIGH_SURROGATE_MIN) * SURROGATE_MULTIPLIER +
+                (lowCode - LOW_SURROGATE_MIN)
             sb.append(Character.toChars(fullCode))
           }
-          in 0xDC00..0xDFFF -> {
+          in LOW_SURROGATE_MIN..LOW_SURROGATE_MAX -> {
             fail("Unexpected low surrogate without preceding high surrogate")
           }
           else -> {

@@ -1617,9 +1617,33 @@ pub struct RuntimeConfig {
     #[serde(default = "default_runtime_kind")]
     pub kind: String,
 
+    /// Dream trigger thresholds for long-term memory consolidation.
+    #[serde(default)]
+    pub dream: DreamTriggerConfig,
+
     /// Docker runtime settings (used when `kind = "docker"`).
     #[serde(default)]
     pub docker: DockerRuntimeConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DreamTriggerConfig {
+    #[serde(default = "default_dream_session_count")]
+    pub session_count: usize,
+    #[serde(default = "default_dream_time_hours")]
+    pub time_hours: i64,
+}
+
+impl DreamTriggerConfig {
+    pub fn validate(&self) -> Result<()> {
+        if self.session_count == 0 {
+            anyhow::bail!("runtime.dream.session_count must be greater than zero");
+        }
+        if self.time_hours <= 0 {
+            anyhow::bail!("runtime.dream.time_hours must be greater than zero");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1657,6 +1681,14 @@ fn default_runtime_kind() -> String {
     "native".into()
 }
 
+fn default_dream_session_count() -> usize {
+    5
+}
+
+fn default_dream_time_hours() -> i64 {
+    24
+}
+
 fn default_docker_image() -> String {
     "alpine:3.20".into()
 }
@@ -1687,10 +1719,20 @@ impl Default for DockerRuntimeConfig {
     }
 }
 
+impl Default for DreamTriggerConfig {
+    fn default() -> Self {
+        Self {
+            session_count: default_dream_session_count(),
+            time_hours: default_dream_time_hours(),
+        }
+    }
+}
+
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             kind: default_runtime_kind(),
+            dream: DreamTriggerConfig::default(),
             docker: DockerRuntimeConfig::default(),
         }
     }
@@ -3191,7 +3233,8 @@ impl Config {
         self.validate_account_pools()?;
         self.validate_skills_config()?;
         self.validate_multimodal_config()?;
-        self.validate_audio_config()
+        self.validate_audio_config()?;
+        self.runtime.dream.validate()
     }
 
     fn validate_cost_config(&self) -> Result<()> {
@@ -4386,6 +4429,28 @@ tool_dispatcher = "xml"
         assert!(err
             .to_string()
             .contains("agents.child.timeout_ms must be greater than zero"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_dream_session_count_zero() {
+        let mut config = Config::default();
+        config.runtime.dream.session_count = 0;
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("runtime.dream.session_count must be greater than zero"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_dream_time_hours_non_positive() {
+        let mut config = Config::default();
+        config.runtime.dream.time_hours = 0;
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("runtime.dream.time_hours must be greater than zero"));
     }
 
     #[test]

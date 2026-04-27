@@ -13,7 +13,7 @@
 use super::traits::{Tool, ToolResult};
 use crate::agent::coordinator::{
     ChildAgentId, ChildLaunchRequest, CoordinatorChildRunner, CoordinatorLaunchRequest,
-    FanInPolicy, SupervisedOrchestrationService,
+    CoordinatorTransport, FanInPolicy, SupervisedOrchestrationService,
 };
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -50,6 +50,20 @@ impl DelegateLaunchTool {
             output: String::new(),
             error: Some(msg.into()),
             structured: None,
+        }
+    }
+
+    fn structured_validation_error(code: impl Into<String>, msg: impl Into<String>) -> ToolResult {
+        let error = msg.into();
+        ToolResult {
+            success: false,
+            output: String::new(),
+            error: Some(error.clone()),
+            structured: Some(serde_json::json!({
+                "error_code": code.into(),
+                "message": error,
+                "retryable": false
+            })),
         }
     }
 }
@@ -209,6 +223,15 @@ impl Tool for DelegateLaunchTool {
                 .map(serde_json::from_value::<crate::agent::coordinator::ChildExecutionSpec>)
                 .transpose()
                 .map_err(|error| anyhow::anyhow!("invalid execution metadata: {error}"))?;
+
+            if execution.as_ref().and_then(|spec| spec.transport.clone())
+                == Some(CoordinatorTransport::RemoteBridge)
+            {
+                return Ok(Self::structured_validation_error(
+                    "remote_bridge_deferred",
+                    "Requested child execution transport 'remote_bridge' is deferred and not available in the local orchestration slice",
+                ));
+            }
 
             child_requests.push(ChildLaunchRequest {
                 child_id: ChildAgentId(child_id),
@@ -373,6 +396,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn launch_rejects_remote_bridge_with_stable_reason_code() {
+        let result = tool()
+            .execute(serde_json::json!({
+                "children": [
+                    {
+                        "child_id": "a",
+                        "agent_name": "AgentA",
+                        "prompt": "p",
+                        "execution": {
+                            "transport": "remote_bridge"
+                        }
+                    }
+                ]
+            }))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        let structured = result
+            .structured
+            .expect("expected structured validation error");
+        assert_eq!(structured["error_code"], "remote_bridge_deferred");
+    }
+
+    #[tokio::test]
     async fn mailbox_backed_launch_keeps_handle_and_snapshot_contract() {
         let tmp = TempDir::new().unwrap();
         let service = Arc::new(SupervisedOrchestrationService::new());
@@ -518,7 +565,7 @@ mod tests {
             .error
             .as_deref()
             .unwrap_or("")
-            .contains("unsupported transport request"));
+            .contains("remote_bridge"));
     }
 
     #[tokio::test]

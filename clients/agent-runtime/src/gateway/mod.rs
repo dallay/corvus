@@ -33,7 +33,6 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use hmac::KeyInit;
 use parking_lot::Mutex;
 use regex::Regex;
 use std::collections::hash_map::DefaultHasher;
@@ -1701,8 +1700,12 @@ async fn finalize_generated_session_if_needed(
     }
 
     let workspace_dir = state.config.lock().workspace_dir.clone();
-    if let Err(error) = crate::memory::record_session_completion(&workspace_dir) {
-        tracing::debug!("dream session counter update failed: {error}");
+    if let Err(error) = crate::memory::record_session_completion(&workspace_dir, session_id) {
+        tracing::debug!(
+            session_id = session_id,
+            ?error,
+            "dream session completion recording failed"
+        );
         return;
     }
     if let Err(error) = crate::memory::run_dream_if_triggered(&workspace_dir) {
@@ -3126,7 +3129,7 @@ async fn handle_whatsapp_verify(
 /// Returns true if the signature is valid, false otherwise.
 /// See: <https://developers.facebook.com/docs/graph-api/webhooks/getting-started#verification-requests>
 pub fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature_header: &str) -> bool {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
 
     // Signature format: "sha256=<hex_signature>"
@@ -3622,6 +3625,11 @@ mod tests {
         (output, layer.snapshot())
     }
 
+    async fn end_session_for_test(mem: &Arc<dyn crate::memory::Memory>, session_id: &str) {
+        mem.upsert_session(session_id, None).await.unwrap();
+        mem.end_session(session_id).await.unwrap();
+    }
+
     #[test]
     fn security_body_limit_is_64kb() {
         assert_eq!(MAX_BODY_SIZE, 65_536);
@@ -3700,6 +3708,122 @@ mod tests {
     fn app_state_is_clone() {
         fn assert_clone<T: Clone>() {}
         assert_clone::<AppState>();
+    }
+
+    #[tokio::test]
+    async fn generated_session_completion_records_before_dream_evaluation() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let workspace = tmp.path().to_path_buf();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(&workspace).unwrap());
+        end_session_for_test(
+            &(mem.clone() as Arc<dyn crate::memory::Memory>),
+            "sess-generated",
+        )
+        .await;
+
+        let mut config = Config::default();
+        config.workspace_dir = workspace.clone();
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        finalize_generated_session_if_needed(
+            &state,
+            "sess-generated",
+            webhook_dispatch::WebhookSessionSource::Generated,
+        )
+        .await;
+
+        let eligibility = crate::memory::dream_eligibility(&workspace, "sess-generated").unwrap();
+        assert_eq!(
+            eligibility,
+            crate::memory::DreamEligibility::AlreadyConsolidated
+        );
+    }
+
+    #[tokio::test]
+    async fn generated_session_completion_blocks_dream_without_recorded_completion() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let workspace = tmp.path().to_path_buf();
+
+        let eligibility = crate::memory::dream_eligibility(&workspace, "sess-missing").unwrap();
+        assert_eq!(eligibility, crate::memory::DreamEligibility::NotCompleted);
+        assert!(crate::memory::run_dream_if_triggered(&workspace)
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn generated_session_completion_remains_runtime_idempotent_on_repeat() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let workspace = tmp.path().to_path_buf();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(&workspace).unwrap());
+        end_session_for_test(
+            &(mem.clone() as Arc<dyn crate::memory::Memory>),
+            "sess-repeat",
+        )
+        .await;
+
+        let mut config = Config::default();
+        config.workspace_dir = workspace.clone();
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        finalize_generated_session_if_needed(
+            &state,
+            "sess-repeat",
+            webhook_dispatch::WebhookSessionSource::Generated,
+        )
+        .await;
+        finalize_generated_session_if_needed(
+            &state,
+            "sess-repeat",
+            webhook_dispatch::WebhookSessionSource::Generated,
+        )
+        .await;
+
+        assert_eq!(
+            crate::memory::dream_eligibility(&workspace, "sess-repeat").unwrap(),
+            crate::memory::DreamEligibility::AlreadyConsolidated
+        );
+        assert!(crate::memory::run_dream_if_triggered(&workspace)
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

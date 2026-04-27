@@ -109,6 +109,7 @@ jobs:
         uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
         with:
           toolchain: ${{ steps.rust-channel.outputs.channel }}
+          components: rustfmt, clippy
 
       #      - name: 🦆 Run Actionlint
       #        run: ./gradlew runActionlint
@@ -131,6 +132,18 @@ jobs:
           cargo metadata --manifest-path clients/agent-runtime/Cargo.toml --locked --format-version 1 --no-deps > /dev/null
           cargo metadata --manifest-path clients/cerebro/Cargo.toml --locked --format-version 1 --no-deps > /dev/null
           echo "✅ All Cargo.lock files are consistent with their Cargo.toml"
+
+      - name: 🧹 Fmt Cerebro crate
+        run: cargo fmt --manifest-path clients/cerebro/Cargo.toml --all -- --check
+
+      - name: 🧭 Clippy Cerebro crate
+        run: cargo clippy --manifest-path clients/cerebro/Cargo.toml --all-targets -- -D warnings
+
+      - name: 🦀 Check Cerebro crate
+        run: cargo check --manifest-path clients/cerebro/Cargo.toml --locked
+
+      - name: 🧪 Test Cerebro crate
+        run: cargo test --manifest-path clients/cerebro/Cargo.toml --locked
 
       - name: 🏗 Run main checks
         run: ./gradlew check

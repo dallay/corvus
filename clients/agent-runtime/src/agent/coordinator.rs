@@ -1527,6 +1527,37 @@ pub enum ChildStateView {
     Cancelled,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CoordinatorSummaryStateView {
+    Running,
+    Blocked,
+    Cancelling,
+    Succeeded,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChildProgressStateView {
+    Running,
+    Waiting,
+    ApprovalNeeded,
+    Blocked,
+    Succeeded,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ChildBlockingDetailsView {
+    pub reason_code: String,
+    pub message: String,
+    pub parent_action_required: bool,
+    pub next_action_hint: Option<String>,
+}
+
 impl From<ChildState> for ChildStateView {
     fn from(s: ChildState) -> Self {
         match s {
@@ -1580,6 +1611,7 @@ pub struct OrchestrationSnapshot {
     pub handle: OrchestrationHandle,
     pub parent_session_id: Option<String>,
     pub state: CoordinatorStateView,
+    pub summary_state: CoordinatorSummaryStateView,
     pub children: Vec<ChildLifecycleView>,
     pub events: Vec<LifecycleEventView>,
     pub outcome: Option<OrchestrationOutcomeView>,
@@ -1593,9 +1625,11 @@ pub struct ChildLifecycleView {
     pub launch_index: u32,
     pub session_id: Option<String>,
     pub state: ChildStateView,
+    pub progress_state: ChildProgressStateView,
     pub execution: Option<ChildExecutionMetadataView>,
     pub approval: ApprovalStatus,
     pub summary: Option<String>,
+    pub blocking_details: Option<ChildBlockingDetailsView>,
     pub terminal_reason: Option<ChildTerminationView>,
 }
 
@@ -1607,9 +1641,11 @@ impl From<&ChildRecord> for ChildLifecycleView {
             launch_index: r.launch_index,
             session_id: r.session_id.clone(),
             state: r.state.clone().into(),
+            progress_state: derive_child_progress_state(r),
             execution: r.execution.clone(),
             approval: r.approval.clone(),
             summary: r.summary.clone(),
+            blocking_details: derive_blocking_details(r),
             terminal_reason: r.terminal_reason.as_ref().map(ChildTerminationView::from),
         }
     }
@@ -1621,6 +1657,71 @@ pub struct LifecycleEventView {
     pub child_id: String,
     pub kind: String,
     pub summary: Option<String>,
+}
+
+fn derive_child_progress_state(record: &ChildRecord) -> ChildProgressStateView {
+    match record.state {
+        ChildState::Queued | ChildState::Starting | ChildState::Running => {
+            ChildProgressStateView::Running
+        }
+        ChildState::WaitingOnParent => match record.approval {
+            ApprovalStatus::Pending { .. } => ChildProgressStateView::ApprovalNeeded,
+            _ => ChildProgressStateView::Waiting,
+        },
+        ChildState::Cancelling => ChildProgressStateView::Blocked,
+        ChildState::Completed => ChildProgressStateView::Succeeded,
+        ChildState::Failed => ChildProgressStateView::Failed,
+        ChildState::Cancelled => ChildProgressStateView::Cancelled,
+    }
+}
+
+fn derive_blocking_details(record: &ChildRecord) -> Option<ChildBlockingDetailsView> {
+    match (&record.state, &record.approval) {
+        (ChildState::WaitingOnParent, ApprovalStatus::Pending { request }) => {
+            Some(ChildBlockingDetailsView {
+                reason_code: "parent_approval_required".to_string(),
+                message: format!("Child requires parent approval for {}", request.tool_name),
+                parent_action_required: true,
+                next_action_hint: Some(
+                    "Parent must approve, deny, cancel, or relaunch with supported constraints"
+                        .to_string(),
+                ),
+            })
+        }
+        (ChildState::Cancelling, _) => Some(ChildBlockingDetailsView {
+            reason_code: "cancelling".to_string(),
+            message: "Child is cancelling and not making forward progress".to_string(),
+            parent_action_required: false,
+            next_action_hint: None,
+        }),
+        _ => None,
+    }
+}
+
+fn derive_coordinator_summary_state(
+    state: &CoordinatorStateView,
+    children: &[ChildLifecycleView],
+) -> CoordinatorSummaryStateView {
+    match state {
+        CoordinatorStateView::Completed => CoordinatorSummaryStateView::Succeeded,
+        CoordinatorStateView::Failed => CoordinatorSummaryStateView::Failed,
+        CoordinatorStateView::Cancelled => CoordinatorSummaryStateView::Cancelled,
+        CoordinatorStateView::Cancelling => CoordinatorSummaryStateView::Cancelling,
+        CoordinatorStateView::Initialized
+        | CoordinatorStateView::Dispatching
+        | CoordinatorStateView::Supervising => {
+            if children.iter().any(|child| {
+                matches!(
+                    child.progress_state,
+                    ChildProgressStateView::ApprovalNeeded | ChildProgressStateView::Blocked
+                )
+            }) {
+                CoordinatorSummaryStateView::Blocked
+            } else {
+                CoordinatorSummaryStateView::Running
+            }
+        }
+    }
 }
 
 impl From<&CoordinatorEvent> for LifecycleEventView {
@@ -1873,6 +1974,7 @@ impl SupervisedOrchestrationService {
                 children.push(ChildLifecycleView::from(&record));
             }
         }
+        let summary_state = derive_coordinator_summary_state(&state, &children);
         let events = coordinator
             .event_log()
             .map_err(OrchestrationServiceError::CoordinatorError)?
@@ -1884,6 +1986,7 @@ impl SupervisedOrchestrationService {
             handle: handle.clone(),
             parent_session_id: request.parent_session_id.clone(),
             state,
+            summary_state,
             children,
             events,
             outcome,
