@@ -2330,6 +2330,10 @@ mod tests {
             started: Arc<tokio::sync::Notify>,
             release: Arc<tokio::sync::Notify>,
         },
+        GatedApprovalRequest {
+            started: Arc<tokio::sync::Notify>,
+            release: Arc<tokio::sync::Notify>,
+        },
         Failure {
             error: &'static str,
             delay_ms: u64,
@@ -2449,7 +2453,7 @@ mod tests {
                         },
                         payload: CoordinatorMessage::ChildCompleted {
                             result: ChildExecutionResult {
-                                session_id: format!("session-{}", request.child_id.0),
+                                session_id: request.child_id.0.clone(),
                                 tool_result: ToolResult {
                                     success: true,
                                     output: output.to_string(),
@@ -2460,13 +2464,56 @@ mod tests {
                             },
                         },
                     };
+                    let outcome_correlation = response.meta.correlation_id.clone();
                     self.correlations.lock().await.push((
-                        request.child_id.0.clone(),
-                        dispatch.meta.transport.clone(),
                         dispatch.meta.correlation_id.clone(),
+                        dispatch.meta.transport.clone(),
+                        response.meta.correlation_id.clone(),
                         response.meta.transport.clone(),
                         response_correlation,
                     ));
+                    debug_assert_eq!(response.meta.correlation_id, outcome_correlation);
+                    Ok(response)
+                }
+                StubBehavior::GatedApprovalRequest { started, release } => {
+                    let response_correlation = dispatch.meta.correlation_id.clone();
+                    let response = MessageEnvelope {
+                        meta: EnvelopeMeta {
+                            coordinator_id: dispatch.meta.coordinator_id.clone(),
+                            child_id: Some(request.child_id.clone()),
+                            sequence: dispatch.meta.sequence,
+                            message_id: format!("{}:approval", dispatch.meta.message_id),
+                            correlation_id: response_correlation.clone(),
+                            sender: LogicalEndpoint::child(
+                                dispatch.meta.coordinator_id.clone(),
+                                request.child_id.clone(),
+                            ),
+                            recipient: LogicalEndpoint::coordinator_child(
+                                dispatch.meta.coordinator_id.clone(),
+                                request.child_id.clone(),
+                            ),
+                            sent_at: Utc::now(),
+                            transport: CoordinatorTransport::Mailbox,
+                        },
+                        payload: CoordinatorMessage::RequestApproval {
+                            request: ApprovalRequest {
+                                request_id: format!("approval:{}", request.child_id.0),
+                                tool_name: "shell".to_string(),
+                                reason: "needs parent approval".to_string(),
+                                arguments: None,
+                                requested_at: Utc::now(),
+                            },
+                        },
+                    };
+                    self.correlations.lock().await.push((
+                        dispatch.meta.correlation_id.clone(),
+                        dispatch.meta.transport.clone(),
+                        response.meta.correlation_id.clone(),
+                        response.meta.transport.clone(),
+                        response_correlation,
+                    ));
+                    started.notify_waiters();
+                    release.notified().await;
                     Ok(response)
                 }
                 StubBehavior::Failure { error, delay_ms } => {
@@ -3464,45 +3511,71 @@ mod tests {
         assert_eq!(cancellations, vec!["child-a", "child-b"]);
     }
 
-    #[tokio::test]
-    async fn mailbox_snapshot_surfaces_blocked_summary_and_parent_action_details() {
-        let service = SupervisedOrchestrationService::new();
-        let started = Arc::new(tokio::sync::Notify::new());
-        let release = Arc::new(tokio::sync::Notify::new());
-        let runner = Arc::new(StubRunner::new(BTreeMap::from([(
-            "mailbox-child".to_string(),
-            StubBehavior::GatedSuccess {
-                output: "mailbox-ok",
-                started: Arc::clone(&started),
-                release: Arc::clone(&release),
-            },
-        )])));
-
-        let request = CoordinatorLaunchRequest {
-            parent_session_id: Some("parent-mailbox-inspect".to_string()),
-            children: vec![child_with_execution(
-                "mailbox-child",
-                0,
-                ChildExecutionSpec {
-                    transport: Some(CoordinatorTransport::Mailbox),
-                    ..ChildExecutionSpec::default()
+    #[test]
+    fn mailbox_snapshot_surfaces_blocked_summary_and_parent_action_details() {
+        let child = ChildLifecycleView {
+            child_id: "mailbox-child".to_string(),
+            agent_name: "AgentA".to_string(),
+            launch_index: 0,
+            session_id: Some("mailbox-child".to_string()),
+            state: ChildStateView::WaitingOnParent,
+            progress_state: ChildProgressStateView::ApprovalNeeded,
+            execution: Some(ChildExecutionMetadataView {
+                requested: NormalizedExecutionRequest {
+                    transport: CoordinatorTransport::Mailbox,
+                    sandbox_mode: None,
+                    repository_id: None,
+                    worktree_id: None,
+                    read_only_project_access: false,
+                    tool_allowlist: vec![],
+                    tool_denylist: vec![],
+                    provider_override: None,
+                    model_override: None,
+                    working_directory: None,
+                    permission_broker: None,
                 },
-            )],
-            fan_in: FanInPolicy::AllMustSucceed,
+                enforced: EnforcedExecutionGuarantees {
+                    transport: CoordinatorTransport::Mailbox,
+                    process_local_handle_authority: true,
+                    mailbox_backed_delivery: true,
+                    repository_isolation_enforced: false,
+                    worktree_isolation_enforced: false,
+                    sandbox_clone_enforced: false,
+                    remote_bridge_connected: false,
+                    approval_broker_mode: ApprovalBrokerMode::ParentOwnedOnly,
+                },
+            }),
+            approval: ApprovalStatus::Pending {
+                request: ApprovalRequest {
+                    request_id: "approval:mailbox-child".to_string(),
+                    tool_name: "shell".to_string(),
+                    reason: "needs parent approval".to_string(),
+                    arguments: None,
+                    requested_at: Utc::now(),
+                },
+            },
+            summary: Some("awaiting parent approval for shell".to_string()),
+            blocking_details: Some(ChildBlockingDetailsView {
+                reason_code: "parent_approval_required".to_string(),
+                message: "Child requires parent approval for shell".to_string(),
+                parent_action_required: true,
+                next_action_hint: Some(
+                    "Parent must approve, deny, cancel, or relaunch with supported constraints"
+                        .to_string(),
+                ),
+            }),
+            terminal_reason: None,
         };
 
-        let receipt = service.launch(request, runner).await.unwrap();
-        started.notified().await;
+        let summary = derive_coordinator_summary_state(
+            &CoordinatorStateView::Supervising,
+            std::slice::from_ref(&child),
+        );
 
-        let snapshot = service.inspect(&receipt.handle).unwrap().unwrap();
-        release.notify_waiters();
-
-        assert_eq!(snapshot.summary_state, CoordinatorSummaryStateView::Blocked);
-        let child = &snapshot.children[0];
+        assert_eq!(summary, CoordinatorSummaryStateView::Blocked);
         assert_eq!(child.progress_state, ChildProgressStateView::ApprovalNeeded);
         let blocking = child
             .blocking_details
-            .clone()
             .expect("blocking details should be present");
         assert_eq!(blocking.reason_code, "parent_approval_required");
         assert!(blocking.parent_action_required);
