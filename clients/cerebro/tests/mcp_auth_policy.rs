@@ -15,10 +15,10 @@ async fn rejects_requests_without_auth_token() {
         jsonrpc: "2.0".to_string(),
         id: json!("1"),
         method: "tools/call".to_string(),
-        params: cerebro::server::JsonRpcParams {
+        params: Some(cerebro::server::JsonRpcParams {
             name: "mem_stats".to_string(),
             arguments: json!({ "input": {} }),
-        },
+        }),
     };
 
     let response = service.handle_json_rpc(request, None).await;
@@ -39,10 +39,10 @@ async fn accepts_requests_with_valid_auth_token() {
         jsonrpc: "2.0".to_string(),
         id: json!("1"),
         method: "tools/call".to_string(),
-        params: cerebro::server::JsonRpcParams {
+        params: Some(cerebro::server::JsonRpcParams {
             name: "mem_stats".to_string(),
             arguments: json!({ "input": {} }),
-        },
+        }),
     };
 
     let response = service
@@ -64,10 +64,10 @@ async fn rejects_auth_without_bearer_prefix() {
         jsonrpc: "2.0".to_string(),
         id: json!("1"),
         method: "tools/call".to_string(),
-        params: cerebro::server::JsonRpcParams {
+        params: Some(cerebro::server::JsonRpcParams {
             name: "mem_stats".to_string(),
             arguments: json!({ "input": {} }),
-        },
+        }),
     };
 
     let response = service.handle_json_rpc(request, Some("secret")).await;
@@ -88,10 +88,10 @@ async fn rejects_auth_with_empty_bearer_token() {
         jsonrpc: "2.0".to_string(),
         id: json!("1"),
         method: "tools/call".to_string(),
-        params: cerebro::server::JsonRpcParams {
+        params: Some(cerebro::server::JsonRpcParams {
             name: "mem_stats".to_string(),
             arguments: json!({ "input": {} }),
-        },
+        }),
     };
 
     let response = service.handle_json_rpc(request, Some("Bearer   ")).await;
@@ -112,10 +112,10 @@ async fn accepts_bearer_token_with_lowercase_prefix() {
         jsonrpc: "2.0".to_string(),
         id: json!("1"),
         method: "tools/call".to_string(),
-        params: cerebro::server::JsonRpcParams {
+        params: Some(cerebro::server::JsonRpcParams {
             name: "mem_stats".to_string(),
             arguments: json!({ "input": {} }),
-        },
+        }),
     };
 
     let response = service
@@ -138,10 +138,10 @@ async fn accepts_requests_with_valid_audit_token() {
         jsonrpc: "2.0".to_string(),
         id: json!("1"),
         method: "tools/call".to_string(),
-        params: cerebro::server::JsonRpcParams {
+        params: Some(cerebro::server::JsonRpcParams {
             name: "mem_stats".to_string(),
             arguments: json!({ "input": {} }),
-        },
+        }),
     };
 
     let response = service

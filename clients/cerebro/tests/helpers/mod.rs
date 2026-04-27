@@ -19,10 +19,10 @@ pub fn json_rpc_request(tool: &str, args: serde_json::Value) -> JsonRpcRequest {
         jsonrpc: "2.0".to_string(),
         id: json!("1"),
         method: "tools/call".to_string(),
-        params: cerebro::server::JsonRpcParams {
+        params: Some(cerebro::server::JsonRpcParams {
             name: tool.to_string(),
             arguments: args,
-        },
+        }),
     }
 }
 

@@ -45,7 +45,7 @@ export type CerebroGatewayState =
   | "unsupported"
   | "not_implemented";
 
-export type CerebroToolName =
+export type CerebroImplementedToolName =
   | "mem_search"
   | "mem_get_observation"
   | "mem_timeline"
@@ -53,11 +53,16 @@ export type CerebroToolName =
   | "mem_save"
   | "mem_update"
   | "mem_delete"
+  | "mem_suggest_topic_key";
+
+export type CerebroDeferredToolName =
   | "mem_save_prompt"
   | "mem_session_start"
   | "mem_session_end"
   | "mem_session_summary"
   | "mem_context";
+
+export type CerebroToolName = CerebroImplementedToolName | CerebroDeferredToolName;
 
 export interface AdminCerebroToolStatus {
   state: CerebroGatewayState;

@@ -58,41 +58,50 @@ summary-first retrieval and the What/Why/Where/Learned structure.
 
 ### Requirement: MCP Tool Inventory
 
-The Cerebro MCP service MUST expose the following 13 tools as the canonical tool surface, and tool
-introspection MUST return this list without omissions or extra entries:
+The Cerebro MCP service MUST publish only the currently implemented 8-tool callable inventory via
+its discovery surface. Deferred tool names MUST remain recognized for call-time error handling but
+MUST NOT be advertised as callable.
 
+Implemented callable inventory:
+
+- `mem_save`
+- `mem_search`
+- `mem_delete`
+- `mem_get_observation`
+- `mem_update`
+- `mem_suggest_topic_key`
+- `mem_timeline`
+- `mem_stats`
+
+Deferred recognized inventory:
+
+- `mem_save_prompt`
 - `mem_session_start`
 - `mem_session_end`
 - `mem_session_summary`
 - `mem_context`
-- `mem_save`
-- `mem_update`
-- `mem_delete`
-- `mem_suggest_topic_key`
-- `mem_search`
-- `mem_get_observation`
-- `mem_timeline`
-- `mem_save_prompt`
-- `mem_stats`
 
 #### Scenario: Tool inventory returned (happy path)
 
-- GIVEN a running Cerebro MCP service with tool introspection enabled
+- GIVEN a running Cerebro MCP service with tool discovery enabled
 - WHEN a client requests the available tools
-- THEN the response includes exactly the 13 tools listed above
+- THEN the response includes exactly the 8 implemented tools listed above
+- AND the response contains no deferred tool names
 - AND the response contains no additional tool names
 
-#### Scenario: Missing tool name (edge case)
+#### Scenario: Deferred tool remains non-callable by inventory
 
 - GIVEN a running Cerebro MCP service
-- WHEN tool introspection is called
-- THEN the service returns a structured error if any of the 13 tools is not available
+- WHEN tool discovery is called
+- THEN `mem_save_prompt`, `mem_session_start`, `mem_session_end`, `mem_session_summary`, and
+  `mem_context` MUST be omitted from the callable inventory
+- AND those tool names MUST remain reserved for structured deferred handling on `tools/call`
 
 ### Requirement: Cerebro MCP Tool Surface
 
-The Cerebro module MUST expose the MCP tool set defined in the 13-tool inventory and return
-structured, typed errors for invalid requests. Tool contracts MUST align with the Cerebro product
-specification and remain agent-agnostic.
+The Cerebro module MUST expose the implemented callable tool set in discovery and MUST return
+structured, typed errors for invalid or deferred requests. Tool contracts MUST align with the
+Cerebro product specification and remain agent-agnostic.
 
 #### Scenario: Save and recall through Cerebro (happy path)
 

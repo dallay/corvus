@@ -78,7 +78,7 @@ SurrealDB fallback is attempted.
 
 ## MCP tool schemas
 
-Machine-readable JSON schemas for all 13 tools are available at:
+Machine-readable JSON schemas are available for the current 8 callable tools and the 5 deferred tool contracts at:
 
 - [`mcp-schema/`](../guides/cerebro/mcp-schema/)
 
