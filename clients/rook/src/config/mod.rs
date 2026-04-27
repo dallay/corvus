@@ -219,16 +219,6 @@ impl RookConfig {
         })
     }
 
-    pub fn from_sources_with_path_unvalidated(
-        file_path: Option<&Path>,
-        env: &HashMap<String, String>,
-    ) -> Result<Self, RookError> {
-        let mut config = Self::default();
-        load_file_overlay(file_path)?.apply_to(&mut config);
-        parse_env_overlay(env)?.apply_to(&mut config);
-        Ok(config)
-    }
-
     pub fn apply_env_overrides(&mut self, env: &HashMap<String, String>) -> Result<(), RookError> {
         parse_env_overlay(env)?.apply_to(self);
         Ok(())

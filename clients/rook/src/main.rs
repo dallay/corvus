@@ -750,7 +750,10 @@ mod tests {
         )
         .await;
 
-        assert!(result.is_err());
+        let error_text = result.expect_err("invalid config should fail").to_string();
+        assert!(error_text.contains("ROOK_PORT"));
+        assert!(error_text.contains("not-a-port"));
+        assert!(error_text.contains("parse") || error_text.contains("port"));
     }
 
     #[tokio::test]
@@ -846,7 +849,10 @@ mod tests {
         )
         .await;
 
-        assert!(result.is_err());
+        let error_text = result.expect_err("invalid config should fail").to_string();
+        assert!(error_text.contains("ROOK_PORT"));
+        assert!(error_text.contains("not-a-port"));
+        assert!(error_text.contains("parse") || error_text.contains("port"));
     }
 
     #[test]

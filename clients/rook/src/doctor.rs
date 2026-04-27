@@ -165,9 +165,19 @@ pub fn render_report(report: &DoctorReport) -> String {
 
 pub fn ensure_success(report: &DoctorReport) -> Result<(), RookError> {
     match report.overall_status() {
-        DoctorStatus::Fail => Err(RookError::Config(
-            "rook doctor found required check failures".to_string(),
-        )),
+        DoctorStatus::Fail => {
+            let failure_messages = report
+                .checks
+                .iter()
+                .filter(|check| matches!(check.status, DoctorStatus::Fail))
+                .map(|check| format!("{}: {}", check.name, check.message))
+                .collect::<Vec<_>>()
+                .join("; ");
+
+            Err(RookError::Config(format!(
+                "rook doctor found required check failures: {failure_messages}"
+            )))
+        }
         DoctorStatus::Pass | DoctorStatus::Warn => Ok(()),
     }
 }

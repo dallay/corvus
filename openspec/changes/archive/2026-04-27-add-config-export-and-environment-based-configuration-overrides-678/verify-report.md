@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: add-config-export-and-environment-based-configuration-overrides-678
 **Version**: N/A
@@ -6,13 +6,14 @@
 ---
 
 ### Completeness
+
 | Metric | Value |
 |--------|-------|
 | Tasks total | 14 |
 | Tasks complete | 14 |
 | Tasks incomplete | 0 |
 
-All tasks in `openspec/changes/add-config-export-and-environment-based-configuration-overrides-678/tasks.md` are marked complete.
+All tasks in `openspec/changes/archive/2026-04-27-add-config-export-and-environment-based-configuration-overrides-678/tasks.md` are marked complete.
 
 ---
 

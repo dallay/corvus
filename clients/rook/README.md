@@ -22,16 +22,16 @@ accounts using configurable strategies.
 # Check that it compiles
 cargo check --manifest-path clients/rook/Cargo.toml
 
-# Run the gateway (stub — not yet implemented)
+# Run the gateway
 cargo run --manifest-path clients/rook/Cargo.toml -- serve
 
 # Launch operator TUI (stub)
 cargo run --manifest-path clients/rook/Cargo.toml -- tui
 
-# Run diagnostics (stub — not yet implemented)
+# Run diagnostics
 cargo run --manifest-path clients/rook/Cargo.toml -- doctor
 
-# Export current config (stub — not yet implemented)
+# Export current validated config as JSON
 cargo run --manifest-path clients/rook/Cargo.toml -- config export
 ```
 
