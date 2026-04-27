@@ -22,14 +22,17 @@ use axum::{
     Router,
 };
 
+use crate::observability::Observability;
 use crate::registry::RookRegistry;
 use crate::routing::RoutingEngine;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct GatewayState {
     pub registry: RookRegistry,
     pub engine: RoutingEngine,
     pub client: reqwest::Client,
+    pub observability: Arc<Observability>,
 }
 
 pub fn build_router(state: GatewayState) -> Router {

@@ -15,7 +15,6 @@ pub mod settings;
 use crate::domain::RookError;
 use chrono::Utc;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
-use std::str::FromStr;
 #[cfg(unix)]
 use std::{fs, os::unix::fs::PermissionsExt};
 
@@ -59,14 +58,7 @@ impl SqliteDb {
     /// `path` should be an absolute file path or a path understood by SQLite
     /// (e.g., `"./rook.db"`).
     pub async fn open(path: &str) -> Result<Self, RookError> {
-        let url = format!("sqlite:{path}?mode=rwc");
-        let options = SqliteConnectOptions::from_str(&url)
-            .map_err(|e| RookError::Registry(format!("failed to parse database URL {path}: {e}")))?
-            .foreign_keys(true);
-
-        let pool = SqlitePool::connect_with(options)
-            .await
-            .map_err(|e| RookError::Registry(format!("failed to open database at {path}: {e}")))?;
+        let pool = Self::connect(path, false).await?;
 
         #[cfg(unix)]
         tighten_db_permissions(path)?;
@@ -75,15 +67,31 @@ impl SqliteDb {
         Ok(Self { pool })
     }
 
+    /// Open an existing SQLite database at `path` without applying migrations.
+    pub async fn open_readonly(path: &str) -> Result<Self, RookError> {
+        let pool = Self::connect(path, true).await?;
+        Ok(Self { pool })
+    }
+
+    async fn connect(path: &str, readonly: bool) -> Result<SqlitePool, RookError> {
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .read_only(readonly)
+            .create_if_missing(!readonly)
+            .foreign_keys(true);
+
+        SqlitePool::connect_with(options)
+            .await
+            .map_err(|e| RookError::Registry(format!("failed to open database at {path}: {e}")))
+    }
+
     /// Open an in-memory SQLite database and apply the schema.
     ///
     /// Intended for tests only.  Each call produces an isolated database.
     pub async fn open_in_memory() -> Result<Self, RookError> {
         // max_connections(1) ensures a single connection so the in-memory
         // database is not dropped between pool checkouts.
-        let options = SqliteConnectOptions::from_str("sqlite::memory:")
-            .map_err(|e| RookError::Registry(format!("failed to parse in-memory URL: {e}")))?
-            .foreign_keys(true);
+        let options = SqliteConnectOptions::new().in_memory(true).foreign_keys(true);
 
         let pool = sqlx::pool::PoolOptions::<sqlx::Sqlite>::new()
             .max_connections(1)
