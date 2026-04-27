@@ -470,8 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn inspect_exposes_requested_execution_metadata_without_claiming_remote_or_isolated_enforcement(
-    ) {
+    fn child_execution_metadata_view_serializes_requested_and_enforced_fields() {
         let view = crate::agent::coordinator::ChildExecutionMetadataView {
             enforced: crate::agent::coordinator::EnforcedExecutionGuarantees {
                 transport: CoordinatorTransport::Mailbox,
@@ -499,7 +498,7 @@ mod tests {
             },
         };
 
-        let child = serde_json::to_value(serde_json::json!({ "execution": view })).unwrap();
+        let child = serde_json::json!({ "execution": view });
         assert_eq!(child["execution"]["requested"]["transport"], "mailbox");
         assert_eq!(
             child["execution"]["enforced"]["remote_bridge_connected"],

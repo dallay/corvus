@@ -355,6 +355,12 @@ pub enum ChildTerminationReason {
     Cancelled(CancellationReason),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EscalationKind {
+    Unsupported,
+}
+
 #[derive(Debug, Clone)]
 pub struct ChildRecord {
     pub child_id: ChildAgentId,
@@ -367,6 +373,7 @@ pub struct ChildRecord {
     pub last_sequence: u64,
     pub terminal_reason: Option<ChildTerminationReason>,
     pub summary: Option<String>,
+    pub escalation: Option<EscalationKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -787,6 +794,7 @@ struct TerminalUpdate {
     state: ChildState,
     terminal_reason: ChildTerminationReason,
     summary: String,
+    escalation: Option<EscalationKind>,
 }
 
 impl Default for Coordinator {
@@ -890,6 +898,7 @@ impl Coordinator {
                 last_sequence: 0,
                 terminal_reason: None,
                 summary: None,
+                escalation: None,
             },
         );
         Ok(())
@@ -1024,11 +1033,13 @@ impl Coordinator {
             CoordinatorMessage::DispatchChild(_) => {
                 record.state = ChildState::Starting;
                 record.summary = Some("dispatching child".to_string());
+                record.escalation = None;
             }
             CoordinatorMessage::CancelChild { reason } => {
                 if !record.state.is_terminal() {
                     record.state = ChildState::Cancelling;
                     record.summary = Some(format!("cancelling: {reason:?}"));
+                    record.escalation = None;
                 }
             }
             CoordinatorMessage::ChildStarted { session_id } => {
@@ -1038,6 +1049,7 @@ impl Coordinator {
                 record.state = ChildState::Running;
                 record.approval = ApprovalStatus::None;
                 record.session_id = session_id.clone();
+                record.escalation = None;
             }
             CoordinatorMessage::ChildProgress { summary } => {
                 if record.state.is_terminal() {
@@ -1045,6 +1057,9 @@ impl Coordinator {
                 }
                 record.state = ChildState::Running;
                 record.summary = Some(summary.clone());
+                record.escalation = summary
+                    .contains("unsupported escalation")
+                    .then_some(EscalationKind::Unsupported);
             }
             CoordinatorMessage::RequestApproval { request } => {
                 if record.state.is_terminal() {
@@ -1058,6 +1073,7 @@ impl Coordinator {
                 record.approval = ApprovalStatus::Pending {
                     request: request.clone(),
                 };
+                record.escalation = None;
                 self.log_event(CoordinatorEvent::ApprovalRequested {
                     child_id: child_id.0.clone(),
                     request: request.clone(),
@@ -1073,6 +1089,7 @@ impl Coordinator {
                 record.approval = ApprovalStatus::Resolved {
                     decision: decision.clone(),
                 };
+                record.escalation = None;
                 self.log_event(CoordinatorEvent::ApprovalResolved {
                     child_id: child_id.0.clone(),
                     decision: decision.clone(),
@@ -1093,6 +1110,11 @@ impl Coordinator {
                         state: ChildState::Completed,
                         terminal_reason: ChildTerminationReason::Completed,
                         summary: result.tool_result.output.clone(),
+                        escalation: result
+                            .tool_result
+                            .output
+                            .contains("unsupported escalation")
+                            .then_some(EscalationKind::Unsupported),
                     },
                 )?;
             }
@@ -1110,6 +1132,10 @@ impl Coordinator {
                         state: ChildState::Failed,
                         terminal_reason: ChildTerminationReason::Failed(error.error.clone()),
                         summary: error.error.clone(),
+                        escalation: error
+                            .error
+                            .contains("unsupported escalation")
+                            .then_some(EscalationKind::Unsupported),
                     },
                 )?;
             }
@@ -1127,6 +1153,7 @@ impl Coordinator {
                         state: ChildState::Cancelled,
                         terminal_reason: ChildTerminationReason::Cancelled(reason.clone()),
                         summary: format!("cancelled: {reason:?}"),
+                        escalation: None,
                     },
                 )?;
             }
@@ -1205,6 +1232,7 @@ impl Coordinator {
         }
         record.terminal_reason = Some(update.terminal_reason);
         record.summary = Some(update.summary);
+        record.escalation = update.escalation;
 
         self.outcomes
             .lock()
@@ -1664,11 +1692,9 @@ fn derive_child_progress_state(record: &ChildRecord) -> ChildProgressStateView {
         ChildState::Queued | ChildState::Starting | ChildState::Running => {
             ChildProgressStateView::Running
         }
-        ChildState::WaitingOnParent => match (&record.approval, record.summary.as_deref()) {
+        ChildState::WaitingOnParent => match (&record.approval, &record.escalation) {
             (ApprovalStatus::Pending { .. }, _) => ChildProgressStateView::ApprovalNeeded,
-            (_, Some(summary)) if summary.contains("unsupported escalation") => {
-                ChildProgressStateView::Blocked
-            }
+            (_, Some(EscalationKind::Unsupported)) => ChildProgressStateView::Blocked,
             _ => ChildProgressStateView::Waiting,
         },
         ChildState::Cancelling => ChildProgressStateView::Blocked,
@@ -1679,8 +1705,8 @@ fn derive_child_progress_state(record: &ChildRecord) -> ChildProgressStateView {
 }
 
 fn derive_blocking_details(record: &ChildRecord) -> Option<ChildBlockingDetailsView> {
-    match (&record.state, &record.approval) {
-        (ChildState::WaitingOnParent, ApprovalStatus::Pending { request }) => {
+    match (&record.state, &record.approval, &record.escalation) {
+        (ChildState::WaitingOnParent, ApprovalStatus::Pending { request }, _) => {
             Some(ChildBlockingDetailsView {
                 reason_code: "parent_approval_required".to_string(),
                 message: format!("Child requires parent approval for {}", request.tool_name),
@@ -1691,7 +1717,19 @@ fn derive_blocking_details(record: &ChildRecord) -> Option<ChildBlockingDetailsV
                 ),
             })
         }
-        (ChildState::Cancelling, _) => Some(ChildBlockingDetailsView {
+        (ChildState::WaitingOnParent, _, Some(EscalationKind::Unsupported)) => {
+            Some(ChildBlockingDetailsView {
+                reason_code: "unsupported_escalation".to_string(),
+                message: "Child cannot continue until parent resolves deferred escalation"
+                    .to_string(),
+                parent_action_required: true,
+                next_action_hint: Some(
+                    "Parent must relaunch with supported constraints or cancel the child"
+                        .to_string(),
+                ),
+            })
+        }
+        (ChildState::Cancelling, _, _) => Some(ChildBlockingDetailsView {
             reason_code: "cancelling".to_string(),
             message: "Child is cancelling and not making forward progress".to_string(),
             parent_action_required: false,
@@ -2464,15 +2502,13 @@ mod tests {
                             },
                         },
                     };
-                    let outcome_correlation = response.meta.correlation_id.clone();
                     self.correlations.lock().await.push((
-                        dispatch.meta.correlation_id.clone(),
+                        request.child_id.0.clone(),
                         dispatch.meta.transport.clone(),
                         response.meta.correlation_id.clone(),
                         response.meta.transport.clone(),
                         response_correlation,
                     ));
-                    debug_assert_eq!(response.meta.correlation_id, outcome_correlation);
                     Ok(response)
                 }
                 StubBehavior::GatedApprovalRequest { started, release } => {
@@ -3513,13 +3549,12 @@ mod tests {
 
     #[test]
     fn mailbox_snapshot_surfaces_blocked_summary_and_parent_action_details() {
-        let child = ChildLifecycleView {
-            child_id: "mailbox-child".to_string(),
+        let record = ChildRecord {
+            child_id: ChildAgentId("mailbox-child".to_string()),
             agent_name: "AgentA".to_string(),
             launch_index: 0,
             session_id: Some("mailbox-child".to_string()),
-            state: ChildStateView::WaitingOnParent,
-            progress_state: ChildProgressStateView::ApprovalNeeded,
+            state: ChildState::WaitingOnParent,
             execution: Some(ChildExecutionMetadataView {
                 requested: NormalizedExecutionRequest {
                     transport: CoordinatorTransport::Mailbox,
@@ -3554,18 +3589,12 @@ mod tests {
                     requested_at: Utc::now(),
                 },
             },
-            summary: Some("awaiting parent approval for shell".to_string()),
-            blocking_details: Some(ChildBlockingDetailsView {
-                reason_code: "parent_approval_required".to_string(),
-                message: "Child requires parent approval for shell".to_string(),
-                parent_action_required: true,
-                next_action_hint: Some(
-                    "Parent must approve, deny, cancel, or relaunch with supported constraints"
-                        .to_string(),
-                ),
-            }),
+            last_sequence: 1,
             terminal_reason: None,
+            summary: Some("awaiting parent approval for shell".to_string()),
+            escalation: None,
         };
+        let child = ChildLifecycleView::from(&record);
 
         let summary = derive_coordinator_summary_state(
             &CoordinatorStateView::Supervising,
@@ -3630,30 +3659,10 @@ mod tests {
             last_sequence: 2,
             terminal_reason: None,
             summary: Some("waiting on unsupported escalation".to_string()),
+            escalation: Some(EscalationKind::Unsupported),
         };
 
-        let view = ChildLifecycleView {
-            child_id: record.child_id.0.clone(),
-            agent_name: record.agent_name.clone(),
-            launch_index: record.launch_index,
-            session_id: record.session_id.clone(),
-            state: record.state.clone().into(),
-            progress_state: derive_child_progress_state(&record),
-            execution: record.execution.clone(),
-            approval: record.approval.clone(),
-            summary: record.summary.clone(),
-            blocking_details: Some(ChildBlockingDetailsView {
-                reason_code: "unsupported_escalation".to_string(),
-                message: "Child cannot continue until parent resolves deferred escalation"
-                    .to_string(),
-                parent_action_required: true,
-                next_action_hint: Some(
-                    "Parent must relaunch with supported constraints or cancel the child"
-                        .to_string(),
-                ),
-            }),
-            terminal_reason: None,
-        };
+        let view = ChildLifecycleView::from(&record);
 
         assert_eq!(view.progress_state, ChildProgressStateView::Blocked);
         let blocking = view
@@ -3669,28 +3678,20 @@ mod tests {
 
     #[test]
     fn repeated_snapshot_preserves_blocked_child_identity_and_running_sibling_visibility() {
-        let blocked_child = ChildLifecycleView {
-            child_id: "child-blocked".to_string(),
+        let blocked_record = ChildRecord {
+            child_id: ChildAgentId("child-blocked".to_string()),
             agent_name: "AgentBlocked".to_string(),
             launch_index: 0,
             session_id: Some("session-blocked".to_string()),
-            state: ChildStateView::WaitingOnParent,
-            progress_state: ChildProgressStateView::Blocked,
+            state: ChildState::WaitingOnParent,
             execution: None,
             approval: ApprovalStatus::None,
-            summary: Some("waiting on unsupported escalation".to_string()),
-            blocking_details: Some(ChildBlockingDetailsView {
-                reason_code: "unsupported_escalation".to_string(),
-                message: "Child cannot continue until parent resolves deferred escalation"
-                    .to_string(),
-                parent_action_required: true,
-                next_action_hint: Some(
-                    "Parent must relaunch with supported constraints or cancel the child"
-                        .to_string(),
-                ),
-            }),
+            last_sequence: 1,
             terminal_reason: None,
+            summary: Some("waiting on unsupported escalation".to_string()),
+            escalation: Some(EscalationKind::Unsupported),
         };
+        let blocked_child = ChildLifecycleView::from(&blocked_record);
         let running_sibling = ChildLifecycleView {
             child_id: "child-running".to_string(),
             agent_name: "AgentRunning".to_string(),
@@ -3748,6 +3749,7 @@ mod tests {
             last_sequence: 2,
             terminal_reason: None,
             summary: summary.clone(),
+            escalation: None,
         };
 
         let first = ChildLifecycleView::from(&record);
@@ -3885,6 +3887,7 @@ mod tests {
             last_sequence: 2,
             terminal_reason: None,
             summary: Some("awaiting parent approval for shell".to_string()),
+            escalation: None,
         };
         let mut resumed_record = resolved_record.clone();
         resumed_record.state = ChildState::Running;
@@ -3895,6 +3898,7 @@ mod tests {
             },
         };
         resumed_record.summary = Some("approval decision recorded".to_string());
+        resumed_record.escalation = None;
 
         let blocked_view = ChildLifecycleView::from(&resolved_record);
         let resumed_view = ChildLifecycleView::from(&resumed_record);
