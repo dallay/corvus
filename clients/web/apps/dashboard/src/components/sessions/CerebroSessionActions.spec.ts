@@ -28,6 +28,7 @@ function mountActions() {
           mem_save: { state: "available" },
           mem_update: { state: "available" },
           mem_delete: { state: "available" },
+          mem_suggest_topic_key: { state: "available" },
           mem_save_prompt: { state: "not_implemented", message: "Prompt save is planned." },
           mem_session_start: { state: "not_implemented", message: "Session start is planned." },
           mem_session_end: { state: "not_implemented", message: "Session end is planned." },
@@ -35,7 +36,7 @@ function mountActions() {
             state: "not_implemented",
             message: "Summary generation is planned.",
           },
-          mem_context: { state: "available", message: "Context is ready." },
+          mem_context: { state: "not_implemented", message: "Context lookup is deferred." },
         },
       },
     },
@@ -46,42 +47,24 @@ function mountActions() {
 }
 
 describe("CerebroSessionActions", () => {
-  it("shows planned tools explicitly without blocking local session UI", async () => {
+  it("shows deferred session tools explicitly without blocking local session UI", async () => {
     const wrapper = mountActions();
     await flushPromises();
 
     expect(wrapper.text()).toContain("Session Summary");
     expect(wrapper.text()).toContain("not_implemented");
     expect(wrapper.text()).toContain("Context Lookup");
+    expect(wrapper.findAll("button").some((button) => button.text() === "Run")).toBe(false);
   });
 
-  it("invokes available context lookup through the typed endpoint", async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          state: "available",
-          tool: "mem_context",
-          data: { items: [{ summary: "dark mode" }] },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
-    );
-
+  it("disables deferred context lookup and surfaces deferred messaging", async () => {
     const wrapper = mountActions();
     await flushPromises();
 
-    await wrapper
-      .findAll("button")
-      .find((button) => button.text() === "Run")
-      ?.trigger("click");
-    await flushPromises();
+    const contextRow = wrapper.findAll("li").find((row) => row.text().includes("Context Lookup"));
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] ?? [];
-    expect(url).toContain("/web/admin/cerebro/context");
-    expect(init?.method).toBe("POST");
-    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer token");
-    expect(JSON.parse(String(init?.body))).toMatchObject({ session_id: "abc-123", limit: 5 });
-    expect(wrapper.text()).toContain("dark mode");
+    expect(contextRow?.text()).toContain("Context lookup is deferred.");
+    expect(contextRow?.find("button").attributes("disabled")).toBeDefined();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

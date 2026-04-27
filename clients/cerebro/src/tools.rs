@@ -3,7 +3,7 @@ use crate::server::AuthContext;
 use crate::storage::{MemoryRecord, Storage};
 use crate::validation::{require_non_empty, require_optional_non_empty};
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -214,10 +214,36 @@ struct MemContextRequest {
     scope: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolManifest {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub parameters: Value,
+}
+
 #[derive(Clone)]
 pub struct CerebroTools {
     storage: Arc<dyn Storage>,
 }
+
+pub const IMPLEMENTED_TOOL_NAMES: [&str; 8] = [
+    "mem_save",
+    "mem_search",
+    "mem_delete",
+    "mem_get_observation",
+    "mem_update",
+    "mem_suggest_topic_key",
+    "mem_timeline",
+    "mem_stats",
+];
+
+pub const DEFERRED_TOOL_NAMES: [&str; 5] = [
+    "mem_save_prompt",
+    "mem_session_start",
+    "mem_session_end",
+    "mem_session_summary",
+    "mem_context",
+];
 
 const MAX_MEM_SEARCH_LIMIT: usize = 100;
 const MAX_TIMELINE_ITEMS: usize = 100;
@@ -266,6 +292,17 @@ impl CerebroTools {
 
     pub fn redaction_for_tool(&self, tool: &str) -> ToolRedaction {
         ToolRedaction::for_tool(tool)
+    }
+
+    pub fn list_manifest(&self) -> Vec<ToolManifest> {
+        IMPLEMENTED_TOOL_NAMES
+            .iter()
+            .map(|name| ToolManifest {
+                name,
+                description: name,
+                parameters: json!({ "type": "object" }),
+            })
+            .collect()
     }
 
     pub fn extract_safe_args(&self, tool: &str, payload: &Value) -> Option<Value> {
@@ -410,16 +447,10 @@ impl CerebroTools {
             "mem_update" => self.mem_update(payload).await,
             "mem_suggest_topic_key" => self.mem_suggest_topic_key(payload).await,
             "mem_timeline" => self.mem_timeline(payload, auth).await,
-            "mem_save_prompt" => Err(CerebroError::NotImplemented("mem_save_prompt".to_string())),
-            "mem_session_start" => Err(CerebroError::NotImplemented(
-                "mem_session_start".to_string(),
-            )),
-            "mem_session_end" => Err(CerebroError::NotImplemented("mem_session_end".to_string())),
-            "mem_session_summary" => Err(CerebroError::NotImplemented(
-                "mem_session_summary".to_string(),
-            )),
-            "mem_context" => Err(CerebroError::NotImplemented("mem_context".to_string())),
             "mem_stats" => self.mem_stats(payload).await,
+            _ if DEFERRED_TOOL_NAMES.contains(&tool) => {
+                Err(CerebroError::NotImplemented(tool.to_string()))
+            }
             _ => Err(CerebroError::Validation(format!(
                 "unsupported tool '{tool}'",
             ))),

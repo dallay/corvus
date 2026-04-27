@@ -263,8 +263,9 @@ The endpoint MUST:
 - include the normalized states `available`, `unconfigured`, `unreachable`, `unsupported`, and
   `not_implemented`,
 - treat `mem_search`, `mem_get_observation`, `mem_timeline`, `mem_stats`, `mem_save`,
-  `mem_update`, `mem_delete`, `mem_session_start`, `mem_session_end`, `mem_session_summary`,
-  `mem_context`, and `mem_save_prompt` as the allowlisted gateway-facing tool inventory,
+  `mem_update`, `mem_delete`, `mem_suggest_topic_key`, `mem_session_start`, `mem_session_end`,
+  `mem_session_summary`, `mem_context`, and `mem_save_prompt` as the recognized gateway-facing tool
+  inventory,
 - sanitize internal MCP/auth details so that Cerebro endpoint URLs, bearer tokens, and raw JSON-RPC
   envelopes are never returned to clients.
 
@@ -294,7 +295,7 @@ And the response MUST NOT include raw MCP request or auth details.
 ```gherkin
 Given Cerebro is configured and reachable
 And `mem_search`, `mem_get_observation`, `mem_timeline`, `mem_stats`, `mem_save`, `mem_update`,
-  and `mem_delete` succeed
+  `mem_delete`, and `mem_suggest_topic_key` succeed
 And `mem_session_start`, `mem_session_end`, `mem_session_summary`, `mem_context`, and
   `mem_save_prompt` return Cerebro's structured NotImplemented error
 When an admin calls `GET /web/admin/cerebro/status`

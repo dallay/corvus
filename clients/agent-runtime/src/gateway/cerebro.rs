@@ -1008,6 +1008,28 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn search_requires_admin_auth() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp, Some("valid-token"));
+        let (status, _) = response_json(
+            handle_admin_cerebro_search(
+                State(state),
+                HeaderMap::new(),
+                Json(AdminCerebroSearchRequest {
+                    query: "hello".into(),
+                    limit: Some(3),
+                    scope: None,
+                    topic_key: None,
+                    include_deleted: None,
+                }),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn search_returns_unconfigured_when_service_is_missing() {
         let tmp = TempDir::new().unwrap();
         let state = test_state(&tmp, Some("valid-token"));
@@ -1055,10 +1077,57 @@ mod tests {
         );
         assert_eq!(
             json["tools"][normalize::CEREBRO_TOOL_CONTEXT]["state"],
+            "not_implemented"
+        );
+        assert_eq!(
+            json["tools"][normalize::CEREBRO_TOOL_SUGGEST_TOPIC_KEY]["state"],
             "available"
         );
         assert_eq!(
             json["tools"][normalize::CEREBRO_TOOL_SESSION_SUMMARY]["state"],
+            "not_implemented"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn status_reports_unsupported_for_missing_implemented_tool_on_older_backend() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp, Some("valid-token"));
+        let endpoint = spawn_mock_cerebro(
+            vec![
+                normalize::CEREBRO_TOOL_RECALL,
+                normalize::CEREBRO_TOOL_GET_OBSERVATION,
+                normalize::CEREBRO_TOOL_STATS,
+                normalize::CEREBRO_TOOL_STORE,
+                normalize::CEREBRO_TOOL_UPDATE,
+                normalize::CEREBRO_TOOL_FORGET,
+                normalize::CEREBRO_TOOL_SUGGEST_TOPIC_KEY,
+            ],
+            BTreeMap::new(),
+        )
+        .await;
+        configure_cerebro(&state, endpoint);
+
+        let (status, json) = response_json(
+            handle_admin_cerebro_status(State(state), admin_headers("valid-token")).await,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["service_state"], "available");
+        assert_eq!(
+            json["tools"][normalize::CEREBRO_TOOL_TIMELINE]["state"],
+            "unsupported"
+        );
+        assert_eq!(
+            json["tools"][normalize::CEREBRO_TOOL_TIMELINE]["message"],
+            normalize::cerebro_gateway_message(
+                normalize::CerebroGatewayState::Unsupported,
+                normalize::CEREBRO_TOOL_TIMELINE,
+            )
+        );
+        assert_eq!(
+            json["tools"][normalize::CEREBRO_TOOL_CONTEXT]["state"],
             "not_implemented"
         );
     }

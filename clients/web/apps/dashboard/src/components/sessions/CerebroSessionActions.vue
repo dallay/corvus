@@ -23,24 +23,18 @@ const sessionTools: Array<{ tool: CerebroToolName; label: string }> = [
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function invoke(tool: CerebroToolName) {
-  if (pendingActions.value.has(tool)) {
+  if (pendingActions.value.has(tool) || props.status?.tools[tool]?.state !== "available") {
     return;
   }
 
   pendingActions.value = new Set(pendingActions.value).add(tool);
 
-  if (tool === "mem_context") {
-    try {
+  try {
+    if (tool === "mem_context") {
       await admin.invokeCerebroContext({ session_id: props.sessionId, limit: 5 });
       return;
-    } finally {
-      const next = new Set(pendingActions.value);
-      next.delete(tool);
-      pendingActions.value = next;
     }
-  }
 
-  try {
     await admin.invokeCerebroSessionAction(
       tool as "mem_session_start" | "mem_session_end" | "mem_session_summary",
       props.sessionId

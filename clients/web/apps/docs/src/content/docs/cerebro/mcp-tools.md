@@ -1,8 +1,8 @@
 ---
 title: Cerebro MCP Tools Reference
 description: >-
-  Reference for all 13 Cerebro memory tools exposed via the
-  Model Context Protocol.
+  Reference for the 8 callable Cerebro memory tools exposed today,
+  plus 5 deferred tools that still return NotImplemented.
 owner: team-platform
 status: canonical
 lastReviewed: 2026-04-02
@@ -12,8 +12,11 @@ docType: reference
 
 # MCP Tools Reference
 
-Cerebro exposes 13 memory tools via JSON-RPC over HTTP at
+Cerebro currently exposes 8 callable memory tools via JSON-RPC over HTTP at
 `POST /mcp`. All requests use the MCP protocol (JSON-RPC 2.0).
+
+Five additional tool names remain reserved for future implementation and currently return a
+structured `NotImplemented` error when called.
 
 ## Request Format
 
