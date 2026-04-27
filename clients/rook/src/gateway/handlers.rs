@@ -27,7 +27,7 @@ fn vendor_label(vendor: &ProviderVendor) -> &'static str {
     }
 }
 
-fn record_upstream_outcome(state: &GatewayState, vendor: &str, outcome: &str) {
+fn record_upstream_outcome(state: &GatewayState, vendor: &'static str, outcome: &'static str) {
     state
         .observability
         .upstream_outcomes_total()
@@ -37,7 +37,7 @@ fn record_upstream_outcome(state: &GatewayState, vendor: &str, outcome: &str) {
 fn classify_upstream_error(error: &UpstreamError) -> &'static str {
     match error {
         UpstreamError::MissingBaseUrl { .. } | UpstreamError::MissingAuthHeader { .. } => {
-            "route_rejected"
+            "account_misconfigured"
         }
         UpstreamError::UpstreamStatus { .. } => "http_error",
         UpstreamError::Timeout { .. } => "timeout",
@@ -322,7 +322,7 @@ mod tests {
             registry: registry.clone(),
             engine,
             client,
-            observability: Arc::new(crate::observability::Observability::bootstrap().unwrap()),
+            observability: Arc::new(crate::observability::Observability::bootstrap()),
         };
         (build_router(state), registry)
     }

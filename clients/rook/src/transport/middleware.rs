@@ -71,7 +71,7 @@ fn normalized_endpoint(request: &Request<Body>) -> String {
         .extensions()
         .get::<MatchedPath>()
         .map(|matched| matched.as_str().to_string())
-        .unwrap_or_else(|| request.uri().path().to_string())
+        .unwrap_or_else(|| "unmatched".to_string())
 }
 
 fn status_class(status: axum::http::StatusCode) -> &'static str {
@@ -120,11 +120,11 @@ pub async fn apply_transport_baseline(
     state
         .observability
         .http_requests_total()
-        .inc(surface, &route, status_class);
+        .inc(surface, route.clone(), status_class);
     state
         .observability
         .http_request_duration_seconds()
-        .observe(surface, &route, status_class, elapsed.as_secs_f64());
+        .observe(surface, route.clone(), status_class, elapsed.as_secs_f64());
 
     set_response_request_id_header(
         response.headers_mut(),
@@ -177,7 +177,7 @@ mod tests {
         TransportMiddlewareState {
             config: Arc::new(TransportConfig::default()),
             surface: RouteSurface::GatewayV1,
-            observability: Arc::new(crate::observability::Observability::bootstrap().unwrap()),
+            observability: Arc::new(crate::observability::Observability::bootstrap()),
         }
     }
 

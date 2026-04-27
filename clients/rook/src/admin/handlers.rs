@@ -243,18 +243,19 @@ pub async fn handle_get_metrics(State(state): State<AdminState>) -> Response {
     match state.observability.render_prometheus() {
         Ok(body) => (
             StatusCode::OK,
-            [(CONTENT_TYPE, HeaderValue::from_static("text/plain; version=0.0.4; charset=utf-8"))],
+            [(
+                CONTENT_TYPE,
+                HeaderValue::from_static(
+                    "application/openmetrics-text; version=1.0.0; charset=utf-8",
+                ),
+            )],
             body,
         )
             .into_response(),
-        Err(error) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(admin_error_response(
-                "internal_error",
-                format!("failed to render metrics: {error}"),
-            )),
-        )
-            .into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "failed to render metrics");
+            internal_error_response().into_response()
+        }
     }
 }
 
@@ -802,7 +803,7 @@ mod tests {
                 registry: registry.clone(),
                 startup: std::sync::Arc::new(crate::health::StartupDependencyState::all_ready()),
                 observability: std::sync::Arc::new(
-                    crate::observability::Observability::bootstrap().unwrap(),
+                    crate::observability::Observability::bootstrap(),
                 ),
             }),
             req,

@@ -150,7 +150,7 @@ pub async fn apply_chat_idempotency(
             state
                 .observability
                 .idempotency_outcomes_total()
-                .inc(IDEMPOTENCY_SURFACE, "conflict");
+                .inc(IDEMPOTENCY_SURFACE, "in_progress");
             gateway_idempotency_error_response(
                 StatusCode::CONFLICT,
                 "an equivalent request is already in progress",
@@ -161,7 +161,7 @@ pub async fn apply_chat_idempotency(
             state
                 .observability
                 .idempotency_outcomes_total()
-                .inc(IDEMPOTENCY_SURFACE, "conflict");
+                .inc(IDEMPOTENCY_SURFACE, "key_mismatch");
             gateway_idempotency_error_response(
                 StatusCode::CONFLICT,
                 "idempotency key has already been used for a different request",

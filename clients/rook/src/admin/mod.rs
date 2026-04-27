@@ -141,7 +141,7 @@ mod tests {
             registry,
             startup: std::sync::Arc::new(startup),
             observability: std::sync::Arc::new(
-                crate::observability::Observability::bootstrap().unwrap(),
+                crate::observability::Observability::bootstrap(),
             ),
         }
     }

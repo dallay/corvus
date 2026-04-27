@@ -77,12 +77,12 @@ fn metrics_surface(surface: RateLimitedSurface) -> &'static str {
     }
 }
 
-fn normalized_endpoint(request: &Request<Body>) -> String {
+fn normalized_endpoint(request: &Request<Body>, surface_name: Option<&str>) -> String {
     request
         .extensions()
         .get::<MatchedPath>()
         .map(|matched| matched.as_str().to_string())
-        .unwrap_or_else(|| request.uri().path().to_string())
+        .unwrap_or_else(|| surface_name.unwrap_or("unmatched").to_string())
 }
 
 pub fn evaluate_surface_limit(
@@ -116,8 +116,8 @@ pub async fn apply_rate_limit(
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    let endpoint = normalized_endpoint(&request);
-    if endpoint == "/api/metrics" {
+    let endpoint = normalized_endpoint(&request, Some(metrics_surface(state.surface)));
+    if matches!(endpoint.as_str(), "/metrics" | "/api/metrics") {
         return next.run(request).await;
     }
 
@@ -129,7 +129,7 @@ pub async fn apply_rate_limit(
             state
                 .observability
                 .rate_limit_rejections_total()
-                .inc(metrics_surface(state.surface), &endpoint);
+                .inc(metrics_surface(state.surface), endpoint.clone());
             match state.surface {
                 RateLimitedSurface::AdminApi => admin_rate_limited_response(retry_after_seconds),
                 RateLimitedSurface::GatewayModels

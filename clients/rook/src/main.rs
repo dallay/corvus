@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};
-use rook::config::{discover_default_config_path_from_env, RookConfig, RookConfigExportView};
+use rook::config::{discover_default_config_path, RookConfig, RookConfigExportView};
 use rook::doctor;
 use rook::registry::RookRegistry;
 use rook::server::ServerConfig;
@@ -35,7 +35,7 @@ enum Commands {
         #[arg(long)]
         port: Option<u16>,
 
-        /// Enable the operator TUI alongside the HTTP server
+        /// Enable the operator TUI alongside the HTTP server (additive-only override; cannot disable config/env)
         #[arg(long, action = ArgAction::SetTrue)]
         tui: bool,
 
@@ -43,7 +43,7 @@ enum Commands {
         #[arg(long)]
         db_path: Option<String>,
 
-        /// Enable inbound bearer auth for `/api/*` and `/v1/*`
+        /// Enable inbound bearer auth for `/api/*` and `/v1/*` (additive-only override; cannot disable config/env)
         #[arg(long, action = ArgAction::SetTrue)]
         inbound_auth_enabled: bool,
 
@@ -152,7 +152,7 @@ where
             chat_rate_limit_window_seconds,
             chat_idempotency_replay_window_seconds,
         } => {
-            let config_path = discover_default_config_path_from_env();
+            let config_path = discover_default_config_path(&env);
             let config = build_serve_config(
                 ServeOverrides {
                     host,
@@ -183,7 +183,7 @@ where
             .await?;
         }
         Commands::Doctor => {
-            let config_path = discover_default_config_path_from_env();
+            let config_path = discover_default_config_path(&env);
             let report = doctor::run_with_config_path(config_path.as_deref(), env).await;
             output(doctor::render_report(&report))?;
             doctor::ensure_success(&report)?;
@@ -191,7 +191,7 @@ where
         Commands::Config {
             action: ConfigCommands::Export,
         } => {
-            let config_path = discover_default_config_path_from_env();
+            let config_path = discover_default_config_path(&env);
             let config = build_export_config_from_path(config_path.as_deref(), env)?;
             output(render_config_export(&config)?)?;
         }
@@ -212,7 +212,7 @@ fn build_serve_config(
     file_path: Option<&std::path::Path>,
     env: &std::collections::HashMap<String, String>,
 ) -> Result<ServerConfig> {
-    let mut config = RookConfig::from_sources_with_path(file_path, env)?;
+    let mut config = RookConfig::from_sources_with_path_unvalidated(file_path, env)?;
 
     if let Some(host) = input.host {
         config.host = host;
@@ -457,7 +457,7 @@ mod tests {
 
         assert_eq!(config.host, "0.0.0.0");
         assert_eq!(config.port, 8181);
-        assert_eq!(config.enable_tui, true);
+        assert!(config.enable_tui);
         assert_eq!(config.db_path.as_deref(), Some("/cli/rook.db"));
         assert_eq!(config.inbound_auth.bearer_token.as_deref(), Some("cli-token"));
         assert_eq!(config.rate_limits.api.max_requests, 88);

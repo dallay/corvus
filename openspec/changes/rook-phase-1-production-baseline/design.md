@@ -47,27 +47,16 @@ Phase 1 should extend these seams rather than introduce a parallel runtime model
 The design assumes the following additive structure inside `clients/rook/src/`:
 
 - `config/mod.rs`
-  - own the `RookConfig` model and shared validation entrypoint
+  - own the `RookConfig` model, shared validation entrypoint, config discovery, TOML loading, env overrides, and operator-safe export rendering
   - expose effective config assembly from defaults, file, env, and CLI overlays
   - provide conversion into `ServerConfig`
-- `config/file.rs`
-  - config discovery and TOML parsing helpers
-- `config/env.rs`
-  - `ROOK_*` env parsing and typed overrides
-- `config/export.rs`
-  - operator-safe redacted export rendering
-- `doctor/mod.rs`
-  - command entrypoint and aggregation of diagnostic checks
-- `doctor/checks.rs`
-  - deterministic local checks for config, DB, assets, and auth consistency
-- `health/mod.rs`
+- `doctor.rs`
+  - command entrypoint and deterministic local checks for config, DB, assets, and auth consistency
+- `health.rs`
   - readiness/liveness domain types and evaluation logic
-- `observability/mod.rs`
-  - metrics bootstrap and runtime registry holder
-- `observability/metrics.rs`
-  - counter/histogram definitions and small emission helpers
-- `observability/handlers.rs`
-  - metrics endpoint handler on the admin surface
+- `observability.rs`
+  - metrics bootstrap, counter/histogram definitions, and small emission helpers
+  - back the admin-surface metrics endpoint through shared registry rendering
 
 `main.rs`, `server/mod.rs`, and `admin/*` remain the main integration points.
 

@@ -241,6 +241,9 @@ The Phase 1 metrics baseline MUST include at minimum:
 
 The metrics surface SHOULD be scrape-friendly for operators.
 
+The metrics surface MUST use Prometheus/OpenMetrics text exposition with a stable `Content-Type`
+header so downstream scrapers can rely on the format contract.
+
 Instrumentation MUST be attached through stable middleware, transport hooks, or gateway helper
 boundaries where available; it MUST NOT require one-off per-handler duplication to satisfy the
 baseline contract.
@@ -252,6 +255,8 @@ The metrics surface MUST be observable without requiring operator access to appl
 - GIVEN a running Rook server with Phase 1 observability enabled
 - WHEN an operator requests the metrics endpoint
 - THEN the server MUST return a successful metrics response
+- AND the response MUST advertise `application/openmetrics-text; version=1.0.0; charset=utf-8`
+- AND the response body MUST conform to Prometheus/OpenMetrics text exposition
 - AND the response MUST include metric families for the Phase 1 baseline
 
 #### Scenario: request metrics increment for core routed traffic

@@ -77,17 +77,25 @@ impl ServerConfig {
     }
 }
 
+fn config_startup_ready(config: &ServerConfig) -> bool {
+    config.inbound_auth.validate().is_ok()
+        && config.transport.validate().is_ok()
+        && config.rate_limits.validate().is_ok()
+        && config.idempotency.validate().is_ok()
+}
+
 async fn build_app_with_registry(
     config: ServerConfig,
     registry: RookRegistry,
 ) -> Result<Router, RookError> {
     let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
+    let config_ready = config_startup_ready(&config);
     build_app_with_registry_and_startup_state(
         config,
         registry,
         idempotency_service,
         Arc::new(StartupDependencyState {
-            config_ready: true,
+            config_ready,
             database_ready: true,
             router_ready: true,
             assets_ready: dashboard::assets_ready(),
@@ -102,12 +110,13 @@ async fn build_app_with_registry_and_idempotency(
     registry: RookRegistry,
     idempotency_service: SharedIdempotencyService,
 ) -> Result<Router, RookError> {
+    let config_ready = config_startup_ready(&config);
     build_app_with_registry_and_startup_state(
         config,
         registry,
         idempotency_service,
         Arc::new(StartupDependencyState {
-            config_ready: true,
+            config_ready,
             database_ready: true,
             router_ready: true,
             assets_ready: dashboard::assets_ready(),
@@ -133,10 +142,7 @@ async fn build_app_with_registry_and_startup_state(
         .build()
         .map_err(|e| RookError::Gateway(format!("failed to build HTTP client: {e}")))?;
 
-    let observability = Arc::new(
-        Observability::bootstrap()
-            .map_err(|error| RookError::Gateway(format!("failed to bootstrap observability: {error}")))?,
-    );
+    let observability = Arc::new(Observability::bootstrap());
     let gateway_state = GatewayState {
         registry: registry.clone(),
         engine,
@@ -661,8 +667,8 @@ mod tests {
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
-        assert!(text.contains("rook_http_requests_total_total{surface=\"admin_api\",endpoint=\"/api/health\",status_class=\"2xx\"} 1"));
-        assert!(text.contains("rook_http_requests_total_total{surface=\"admin_api\",endpoint=\"/api/accounts/{account_id}\",status_class=\"4xx\"} 1"));
+        assert!(text.contains("rook_http_requests_total{surface=\"admin_api\",endpoint=\"/api/health\",status_class=\"2xx\"} 1"));
+        assert!(text.contains("rook_http_requests_total{surface=\"admin_api\",endpoint=\"/api/accounts/{account_id}\",status_class=\"4xx\"} 1"));
         assert!(text.contains("rook_http_request_duration_seconds_count{surface=\"admin_api\",endpoint=\"/api/health\",status_class=\"2xx\"} 1"));
         assert!(text.contains("rook_http_request_duration_seconds_count{surface=\"admin_api\",endpoint=\"/api/accounts/{account_id}\",status_class=\"4xx\"} 1"));
     }
@@ -687,7 +693,7 @@ mod tests {
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
-        assert!(text.contains("rook_rate_limit_rejections_total_total{surface=\"admin_api\",endpoint=\"/api/health\"} 1"));
+        assert!(text.contains("rook_rate_limit_rejections_total{surface=\"admin_api\",endpoint=\"/api/health\"} 1"));
     }
 
     #[tokio::test]
@@ -707,15 +713,15 @@ mod tests {
                 .headers()
                 .get(axum::http::header::CONTENT_TYPE)
                 .unwrap(),
-            "text/plain; version=0.0.4; charset=utf-8"
+            "application/openmetrics-text; version=1.0.0; charset=utf-8"
         );
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let text = String::from_utf8(body.to_vec()).unwrap();
-        assert!(text.contains("# TYPE rook_http_requests_total counter"));
+        assert!(text.contains("# TYPE rook_http_requests counter"));
         assert!(text.contains("# TYPE rook_http_request_duration_seconds histogram"));
-        assert!(text.contains("# TYPE rook_rate_limit_rejections_total counter"));
-        assert!(text.contains("# TYPE rook_idempotency_outcomes_total counter"));
-        assert!(text.contains("# TYPE rook_upstream_outcomes_total counter"));
+        assert!(text.contains("# TYPE rook_rate_limit_rejections counter"));
+        assert!(text.contains("# TYPE rook_idempotency_outcomes counter"));
+        assert!(text.contains("# TYPE rook_upstream_outcomes counter"));
     }
 
     #[tokio::test]
@@ -1396,9 +1402,9 @@ mod tests {
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
-        assert!(text.contains("rook_upstream_outcomes_total_total{vendor=\"open_ai\",outcome=\"success\"} 1"));
-        assert!(text.contains("rook_upstream_outcomes_total_total{vendor=\"open_ai\",outcome=\"http_error\"} 1"));
-        assert!(text.contains("rook_upstream_outcomes_total_total{vendor=\"unrouted\",outcome=\"route_rejected\"} 1"));
+        assert!(text.contains("rook_upstream_outcomes_total{vendor=\"open_ai\",outcome=\"success\"} 1"));
+        assert!(text.contains("rook_upstream_outcomes_total{vendor=\"open_ai\",outcome=\"http_error\"} 1"));
+        assert!(text.contains("rook_upstream_outcomes_total{vendor=\"unrouted\",outcome=\"route_rejected\"} 1"));
     }
 
     #[tokio::test]
@@ -1521,9 +1527,10 @@ mod tests {
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
-        assert!(text.contains("rook_idempotency_outcomes_total_total{surface=\"chat_completions\",outcome=\"pass\"} 1"));
-        assert!(text.contains("rook_idempotency_outcomes_total_total{surface=\"chat_completions\",outcome=\"replay\"} 1"));
-        assert!(text.contains("rook_idempotency_outcomes_total_total{surface=\"chat_completions\",outcome=\"conflict\"} 2"));
+        assert!(text.contains("rook_idempotency_outcomes_total{surface=\"chat_completions\",outcome=\"pass\"} 1"));
+        assert!(text.contains("rook_idempotency_outcomes_total{surface=\"chat_completions\",outcome=\"replay\"} 1"));
+        assert!(text.contains("rook_idempotency_outcomes_total{surface=\"chat_completions\",outcome=\"in_progress\"} 1"));
+        assert!(text.contains("rook_idempotency_outcomes_total{surface=\"chat_completions\",outcome=\"key_mismatch\"} 1"));
     }
 
     #[tokio::test]

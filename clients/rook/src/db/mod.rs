@@ -59,20 +59,30 @@ impl SqliteDb {
     /// `path` should be an absolute file path or a path understood by SQLite
     /// (e.g., `"./rook.db"`).
     pub async fn open(path: &str) -> Result<Self, RookError> {
-        let url = format!("sqlite:{path}?mode=rwc");
-        let options = SqliteConnectOptions::from_str(&url)
-            .map_err(|e| RookError::Registry(format!("failed to parse database URL {path}: {e}")))?
-            .foreign_keys(true);
-
-        let pool = SqlitePool::connect_with(options)
-            .await
-            .map_err(|e| RookError::Registry(format!("failed to open database at {path}: {e}")))?;
+        let pool = Self::connect(path, "rwc").await?;
 
         #[cfg(unix)]
         tighten_db_permissions(path)?;
 
         Self::run_migrations(&pool).await?;
         Ok(Self { pool })
+    }
+
+    /// Open an existing SQLite database at `path` without applying migrations.
+    pub async fn open_readonly(path: &str) -> Result<Self, RookError> {
+        let pool = Self::connect(path, "ro").await?;
+        Ok(Self { pool })
+    }
+
+    async fn connect(path: &str, mode: &str) -> Result<SqlitePool, RookError> {
+        let url = format!("sqlite:{path}?mode={mode}");
+        let options = SqliteConnectOptions::from_str(&url)
+            .map_err(|e| RookError::Registry(format!("failed to parse database URL {path}: {e}")))?
+            .foreign_keys(true);
+
+        SqlitePool::connect_with(options)
+            .await
+            .map_err(|e| RookError::Registry(format!("failed to open database at {path}: {e}")))
     }
 
     /// Open an in-memory SQLite database and apply the schema.

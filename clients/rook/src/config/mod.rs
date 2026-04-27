@@ -279,10 +279,17 @@ impl RookConfig {
         file_path: Option<&Path>,
         env: &HashMap<String, String>,
     ) -> Result<Self, RookError> {
-        let mut config = Self::load_from_optional_file(file_path)?;
-
-        config.apply_env_overrides(env)?;
+        let config = Self::from_sources_with_path_unvalidated(file_path, env)?;
         config.validate()?;
+        Ok(config)
+    }
+
+    pub fn from_sources_with_path_unvalidated(
+        file_path: Option<&Path>,
+        env: &HashMap<String, String>,
+    ) -> Result<Self, RookError> {
+        let mut config = Self::load_from_optional_file(file_path)?;
+        config.apply_env_overrides(env)?;
         Ok(config)
     }
 
@@ -291,10 +298,8 @@ impl RookConfig {
             self.host = host.clone();
         }
 
-        if let Some(port) = env.get("ROOK_PORT") {
-            self.port = port.parse::<u16>().map_err(|error| {
-                RookError::Config(format!("invalid ROOK_PORT value '{port}': {error}"))
-            })?;
+        if let Some(port) = override_from_env::<u16>(env, "ROOK_PORT")? {
+            self.port = port;
         }
 
         if let Some(enable_tui) = env.get("ROOK_ENABLE_TUI") {
@@ -321,12 +326,8 @@ impl RookConfig {
             self.transport.request_id.response_header_name = response_header_name.clone();
         }
 
-        if let Some(max_length) = env.get("ROOK_TRANSPORT_REQUEST_ID_MAX_LENGTH") {
-            self.transport.request_id.max_length = max_length.parse::<usize>().map_err(|error| {
-                RookError::Config(format!(
-                    "invalid ROOK_TRANSPORT_REQUEST_ID_MAX_LENGTH value '{max_length}': {error}"
-                ))
-            })?;
+        if let Some(max_length) = override_from_env::<usize>(env, "ROOK_TRANSPORT_REQUEST_ID_MAX_LENGTH")? {
+            self.transport.request_id.max_length = max_length;
         }
 
         if let Some(enabled) = env.get("ROOK_TRANSPORT_TRUSTED_PROXY_ENABLED") {
@@ -381,57 +382,28 @@ impl RookConfig {
                 parse_bool_env("ROOK_TRANSPORT_TRUSTED_PROXY_ALLOW_X_REAL_IP", x_real_ip)?;
         }
 
-        if let Some(max_requests) = env.get("ROOK_API_RATE_LIMIT_MAX_REQUESTS") {
-            self.rate_limits.api.max_requests = max_requests.parse::<u32>().map_err(|error| {
-                RookError::Config(format!(
-                    "invalid ROOK_API_RATE_LIMIT_MAX_REQUESTS value '{max_requests}': {error}"
-                ))
-            })?;
+        if let Some(max_requests) = override_from_env::<u32>(env, "ROOK_API_RATE_LIMIT_MAX_REQUESTS")? {
+            self.rate_limits.api.max_requests = max_requests;
         }
 
-        if let Some(window_seconds) = env.get("ROOK_API_RATE_LIMIT_WINDOW_SECONDS") {
-            self.rate_limits.api.window_seconds =
-                window_seconds.parse::<u64>().map_err(|error| {
-                    RookError::Config(format!(
-                        "invalid ROOK_API_RATE_LIMIT_WINDOW_SECONDS value '{window_seconds}': {error}"
-                    ))
-                })?;
+        if let Some(window_seconds) = override_from_env::<u64>(env, "ROOK_API_RATE_LIMIT_WINDOW_SECONDS")? {
+            self.rate_limits.api.window_seconds = window_seconds;
         }
 
-        if let Some(max_requests) = env.get("ROOK_V1_MODELS_RATE_LIMIT_MAX_REQUESTS") {
-            self.rate_limits.v1_models.max_requests =
-                max_requests.parse::<u32>().map_err(|error| {
-                    RookError::Config(format!(
-                        "invalid ROOK_V1_MODELS_RATE_LIMIT_MAX_REQUESTS value '{max_requests}': {error}"
-                    ))
-                })?;
+        if let Some(max_requests) = override_from_env::<u32>(env, "ROOK_V1_MODELS_RATE_LIMIT_MAX_REQUESTS")? {
+            self.rate_limits.v1_models.max_requests = max_requests;
         }
 
-        if let Some(window_seconds) = env.get("ROOK_V1_MODELS_RATE_LIMIT_WINDOW_SECONDS") {
-            self.rate_limits.v1_models.window_seconds =
-                window_seconds.parse::<u64>().map_err(|error| {
-                    RookError::Config(format!(
-                        "invalid ROOK_V1_MODELS_RATE_LIMIT_WINDOW_SECONDS value '{window_seconds}': {error}"
-                    ))
-                })?;
+        if let Some(window_seconds) = override_from_env::<u64>(env, "ROOK_V1_MODELS_RATE_LIMIT_WINDOW_SECONDS")? {
+            self.rate_limits.v1_models.window_seconds = window_seconds;
         }
 
-        if let Some(max_requests) = env.get("ROOK_V1_CHAT_RATE_LIMIT_MAX_REQUESTS") {
-            self.rate_limits.v1_chat_completions.max_requests =
-                max_requests.parse::<u32>().map_err(|error| {
-                    RookError::Config(format!(
-                        "invalid ROOK_V1_CHAT_RATE_LIMIT_MAX_REQUESTS value '{max_requests}': {error}"
-                    ))
-                })?;
+        if let Some(max_requests) = override_from_env::<u32>(env, "ROOK_V1_CHAT_RATE_LIMIT_MAX_REQUESTS")? {
+            self.rate_limits.v1_chat_completions.max_requests = max_requests;
         }
 
-        if let Some(window_seconds) = env.get("ROOK_V1_CHAT_RATE_LIMIT_WINDOW_SECONDS") {
-            self.rate_limits.v1_chat_completions.window_seconds =
-                window_seconds.parse::<u64>().map_err(|error| {
-                    RookError::Config(format!(
-                        "invalid ROOK_V1_CHAT_RATE_LIMIT_WINDOW_SECONDS value '{window_seconds}': {error}"
-                    ))
-                })?;
+        if let Some(window_seconds) = override_from_env::<u64>(env, "ROOK_V1_CHAT_RATE_LIMIT_WINDOW_SECONDS")? {
+            self.rate_limits.v1_chat_completions.window_seconds = window_seconds;
         }
 
         if let Some(enabled) = env.get("ROOK_CHAT_IDEMPOTENCY_ENABLED") {
@@ -439,14 +411,10 @@ impl RookConfig {
                 parse_bool_env("ROOK_CHAT_IDEMPOTENCY_ENABLED", enabled)?;
         }
 
-        if let Some(replay_window_seconds) = env.get("ROOK_CHAT_IDEMPOTENCY_REPLAY_WINDOW_SECONDS") {
-            self.idempotency.chat_completions.replay_window_seconds = replay_window_seconds
-                .parse::<u64>()
-                .map_err(|error| {
-                    RookError::Config(format!(
-                        "invalid ROOK_CHAT_IDEMPOTENCY_REPLAY_WINDOW_SECONDS value '{replay_window_seconds}': {error}"
-                    ))
-                })?;
+        if let Some(replay_window_seconds) =
+            override_from_env::<u64>(env, "ROOK_CHAT_IDEMPOTENCY_REPLAY_WINDOW_SECONDS")?
+        {
+            self.idempotency.chat_completions.replay_window_seconds = replay_window_seconds;
         }
 
         Ok(())
@@ -497,13 +465,32 @@ pub struct InboundAuthExportView {
     pub bearer_token: Option<String>,
 }
 
+fn parse_numeric_env<T: FromStr>(name: &str, value: &str) -> Result<T, RookError>
+where
+    T::Err: std::fmt::Display,
+{
+    value
+        .parse::<T>()
+        .map_err(|error| RookError::Config(format!("invalid {name} value '{value}': {error}")))
+}
+
+fn override_from_env<T: FromStr>(
+    env: &HashMap<String, String>,
+    name: &str,
+) -> Result<Option<T>, RookError>
+where
+    T::Err: std::fmt::Display,
+{
+    env.get(name)
+        .map(|value| parse_numeric_env(name, value))
+        .transpose()
+}
+
 fn parse_bool_env(name: &str, value: &str) -> Result<bool, RookError> {
     match value.trim().to_ascii_lowercase().as_str() {
         "true" | "1" | "yes" | "on" => Ok(true),
         "false" | "0" | "no" | "off" => Ok(false),
-        other => Err(RookError::Config(format!(
-            "invalid {name} value '{other}'"
-        ))),
+        _ => Err(RookError::Config(format!("invalid {name} value '{value}'"))),
     }
 }
 
@@ -516,19 +503,35 @@ impl RookConfigExportView {
             db_path: config.db_path.display().to_string(),
             inbound_auth: InboundAuthExportView {
                 enabled: config.inbound_auth.enabled,
-                bearer_token: Some(match config.inbound_auth.bearer_token.as_deref() {
-                    Some(token) if !token.trim().is_empty() => "[redacted]".to_string(),
-                    _ => "[not configured]".to_string(),
-                }),
+                bearer_token: if config.inbound_auth.enabled {
+                    Some(match config.inbound_auth.bearer_token.as_deref() {
+                        Some(token) if !token.trim().is_empty() => "[redacted]".to_string(),
+                        _ => "[not configured]".to_string(),
+                    })
+                } else {
+                    None
+                },
             },
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct InboundAuthConfig {
     pub enabled: bool,
     pub bearer_token: Option<String>,
+}
+
+impl std::fmt::Debug for InboundAuthConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InboundAuthConfig")
+            .field("enabled", &self.enabled)
+            .field(
+                "bearer_token",
+                &self.bearer_token.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -787,8 +790,22 @@ mod tests {
             ..Default::default()
         });
 
-        assert_eq!(config.inbound_auth.enabled, true);
+        assert!(config.inbound_auth.enabled);
         assert_eq!(config.inbound_auth.bearer_token.as_deref(), Some("[redacted]"));
+    }
+
+    #[test]
+    fn rook_config_export_view_omits_token_when_inbound_auth_is_disabled() {
+        let config = super::RookConfigExportView::from_config(&super::RookConfig {
+            inbound_auth: InboundAuthConfig {
+                enabled: false,
+                bearer_token: Some("super-secret-token".to_string()),
+            },
+            ..Default::default()
+        });
+
+        assert!(!config.inbound_auth.enabled);
+        assert_eq!(config.inbound_auth.bearer_token, None);
     }
 
     #[test]
@@ -805,6 +822,33 @@ mod tests {
     }
 
     #[test]
+    fn inbound_auth_debug_redacts_bearer_token() {
+        let rendered = format!(
+            "{:?}",
+            InboundAuthConfig {
+                enabled: true,
+                bearer_token: Some("super-secret-token".to_string()),
+            }
+        );
+
+        assert!(rendered.contains("<redacted>"));
+        assert!(!rendered.contains("super-secret-token"));
+    }
+
+    #[test]
+    fn parse_bool_env_reports_raw_input() {
+        let error = super::parse_bool_env("ROOK_ENABLE_TUI", " true\nmaybe ")
+            .expect_err("invalid bool env should fail");
+
+        match error {
+            crate::domain::RookError::Config(message) => {
+                assert_eq!(message, "invalid ROOK_ENABLE_TUI value ' true\nmaybe '");
+            }
+            other => panic!("expected config error, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn rook_config_from_toml_overrides_default_values() {
         let config = super::RookConfig::from_toml_str(
             r#"
@@ -818,7 +862,7 @@ mod tests {
 
         assert_eq!(config.host, "0.0.0.0");
         assert_eq!(config.port, 5151);
-        assert_eq!(config.enable_tui, true);
+        assert!(config.enable_tui);
         assert_eq!(config.db_path, std::path::PathBuf::from("/tmp/rook-test.db"));
     }
 
@@ -836,7 +880,7 @@ mod tests {
 
         assert_eq!(config.host, "0.0.0.0");
         assert_eq!(config.port, 5252);
-        assert_eq!(config.enable_tui, true);
+        assert!(config.enable_tui);
         assert_eq!(config.db_path, std::path::PathBuf::from("/var/lib/rook.db"));
     }
 

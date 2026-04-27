@@ -51,14 +51,7 @@ pub async fn run_with_config_path(
     match RookConfig::from_sources_with_path(file_path, env) {
         Ok(config) => {
             let auth_state = config.inbound_auth.operator_state();
-            let inbound_auth_check = if auth_state.enabled && !auth_state.token_configured {
-                DoctorCheckResult {
-                    name: "inbound_auth",
-                    status: DoctorStatus::Fail,
-                    message: "inbound auth is enabled but no bearer token is configured"
-                        .to_string(),
-                }
-            } else if auth_state.enabled {
+            let inbound_auth_check = if auth_state.enabled {
                 DoctorCheckResult {
                     name: "inbound_auth",
                     status: DoctorStatus::Pass,
@@ -88,12 +81,12 @@ pub async fn run_with_config_path(
                 }
             };
 
-            let db_check = match RookRegistry::open(&config.db_path.to_string_lossy()).await {
+            let db_check = match RookRegistry::open_readonly(&config.db_path.to_string_lossy()).await {
                 Ok(_) => DoctorCheckResult {
                     name: "database",
                     status: DoctorStatus::Pass,
                     message: format!(
-                        "registry opened successfully at {}",
+                        "registry connectivity verified in read-only mode at {}",
                         config.db_path.display()
                     ),
                 },
@@ -101,7 +94,7 @@ pub async fn run_with_config_path(
                     name: "database",
                     status: DoctorStatus::Fail,
                     message: format!(
-                        "failed to open registry at {}: {error}",
+                        "failed to open registry read-only at {}: {error}",
                         config.db_path.display()
                     ),
                 },
@@ -190,9 +183,20 @@ fn render_status(status: DoctorStatus) -> &'static str {
 mod tests {
     use super::*;
 
+    async fn initialized_db_env() -> HashMap<String, String> {
+        let db_path = std::env::temp_dir().join(format!("rook-doctor-{}.db", uuid::Uuid::new_v4()));
+        crate::registry::RookRegistry::open(&db_path.to_string_lossy())
+            .await
+            .expect("test database should initialize");
+        HashMap::from([(
+            "ROOK_DB_PATH".to_string(),
+            db_path.to_string_lossy().to_string(),
+        )])
+    }
+
     #[tokio::test]
     async fn doctor_report_passes_when_effective_config_validates() {
-        let env = HashMap::new();
+        let env = initialized_db_env().await;
 
         let report = run_with_config_path(None, &env).await;
 
@@ -234,7 +238,7 @@ mod tests {
         assert_eq!(report.checks[2].status, DoctorStatus::Pass);
         assert_eq!(report.checks[3].name, "database");
         assert_eq!(report.checks[3].status, DoctorStatus::Fail);
-        assert!(report.checks[3].message.contains("failed to open registry"));
+        assert!(report.checks[3].message.contains("failed to open registry read-only"));
     }
 
     #[tokio::test]
@@ -255,13 +259,14 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_report_inbound_auth_check_does_not_leak_token_value() {
-        let env = HashMap::from([
+        let mut env = initialized_db_env().await;
+        env.extend(HashMap::from([
             ("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string()),
             (
                 "ROOK_INBOUND_AUTH_TOKEN".to_string(),
                 "super-secret-token".to_string(),
             ),
-        ]);
+        ]));
 
         let report = run_with_config_path(None, &env).await;
 
