@@ -35,7 +35,8 @@ pub fn resolve_forwarded_context(
         };
     }
 
-    let (trusted_any, malformed_any) = apply_allowed_forwarded_headers(headers, config, &mut context);
+    let (trusted_any, malformed_any) =
+        apply_allowed_forwarded_headers(headers, config, &mut context);
     context.trust = resolve_forwarded_trust(trusted_any, malformed_any, forwarded_present);
 
     ForwardedResolution {
@@ -125,6 +126,7 @@ fn apply_allowed_forwarded_headers(
     (trusted_any, malformed_any)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_forwarded_value<T>(
     headers: &HeaderMap,
     enabled: bool,

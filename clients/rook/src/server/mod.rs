@@ -667,7 +667,11 @@ mod tests {
         let missing_account_path = format!("/api/accounts/{missing_account_id}");
         let missing_response = app
             .clone()
-            .oneshot(Request::get(&missing_account_path).body(Body::empty()).unwrap())
+            .oneshot(
+                Request::get(&missing_account_path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(missing_response.status(), StatusCode::NOT_FOUND);
@@ -701,7 +705,9 @@ mod tests {
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
-        assert!(text.contains("rook_rate_limit_rejections_total{surface=\"admin_api\",endpoint=\"/api/accounts\"} 1"));
+        assert!(text.contains(
+            "rook_rate_limit_rejections_total{surface=\"admin_api\",endpoint=\"/api/accounts\"} 1"
+        ));
     }
 
     #[tokio::test]
@@ -1379,12 +1385,14 @@ mod tests {
         let ok_upstream = Router::new().route("/v1/chat/completions", post(ok_handler));
         let ok_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let ok_addr: SocketAddr = ok_listener.local_addr().unwrap();
-        let _ok_server = tokio::spawn(async move { axum::serve(ok_listener, ok_upstream).await.unwrap() });
+        let _ok_server =
+            tokio::spawn(async move { axum::serve(ok_listener, ok_upstream).await.unwrap() });
 
         let error_upstream = Router::new().route("/v1/chat/completions", post(error_handler));
         let error_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let error_addr: SocketAddr = error_listener.local_addr().unwrap();
-        let _error_server = tokio::spawn(async move { axum::serve(error_listener, error_upstream).await.unwrap() });
+        let _error_server =
+            tokio::spawn(async move { axum::serve(error_listener, error_upstream).await.unwrap() });
 
         let registry = RookRegistry::open_in_memory().await.unwrap();
         seed_route(
@@ -1461,9 +1469,14 @@ mod tests {
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
-        assert!(text.contains("rook_upstream_outcomes_total{vendor=\"open_ai\",outcome=\"success\"} 1"));
-        assert!(text.contains("rook_upstream_outcomes_total{vendor=\"open_ai\",outcome=\"http_error\"} 1"));
-        assert!(text.contains("rook_upstream_outcomes_total{vendor=\"unrouted\",outcome=\"route_rejected\"} 1"));
+        assert!(
+            text.contains("rook_upstream_outcomes_total{vendor=\"open_ai\",outcome=\"success\"} 1")
+        );
+        assert!(text
+            .contains("rook_upstream_outcomes_total{vendor=\"open_ai\",outcome=\"http_error\"} 1"));
+        assert!(text.contains(
+            "rook_upstream_outcomes_total{vendor=\"unrouted\",outcome=\"route_rejected\"} 1"
+        ));
     }
 
     #[tokio::test]
@@ -1581,7 +1594,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(replay.status(), StatusCode::OK);
-        assert_eq!(replay.headers().get("idempotency-replayed").unwrap(), "true");
+        assert_eq!(
+            replay.headers().get("idempotency-replayed").unwrap(),
+            "true"
+        );
 
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
