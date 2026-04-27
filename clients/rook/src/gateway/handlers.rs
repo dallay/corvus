@@ -4,6 +4,7 @@ use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response, Sse};
 use axum::Json;
 
+use crate::domain::ProviderVendor;
 use crate::gateway::streaming::upstream_event_stream;
 use crate::gateway::types::{
     ChatCompletionRequest, GatewayErrorBody, GatewayErrorResponse, ModelListResponse, ModelObject,
@@ -14,6 +15,35 @@ use crate::gateway::GatewayState;
 use crate::services::{health::HealthService as _, route::RouteService as _};
 
 const FAILURE_COOLDOWN_SECS: u64 = 60;
+
+fn vendor_label(vendor: &ProviderVendor) -> &'static str {
+    match vendor {
+        ProviderVendor::OpenAi => "open_ai",
+        ProviderVendor::Anthropic => "anthropic",
+        ProviderVendor::Google => "google",
+        ProviderVendor::OpenRouter => "open_router",
+        ProviderVendor::DeepSeek => "deep_seek",
+        ProviderVendor::Other(_) => "other",
+    }
+}
+
+fn record_upstream_outcome(state: &GatewayState, vendor: &'static str, outcome: &'static str) {
+    state
+        .observability
+        .upstream_outcomes_total()
+        .inc(vendor, outcome);
+}
+
+fn classify_upstream_error(error: &UpstreamError) -> &'static str {
+    match error {
+        UpstreamError::MissingBaseUrl { .. } | UpstreamError::MissingAuthHeader { .. } => {
+            "account_misconfigured"
+        }
+        UpstreamError::UpstreamStatus { .. } => "http_error",
+        UpstreamError::Timeout { .. } => "timeout",
+        UpstreamError::Transport { .. } | UpstreamError::ReadBody { .. } => "network_error",
+    }
+}
 
 pub async fn handle_chat_completions(State(state): State<GatewayState>, body: Bytes) -> Response {
     let request: ChatCompletionRequest = match serde_json::from_slice(&body) {
@@ -43,6 +73,7 @@ async fn handle_buffered_chat_completions(
     let decision = match state.engine.resolve(&request.model).await {
         Ok(decision) => decision,
         Err(error) => {
+            record_upstream_outcome(state, "unrouted", "route_rejected");
             tracing::warn!(model = %request.model, error = %error, "routing failed");
             return error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -53,10 +84,12 @@ async fn handle_buffered_chat_completions(
         }
     };
 
+    let vendor = vendor_label(&decision.account.vendor);
     tracing::info!(model = %request.model, account_id = %decision.account.id, "proxying chat completion");
 
     match upstream::proxy_chat_completion(&state.client, &decision.account, body).await {
         Ok(upstream_response) => {
+            record_upstream_outcome(state, vendor, "success");
             let registry = state.registry.clone();
             let account_id = decision.account.id;
             tokio::spawn(async move {
@@ -78,6 +111,7 @@ async fn handle_buffered_chat_completions(
             response
         }
         Err(error) => {
+            record_upstream_outcome(state, vendor, classify_upstream_error(&error));
             let registry = state.registry.clone();
             let account_id = decision.account.id;
             tokio::spawn(async move {
@@ -99,6 +133,7 @@ async fn handle_streaming_chat_completions(
     let decision = match state.engine.resolve(&request.model).await {
         Ok(decision) => decision,
         Err(error) => {
+            record_upstream_outcome(state, "unrouted", "route_rejected");
             tracing::warn!(model = %request.model, error = %error, "routing failed");
             return error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -109,9 +144,11 @@ async fn handle_streaming_chat_completions(
         }
     };
 
+    let vendor = vendor_label(&decision.account.vendor);
     let account_id = decision.account.id;
     match upstream::open_chat_completion_stream(&state.client, &decision.account, body).await {
         Ok(upstream_response) => {
+            record_upstream_outcome(state, vendor, "success");
             let registry = state.registry.clone();
             tokio::spawn(async move {
                 registry.health().mark_success(account_id).await;
@@ -127,6 +164,7 @@ async fn handle_streaming_chat_completions(
             response
         }
         Err(error) => {
+            record_upstream_outcome(state, vendor, classify_upstream_error(&error));
             let registry = state.registry.clone();
             tokio::spawn(async move {
                 registry
@@ -222,6 +260,7 @@ mod tests {
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use serde_json::{json, Value};
+    use std::sync::Arc;
     use tower::util::ServiceExt;
 
     use crate::domain::{
@@ -283,6 +322,7 @@ mod tests {
             registry: registry.clone(),
             engine,
             client,
+            observability: Arc::new(crate::observability::Observability::bootstrap()),
         };
         (build_router(state), registry)
     }

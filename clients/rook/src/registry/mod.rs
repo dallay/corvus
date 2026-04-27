@@ -52,6 +52,12 @@ impl RookRegistry {
         Ok(Self::from_db(db))
     }
 
+    /// Open an existing Rook database at `path` without applying migrations.
+    pub async fn open_readonly(path: &str) -> Result<Self, RookError> {
+        let db = SqliteDb::open_readonly(path).await?;
+        Ok(Self::from_db(db))
+    }
+
     /// Create a registry backed by an in-memory database.
     ///
     /// Intended for tests only.  Each call produces an isolated database.

@@ -17,14 +17,18 @@ use crate::gateway::types::{
 };
 use crate::idempotency::canonical::{canonicalize_json_bytes, hash_canonical_bytes};
 use crate::idempotency::is_valid_idempotency_key;
+use crate::observability::Observability;
 use crate::idempotency::types::{ChatIdempotencyScope, ReserveResult, StoredGatewayResponse};
 use crate::services::idempotency::SharedIdempotencyService;
 use axum::Json;
+
+const IDEMPOTENCY_SURFACE: &str = "gateway_chat_completions";
 
 #[derive(Clone, Debug)]
 pub struct ChatIdempotencyMiddlewareState {
     pub config: Arc<ChatCompletionsIdempotencyConfig>,
     pub service: SharedIdempotencyService,
+    pub observability: Arc<Observability>,
 }
 
 pub async fn apply_chat_idempotency(
@@ -135,18 +139,40 @@ pub async fn apply_chat_idempotency(
     };
 
     match reserve {
-        ReserveResult::ReplayCompleted(stored) => replay_response(stored),
-        ReserveResult::ReplayInProgress => gateway_idempotency_error_response(
-            StatusCode::CONFLICT,
-            "an equivalent request is already in progress",
-            "idempotency_request_in_progress",
-        ),
-        ReserveResult::KeyReusedMismatch => gateway_idempotency_error_response(
-            StatusCode::CONFLICT,
-            "idempotency key has already been used for a different request",
-            "idempotency_key_reused",
-        ),
+        ReserveResult::ReplayCompleted(stored) => {
+            state
+                .observability
+                .idempotency_outcomes_total()
+                .inc(IDEMPOTENCY_SURFACE, "replay");
+            replay_response(stored)
+        }
+        ReserveResult::ReplayInProgress => {
+            state
+                .observability
+                .idempotency_outcomes_total()
+                .inc(IDEMPOTENCY_SURFACE, "in_progress");
+            gateway_idempotency_error_response(
+                StatusCode::CONFLICT,
+                "an equivalent request is already in progress",
+                "idempotency_request_in_progress",
+            )
+        }
+        ReserveResult::KeyReusedMismatch => {
+            state
+                .observability
+                .idempotency_outcomes_total()
+                .inc(IDEMPOTENCY_SURFACE, "key_mismatch");
+            gateway_idempotency_error_response(
+                StatusCode::CONFLICT,
+                "idempotency key has already been used for a different request",
+                "idempotency_key_reused",
+            )
+        }
         ReserveResult::ReservedNew => {
+            state
+                .observability
+                .idempotency_outcomes_total()
+                .inc(IDEMPOTENCY_SURFACE, "pass");
             parts.extensions.insert(raw_body.clone());
             let request = Request::from_parts(parts, Body::from(raw_body.clone()));
             let response = next.run(request).await;

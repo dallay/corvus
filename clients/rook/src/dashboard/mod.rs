@@ -26,6 +26,10 @@ use rust_embed::RustEmbed;
 #[folder = "assets/"]
 pub struct DashboardAssets;
 
+pub fn assets_ready() -> bool {
+    DashboardAssets::get("index.html").is_some()
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
