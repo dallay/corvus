@@ -1116,6 +1116,7 @@ mod tests {
                         session_id: Some("session-1".to_string()),
                         error: "blocked by policy".to_string(),
                         tool_result: Some(expected.clone()),
+                        escalation: None,
                     },
                 }],
             },
@@ -1177,6 +1178,7 @@ mod tests {
                             structured: Some(json!({"mode": "mailbox"})),
                         },
                         status: ChildTerminalStatus::Succeeded,
+                        escalation: None,
                     },
                 },
             })
