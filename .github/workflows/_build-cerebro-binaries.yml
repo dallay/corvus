@@ -84,8 +84,135 @@ jobs:
         working-directory: clients/cerebro
         run: cargo build --release --locked --target ${{ matrix.target }} --bin cerebro
 
-      - name: 🔎 Smoke test built binary (Unix)
-        if: runner.os != 'Windows'
+      - name: 🔎 Smoke test built binary (Linux real startup)
+        if: runner.os == 'Linux'
+        working-directory: clients/cerebro
+        env:
+          CEREBRO_SMOKE_PORT: "18443"
+          CEREBRO_SMOKE_TOKEN: "ci-smoke-token"
+        run: |
+          set -euo pipefail
+
+          BINARY="./target/${{ matrix.target }}/release/cerebro"
+          CONFIG_FILE="$(mktemp cerebro-smoke.XXXXXX.toml)"
+          LOG_FILE="$(mktemp cerebro-smoke.XXXXXX.log)"
+          MCP_NO_AUTH_RESPONSE="$(mktemp cerebro-smoke-no-auth.XXXXXX.json)"
+          MCP_AUTH_RESPONSE="$(mktemp cerebro-smoke-auth.XXXXXX.json)"
+          MCP_LIST_REQUEST_FILE="$(mktemp cerebro-smoke-list-request.XXXXXX.json)"
+          MCP_CALL_REQUEST_FILE="$(mktemp cerebro-smoke-call-request.XXXXXX.json)"
+          PID=""
+
+          cleanup() {
+            if [ -n "${PID}" ] && kill -0 "${PID}" 2>/dev/null; then
+              kill "${PID}" 2>/dev/null || true
+              wait "${PID}" 2>/dev/null || true
+            fi
+          }
+
+          dump_logs_on_failure() {
+            status=$?
+            if [ "${status}" -ne 0 ]; then
+              echo "::group::Cerebro smoke log"
+              if [ -f "${LOG_FILE}" ]; then
+                cat "${LOG_FILE}"
+              else
+                echo "No log file captured"
+              fi
+              echo "::endgroup::"
+            fi
+            cleanup
+            rm -f "${CONFIG_FILE}" "${LOG_FILE}" "${MCP_NO_AUTH_RESPONSE}" "${MCP_AUTH_RESPONSE}" "${MCP_LIST_REQUEST_FILE}" "${MCP_CALL_REQUEST_FILE}"
+            exit "${status}"
+          }
+
+          trap dump_logs_on_failure EXIT
+
+          cat > "${CONFIG_FILE}" <<EOF
+          host = "127.0.0.1"
+          port = ${CEREBRO_SMOKE_PORT}
+          auth_token = "${CEREBRO_SMOKE_TOKEN}"
+          storage_mode = "in_memory"
+
+          [tui]
+          enabled = false
+          EOF
+
+          cat > "${MCP_LIST_REQUEST_FILE}" <<'EOF'
+          {
+            "jsonrpc": "2.0",
+            "id": "smoke-tools-list",
+            "method": "tools/list"
+          }
+          EOF
+
+          cat > "${MCP_CALL_REQUEST_FILE}" <<'EOF'
+          {
+            "jsonrpc": "2.0",
+            "id": "smoke-mem-stats",
+            "method": "tools/call",
+            "params": {
+              "name": "mem_stats",
+              "arguments": {
+                "input": {}
+              }
+            }
+          }
+          EOF
+
+          "${BINARY}" serve --config "${CONFIG_FILE}" >"${LOG_FILE}" 2>&1 &
+          PID=$!
+
+          for _ in $(seq 1 30); do
+            if ! kill -0 "${PID}" 2>/dev/null; then
+              echo "Cerebro smoke process exited before becoming healthy"
+              exit 1
+            fi
+            if curl --silent --show-error --fail "http://127.0.0.1:${CEREBRO_SMOKE_PORT}/healthz" > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          curl --silent --show-error --fail "http://127.0.0.1:${CEREBRO_SMOKE_PORT}/healthz" | python3 -c 'import json, sys; payload = json.load(sys.stdin); assert payload["status"] == "ok", payload'
+
+          curl --silent --show-error --fail "http://127.0.0.1:${CEREBRO_SMOKE_PORT}/readyz" | python3 -c 'import json, sys; payload = json.load(sys.stdin); assert payload["status"] == "ready", payload'
+
+          curl --silent --show-error \
+            -H "Content-Type: application/json" \
+            --data @"${MCP_CALL_REQUEST_FILE}" \
+            "http://127.0.0.1:${CEREBRO_SMOKE_PORT}/mcp" > "${MCP_NO_AUTH_RESPONSE}"
+
+          python3 - "${MCP_NO_AUTH_RESPONSE}" <<'EOF'
+          import json, sys
+          payload = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert payload["jsonrpc"] == "2.0", payload
+          assert payload.get("id") == "smoke-mem-stats", payload
+          assert payload.get("result") is None, payload
+          error = payload.get("error")
+          assert isinstance(error, dict), payload
+          assert error.get("code") == -32001, payload
+          EOF
+
+          curl --silent --show-error --fail \
+            -H "Authorization: Bearer ${CEREBRO_SMOKE_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data @"${MCP_LIST_REQUEST_FILE}" \
+            "http://127.0.0.1:${CEREBRO_SMOKE_PORT}/mcp" > "${MCP_AUTH_RESPONSE}"
+
+          python3 - "${MCP_AUTH_RESPONSE}" <<'EOF'
+          import json, sys
+          payload = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert payload["jsonrpc"] == "2.0", payload
+          assert payload.get("id") == "smoke-tools-list", payload
+          assert payload.get("error") is None, payload
+          result = payload.get("result")
+          assert isinstance(result, dict), payload
+          tools = result.get("tools")
+          assert isinstance(tools, list), payload
+          EOF
+
+      - name: 🔎 Smoke test built binary (macOS)
+        if: runner.os == 'macOS'
         working-directory: clients/cerebro
         run: ./target/${{ matrix.target }}/release/cerebro --help > /dev/null
 
