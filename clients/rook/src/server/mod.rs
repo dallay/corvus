@@ -512,10 +512,29 @@ mod tests {
         api_base_override: Option<String>,
         api_key: Option<String>,
     ) -> AccountId {
+        seed_route_with_display_name(
+            registry,
+            logical_model,
+            vendor,
+            "test-account",
+            api_base_override,
+            api_key,
+        )
+        .await
+    }
+
+    async fn seed_route_with_display_name(
+        registry: &RookRegistry,
+        logical_model: &str,
+        vendor: ProviderVendor,
+        display_name: &str,
+        api_base_override: Option<String>,
+        api_key: Option<String>,
+    ) -> AccountId {
         let account = ProviderAccount {
             id: AccountId::generate(),
             vendor,
-            display_name: "test-account".to_string(),
+            display_name: display_name.to_string(),
             api_base_override,
             api_key,
             enabled: true,
@@ -554,6 +573,9 @@ mod tests {
     #[derive(Clone, Default)]
     struct FailingIdempotencyService;
 
+    #[derive(Clone, Default)]
+    struct FinalizeFailingIdempotencyService;
+
     impl IdempotencyService for FailingIdempotencyService {
         fn reserve_chat_completion<'a>(
             &'a self,
@@ -568,6 +590,43 @@ mod tests {
                     "forced idempotency failure for tests".to_string(),
                 ))
             })
+        }
+
+        fn complete_chat_completion<'a>(
+            &'a self,
+            _scope: &'a ChatIdempotencyScope,
+            _request_hash: &'a str,
+            _response: StoredGatewayResponse,
+            _completed_at: chrono::DateTime<chrono::Utc>,
+        ) -> BoxFuture<'a, Result<(), RookError>> {
+            Box::pin(async { Err(RookError::Registry("forced completion failure".to_string())) })
+        }
+
+        fn prune_expired_chat_completions<'a>(
+            &'a self,
+            _now: chrono::DateTime<chrono::Utc>,
+        ) -> BoxFuture<'a, Result<u64, RookError>> {
+            Box::pin(async { Ok(0) })
+        }
+
+        fn get_chat_completion<'a>(
+            &'a self,
+            _scope: &'a ChatIdempotencyScope,
+        ) -> BoxFuture<'a, Result<Option<ChatIdempotencyRecord>, RookError>> {
+            Box::pin(async { Ok(None) })
+        }
+    }
+
+    impl IdempotencyService for FinalizeFailingIdempotencyService {
+        fn reserve_chat_completion<'a>(
+            &'a self,
+            _scope: &'a ChatIdempotencyScope,
+            _canonical_request_body: &'a [u8],
+            _request_hash: &'a str,
+            _now: chrono::DateTime<chrono::Utc>,
+            _replay_window: chrono::Duration,
+        ) -> BoxFuture<'a, Result<ReserveResult, RookError>> {
+            Box::pin(async { Ok(ReserveResult::ReservedNew) })
         }
 
         fn complete_chat_completion<'a>(
@@ -702,13 +761,46 @@ mod tests {
             .unwrap();
         assert_eq!(missing_response.status(), StatusCode::NOT_FOUND);
 
+        let models_response = app
+            .clone()
+            .oneshot(Request::get("/v1/models").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(models_response.status(), StatusCode::OK);
+
+        let chat_error = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "model": "gpt-4o",
+                            "messages": [{"role": "user", "content": "super secret prompt"}]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(chat_error.status(), StatusCode::SERVICE_UNAVAILABLE);
+
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
         assert!(text.contains("rook_http_requests_total{surface=\"admin_api\",endpoint=\"/api/health\",status_class=\"2xx\"} 1"));
         assert!(text.contains("rook_http_requests_total{surface=\"admin_api\",endpoint=\"/api/accounts/{account_id}\",status_class=\"4xx\"} 1"));
+        assert!(text.contains("rook_http_requests_total{surface=\"gateway_v1\",endpoint=\"/v1/models\",status_class=\"2xx\"} 1"));
+        assert!(text.contains("rook_http_requests_total{surface=\"gateway_v1\",endpoint=\"/v1/chat/completions\",status_class=\"5xx\"} 1"));
         assert!(text.contains("rook_http_request_duration_seconds_count{surface=\"admin_api\",endpoint=\"/api/health\",status_class=\"2xx\"} 1"));
         assert!(text.contains("rook_http_request_duration_seconds_count{surface=\"admin_api\",endpoint=\"/api/accounts/{account_id}\",status_class=\"4xx\"} 1"));
+        assert!(text.contains("rook_http_request_duration_seconds_count{surface=\"gateway_v1\",endpoint=\"/v1/models\",status_class=\"2xx\"} 1"));
+        assert!(text.contains("rook_http_request_duration_seconds_count{surface=\"gateway_v1\",endpoint=\"/v1/chat/completions\",status_class=\"5xx\"} 1"));
+        assert!(!text.contains("super secret prompt"));
+        assert!(!text.contains("model=\"gpt-4o\""));
     }
 
     #[tokio::test]
@@ -728,11 +820,34 @@ mod tests {
             .unwrap();
         assert_eq!(second_response.status(), StatusCode::TOO_MANY_REQUESTS);
 
+        let models_ok = app
+            .clone()
+            .oneshot(Request::get("/v1/models").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(models_ok.status(), StatusCode::OK);
+
+        let models_rejected = app
+            .clone()
+            .oneshot(Request::get("/v1/models").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(models_rejected.status(), StatusCode::TOO_MANY_REQUESTS);
+
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
         assert!(text.contains(
-            "rook_rate_limit_rejections_total{surface=\"admin_api\",endpoint=\"/api/accounts\"} 1"
+            "rook_rate_limit_outcomes_total{surface=\"admin_api\",endpoint=\"/api/accounts\",outcome=\"allow\"} 1"
+        ));
+        assert!(text.contains(
+            "rook_rate_limit_outcomes_total{surface=\"admin_api\",endpoint=\"/api/accounts\",outcome=\"reject\"} 1"
+        ));
+        assert!(text.contains(
+            "rook_rate_limit_outcomes_total{surface=\"gateway_v1\",endpoint=\"/v1/models\",outcome=\"allow\"} 1"
+        ));
+        assert!(text.contains(
+            "rook_rate_limit_outcomes_total{surface=\"gateway_v1\",endpoint=\"/v1/models\",outcome=\"reject\"} 1"
         ));
     }
 
@@ -786,9 +901,9 @@ mod tests {
         let text = String::from_utf8(body.to_vec()).unwrap();
         assert!(text.contains("# TYPE rook_http_requests counter"));
         assert!(text.contains("# TYPE rook_http_request_duration_seconds histogram"));
-        assert!(text.contains("# TYPE rook_rate_limit_rejections counter"));
+        assert!(text.contains("# TYPE rook_rate_limit_outcomes counter"));
         assert!(text.contains("# TYPE rook_idempotency_outcomes counter"));
-        assert!(text.contains("# TYPE rook_upstream_outcomes counter"));
+        assert!(text.contains("# TYPE rook_upstream_failures counter"));
     }
 
     #[tokio::test]
@@ -1437,6 +1552,31 @@ mod tests {
             Some("sk-error".to_string()),
         )
         .await;
+        seed_route_with_display_name(
+            &registry,
+            "gpt-4o-secret-account",
+            ProviderVendor::OpenAi,
+            "Bearer sk-secret",
+            Some("http://127.0.0.1:9".to_string()),
+            Some("sk-secret".to_string()),
+        )
+        .await;
+        seed_route(
+            &registry,
+            "gpt-4o-misconfigured",
+            ProviderVendor::OpenAi,
+            Some(format!("http://{ok_addr}")),
+            Some("   ".to_string()),
+        )
+        .await;
+        seed_route(
+            &registry,
+            "gpt-4o-network",
+            ProviderVendor::OpenAi,
+            Some("http://127.0.0.1:9".to_string()),
+            Some("sk-network".to_string()),
+        )
+        .await;
         let app = build_app_with_registry(ServerConfig::default(), registry)
             .await
             .unwrap();
@@ -1475,6 +1615,63 @@ mod tests {
             .unwrap();
         assert_eq!(upstream_error.status(), StatusCode::BAD_GATEWAY);
 
+        let misconfigured = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o-misconfigured","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(misconfigured.status(), StatusCode::BAD_GATEWAY);
+
+        let network = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o-network","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            network.status(),
+            StatusCode::BAD_GATEWAY | StatusCode::GATEWAY_TIMEOUT
+        ));
+
+        let secret_account = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o-secret-account","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            secret_account.status(),
+            StatusCode::BAD_GATEWAY | StatusCode::GATEWAY_TIMEOUT
+        ));
+
         let rejected = app
             .clone()
             .oneshot(
@@ -1495,14 +1692,24 @@ mod tests {
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
-        assert!(
-            text.contains("rook_upstream_outcomes_total{vendor=\"open_ai\",outcome=\"success\"} 1")
-        );
-        assert!(text
-            .contains("rook_upstream_outcomes_total{vendor=\"open_ai\",outcome=\"http_error\"} 1"));
+        assert!(!text.contains("rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-ok\",outcome=\"success\"}"));
         assert!(text.contains(
-            "rook_upstream_outcomes_total{vendor=\"unrouted\",outcome=\"route_rejected\"} 1"
+            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-error\",outcome=\"http_error\"} 1"
         ));
+        assert!(text.contains(
+            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-misconfigured\",outcome=\"account_misconfigured\"} 1"
+        ));
+        assert!(text.contains(
+            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-network\",outcome=\"network_error\"} 1"
+        ));
+        assert!(text.contains(
+            "rook_upstream_failures_total{vendor=\"unrouted\",account=\"unrouted\",model=\"unrouted\",outcome=\"route_rejected\"} 1"
+        ));
+        assert!(text.contains(
+            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"unlabeled\",model=\"gpt-4o-secret-account\",outcome=\"network_error\"} 1"
+        ));
+        assert!(!text.contains("Bearer sk-secret"));
+        assert!(!text.contains("account=\"bearer_sk-secret\""));
     }
 
     #[tokio::test]
@@ -1632,6 +1839,7 @@ mod tests {
         assert!(text.contains("rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"replay\"} 1"));
         assert!(text.contains("rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"in_progress\"} 1"));
         assert!(text.contains("rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"key_mismatch\"} 1"));
+        assert!(!text.contains("idempotency-key=\"chat-123\""));
     }
 
     #[tokio::test]
@@ -1978,6 +2186,7 @@ mod tests {
         .unwrap();
 
         let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method(axum::http::Method::POST)
@@ -1997,6 +2206,80 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
         assert_eq!(json["error"]["code"], json!("idempotency_unavailable"));
+
+        let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
+        assert_eq!(metrics_status, StatusCode::OK);
+        let text = String::from_utf8(metrics_body).unwrap();
+        assert!(text.contains(
+            "rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"unavailable\"} 1"
+        ));
+        assert!(!text.contains(
+            "rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"pass\"} 1"
+        ));
+    }
+
+    #[tokio::test]
+    async fn chat_idempotency_finalize_failure_records_unavailable_without_pass_metrics() {
+        use axum::{routing::post, Json, Router};
+        use std::net::SocketAddr;
+
+        async fn ok_handler() -> Json<serde_json::Value> {
+            Json(json!({"id": "chat-ok"}))
+        }
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let upstream = Router::new().route("/v1/chat/completions", post(ok_handler));
+        let _server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        seed_route(
+            &registry,
+            "gpt-4o",
+            ProviderVendor::OpenAi,
+            Some(format!("http://{addr}")),
+            Some("sk-test".to_string()),
+        )
+        .await;
+        let app = build_app_with_registry_and_idempotency(
+            ServerConfig::default(),
+            registry,
+            SharedIdempotencyService::boxed(FinalizeFailingIdempotencyService),
+        )
+        .await
+        .unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .header("idempotency-key", "chat-finalize-fail")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
+        assert_eq!(json["error"]["code"], json!("idempotency_unavailable"));
+
+        let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
+        assert_eq!(metrics_status, StatusCode::OK);
+        let text = String::from_utf8(metrics_body).unwrap();
+        assert!(text.contains(
+            "rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"unavailable\"} 1"
+        ));
+        assert!(!text.contains(
+            "rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"pass\"} 1"
+        ));
     }
 
     #[tokio::test]
