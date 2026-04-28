@@ -66,6 +66,8 @@ Local prerequisites:
 
 `make sonar` generates the same main coverage inputs used by CI before invoking the local scanner. As part of that flow it runs the `rust-coverage` target, so missing `cargo-llvm-cov` or `llvm-tools-preview` will cause `make sonar` to exit during preflight. The authoritative quality gate still lives in SonarCloud, but this command makes the monthly review reproducible from a developer workstation.
 
+> Note: la traducción al español de esta sección sigue pendiente para mantener la paridad del README.
+
 ## 🛠️ Tech Stack
 
 ![Kotlin](https://img.shields.io/badge/kotlin-%237F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white)

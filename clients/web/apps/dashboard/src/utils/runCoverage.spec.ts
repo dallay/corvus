@@ -74,14 +74,11 @@ describe("dashboard run-coverage script", () => {
       "--coverage.reporter=html",
       "--coverage.reporter=text",
     ]);
-    expect(args.slice(9)).toEqual(
-      expect.arrayContaining([
-        expect.stringMatching(/alpha\.spec\.ts$/),
-        expect.stringMatching(/nested[\\/]beta\.spec\.ts$/),
-        expect.stringMatching(/zeta\.spec\.ts$/),
-      ])
-    );
-    expect(args.slice(9)).toHaveLength(3);
+    expect(args.slice(9)).toEqual([
+      expect.stringMatching(/alpha\.spec\.ts$/),
+      expect.stringMatching(/nested[\\/]beta\.spec\.ts$/),
+      expect.stringMatching(/zeta\.spec\.ts$/),
+    ]);
     expect(String(options.cwd)).toContain("dashboard");
     expect(options.stdio).toBe("inherit");
   });
