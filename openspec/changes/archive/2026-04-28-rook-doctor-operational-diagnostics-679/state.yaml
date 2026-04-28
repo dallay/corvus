@@ -1,0 +1,28 @@
+change: rook-doctor-operational-diagnostics-679
+artifact_store: openspec
+project: corvus
+status: completed
+phases:
+  explore:
+    status: completed
+  propose:
+    status: completed
+  spec:
+    status: completed
+  design:
+    status: completed
+  tasks:
+    status: completed
+  apply:
+    status: completed
+  verify:
+    status: completed
+artifacts:
+  exploration: exploration.md
+  proposal: proposal.md
+  spec:
+    - specs/gateway/spec.md
+  design: design.md
+  tasks: tasks.md
+notes:
+  issue: "#679"
