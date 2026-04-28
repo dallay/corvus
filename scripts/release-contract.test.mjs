@@ -657,6 +657,18 @@ test("release docs, changelog, and CI maps describe one stable contract", () => 
   const changelog = docsByPath["CHANGELOG.md"];
 
   assertIncludesAll(
+    ciMap,
+    [
+      /\.github\/workflows\/publish-release\.yml` \(`Publish Release`\)/,
+      /Purpose: publish stable artifacts after the canonical GitHub Release is published/i,
+      /\.github\/workflows\/release-please-beta\.yml` \(`Release Please Beta`\)/,
+      /Purpose: create beta prerelease PRs, tags, GitHub Releases, and beta artifact publication from the `beta` branch/i,
+      /shared release-scope resolvers from `scripts\/resolve-release-components\.mjs` and `scripts\/resolve-release-from-tag\.mjs`/i,
+    ],
+    "English CI map",
+  );
+
+  assertIncludesAll(
     ciMapEs,
     [
       /\.github\/workflows\/publish-release\.yml` \(`Publish Release`\)/,
@@ -667,8 +679,6 @@ test("release docs, changelog, and CI maps describe one stable contract", () => 
     ],
     "Spanish CI map",
   );
-
-
 
   assertIncludesAll(
     docsEs,
