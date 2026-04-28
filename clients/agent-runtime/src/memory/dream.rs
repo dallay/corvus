@@ -774,6 +774,7 @@ mod tests {
 
         let report = run_if_triggered(tmp.path()).unwrap().unwrap();
         assert_eq!(report.trigger_reason, DreamTriggerReason::SessionCount);
+        assert_eq!(report.lock_state, DreamLockState::Acquired);
         assert_eq!(report.status, DreamRunStatus::Completed);
         assert_eq!(report.sessions_processed, 5);
     }
