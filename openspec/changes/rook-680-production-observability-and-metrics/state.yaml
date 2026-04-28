@@ -1,0 +1,27 @@
+change: rook-680-production-observability-and-metrics
+artifact_store: openspec
+project: corvus
+status: completed
+phases:
+  explore:
+    status: completed
+  propose:
+    status: completed
+  spec:
+    status: completed
+  design:
+    status: completed
+  tasks:
+    status: completed
+  apply:
+    status: completed
+  verify:
+    status: completed
+artifacts:
+  proposal: proposal.md
+  spec:
+    - specs/gateway/spec.md
+  design: design.md
+  tasks: tasks.md
+notes:
+  issue: https://github.com/dallay/corvus/issues/680
