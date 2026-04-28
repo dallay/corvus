@@ -175,6 +175,14 @@ impl RookConfig {
         Self::from_toml_str(&content)
     }
 
+    pub fn effective_bind_target(&self) -> String {
+        if self.host.contains(':') && !self.host.starts_with('[') && !self.host.ends_with(']') {
+            format!("[{}]:{}", self.host, self.port)
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
+    }
+
     pub fn load_from_optional_file(path: Option<&Path>) -> Result<Self, RookError> {
         match path {
             Some(path) if path.exists() => Self::load_from_file(path),
@@ -224,7 +232,7 @@ impl RookConfig {
         Ok(())
     }
 
-    pub fn validate(&self) -> Result<(), RookError> {
+    pub fn validate_non_auth(&self) -> Result<(), RookError> {
         if self.host.trim().is_empty() {
             return Err(RookError::Config(
                 "server host must not be blank".to_string(),
@@ -237,10 +245,15 @@ impl RookConfig {
             ));
         }
 
-        self.inbound_auth.validate()?;
         self.transport.validate()?;
         self.rate_limits.validate()?;
         self.idempotency.validate()?;
+        Ok(())
+    }
+
+    pub fn validate(&self) -> Result<(), RookError> {
+        self.validate_non_auth()?;
+        self.inbound_auth.validate()?;
         Ok(())
     }
 
@@ -572,13 +585,18 @@ fn parse_env_overlay(env: &HashMap<String, String>) -> Result<PartialRookConfig,
 }
 
 pub fn load_effective_config(input: LoadRookConfigInput<'_>) -> Result<RookConfig, RookError> {
+    let config = assemble_effective_config(input)?;
+    config.validate()?;
+    Ok(config)
+}
+
+pub fn assemble_effective_config(input: LoadRookConfigInput<'_>) -> Result<RookConfig, RookError> {
     let mut config = RookConfig::default();
     load_file_overlay(input.file_path)?.apply_to(&mut config);
     parse_env_overlay(input.env)?.apply_to(&mut config);
     if let Some(cli) = input.cli {
         cli.apply_to(&mut config);
     }
-    config.validate()?;
     Ok(config)
 }
 
@@ -849,6 +867,16 @@ impl std::fmt::Debug for InboundAuthConfig {
 pub struct InboundAuthOperatorState {
     pub enabled: bool,
     pub token_configured: bool,
+}
+
+impl InboundAuthOperatorState {
+    pub fn summary(&self) -> &'static str {
+        match (self.enabled, self.token_configured) {
+            (false, _) => "disabled",
+            (true, true) => "enabled with token configured",
+            (true, false) => "enabled but token missing or blank",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
