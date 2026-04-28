@@ -313,16 +313,17 @@ fn render_status(status: DoctorStatus) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::OnceLock;
     use tempfile::TempDir;
+    use tokio::sync::{Mutex, MutexGuard};
 
     static DOCTOR_TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
 
-    fn doctor_test_serial_guard() -> std::sync::MutexGuard<'static, ()> {
+    async fn doctor_test_serial_guard() -> MutexGuard<'static, ()> {
         DOCTOR_TEST_SERIAL
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+            .await
     }
 
     struct InitializedDbEnv {
@@ -347,7 +348,7 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_report_passes_when_effective_config_validates() {
-        let _serial = doctor_test_serial_guard();
+        let _serial = doctor_test_serial_guard().await;
         let initialized = initialized_db_env().await;
 
         let report = run_with_config_path(None, &initialized.env).await;
@@ -396,7 +397,7 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_report_fails_when_dashboard_assets_are_unavailable() {
-        let _serial = doctor_test_serial_guard();
+        let _serial = doctor_test_serial_guard().await;
         let initialized = initialized_db_env().await;
         let _assets_override = crate::dashboard::AssetsReadyOverrideGuard::new(false);
 
@@ -415,7 +416,7 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_report_fails_when_inbound_auth_is_enabled_without_token() {
-        let _serial = doctor_test_serial_guard();
+        let _serial = doctor_test_serial_guard().await;
         let mut initialized = initialized_db_env().await;
         initialized
             .env
@@ -436,7 +437,7 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_report_inbound_auth_check_does_not_leak_token_value() {
-        let _serial = doctor_test_serial_guard();
+        let _serial = doctor_test_serial_guard().await;
         let mut initialized = initialized_db_env().await;
         initialized.env.extend(HashMap::from([
             ("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string()),

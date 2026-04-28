@@ -63,6 +63,8 @@ const MAX_FALLBACK_DEPTH: u8 = 8;
 pub struct RoutingDecision {
     /// The account selected to serve the request.
     pub account: ProviderAccount,
+    /// The logical model route resolved for the request.
+    pub logical_model: String,
     /// The pool from which the account was selected.
     pub pool_id: PoolId,
     /// The route that initiated the resolution.
@@ -210,6 +212,7 @@ impl RoutingEngine {
 
             Ok(RoutingDecision {
                 account,
+                logical_model: route.logical_model.clone(),
                 pool_id,
                 route_id,
             })

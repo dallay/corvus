@@ -130,6 +130,10 @@ pub async fn apply_chat_idempotency(
     {
         Ok(result) => result,
         Err(_) => {
+            state
+                .observability
+                .idempotency_outcomes_total()
+                .inc(IDEMPOTENCY_SURFACE, "unavailable");
             return gateway_idempotency_error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "idempotency storage unavailable",
@@ -191,6 +195,10 @@ async fn finalize_response(
     let body_bytes = match to_bytes(body, usize::MAX).await {
         Ok(body) => body,
         Err(_) => {
+            state
+                .observability
+                .idempotency_outcomes_total()
+                .inc(IDEMPOTENCY_SURFACE, "unavailable");
             return gateway_idempotency_error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "idempotency storage unavailable",
@@ -222,6 +230,10 @@ async fn finalize_response(
         .await
         .is_err()
     {
+        state
+            .observability
+            .idempotency_outcomes_total()
+            .inc(IDEMPOTENCY_SURFACE, "unavailable");
         return gateway_idempotency_error_response(
             StatusCode::SERVICE_UNAVAILABLE,
             "idempotency storage unavailable",

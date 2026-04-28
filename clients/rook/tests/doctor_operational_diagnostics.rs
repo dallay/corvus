@@ -1,15 +1,16 @@
 use rook::doctor::{ensure_success, render_report, run_with_config_path, DoctorStatus};
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use tempfile::TempDir;
+use tokio::sync::{Mutex, MutexGuard};
 
 static DOCTOR_OPERATIONAL_TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
 
-fn doctor_operational_test_serial_guard() -> std::sync::MutexGuard<'static, ()> {
+async fn doctor_operational_test_serial_guard() -> MutexGuard<'static, ()> {
     DOCTOR_OPERATIONAL_TEST_SERIAL
         .get_or_init(|| Mutex::new(()))
         .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
+        .await
 }
 
 struct InitializedDbEnv {
@@ -34,7 +35,7 @@ async fn initialized_db_env() -> InitializedDbEnv {
 
 #[tokio::test]
 async fn doctor_happy_path_reports_startup_equivalent_bind_target_and_ordered_checks() {
-    let _serial = doctor_operational_test_serial_guard();
+    let _serial = doctor_operational_test_serial_guard().await;
     let initialized = initialized_db_env().await;
 
     let report = run_with_config_path(None, &initialized.env).await;
@@ -54,7 +55,7 @@ async fn doctor_happy_path_reports_startup_equivalent_bind_target_and_ordered_ch
 
 #[tokio::test]
 async fn doctor_enabled_inbound_auth_without_token_reports_inbound_auth_failure() {
-    let _serial = doctor_operational_test_serial_guard();
+    let _serial = doctor_operational_test_serial_guard().await;
     let mut initialized = initialized_db_env().await;
     initialized
         .env
@@ -80,7 +81,7 @@ async fn doctor_enabled_inbound_auth_without_token_reports_inbound_auth_failure(
 
 #[tokio::test]
 async fn doctor_database_failure_is_actionable_and_non_zero() {
-    let _serial = doctor_operational_test_serial_guard();
+    let _serial = doctor_operational_test_serial_guard().await;
     let env = HashMap::from([("ROOK_DB_PATH".to_string(), "/dev/null/rook.db".to_string())]);
 
     let report = run_with_config_path(None, &env).await;
@@ -104,7 +105,7 @@ async fn doctor_database_failure_is_actionable_and_non_zero() {
 
 #[tokio::test]
 async fn doctor_assets_failure_is_actionable_and_non_zero() {
-    let _serial = doctor_operational_test_serial_guard();
+    let _serial = doctor_operational_test_serial_guard().await;
     let initialized = initialized_db_env().await;
     let _assets_override = rook::dashboard::AssetsReadyOverrideGuard::new(false);
 
