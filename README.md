@@ -57,6 +57,7 @@ make sonar
 ```
 
 Local prerequisites:
+
 - `SONAR_TOKEN` exported in your shell
 - `sonar-scanner` available on `PATH`
 - the standard repo toolchain required by `make check-tools`
