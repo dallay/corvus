@@ -99,21 +99,11 @@ impl Tool for TaskStopTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::SqliteMemory;
-    use crate::security::AutonomyLevel;
-    use crate::tasks::TaskService;
-    use tempfile::TempDir;
+    use crate::tools::test_helpers::task_tool_test_context;
 
     #[test]
     fn task_stop_spec_exposes_snake_case_alias() {
-        let dir = TempDir::new().unwrap();
-        let security = Arc::new(SecurityPolicy {
-            autonomy: AutonomyLevel::ReadOnly,
-            workspace_dir: dir.path().to_path_buf(),
-            ..SecurityPolicy::default()
-        });
-        let memory = Arc::new(SqliteMemory::new(dir.path()).unwrap());
-        let service = Arc::new(TaskService::new(memory));
+        let (_dir, security, service) = task_tool_test_context();
         let tool = TaskStopTool::new(security, service);
         let spec = tool.spec();
         assert_eq!(spec.name, "TaskStop");

@@ -44,6 +44,27 @@ pub(crate) mod url_safety;
 pub mod web_fetch;
 pub mod web_search_tool;
 
+#[cfg(test)]
+pub(crate) mod test_helpers {
+    use crate::memory::SqliteMemory;
+    use crate::security::{AutonomyLevel, SecurityPolicy};
+    use crate::tasks::TaskService;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    pub(crate) fn task_tool_test_context() -> (TempDir, Arc<SecurityPolicy>, Arc<TaskService>) {
+        let dir = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::ReadOnly,
+            workspace_dir: dir.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let memory = Arc::new(SqliteMemory::new(dir.path()).unwrap());
+        let service = Arc::new(TaskService::new(memory));
+        (dir, security, service)
+    }
+}
+
 pub use browser::{BrowserTool, ComputerUseConfig};
 pub use browser_open::BrowserOpenTool;
 pub use code_search::CodeSearchTool;
