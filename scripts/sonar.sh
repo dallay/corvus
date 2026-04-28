@@ -3,8 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SONAR_ORGANIZATION="${SONAR_ORGANIZATION:-dallay}"
-REPO_SLUG="$(git -C "$ROOT_DIR" config --get remote.origin.url 2>/dev/null | sed -E 's#^.*[:/]([^/]+)/([^/.]+)(\.git)?$#\1_\2#')"
-SONAR_PROJECT_KEY="${SONAR_PROJECT_KEY:-${REPO_SLUG:-dallay_corvus}}"
+SONAR_PROJECT_KEY="${SONAR_PROJECT_KEY:-dallay_corvus}"
 SONAR_PROJECT_KEY="${SONAR_PROJECT_KEY//-/_}"
 SONAR_PROJECT_NAME="${SONAR_PROJECT_NAME:-$(basename "$ROOT_DIR")}"
 VALIDATE_ONLY="${1:-}"
