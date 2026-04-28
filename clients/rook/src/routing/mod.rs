@@ -928,6 +928,10 @@ mod tests {
             decision.account.id, good_id,
             "must use route-level fallback"
         );
+        assert_eq!(
+            decision.logical_model, "fallback-route-model",
+            "fallback decisions must carry the fallback route logical model"
+        );
     }
 
     #[tokio::test]

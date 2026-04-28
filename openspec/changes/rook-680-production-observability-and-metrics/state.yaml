@@ -4,7 +4,7 @@ project: corvus
 status: completed
 phases:
   explore:
-    status: pending
+    status: completed
   propose:
     status: completed
   spec:

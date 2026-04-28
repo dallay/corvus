@@ -2173,6 +2173,9 @@ mod tests {
         assert!(text.contains(
             "rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"unavailable\"} 1"
         ));
+        assert!(!text.contains(
+            "rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"pass\"} 1"
+        ));
     }
 
     #[tokio::test]

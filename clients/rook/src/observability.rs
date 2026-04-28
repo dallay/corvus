@@ -210,6 +210,7 @@ fn looks_secret_like(value: &str) -> bool {
         || lowercase.contains(" sk-")
         || lowercase.contains("api_key")
         || lowercase.contains("api-key")
+        || lowercase.contains("apikey")
         || lowercase.starts_with("token ")
         || lowercase.contains(" token ")
 }
@@ -546,6 +547,10 @@ mod tests {
         );
         assert_eq!(
             normalize_account_label(Some("sk-secret-value")),
+            UNLABELED_ACCOUNT
+        );
+        assert_eq!(
+            normalize_account_label(Some("apikey prod-secret")),
             UNLABELED_ACCOUNT
         );
         assert_eq!(normalize_account_label(Some("@@@")), UNLABELED_ACCOUNT);

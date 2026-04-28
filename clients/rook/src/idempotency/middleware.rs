@@ -173,10 +173,6 @@ pub async fn apply_chat_idempotency(
             )
         }
         ReserveResult::ReservedNew => {
-            state
-                .observability
-                .idempotency_outcomes_total()
-                .inc(IDEMPOTENCY_SURFACE, "pass");
             parts.extensions.insert(raw_body.clone());
             let request = Request::from_parts(parts, Body::from(raw_body.clone()));
             let response = next.run(request).await;
@@ -241,6 +237,10 @@ async fn finalize_response(
         );
     }
 
+    state
+        .observability
+        .idempotency_outcomes_total()
+        .inc(IDEMPOTENCY_SURFACE, "pass");
     Response::from_parts(parts, Body::from(body_bytes))
 }
 
