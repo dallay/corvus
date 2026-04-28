@@ -369,7 +369,6 @@ mod tests {
     }
 
     fn test_tool_with_transport(transport: Arc<dyn WebFetchTransport>) -> WebFetchTool {
-
         let security = Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::ReadOnly,
             ..SecurityPolicy::default()
