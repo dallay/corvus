@@ -121,10 +121,12 @@ pub async fn apply_transport_baseline(
         .observability
         .http_requests_total()
         .inc(surface, route.clone(), status_class);
-    state
-        .observability
-        .http_request_duration_seconds()
-        .observe(surface, route.clone(), status_class, elapsed.as_secs_f64());
+    state.observability.http_request_duration_seconds().observe(
+        surface,
+        route.clone(),
+        status_class,
+        elapsed.as_secs_f64(),
+    );
 
     set_response_request_id_header(
         response.headers_mut(),

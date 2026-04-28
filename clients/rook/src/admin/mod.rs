@@ -87,7 +87,6 @@ pub fn management_router(state: AdminState) -> Router {
         .with_state(state)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,9 +154,7 @@ mod tests {
         AdminState {
             registry,
             startup: std::sync::Arc::new(startup),
-            observability: std::sync::Arc::new(
-                crate::observability::Observability::bootstrap(),
-            ),
+            observability: std::sync::Arc::new(crate::observability::Observability::bootstrap()),
         }
     }
 
@@ -540,7 +537,8 @@ mod tests {
         let account_id = account.id;
         registry.accounts().create(account).await.unwrap();
 
-        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry.clone())));
+        let app =
+            axum::Router::new().nest("/api", build_router(test_admin_state(registry.clone())));
 
         let (update_status, update_json) = send_json(
             app,
@@ -578,7 +576,8 @@ mod tests {
         let account_id = account.id;
         registry.accounts().create(account).await.unwrap();
 
-        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry.clone())));
+        let app =
+            axum::Router::new().nest("/api", build_router(test_admin_state(registry.clone())));
 
         let (update_status, update_json) = send_json(
             app,

@@ -2,7 +2,9 @@ use crate::admin::handlers::{build_health_summary_view, list_health_account_view
 use crate::admin::types::{AccountView, HealthAccountView, HealthSummaryView, PoolView, RouteView};
 use crate::domain::RookError;
 use crate::registry::RookRegistry;
-use crate::services::{account::AccountService as _, pool::PoolService as _, route::RouteService as _};
+use crate::services::{
+    account::AccountService as _, pool::PoolService as _, route::RouteService as _,
+};
 use crate::tui::view_models::{
     build_health_view, build_pools_view, build_providers_view, build_status_view, HealthViewModel,
     PoolsViewModel, ProvidersViewModel, RouteRow, RoutesViewModel, StatusViewModel,
@@ -51,8 +53,16 @@ impl TuiQueryService {
             .collect())
     }
 
-    pub async fn load_route(&self, route_id: crate::domain::RouteId) -> Result<Option<RouteView>, RookError> {
-        Ok(self.registry.routes().get(route_id).await.map(RouteView::from))
+    pub async fn load_route(
+        &self,
+        route_id: crate::domain::RouteId,
+    ) -> Result<Option<RouteView>, RookError> {
+        Ok(self
+            .registry
+            .routes()
+            .get(route_id)
+            .await
+            .map(RouteView::from))
     }
 
     pub async fn load_health_rows(&self) -> Result<Vec<HealthAccountView>, RookError> {
@@ -122,14 +132,12 @@ impl TuiQueryService {
                     .get(&route.target_pool_id)
                     .cloned()
                     .unwrap_or_else(|| route.target_pool_id.to_string()),
-                fallback_route_label: route
-                    .fallback_route_id
-                    .map(|fallback_id| {
-                        route_labels
-                            .get(&fallback_id)
-                            .cloned()
-                            .unwrap_or_else(|| fallback_id.to_string())
-                    }),
+                fallback_route_label: route.fallback_route_id.map(|fallback_id| {
+                    route_labels
+                        .get(&fallback_id)
+                        .cloned()
+                        .unwrap_or_else(|| fallback_id.to_string())
+                }),
                 route,
             })
             .collect();
@@ -275,13 +283,20 @@ mod tests {
         let query = TuiQueryService::new(registry);
         let routes = query.load_routes_view().await.unwrap();
         let primary_detail = query.load_route(primary_route_id).await.unwrap().unwrap();
-        let no_fallback_detail = query.load_route(no_fallback_route_id).await.unwrap().unwrap();
+        let no_fallback_detail = query
+            .load_route(no_fallback_route_id)
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(routes.rows.len(), 3);
         assert_eq!(primary_detail.logical_model, "gpt-4o");
         assert_eq!(primary_detail.target_pool_id, primary_pool_id);
         assert_eq!(primary_detail.fallback_route_id, Some(fallback_route_id));
-        assert_eq!(primary_detail.capability_constraints, vec!["chat".to_string()]);
+        assert_eq!(
+            primary_detail.capability_constraints,
+            vec!["chat".to_string()]
+        );
 
         let no_fallback_row = routes
             .rows

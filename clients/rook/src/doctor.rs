@@ -81,24 +81,25 @@ pub async fn run_with_config_path(
                 }
             };
 
-            let db_check = match RookRegistry::open_readonly(&config.db_path.to_string_lossy()).await {
-                Ok(_) => DoctorCheckResult {
-                    name: "database",
-                    status: DoctorStatus::Pass,
-                    message: format!(
-                        "registry connectivity verified in read-only mode at {}",
-                        config.db_path.display()
-                    ),
-                },
-                Err(error) => DoctorCheckResult {
-                    name: "database",
-                    status: DoctorStatus::Fail,
-                    message: format!(
-                        "failed to open registry read-only at {}: {error}",
-                        config.db_path.display()
-                    ),
-                },
-            };
+            let db_check =
+                match RookRegistry::open_readonly(&config.db_path.to_string_lossy()).await {
+                    Ok(_) => DoctorCheckResult {
+                        name: "database",
+                        status: DoctorStatus::Pass,
+                        message: format!(
+                            "registry connectivity verified in read-only mode at {}",
+                            config.db_path.display()
+                        ),
+                    },
+                    Err(error) => DoctorCheckResult {
+                        name: "database",
+                        status: DoctorStatus::Fail,
+                        message: format!(
+                            "failed to open registry read-only at {}: {error}",
+                            config.db_path.display()
+                        ),
+                    },
+                };
 
             DoctorReport {
                 checks: vec![
@@ -164,9 +165,19 @@ pub fn render_report(report: &DoctorReport) -> String {
 
 pub fn ensure_success(report: &DoctorReport) -> Result<(), RookError> {
     match report.overall_status() {
-        DoctorStatus::Fail => Err(RookError::Config(
-            "rook doctor found required check failures".to_string(),
-        )),
+        DoctorStatus::Fail => {
+            let failure_messages = report
+                .checks
+                .iter()
+                .filter(|check| matches!(check.status, DoctorStatus::Fail))
+                .map(|check| format!("{}: {}", check.name, check.message))
+                .collect::<Vec<_>>()
+                .join("; ");
+
+            Err(RookError::Config(format!(
+                "rook doctor found required check failures: {failure_messages}"
+            )))
+        }
         DoctorStatus::Pass | DoctorStatus::Warn => Ok(()),
     }
 }
@@ -220,7 +231,9 @@ mod tests {
 
         assert_eq!(report.overall_status(), DoctorStatus::Fail);
         assert_eq!(report.checks[0].status, DoctorStatus::Fail);
-        assert!(report.checks[0].message.contains("failed to load effective configuration"));
+        assert!(report.checks[0]
+            .message
+            .contains("failed to load effective configuration"));
     }
 
     #[tokio::test]
@@ -238,15 +251,14 @@ mod tests {
         assert_eq!(report.checks[2].status, DoctorStatus::Pass);
         assert_eq!(report.checks[3].name, "database");
         assert_eq!(report.checks[3].status, DoctorStatus::Fail);
-        assert!(report.checks[3].message.contains("failed to open registry read-only"));
+        assert!(report.checks[3]
+            .message
+            .contains("failed to open registry read-only"));
     }
 
     #[tokio::test]
     async fn doctor_report_fails_when_inbound_auth_is_enabled_without_token() {
-        let env = HashMap::from([(
-            "ROOK_INBOUND_AUTH_ENABLED".to_string(),
-            "true".to_string(),
-        )]);
+        let env = HashMap::from([("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string())]);
 
         let report = run_with_config_path(None, &env).await;
 
@@ -254,7 +266,9 @@ mod tests {
         assert_eq!(report.checks.len(), 1);
         assert_eq!(report.checks[0].name, "config");
         assert_eq!(report.checks[0].status, DoctorStatus::Fail);
-        assert!(report.checks[0].message.contains("inbound auth token is required"));
+        assert!(report.checks[0]
+            .message
+            .contains("inbound auth token is required"));
     }
 
     #[tokio::test]
@@ -277,7 +291,9 @@ mod tests {
             .find(|check| check.name == "assets")
             .expect("assets check should be present");
         assert_eq!(assets_check.status, DoctorStatus::Pass);
-        assert!(assets_check.message.contains("embedded dashboard assets are available"));
+        assert!(assets_check
+            .message
+            .contains("embedded dashboard assets are available"));
 
         let inbound_auth_check = report
             .checks
@@ -285,7 +301,9 @@ mod tests {
             .find(|check| check.name == "inbound_auth")
             .expect("inbound auth check should be present");
         assert_eq!(inbound_auth_check.status, DoctorStatus::Pass);
-        assert!(inbound_auth_check.message.contains("token configuration is present"));
+        assert!(inbound_auth_check
+            .message
+            .contains("token configuration is present"));
         assert!(!inbound_auth_check.message.contains("super-secret-token"));
     }
 
@@ -348,12 +366,18 @@ mod tests {
         };
 
         let rendered = render_report(&report);
-        let config_index = rendered.find("- config:").expect("config line should exist");
-        let assets_index = rendered.find("- assets:").expect("assets line should exist");
+        let config_index = rendered
+            .find("- config:")
+            .expect("config line should exist");
+        let assets_index = rendered
+            .find("- assets:")
+            .expect("assets line should exist");
         let auth_index = rendered
             .find("- inbound_auth:")
             .expect("inbound auth line should exist");
-        let db_index = rendered.find("- database:").expect("database line should exist");
+        let db_index = rendered
+            .find("- database:")
+            .expect("database line should exist");
 
         assert!(rendered.contains("rook doctor: fail"));
         assert!(rendered.contains("summary: total=4, pass=3, warn=0, fail=1"));

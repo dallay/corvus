@@ -4,7 +4,10 @@ use crate::domain::RookError;
 use std::future::Future;
 
 pub trait AuditService: Clone + Send + Sync + 'static {
-    fn append(&self, event: StoredAdminAuditEvent) -> impl Future<Output = Result<(), RookError>> + Send;
+    fn append(
+        &self,
+        event: StoredAdminAuditEvent,
+    ) -> impl Future<Output = Result<(), RookError>> + Send;
     fn list_recent(
         &self,
         query: AdminAuditListQuery,
@@ -23,7 +26,10 @@ impl SqliteAuditService {
 }
 
 impl AuditService for SqliteAuditService {
-    fn append(&self, event: StoredAdminAuditEvent) -> impl Future<Output = Result<(), RookError>> + Send {
+    fn append(
+        &self,
+        event: StoredAdminAuditEvent,
+    ) -> impl Future<Output = Result<(), RookError>> + Send {
         let db = self.db.clone();
         async move { db.insert_admin_audit_event(&event).await }
     }

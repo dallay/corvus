@@ -17,8 +17,8 @@ use crate::gateway::types::{
 };
 use crate::idempotency::canonical::{canonicalize_json_bytes, hash_canonical_bytes};
 use crate::idempotency::is_valid_idempotency_key;
-use crate::observability::Observability;
 use crate::idempotency::types::{ChatIdempotencyScope, ReserveResult, StoredGatewayResponse};
+use crate::observability::Observability;
 use crate::services::idempotency::SharedIdempotencyService;
 use axum::Json;
 
