@@ -1,10 +1,11 @@
+use std::borrow::Cow;
+
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response, Sse};
 use axum::Json;
 
-use crate::domain::ProviderVendor;
 use crate::gateway::streaming::upstream_event_stream;
 use crate::gateway::types::{
     ChatCompletionRequest, GatewayErrorBody, GatewayErrorResponse, ModelListResponse, ModelObject,
@@ -12,26 +13,49 @@ use crate::gateway::types::{
 };
 use crate::gateway::upstream::{self, UpstreamError};
 use crate::gateway::GatewayState;
+use crate::observability::{
+    normalize_account_label, normalize_model_label, normalize_vendor_label,
+};
 use crate::services::{health::HealthService as _, route::RouteService as _};
 
 const FAILURE_COOLDOWN_SECS: u64 = 60;
 
-fn vendor_label(vendor: &ProviderVendor) -> &'static str {
-    match vendor {
-        ProviderVendor::OpenAi => "open_ai",
-        ProviderVendor::Anthropic => "anthropic",
-        ProviderVendor::Google => "google",
-        ProviderVendor::OpenRouter => "open_router",
-        ProviderVendor::DeepSeek => "deep_seek",
-        ProviderVendor::Other(_) => "other",
+#[derive(Debug, Clone)]
+struct UpstreamMetricContext {
+    vendor: Cow<'static, str>,
+    account: Cow<'static, str>,
+    model: Cow<'static, str>,
+}
+
+impl UpstreamMetricContext {
+    fn unrouted() -> Self {
+        Self {
+            vendor: Cow::Borrowed("unrouted"),
+            account: Cow::Borrowed("unrouted"),
+            model: Cow::Borrowed("unrouted"),
+        }
+    }
+
+    fn from_decision(decision: &crate::routing::RoutingDecision) -> Self {
+        Self {
+            vendor: Cow::Borrowed(normalize_vendor_label(&decision.account.vendor)),
+            account: normalize_account_label(Some(decision.account.display_name.as_str())),
+            model: normalize_model_label(Some(decision.logical_model.as_str())),
+        }
     }
 }
 
-fn record_upstream_outcome(state: &GatewayState, vendor: &'static str, outcome: &'static str) {
-    state
-        .observability
-        .upstream_outcomes_total()
-        .inc(vendor, outcome);
+fn record_upstream_failure(
+    state: &GatewayState,
+    context: &UpstreamMetricContext,
+    outcome: &'static str,
+) {
+    state.observability.upstream_failures_total().inc(
+        context.vendor.clone(),
+        context.account.clone(),
+        context.model.clone(),
+        outcome,
+    );
 }
 
 fn classify_upstream_error(error: &UpstreamError) -> &'static str {
@@ -73,7 +97,7 @@ async fn handle_buffered_chat_completions(
     let decision = match state.engine.resolve(&request.model).await {
         Ok(decision) => decision,
         Err(error) => {
-            record_upstream_outcome(state, "unrouted", "route_rejected");
+            record_upstream_failure(state, &UpstreamMetricContext::unrouted(), "route_rejected");
             tracing::warn!(model = %request.model, error = %error, "routing failed");
             return error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -84,12 +108,11 @@ async fn handle_buffered_chat_completions(
         }
     };
 
-    let vendor = vendor_label(&decision.account.vendor);
+    let metric_context = UpstreamMetricContext::from_decision(&decision);
     tracing::info!(model = %request.model, account_id = %decision.account.id, "proxying chat completion");
 
     match upstream::proxy_chat_completion(&state.client, &decision.account, body).await {
         Ok(upstream_response) => {
-            record_upstream_outcome(state, vendor, "success");
             let registry = state.registry.clone();
             let account_id = decision.account.id;
             tokio::spawn(async move {
@@ -111,7 +134,7 @@ async fn handle_buffered_chat_completions(
             response
         }
         Err(error) => {
-            record_upstream_outcome(state, vendor, classify_upstream_error(&error));
+            record_upstream_failure(state, &metric_context, classify_upstream_error(&error));
             let registry = state.registry.clone();
             let account_id = decision.account.id;
             tokio::spawn(async move {
@@ -133,7 +156,7 @@ async fn handle_streaming_chat_completions(
     let decision = match state.engine.resolve(&request.model).await {
         Ok(decision) => decision,
         Err(error) => {
-            record_upstream_outcome(state, "unrouted", "route_rejected");
+            record_upstream_failure(state, &UpstreamMetricContext::unrouted(), "route_rejected");
             tracing::warn!(model = %request.model, error = %error, "routing failed");
             return error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -144,11 +167,10 @@ async fn handle_streaming_chat_completions(
         }
     };
 
-    let vendor = vendor_label(&decision.account.vendor);
+    let metric_context = UpstreamMetricContext::from_decision(&decision);
     let account_id = decision.account.id;
     match upstream::open_chat_completion_stream(&state.client, &decision.account, body).await {
         Ok(upstream_response) => {
-            record_upstream_outcome(state, vendor, "success");
             let registry = state.registry.clone();
             tokio::spawn(async move {
                 registry.health().mark_success(account_id).await;
@@ -164,7 +186,7 @@ async fn handle_streaming_chat_completions(
             response
         }
         Err(error) => {
-            record_upstream_outcome(state, vendor, classify_upstream_error(&error));
+            record_upstream_failure(state, &metric_context, classify_upstream_error(&error));
             let registry = state.registry.clone();
             tokio::spawn(async move {
                 registry

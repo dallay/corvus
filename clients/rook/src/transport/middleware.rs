@@ -8,7 +8,9 @@ use axum::response::Response;
 use tracing::info;
 
 use crate::config::TransportConfig;
-use crate::observability::Observability;
+use crate::observability::{
+    normalize_http_endpoint, normalize_http_surface, normalize_status_class, Observability,
+};
 use crate::transport::context::{ForwardedTrust, RouteSurface, SanitizedTransportContext};
 use crate::transport::forwarded::resolve_forwarded_context;
 use crate::transport::request_id::{resolve_request_id, set_response_request_id_header};
@@ -59,29 +61,15 @@ fn build_completion_log_fields(input: CompletionLogInput<'_>) -> CompletionLogFi
     }
 }
 
-fn metrics_surface(surface: RouteSurface) -> &'static str {
-    match surface {
-        RouteSurface::AdminApi => "admin_api",
-        RouteSurface::GatewayV1 => "gateway_v1",
-    }
-}
-
-fn normalized_endpoint(request: &Request<Body>) -> String {
-    request
-        .extensions()
-        .get::<MatchedPath>()
-        .map(|matched| matched.as_str().to_string())
-        .unwrap_or_else(|| "unmatched".to_string())
-}
-
-fn status_class(status: axum::http::StatusCode) -> &'static str {
-    match status.as_u16() {
-        100..=199 => "1xx",
-        200..=299 => "2xx",
-        300..=399 => "3xx",
-        400..=499 => "4xx",
-        _ => "5xx",
-    }
+fn normalized_endpoint(surface: RouteSurface, request: &Request<Body>) -> String {
+    normalize_http_endpoint(
+        surface,
+        request
+            .extensions()
+            .get::<MatchedPath>()
+            .map(MatchedPath::as_str),
+    )
+    .into_owned()
 }
 
 pub async fn apply_transport_baseline(
@@ -109,14 +97,14 @@ pub async fn apply_transport_baseline(
     });
 
     let method = request.method().clone();
-    let route = normalized_endpoint(&request);
+    let route = normalized_endpoint(state.surface, &request);
 
     let mut response = next.run(request).await;
     let elapsed = started_at.elapsed();
     let duration_ms = elapsed.as_millis() as u64;
     let status = response.status();
-    let status_class = status_class(status);
-    let surface = metrics_surface(state.surface);
+    let status_class = normalize_status_class(status);
+    let surface = normalize_http_surface(state.surface);
     state
         .observability
         .http_requests_total()

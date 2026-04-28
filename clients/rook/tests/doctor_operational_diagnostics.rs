@@ -1,25 +1,44 @@
 use rook::doctor::{ensure_success, render_report, run_with_config_path, DoctorStatus};
 use std::collections::HashMap;
+use std::sync::OnceLock;
+use tempfile::TempDir;
+use tokio::sync::{Mutex, MutexGuard};
 
-async fn initialized_db_env() -> HashMap<String, String> {
-    let db_path = std::env::temp_dir().join(format!(
-        "rook-doctor-operational-{}.db",
-        uuid::Uuid::new_v4()
-    ));
+static DOCTOR_OPERATIONAL_TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
+
+async fn doctor_operational_test_serial_guard() -> MutexGuard<'static, ()> {
+    DOCTOR_OPERATIONAL_TEST_SERIAL
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .await
+}
+
+struct InitializedDbEnv {
+    _temp_dir: TempDir,
+    env: HashMap<String, String>,
+}
+
+async fn initialized_db_env() -> InitializedDbEnv {
+    let temp_dir = tempfile::tempdir().expect("temp dir should be created");
+    let db_path = temp_dir.path().join("rook-doctor-operational.db");
     rook::registry::RookRegistry::open(&db_path.to_string_lossy())
         .await
         .expect("test database should initialize");
-    HashMap::from([(
-        "ROOK_DB_PATH".to_string(),
-        db_path.to_string_lossy().to_string(),
-    )])
+    InitializedDbEnv {
+        _temp_dir: temp_dir,
+        env: HashMap::from([(
+            "ROOK_DB_PATH".to_string(),
+            db_path.to_string_lossy().to_string(),
+        )]),
+    }
 }
 
 #[tokio::test]
 async fn doctor_happy_path_reports_startup_equivalent_bind_target_and_ordered_checks() {
-    let env = initialized_db_env().await;
+    let _serial = doctor_operational_test_serial_guard().await;
+    let initialized = initialized_db_env().await;
 
-    let report = run_with_config_path(None, &env).await;
+    let report = run_with_config_path(None, &initialized.env).await;
     let rendered = render_report(&report);
 
     assert_eq!(report.overall_status(), DoctorStatus::Pass);
@@ -36,10 +55,13 @@ async fn doctor_happy_path_reports_startup_equivalent_bind_target_and_ordered_ch
 
 #[tokio::test]
 async fn doctor_enabled_inbound_auth_without_token_reports_inbound_auth_failure() {
-    let mut env = initialized_db_env().await;
-    env.insert("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string());
+    let _serial = doctor_operational_test_serial_guard().await;
+    let mut initialized = initialized_db_env().await;
+    initialized
+        .env
+        .insert("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string());
 
-    let report = run_with_config_path(None, &env).await;
+    let report = run_with_config_path(None, &initialized.env).await;
     let rendered = render_report(&report);
     let failure_text = ensure_success(&report)
         .expect_err("missing inbound auth token should fail doctor")
@@ -59,6 +81,7 @@ async fn doctor_enabled_inbound_auth_without_token_reports_inbound_auth_failure(
 
 #[tokio::test]
 async fn doctor_database_failure_is_actionable_and_non_zero() {
+    let _serial = doctor_operational_test_serial_guard().await;
     let env = HashMap::from([("ROOK_DB_PATH".to_string(), "/dev/null/rook.db".to_string())]);
 
     let report = run_with_config_path(None, &env).await;
@@ -82,10 +105,11 @@ async fn doctor_database_failure_is_actionable_and_non_zero() {
 
 #[tokio::test]
 async fn doctor_assets_failure_is_actionable_and_non_zero() {
-    let env = initialized_db_env().await;
+    let _serial = doctor_operational_test_serial_guard().await;
+    let initialized = initialized_db_env().await;
     let _assets_override = rook::dashboard::AssetsReadyOverrideGuard::new(false);
 
-    let report = run_with_config_path(None, &env).await;
+    let report = run_with_config_path(None, &initialized.env).await;
     let rendered = render_report(&report);
     let failure_text = ensure_success(&report)
         .expect_err("missing assets should fail doctor")
