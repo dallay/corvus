@@ -3489,6 +3489,7 @@ mod tests {
             description: "Execute shell commands".to_string(),
             source_kind: crate::session_commands::SessionCommandToolSourceKind::Native,
             source_label: None,
+            aliases: vec![],
         }];
 
         let handled = maybe_handle_channel_ingress(

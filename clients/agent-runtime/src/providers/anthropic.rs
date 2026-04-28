@@ -1115,12 +1115,14 @@ mod tests {
                 description: "First tool".to_string(),
                 parameters: serde_json::json!({"type": "object"}),
                 source: None,
+                aliases: vec![],
             },
             ToolSpec {
                 name: "tool2".to_string(),
                 description: "Second tool".to_string(),
                 parameters: serde_json::json!({"type": "object"}),
                 source: None,
+                aliases: vec![],
             },
         ];
 
@@ -1138,6 +1140,7 @@ mod tests {
             description: "Only tool".to_string(),
             parameters: serde_json::json!({"type": "object"}),
             source: None,
+            aliases: vec![],
         }];
 
         let native_tools = AnthropicProvider::convert_tools(Some(&tools)).unwrap();

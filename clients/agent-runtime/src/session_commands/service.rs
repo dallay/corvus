@@ -1480,9 +1480,15 @@ fn format_tool_listing_message(tools: &[SessionCommandToolEntry]) -> String {
 }
 
 fn format_tool_listing_line(tool: &SessionCommandToolEntry) -> String {
+    let alias_suffix = if tool.aliases.is_empty() {
+        String::new()
+    } else {
+        format!(" (aliases: {})", tool.aliases.join(", "))
+    };
+
     match tool.source_kind {
         SessionCommandToolSourceKind::Native => {
-            format!("- {} — {}", tool.name, tool.description)
+            format!("- {}{} — {}", tool.name, alias_suffix, tool.description)
         }
         SessionCommandToolSourceKind::McpTool => format_mcp_tool_line(tool, "mcp tool"),
         SessionCommandToolSourceKind::McpResource => format_mcp_tool_line(tool, "mcp resource"),
@@ -1859,6 +1865,22 @@ mod tests {
         assert_eq!(failure.kind, SessionCommandFailureKind::UnsupportedBackend);
     }
 
+    #[test]
+    fn format_tool_listing_line_includes_aliases_for_native_tools() {
+        let line = format_tool_listing_line(&SessionCommandToolEntry {
+            name: "Glob".to_string(),
+            description: "Claude-style parity file pattern search".to_string(),
+            source_kind: SessionCommandToolSourceKind::Native,
+            source_label: None,
+            aliases: vec!["glob".to_string()],
+        });
+
+        assert_eq!(
+            line,
+            "- Glob (aliases: glob) — Claude-style parity file pattern search"
+        );
+    }
+
     #[tokio::test]
     async fn tools_are_sorted_and_exposed_as_machine_readable_listing() {
         let memory = FakeMemory::default();
@@ -1868,18 +1890,21 @@ mod tests {
                 description: "Execute shell commands".to_string(),
                 source_kind: SessionCommandToolSourceKind::Native,
                 source_label: None,
+                aliases: vec![],
             },
             SessionCommandToolEntry {
                 name: "file_read".to_string(),
                 description: "Read files".to_string(),
                 source_kind: SessionCommandToolSourceKind::Native,
                 source_label: None,
+                aliases: vec![],
             },
             SessionCommandToolEntry {
                 name: "mcp.docs.search".to_string(),
                 description: "Search docs".to_string(),
                 source_kind: SessionCommandToolSourceKind::McpTool,
                 source_label: Some("docs".to_string()),
+                aliases: vec![],
             },
         ];
         let service = SessionCommandService::with_tool_snapshot(&memory, &tools);
@@ -1901,18 +1926,21 @@ mod tests {
                         description: "Read files".to_string(),
                         source_kind: SessionCommandToolSourceKind::Native,
                         source_label: None,
+                        aliases: vec![],
                     },
                     SessionCommandToolEntry {
                         name: "mcp.docs.search".to_string(),
                         description: "Search docs".to_string(),
                         source_kind: SessionCommandToolSourceKind::McpTool,
                         source_label: Some("docs".to_string()),
+                        aliases: vec![],
                     },
                     SessionCommandToolEntry {
                         name: "shell".to_string(),
                         description: "Execute shell commands".to_string(),
                         source_kind: SessionCommandToolSourceKind::Native,
                         source_label: None,
+                        aliases: vec![],
                     },
                 ],
             }
@@ -1943,18 +1971,21 @@ mod tests {
                 description: "Prompt docs".to_string(),
                 source_kind: SessionCommandToolSourceKind::McpPrompt,
                 source_label: Some("docs".to_string()),
+                aliases: vec![],
             },
             SessionCommandToolEntry {
                 name: "mcp.docs.resource.index".to_string(),
                 description: "Docs index".to_string(),
                 source_kind: SessionCommandToolSourceKind::McpResource,
                 source_label: Some("docs".to_string()),
+                aliases: vec![],
             },
             SessionCommandToolEntry {
                 name: "file_write".to_string(),
                 description: "Write files".to_string(),
                 source_kind: SessionCommandToolSourceKind::Native,
                 source_label: None,
+                aliases: vec![],
             },
         ];
         let service = SessionCommandService::with_tool_snapshot(&memory, &tools);

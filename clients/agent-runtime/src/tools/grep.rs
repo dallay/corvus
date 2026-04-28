@@ -249,6 +249,16 @@ impl Tool for GrepTool {
         })
     }
 
+    fn spec(&self) -> super::traits::ToolSpec {
+        super::traits::ToolSpec {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+            parameters: self.parameters_schema(),
+            source: None,
+            aliases: vec!["grep".to_string()],
+        }
+    }
+
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let request = match GrepRequest::from_args(&args) {
             Ok(request) => request,
@@ -450,6 +460,15 @@ mod tests {
         let schema = tool.parameters_schema();
         assert!(schema["properties"]["pattern"].is_object());
         assert!(schema["properties"]["output_mode"].is_object());
+    }
+
+    #[test]
+    fn grep_spec_exposes_snake_case_alias() {
+        let dir = TempDir::new().unwrap();
+        let tool = GrepTool::new(test_security(&dir));
+        let spec = tool.spec();
+        assert_eq!(spec.name, "Grep");
+        assert_eq!(spec.aliases, vec!["grep"]);
     }
 
     #[tokio::test]

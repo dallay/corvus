@@ -367,6 +367,7 @@ pub struct SessionCommandToolEntry {
     pub description: String,
     pub source_kind: SessionCommandToolSourceKind,
     pub source_label: Option<String>,
+    pub aliases: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
