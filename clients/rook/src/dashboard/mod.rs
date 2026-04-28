@@ -27,11 +27,21 @@ use std::sync::{Mutex, OnceLock};
 #[folder = "assets/"]
 pub struct DashboardAssets;
 
+#[doc(hidden)]
 static ASSETS_READY_OVERRIDE: OnceLock<Mutex<Option<bool>>> = OnceLock::new();
+#[doc(hidden)]
+static ASSETS_READY_OVERRIDE_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn lock_assets_ready_override() -> std::sync::MutexGuard<'static, Option<bool>> {
     ASSETS_READY_OVERRIDE
         .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+}
+
+fn lock_assets_ready_override_serial() -> std::sync::MutexGuard<'static, ()> {
+    ASSETS_READY_OVERRIDE_SERIAL
+        .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())
 }
@@ -45,12 +55,17 @@ pub fn assets_ready() -> bool {
 }
 
 #[doc(hidden)]
-pub struct AssetsReadyOverrideGuard;
+pub struct AssetsReadyOverrideGuard {
+    _serial_guard: std::sync::MutexGuard<'static, ()>,
+}
 
 impl AssetsReadyOverrideGuard {
     pub fn new(value: bool) -> Self {
+        let serial_guard = lock_assets_ready_override_serial();
         *lock_assets_ready_override() = Some(value);
-        Self
+        Self {
+            _serial_guard: serial_guard,
+        }
     }
 }
 

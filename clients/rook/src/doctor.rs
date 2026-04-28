@@ -313,23 +313,44 @@ fn render_status(status: DoctorStatus) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+    use tempfile::TempDir;
 
-    async fn initialized_db_env() -> HashMap<String, String> {
-        let db_path = std::env::temp_dir().join(format!("rook-doctor-{}.db", uuid::Uuid::new_v4()));
+    static DOCTOR_TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn doctor_test_serial_guard() -> std::sync::MutexGuard<'static, ()> {
+        DOCTOR_TEST_SERIAL
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    struct InitializedDbEnv {
+        _temp_dir: TempDir,
+        env: HashMap<String, String>,
+    }
+
+    async fn initialized_db_env() -> InitializedDbEnv {
+        let temp_dir = tempfile::tempdir().expect("temp dir should be created");
+        let db_path = temp_dir.path().join("rook-doctor.db");
         crate::registry::RookRegistry::open(&db_path.to_string_lossy())
             .await
             .expect("test database should initialize");
-        HashMap::from([(
-            "ROOK_DB_PATH".to_string(),
-            db_path.to_string_lossy().to_string(),
-        )])
+        InitializedDbEnv {
+            _temp_dir: temp_dir,
+            env: HashMap::from([(
+                "ROOK_DB_PATH".to_string(),
+                db_path.to_string_lossy().to_string(),
+            )]),
+        }
     }
 
     #[tokio::test]
     async fn doctor_report_passes_when_effective_config_validates() {
-        let env = initialized_db_env().await;
+        let _serial = doctor_test_serial_guard();
+        let initialized = initialized_db_env().await;
 
-        let report = run_with_config_path(None, &env).await;
+        let report = run_with_config_path(None, &initialized.env).await;
 
         assert_eq!(report.overall_status(), DoctorStatus::Pass);
         assert_eq!(report.checks.len(), 4);
@@ -375,10 +396,11 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_report_fails_when_dashboard_assets_are_unavailable() {
-        let env = initialized_db_env().await;
+        let _serial = doctor_test_serial_guard();
+        let initialized = initialized_db_env().await;
         let _assets_override = crate::dashboard::AssetsReadyOverrideGuard::new(false);
 
-        let report = run_with_config_path(None, &env).await;
+        let report = run_with_config_path(None, &initialized.env).await;
 
         assert_eq!(report.overall_status(), DoctorStatus::Fail);
         let assets = report
@@ -393,10 +415,13 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_report_fails_when_inbound_auth_is_enabled_without_token() {
-        let mut env = initialized_db_env().await;
-        env.insert("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string());
+        let _serial = doctor_test_serial_guard();
+        let mut initialized = initialized_db_env().await;
+        initialized
+            .env
+            .insert("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string());
 
-        let report = run_with_config_path(None, &env).await;
+        let report = run_with_config_path(None, &initialized.env).await;
 
         assert_eq!(report.overall_status(), DoctorStatus::Fail);
         assert_eq!(report.checks.len(), 4);
@@ -411,8 +436,9 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_report_inbound_auth_check_does_not_leak_token_value() {
-        let mut env = initialized_db_env().await;
-        env.extend(HashMap::from([
+        let _serial = doctor_test_serial_guard();
+        let mut initialized = initialized_db_env().await;
+        initialized.env.extend(HashMap::from([
             ("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string()),
             (
                 "ROOK_INBOUND_AUTH_TOKEN".to_string(),
@@ -420,7 +446,7 @@ mod tests {
             ),
         ]));
 
-        let report = run_with_config_path(None, &env).await;
+        let report = run_with_config_path(None, &initialized.env).await;
 
         assert_eq!(report.overall_status(), DoctorStatus::Pass);
         let inbound_auth_check = report
