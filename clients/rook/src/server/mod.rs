@@ -5,7 +5,9 @@
 
 use crate::admin;
 use crate::auth::middleware::{admin_inbound_auth, gateway_inbound_auth};
-use crate::config::{IdempotencyConfig, InboundAuthConfig, RateLimitConfig, TransportConfig};
+use crate::config::{
+    IdempotencyConfig, InboundAuthConfig, RateLimitConfig, RookConfig, TransportConfig,
+};
 use crate::dashboard;
 use crate::domain::RookError;
 use crate::gateway::{self, GatewayState};
@@ -75,6 +77,30 @@ impl ServerConfig {
     pub fn effective_db_path(&self) -> &str {
         self.db_path.as_deref().unwrap_or("./rook.db")
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartupReadinessSnapshot {
+    pub bind_target: String,
+    pub db_path: String,
+    pub inbound_auth_enabled: bool,
+    pub inbound_auth_token_configured: bool,
+    pub assets_ready: bool,
+}
+
+pub async fn diagnose_startup_readiness(
+    config: &RookConfig,
+) -> Result<StartupReadinessSnapshot, RookError> {
+    let db_path = config.db_path.to_string_lossy().to_string();
+    RookRegistry::check_startup_readiness(&db_path).await?;
+
+    Ok(StartupReadinessSnapshot {
+        bind_target: config.effective_bind_target(),
+        db_path,
+        inbound_auth_enabled: config.inbound_auth.enabled,
+        inbound_auth_token_configured: config.inbound_auth.token_configured(),
+        assets_ready: dashboard::assets_ready(),
+    })
 }
 
 fn config_startup_ready(config: &ServerConfig) -> bool {

@@ -730,9 +730,10 @@ mod tests {
         assert!(joined.contains("rook doctor: pass"));
         assert!(joined.contains("summary: total=4, pass=4, warn=0, fail=0"));
         assert!(joined.contains("- config: pass"));
+        assert!(joined.contains("- database: pass"));
         assert!(joined.contains("- assets: pass"));
         assert!(joined.contains("- inbound_auth: pass"));
-        assert!(joined.contains("- database: pass"));
+        assert!(joined.contains("detail: effective bind target: 127.0.0.1:4141"));
     }
 
     #[tokio::test]
@@ -773,7 +774,9 @@ mod tests {
         )
         .await;
 
-        assert!(result.is_err());
+        let error_text = result.expect_err("unusable db should fail").to_string();
+        assert!(error_text.contains("database"));
+        assert!(error_text.contains("startup"));
     }
 
     #[tokio::test]
@@ -804,6 +807,7 @@ mod tests {
 
         let joined = lines.lock().expect("output lock should work").join("\n");
         assert!(joined.contains("- inbound_auth: pass"));
+        assert!(joined.contains("detail: inbound auth state: enabled with token configured"));
         assert!(!joined.contains("super-secret-token"));
     }
 
