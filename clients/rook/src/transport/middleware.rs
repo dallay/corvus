@@ -2,12 +2,13 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::body::Body;
-use axum::extract::{ConnectInfo, Request, State};
+use axum::extract::{ConnectInfo, MatchedPath, Request, State};
 use axum::middleware::Next;
 use axum::response::Response;
 use tracing::info;
 
 use crate::config::TransportConfig;
+use crate::observability::Observability;
 use crate::transport::context::{ForwardedTrust, RouteSurface, SanitizedTransportContext};
 use crate::transport::forwarded::resolve_forwarded_context;
 use crate::transport::request_id::{resolve_request_id, set_response_request_id_header};
@@ -16,6 +17,7 @@ use crate::transport::request_id::{resolve_request_id, set_response_request_id_h
 pub struct TransportMiddlewareState {
     pub config: Arc<TransportConfig>,
     pub surface: RouteSurface,
+    pub observability: Arc<Observability>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +59,31 @@ fn build_completion_log_fields(input: CompletionLogInput<'_>) -> CompletionLogFi
     }
 }
 
+fn metrics_surface(surface: RouteSurface) -> &'static str {
+    match surface {
+        RouteSurface::AdminApi => "admin_api",
+        RouteSurface::GatewayV1 => "gateway_v1",
+    }
+}
+
+fn normalized_endpoint(request: &Request<Body>) -> String {
+    request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|matched| matched.as_str().to_string())
+        .unwrap_or_else(|| "unmatched".to_string())
+}
+
+fn status_class(status: axum::http::StatusCode) -> &'static str {
+    match status.as_u16() {
+        100..=199 => "1xx",
+        200..=299 => "2xx",
+        300..=399 => "3xx",
+        400..=499 => "4xx",
+        _ => "5xx",
+    }
+}
+
 pub async fn apply_transport_baseline(
     State(state): State<TransportMiddlewareState>,
     mut request: Request<Body>,
@@ -82,11 +109,24 @@ pub async fn apply_transport_baseline(
     });
 
     let method = request.method().clone();
-    let route = request.uri().path().to_string();
+    let route = normalized_endpoint(&request);
 
     let mut response = next.run(request).await;
-    let duration_ms = started_at.elapsed().as_millis() as u64;
+    let elapsed = started_at.elapsed();
+    let duration_ms = elapsed.as_millis() as u64;
     let status = response.status();
+    let status_class = status_class(status);
+    let surface = metrics_surface(state.surface);
+    state
+        .observability
+        .http_requests_total()
+        .inc(surface, route.clone(), status_class);
+    state.observability.http_request_duration_seconds().observe(
+        surface,
+        route.clone(),
+        status_class,
+        elapsed.as_secs_f64(),
+    );
 
     set_response_request_id_header(
         response.headers_mut(),
@@ -139,6 +179,7 @@ mod tests {
         TransportMiddlewareState {
             config: Arc::new(TransportConfig::default()),
             surface: RouteSurface::GatewayV1,
+            observability: Arc::new(crate::observability::Observability::bootstrap()),
         }
     }
 

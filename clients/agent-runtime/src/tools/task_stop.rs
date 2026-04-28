@@ -45,6 +45,16 @@ impl Tool for TaskStopTool {
         })
     }
 
+    fn spec(&self) -> super::traits::ToolSpec {
+        super::traits::ToolSpec {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+            parameters: self.parameters_schema(),
+            source: None,
+            aliases: vec!["task_stop".to_string()],
+        }
+    }
+
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
         if let Err(error) = self
             .security
@@ -83,5 +93,20 @@ impl Tool for TaskStopTool {
             }),
             Err(error) => Ok(tool_error(error.kind, error.message)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::test_helpers::task_tool_test_context;
+
+    #[test]
+    fn task_stop_spec_exposes_snake_case_alias() {
+        let (_dir, security, service) = task_tool_test_context();
+        let tool = TaskStopTool::new(security, service);
+        let spec = tool.spec();
+        assert_eq!(spec.name, "TaskStop");
+        assert_eq!(spec.aliases, vec!["task_stop"]);
     }
 }

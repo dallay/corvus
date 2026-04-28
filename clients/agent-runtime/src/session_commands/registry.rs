@@ -888,6 +888,7 @@ mod tests {
             description: "Execute shell commands".to_string(),
             source_kind: crate::session_commands::SessionCommandToolSourceKind::Native,
             source_label: None,
+            aliases: vec![],
         }];
         let service = SessionCommandService::with_tool_snapshot(&RegistryMemory, &tools);
 
@@ -921,6 +922,7 @@ mod tests {
             description: "Execute shell commands".to_string(),
             source_kind: crate::session_commands::SessionCommandToolSourceKind::Native,
             source_label: None,
+            aliases: vec![],
         }];
         let service = SessionCommandService::with_tool_snapshot(&RegistryMemory, &tools);
 

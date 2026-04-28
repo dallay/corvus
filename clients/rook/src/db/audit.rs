@@ -217,6 +217,8 @@ mod tests {
 
         assert_eq!(filtered.len(), 3);
         assert!(filtered.iter().all(|row| row.resource_kind == "account"));
-        assert!(filtered.iter().all(|row| row.resource_id.as_deref() == Some("acc-1")));
+        assert!(filtered
+            .iter()
+            .all(|row| row.resource_id.as_deref() == Some("acc-1")));
     }
 }

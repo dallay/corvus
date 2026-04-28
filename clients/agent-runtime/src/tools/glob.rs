@@ -85,6 +85,16 @@ impl Tool for GlobTool {
         })
     }
 
+    fn spec(&self) -> super::traits::ToolSpec {
+        super::traits::ToolSpec {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+            parameters: self.parameters_schema(),
+            source: None,
+            aliases: vec!["glob".to_string()],
+        }
+    }
+
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let request = match GlobRequest::from_args(&args) {
             Ok(request) => request,
@@ -184,6 +194,15 @@ mod tests {
         let schema = tool.parameters_schema();
         assert!(schema["properties"]["pattern"].is_object());
         assert!(schema["properties"]["path"].is_object());
+    }
+
+    #[test]
+    fn glob_spec_exposes_snake_case_alias() {
+        let dir = TempDir::new().unwrap();
+        let tool = GlobTool::new(test_security(&dir));
+        let spec = tool.spec();
+        assert_eq!(spec.name, "Glob");
+        assert_eq!(spec.aliases, vec!["glob"]);
     }
 
     #[tokio::test]

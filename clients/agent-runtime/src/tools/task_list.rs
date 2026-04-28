@@ -85,6 +85,16 @@ impl Tool for TaskListTool {
         })
     }
 
+    fn spec(&self) -> super::traits::ToolSpec {
+        super::traits::ToolSpec {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+            parameters: self.parameters_schema(),
+            source: None,
+            aliases: vec!["task_list".to_string()],
+        }
+    }
+
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
         if let Err(error) = self
             .security
@@ -194,5 +204,20 @@ impl Tool for TaskListTool {
             }),
             Err(error) => Ok(tool_error(error.kind, error.message)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::test_helpers::task_tool_test_context;
+
+    #[test]
+    fn task_list_spec_exposes_snake_case_alias() {
+        let (_dir, security, service) = task_tool_test_context();
+        let tool = TaskListTool::new(security, service);
+        let spec = tool.spec();
+        assert_eq!(spec.name, "TaskList");
+        assert_eq!(spec.aliases, vec!["task_list"]);
     }
 }

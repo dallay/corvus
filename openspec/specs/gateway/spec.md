@@ -3008,6 +3008,327 @@ Suggested error codes include:
 
 ---
 
+### Requirement: Shared Effective Rook Configuration Assembly
+
+The system MUST define a first-class `RookConfig` model as the effective runtime configuration for
+Rook within the gateway domain.
+
+The system MUST assemble the effective configuration through one shared resolution path that is used
+by `serve`, `rook doctor`, and `rook config export`.
+
+That shared resolution path MUST apply configuration sources in this precedence order:
+
+1. built-in defaults
+2. configuration file values
+3. `ROOK_*` environment overrides
+4. CLI flag overrides
+
+The shared resolution path MUST validate the final effective configuration before it is used for
+server startup, doctor diagnostics, or config export.
+
+`rook doctor` MUST evaluate effective configuration through that same runtime-startup path rather
+than through a parallel or reduced validation path.
+
+The system MUST NOT allow `serve`, `rook doctor`, and `rook config export` to diverge in
+effective-value resolution, precedence behavior, or validation outcome.
+
+Operator-visible reporting derived from the effective configuration MUST identify the effective bind
+target consistently with the gateway domain's loopback-first posture and MUST NOT imply that
+loopback binding alone is an authentication mechanism.
+
+#### Scenario: serve and doctor use the same effective configuration validation path
+
+- GIVEN the same built-in defaults, config file inputs, `ROOK_*` environment values, and CLI flag
+  values
+- WHEN Rook resolves configuration for `serve`
+- AND Rook resolves configuration for `rook doctor`
+- THEN both commands MUST produce the same effective configuration values
+- AND both commands MUST apply the same precedence order
+- AND both commands MUST apply the same validation rules
+
+#### Scenario: doctor reports the effective bind target from startup-equivalent configuration
+
+- GIVEN the effective configuration resolves a bind host and port
+- WHEN an operator runs `rook doctor`
+- THEN the diagnostics output MUST report the same effective bind target that `serve` would use
+- AND the output MUST describe that bind target without treating loopback posture as sufficient
+  authentication
+
+---
+
+### Requirement: Rook Doctor Deterministic Diagnostics
+
+The system MUST provide a `rook doctor` command for operator diagnostics in the gateway domain.
+
+Default `rook doctor` execution MUST remain deterministic and local-first.
+
+Default `rook doctor` execution MUST evaluate startup-readiness checks against the same effective
+configuration and local prerequisites used by runtime startup.
+
+The default doctor command MUST NOT require live upstream provider reachability, remote account
+verification, or other network-dependent checks in order to determine overall success.
+
+Doctor coverage MUST include at minimum:
+
+- effective configuration load and validation through the runtime-startup path
+- database open and migration readiness sufficient for local service startup
+- inbound auth configuration validation when inbound auth is enabled
+- embedded dashboard asset availability required for the local admin/dashboard surface
+
+The doctor command MUST classify each check as `pass`, `warn`, or `fail`.
+
+Each reported check MUST include at minimum:
+
+- a stable check name
+- a machine-readable status
+- a human-readable explanation
+- actionable operator guidance when the status is `warn` or `fail`
+
+A `fail` result MUST mean the checked condition prevents or invalidates correct local startup for the
+default operational contract.
+
+A `warn` result MUST mean the checked condition is advisory, degraded, or noteworthy but does not by
+itself block correct local startup.
+
+A `pass` result MUST mean the checked condition satisfied the local startup expectation being
+validated.
+
+The command MUST return a non-zero exit status when one or more required checks report `fail`.
+
+The command MUST return a zero exit status when all required checks report only `pass` or `warn`.
+
+The doctor command MUST keep secrets redacted in status output and MUST NOT expose raw inbound
+bearer tokens, provider API keys, or equivalent secret-bearing values.
+
+#### Scenario: doctor succeeds with passes and warnings only
+
+- GIVEN effective configuration is valid through the runtime-startup validation path
+- AND startup-equivalent database open and migration readiness succeeds
+- AND required embedded dashboard assets are available
+- AND inbound auth is either disabled or enabled with valid configuration
+- AND one or more advisory conditions produce `warn` results only
+- WHEN an operator runs `rook doctor`
+- THEN every required blocking check MUST report `pass` or `warn`
+- AND the command MUST return a zero exit status
+
+#### Scenario: doctor fails when startup-equivalent configuration validation fails
+
+- GIVEN effective configuration inputs resolve to a configuration that runtime startup would reject
+- WHEN an operator runs `rook doctor`
+- THEN the output MUST include a configuration-related check with status `fail`
+- AND that check MUST explain what configuration area is invalid
+- AND the command MUST return a non-zero exit status
+
+#### Scenario: doctor fails when database readiness would block startup
+
+- GIVEN effective configuration is otherwise valid
+- AND the configured database cannot be opened, initialized, or migrated to the state required for
+  local startup
+- WHEN an operator runs `rook doctor`
+- THEN the output MUST include a database-related check with status `fail`
+- AND the explanation MUST identify the database readiness problem in operator-actionable terms
+- AND the command MUST return a non-zero exit status
+
+#### Scenario: doctor validates inbound auth only when enabled
+
+- GIVEN inbound auth enforcement is disabled in the effective configuration
+- WHEN an operator runs `rook doctor`
+- THEN the inbound auth diagnostic MUST NOT fail solely because no inbound bearer token is configured
+- AND the command MAY report the auth check as `pass` or `warn` according to the disabled state
+
+#### Scenario: doctor fails enabled inbound auth that startup would reject
+
+- GIVEN inbound auth enforcement is enabled in the effective configuration
+- AND the inbound bearer credential is missing, empty, or otherwise invalid for startup
+- WHEN an operator runs `rook doctor`
+- THEN the output MUST include an inbound-auth-related check with status `fail`
+- AND the explanation MUST state that inbound auth is enabled but not correctly configured
+- AND the output MUST NOT reveal the raw bearer token value
+- AND the command MUST return a non-zero exit status
+
+#### Scenario: doctor fails when required dashboard assets are unavailable
+
+- GIVEN effective configuration is otherwise valid
+- AND the required embedded dashboard assets for the local admin/dashboard surface are unavailable
+- WHEN an operator runs `rook doctor`
+- THEN the output MUST include an asset-related check with status `fail`
+- AND the explanation MUST identify that the dashboard/admin surface would be broken locally
+- AND the command MUST return a non-zero exit status
+
+#### Scenario: default doctor remains local and deterministic when remote providers are unreachable
+
+- GIVEN effective configuration is valid for local startup
+- AND one or more configured upstream providers are unreachable over the network
+- WHEN an operator runs the default `rook doctor`
+- THEN the command MUST complete using only deterministic local checks
+- AND upstream reachability MUST NOT be required for a successful overall result
+
+---
+
+### Requirement: Optional Advisory Upstream Probe Mode
+
+The system MAY provide an explicitly opt-in `rook doctor` mode that probes configured upstream
+providers or other remote dependencies.
+
+If such a mode is provided, it MUST be disabled by default.
+
+Any remote or upstream probe performed by `rook doctor` MUST be clearly identified as advisory and
+MUST remain separate from the default deterministic local readiness result.
+
+Remote probe results MUST NOT change a successful default local readiness result into a required
+failure solely because an upstream dependency is unreachable, slow, or otherwise unavailable.
+
+Remote probe execution, if provided, SHOULD be bounded by explicit timeouts or equivalent limits so
+that the command remains operationally predictable.
+
+Remote probe output MUST communicate that the probe reflects optional connectivity or upstream state
+rather than the baseline local startup contract.
+
+#### Scenario: default doctor omits remote probes
+
+- GIVEN Rook is configured with one or more upstream provider accounts
+- WHEN an operator runs `rook doctor` without an explicit remote-probe opt-in
+- THEN the command MUST NOT perform upstream reachability checks as part of the default run
+- AND the overall result MUST be derived only from local deterministic diagnostics
+
+#### Scenario: opt-in remote probe remains advisory
+
+- GIVEN Rook provides an explicit opt-in mode for remote or upstream probing
+- AND local deterministic doctor checks all report `pass`
+- AND an opt-in upstream probe cannot reach a configured provider
+- WHEN an operator runs `rook doctor` with that explicit opt-in enabled
+- THEN the output MUST identify the upstream probe result as advisory
+- AND the command MUST continue to distinguish the local readiness result from the remote probe
+  outcome
+- AND the unreachable upstream probe MUST NOT by itself redefine the default local readiness
+  contract as failed
+
+---
+
+### Requirement: `ROOK_*` Environment Override Contract
+
+The system MUST support operator-facing configuration overrides through documented `ROOK_*`
+environment variables.
+
+Each supported `ROOK_*` environment variable MUST map deterministically onto the corresponding
+`RookConfig` field or sub-field it overrides.
+
+Environment override behavior MUST be documented for operators, including the variable naming
+scheme and its position in the precedence order.
+
+Verification for this change MUST include automated coverage that demonstrates supported
+`ROOK_*` overrides affect the effective configuration as documented.
+
+#### Scenario: documented environment override is applied to effective configuration
+
+- GIVEN a supported `ROOK_*` environment variable is documented for a specific configuration field
+- AND the config file provides a different value for that field
+- WHEN Rook resolves the effective configuration
+- THEN the effective configuration MUST use the environment-provided value for that field
+
+#### Scenario: unsupported environment variable does not create ambiguous configuration
+
+- GIVEN an environment variable outside the documented supported `ROOK_*` override contract
+- WHEN Rook resolves the effective configuration
+- THEN the system MUST NOT treat that variable as a valid override for an unrelated config field
+- AND operator-facing documentation MUST remain the source of truth for supported overrides
+
+---
+
+### Requirement: Redacted Effective Config Export
+
+The system MUST provide `rook config export` as an operator-visible command that outputs the
+validated effective configuration.
+
+`rook config export` MUST render the effective configuration derived from the same shared assembly
+path used by `serve`.
+
+Config export MUST protect secret-bearing values using redacted or presence-only semantics.
+
+Config export MUST NOT expose raw inbound bearer tokens, provider API keys, authorization header
+values, cookies, or equivalent secret-bearing material.
+
+When config export needs to communicate secret state, it MUST report only configured, enabled,
+present, absent, or an equivalent redacted state rather than the raw secret value.
+
+#### Scenario: config export shows effective non-secret values and redacts secrets
+
+- GIVEN effective configuration contains non-secret runtime settings and one or more configured
+  secret-bearing values
+- WHEN an operator runs `rook config export`
+- THEN the output MUST include the effective non-secret values
+- AND the output MUST represent secret-bearing fields only with redacted or presence-only state
+- AND the output MUST NOT reveal the raw secret values
+
+#### Scenario: config export preserves gateway bind posture reporting without leaking secrets
+
+- GIVEN the effective configuration resolves the gateway bind host and port
+- AND inbound auth or provider credentials are also configured
+- WHEN an operator runs `rook config export`
+- THEN the output MUST report the effective bind target consistently with the gateway domain
+- AND the output MUST continue to redact secret-bearing fields
+
+---
+
+### Requirement: Invalid Configuration Fails Closed With Operator-Facing Messages
+
+The system MUST fail closed when the effective configuration is invalid after applying defaults,
+file inputs, environment overrides, and CLI overrides.
+
+Validation failure MUST prevent server startup and MUST prevent successful config export.
+
+Validation failure output MUST be operator-facing and clear enough to identify the invalid
+configuration area and the reason the configuration cannot be used.
+
+The system MUST NOT continue with partially applied or partially validated configuration.
+
+#### Scenario: invalid effective configuration blocks startup
+
+- GIVEN effective configuration inputs resolve to an invalid state required for gateway startup
+- WHEN Rook loads configuration for `serve`
+- THEN configuration validation MUST fail before the server starts
+- AND the command MUST return a non-success result
+- AND the operator-facing error MUST identify the invalid configuration area
+
+#### Scenario: invalid effective configuration blocks config export
+
+- GIVEN effective configuration inputs resolve to an invalid state
+- WHEN an operator runs `rook config export`
+- THEN configuration validation MUST fail before export output is produced as a successful result
+- AND the command MUST return a non-success result
+- AND the operator-facing error MUST clearly explain why the configuration is invalid
+
+---
+
+### Requirement: Explicit Precedence Verification and Documentation
+
+The system MUST make configuration precedence explicit in operator-facing documentation for this
+change.
+
+The documented precedence order MUST be defaults < file < environment < CLI.
+
+Verification for this change MUST include automated tests that assert precedence behavior across at
+least defaults, file inputs, `ROOK_*` environment overrides, and CLI flags.
+
+Verification for this change MUST include coverage that confirms config export redaction behavior
+and invalid-configuration fail-closed behavior.
+
+#### Scenario: precedence documentation matches implemented behavior
+
+- GIVEN operator-facing documentation for Rook configuration inputs
+- WHEN the documentation describes configuration precedence
+- THEN it MUST state the order defaults < file < environment < CLI
+- AND that documented order MUST match the behavior verified by automated tests
+
+#### Scenario: automated verification catches precedence regressions
+
+- GIVEN automated tests for layered configuration resolution
+- WHEN a lower-precedence source would incorrectly override a higher-precedence source
+- THEN the relevant precedence verification MUST fail
+- AND the failure MUST identify that implemented precedence drifted from the documented contract
+
+---
+
 ## Non-functional Requirements
 
 ### NFR-1: Response Time

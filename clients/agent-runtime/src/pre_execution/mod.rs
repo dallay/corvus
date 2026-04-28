@@ -475,6 +475,7 @@ mod tests {
             description: "Execute shell commands".to_string(),
             source_kind: SessionCommandToolSourceKind::Native,
             source_label: None,
+            aliases: vec![],
         }];
 
         let decision = evaluate_ingress(

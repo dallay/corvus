@@ -220,7 +220,11 @@ pub enum ViewData {
     Routes(RoutesViewModel),
 }
 
-fn into_load_state<T>(model: T, is_empty: impl FnOnce(&T) -> bool, empty_message: &str) -> LoadState<T> {
+fn into_load_state<T>(
+    model: T,
+    is_empty: impl FnOnce(&T) -> bool,
+    empty_message: &str,
+) -> LoadState<T> {
     if is_empty(&model) {
         LoadState::Empty {
             message: empty_message.to_string(),

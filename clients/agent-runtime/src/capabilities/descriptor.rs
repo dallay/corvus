@@ -82,6 +82,8 @@ pub struct CapabilityMetadata {
     pub parameters_schema: serde_json::Value,
     pub source: Option<ToolSourceMetadata>,
     pub mcp: Option<McpCapabilityMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

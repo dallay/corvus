@@ -1,0 +1,11 @@
+change: add-config-export-and-environment-based-configuration-overrides-678
+current_phase: verify
+completed:
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+next: archive
+updated: 2026-04-27T16:36:53Z

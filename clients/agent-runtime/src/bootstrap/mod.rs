@@ -378,6 +378,7 @@ fn slash_tool_snapshot_from_registry(
                 .mcp
                 .as_ref()
                 .map(|mcp| mcp.server.clone()),
+            aliases: descriptor.metadata.aliases.clone(),
         })
         .collect()
 }

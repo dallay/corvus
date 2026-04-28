@@ -231,9 +231,7 @@ pub fn build_health_view(
     HealthViewModel { summary, rows }
 }
 
-pub fn build_routes_view(
-    mut rows: Vec<RouteRow>,
-) -> RoutesViewModel {
+pub fn build_routes_view(mut rows: Vec<RouteRow>) -> RoutesViewModel {
     rows.sort_by(|left, right| left.route.logical_model.cmp(&right.route.logical_model));
     RoutesViewModel {
         rows,
@@ -244,7 +242,9 @@ pub fn build_routes_view(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::admin::types::{AccountView, HealthAccountView, HealthSummaryView, PoolView, RouteView};
+    use crate::admin::types::{
+        AccountView, HealthAccountView, HealthSummaryView, PoolView, RouteView,
+    };
     use crate::domain::{AccountId, PoolId, ProviderVendor, RouteId, SelectionStrategy};
 
     fn account(name: &str, vendor: ProviderVendor, enabled: bool) -> AccountView {
@@ -391,7 +391,10 @@ mod tests {
 
         assert_eq!(routes.rows[0].route.logical_model, "a-model");
         assert_eq!(routes.rows[0].target_pool_label, "pool-a");
-        assert_eq!(routes.rows[0].fallback_route_label.as_deref(), Some("fallback-a"));
+        assert_eq!(
+            routes.rows[0].fallback_route_label.as_deref(),
+            Some("fallback-a")
+        );
         assert_eq!(routes.rows[0].route.fallback_route_id, Some(fallback_id));
         assert_eq!(routes.rows[1].fallback_route_label, None);
         assert_eq!(routes.selected_index, 0);

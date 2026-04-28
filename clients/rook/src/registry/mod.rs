@@ -21,7 +21,7 @@
 //! # }
 //! ```
 
-use crate::db::SqliteDb;
+use crate::db::{DbStartupReadiness, SqliteDb};
 use crate::domain::RookError;
 use crate::services::{
     account::SqliteAccountService, audit::SqliteAuditService, health::InMemoryHealthService,
@@ -50,6 +50,16 @@ impl RookRegistry {
     pub async fn open(path: &str) -> Result<Self, RookError> {
         let db = SqliteDb::open(path).await?;
         Ok(Self::from_db(db))
+    }
+
+    /// Open an existing Rook database at `path` without applying migrations.
+    pub async fn open_readonly(path: &str) -> Result<Self, RookError> {
+        let db = SqliteDb::open_readonly(path).await?;
+        Ok(Self::from_db(db))
+    }
+
+    pub async fn check_startup_readiness(path: &str) -> Result<DbStartupReadiness, RookError> {
+        SqliteDb::check_startup_readiness(path).await
     }
 
     /// Create a registry backed by an in-memory database.

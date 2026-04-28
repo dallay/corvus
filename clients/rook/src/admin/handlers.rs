@@ -1,28 +1,33 @@
-use crate::admin::types::{
-    AccountView, AddPoolMemberRequest, AdminErrorResponse, AuditEventView, CreateAccountRequest,
-    CreatePoolRequest, CreateRouteRequest, HealthAccountView, HealthSummaryView,
-    ListAuditEventsQuery, PoolView, RouteView, SettingsView, UpdateAccountRequest,
-    UpdatePoolRequest, UpdateRouteRequest, UpdateSettingsRequest, UsageStatusView,
+use crate::admin::{
+    types::{
+        AccountView, AddPoolMemberRequest, AdminErrorResponse, AuditEventView,
+        CreateAccountRequest, CreatePoolRequest, CreateRouteRequest, HealthAccountView,
+        HealthSummaryView, ListAuditEventsQuery, PoolView, RouteView, SettingsView,
+        UpdateAccountRequest, UpdatePoolRequest, UpdateRouteRequest, UpdateSettingsRequest,
+        UsageStatusView,
+    },
+    AdminState,
 };
 use crate::db::audit::{AdminAuditListQuery, StoredAdminAuditEvent};
 use crate::domain::{ProviderAccount, ProviderPool, RookError};
+use crate::health::{HealthResponse, ReadinessResponse};
 use crate::registry::RookRegistry;
 use crate::services::{
-    account::AccountService as _, audit::AuditService as _, health::HealthService as _, pool::PoolService as _,
-    route::RouteService as _, settings::SettingsService as _,
+    account::AccountService as _, audit::AuditService as _, health::HealthService as _,
+    pool::PoolService as _, route::RouteService as _, settings::SettingsService as _,
 };
 use axum::{
     extract::Json as ExtractJson,
     extract::{
         rejection::{JsonRejection, PathRejection},
-        Path, State,
-        Query,
+        Path, Query, State,
     },
-    http::StatusCode,
+    http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use chrono::Utc;
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use tracing::error;
 use uuid::Uuid;
 
@@ -215,14 +220,53 @@ pub async fn handle_health() -> &'static str {
     "ok"
 }
 
+pub async fn handle_live_health(
+    State(startup): State<std::sync::Arc<crate::health::StartupDependencyState>>,
+) -> (StatusCode, Json<HealthResponse>) {
+    (StatusCode::OK, Json(startup.liveness()))
+}
+
+pub async fn handle_ready_health(
+    State(startup): State<std::sync::Arc<crate::health::StartupDependencyState>>,
+) -> (StatusCode, Json<ReadinessResponse>) {
+    let readiness = startup.readiness();
+    let status = match readiness.status {
+        crate::health::HealthStatus::Fail => StatusCode::SERVICE_UNAVAILABLE,
+        crate::health::HealthStatus::Ok | crate::health::HealthStatus::Degraded => StatusCode::OK,
+    };
+
+    (status, Json(readiness))
+}
+
 pub async fn handle_get_usage() -> Json<UsageStatusView> {
     Json(UsageStatusView::placeholder())
 }
 
+pub async fn handle_get_metrics(State(state): State<AdminState>) -> Response {
+    match state.observability.render_prometheus() {
+        Ok(body) => (
+            StatusCode::OK,
+            [(
+                CONTENT_TYPE,
+                HeaderValue::from_static(
+                    "application/openmetrics-text; version=1.0.0; charset=utf-8",
+                ),
+            )],
+            body,
+        )
+            .into_response(),
+        Err(error) => {
+            error!(error = %error, "failed to render metrics");
+            internal_error_response().into_response()
+        }
+    }
+}
+
 pub async fn handle_list_audit_events(
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
     Query(query): Query<ListAuditEventsQuery>,
 ) -> AdminJson<Vec<AuditEventView>> {
+    let registry = state.registry;
     let rows = registry
         .audit()
         .list_recent(AdminAuditListQuery {
@@ -251,9 +295,10 @@ pub async fn handle_list_audit_events(
 }
 
 pub async fn handle_create_account(
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
     req: Result<ExtractJson<CreateAccountRequest>, JsonRejection>,
 ) -> AdminCreated<AccountView> {
+    let registry = state.registry;
     let req = parse_json(req)?;
     validate_display_name(&req.display_name)?;
     let account = account_from_request(crate::domain::AccountId::generate(), req);
@@ -275,9 +320,10 @@ pub async fn handle_create_account(
 
 pub async fn handle_update_account(
     account_id: Result<Path<crate::domain::AccountId>, PathRejection>,
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
     req: Result<ExtractJson<UpdateAccountRequest>, JsonRejection>,
 ) -> AdminJson<AccountView> {
+    let registry = state.registry;
     let account_id = parse_path(account_id)?;
     let req = parse_json(req)?;
     validate_display_name(&req.display_name)?;
@@ -303,8 +349,9 @@ pub async fn handle_update_account(
 
 pub async fn handle_delete_account(
     account_id: Result<Path<crate::domain::AccountId>, PathRejection>,
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
 ) -> AdminEmpty {
+    let registry = state.registry;
     let account_id = parse_path(account_id)?;
     if registry.accounts().get(account_id).await.is_none() {
         return Err(not_found("account", account_id));
@@ -324,7 +371,8 @@ pub async fn handle_delete_account(
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub async fn handle_list_accounts(State(registry): State<RookRegistry>) -> Json<Vec<AccountView>> {
+pub async fn handle_list_accounts(State(state): State<AdminState>) -> Json<Vec<AccountView>> {
+    let registry = state.registry;
     Json(
         registry
             .accounts()
@@ -338,8 +386,9 @@ pub async fn handle_list_accounts(State(registry): State<RookRegistry>) -> Json<
 
 pub async fn handle_get_account(
     account_id: Result<Path<crate::domain::AccountId>, PathRejection>,
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
 ) -> AdminJson<AccountView> {
+    let registry = state.registry;
     let account_id = parse_path(account_id)?;
     match registry.accounts().get(account_id).await {
         Some(account) => Ok(Json(AccountView::from(account))),
@@ -347,7 +396,8 @@ pub async fn handle_get_account(
     }
 }
 
-pub async fn handle_list_pools(State(registry): State<RookRegistry>) -> Json<Vec<PoolView>> {
+pub async fn handle_list_pools(State(state): State<AdminState>) -> Json<Vec<PoolView>> {
+    let registry = state.registry;
     Json(
         registry
             .pools()
@@ -361,8 +411,9 @@ pub async fn handle_list_pools(State(registry): State<RookRegistry>) -> Json<Vec
 
 pub async fn handle_get_pool(
     pool_id: Result<Path<crate::domain::PoolId>, PathRejection>,
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
 ) -> AdminJson<PoolView> {
+    let registry = state.registry;
     let pool_id = parse_path(pool_id)?;
     match registry.pools().get(pool_id).await {
         Some(pool) => Ok(Json(PoolView::from(pool))),
@@ -371,9 +422,10 @@ pub async fn handle_get_pool(
 }
 
 pub async fn handle_create_pool(
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
     req: Result<ExtractJson<CreatePoolRequest>, JsonRejection>,
 ) -> AdminCreated<PoolView> {
+    let registry = state.registry;
     let req = parse_json(req)?;
     validate_name(&req.name, "name")?;
     let pool = pool_from_request(crate::domain::PoolId::generate(), req);
@@ -395,9 +447,10 @@ pub async fn handle_create_pool(
 
 pub async fn handle_update_pool(
     pool_id: Result<Path<crate::domain::PoolId>, PathRejection>,
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
     req: Result<ExtractJson<UpdatePoolRequest>, JsonRejection>,
 ) -> AdminJson<PoolView> {
+    let registry = state.registry;
     let pool_id = parse_path(pool_id)?;
     let req = parse_json(req)?;
     validate_name(&req.name, "name")?;
@@ -423,8 +476,9 @@ pub async fn handle_update_pool(
 
 pub async fn handle_delete_pool(
     pool_id: Result<Path<crate::domain::PoolId>, PathRejection>,
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
 ) -> AdminEmpty {
+    let registry = state.registry;
     let pool_id = parse_path(pool_id)?;
     if registry.pools().get(pool_id).await.is_none() {
         return Err(not_found("pool", pool_id));
@@ -446,9 +500,10 @@ pub async fn handle_delete_pool(
 
 pub async fn handle_add_pool_member(
     pool_id: Result<Path<crate::domain::PoolId>, PathRejection>,
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
     req: Result<ExtractJson<AddPoolMemberRequest>, JsonRejection>,
 ) -> AdminJson<PoolView> {
+    let registry = state.registry;
     let pool_id = parse_path(pool_id)?;
     let req = parse_json(req)?;
     if registry.pools().get(pool_id).await.is_none() {
@@ -478,8 +533,9 @@ pub async fn handle_add_pool_member(
 
 pub async fn handle_remove_pool_member(
     ids: Result<Path<(crate::domain::PoolId, crate::domain::AccountId)>, PathRejection>,
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
 ) -> AdminJson<PoolView> {
+    let registry = state.registry;
     let (pool_id, account_id) = parse_path(ids)?;
     match registry.pools().get(pool_id).await {
         Some(pool) => {
@@ -514,7 +570,8 @@ pub async fn handle_remove_pool_member(
     }
 }
 
-pub async fn handle_list_routes(State(registry): State<RookRegistry>) -> Json<Vec<RouteView>> {
+pub async fn handle_list_routes(State(state): State<AdminState>) -> Json<Vec<RouteView>> {
+    let registry = state.registry;
     Json(
         registry
             .routes()
@@ -528,8 +585,9 @@ pub async fn handle_list_routes(State(registry): State<RookRegistry>) -> Json<Ve
 
 pub async fn handle_get_route(
     route_id: Result<Path<crate::domain::RouteId>, PathRejection>,
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
 ) -> AdminJson<RouteView> {
+    let registry = state.registry;
     let route_id = parse_path(route_id)?;
     match registry.routes().get(route_id).await {
         Some(route) => Ok(Json(RouteView::from(route))),
@@ -538,9 +596,10 @@ pub async fn handle_get_route(
 }
 
 pub async fn handle_create_route(
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
     req: Result<ExtractJson<CreateRouteRequest>, JsonRejection>,
 ) -> AdminCreated<RouteView> {
+    let registry = state.registry;
     let req = parse_json(req)?;
     validate_name(&req.logical_model, "logical_model")?;
     let route = crate::domain::ModelRoute {
@@ -568,9 +627,10 @@ pub async fn handle_create_route(
 
 pub async fn handle_update_route(
     route_id: Result<Path<crate::domain::RouteId>, PathRejection>,
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
     req: Result<ExtractJson<UpdateRouteRequest>, JsonRejection>,
 ) -> AdminJson<RouteView> {
+    let registry = state.registry;
     let route_id = parse_path(route_id)?;
     let req = parse_json(req)?;
     validate_name(&req.logical_model, "logical_model")?;
@@ -602,8 +662,9 @@ pub async fn handle_update_route(
 
 pub async fn handle_delete_route(
     route_id: Result<Path<crate::domain::RouteId>, PathRejection>,
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
 ) -> AdminEmpty {
+    let registry = state.registry;
     let route_id = parse_path(route_id)?;
     if registry.routes().get(route_id).await.is_none() {
         return Err(not_found("route", route_id));
@@ -623,14 +684,16 @@ pub async fn handle_delete_route(
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub async fn handle_get_settings(State(registry): State<RookRegistry>) -> Json<SettingsView> {
+pub async fn handle_get_settings(State(state): State<AdminState>) -> Json<SettingsView> {
+    let registry = state.registry;
     Json(SettingsView::from(registry.settings().load().await))
 }
 
-pub async fn handle_put_settings(
-    State(registry): State<RookRegistry>,
+pub async fn handle_update_settings(
+    State(state): State<AdminState>,
     req: Result<ExtractJson<UpdateSettingsRequest>, JsonRejection>,
 ) -> AdminJson<SettingsView> {
+    let registry = state.registry;
     let req = parse_json(req)?;
     if req.gateway_port == 0 {
         return Err(bad_request("gateway_port must be greater than 0"));
@@ -654,14 +717,14 @@ pub async fn handle_put_settings(
 }
 
 pub async fn handle_list_account_health(
-    State(registry): State<RookRegistry>,
+    State(state): State<AdminState>,
 ) -> Json<Vec<HealthAccountView>> {
+    let registry = state.registry;
     Json(list_health_account_views(&registry).await)
 }
 
-pub async fn handle_health_summary(
-    State(registry): State<RookRegistry>,
-) -> Json<HealthSummaryView> {
+pub async fn handle_health_summary(State(state): State<AdminState>) -> Json<HealthSummaryView> {
+    let registry = state.registry;
     Json(build_health_summary_view(&registry).await)
 }
 
@@ -736,7 +799,18 @@ mod tests {
             capabilities: vec![],
         }));
 
-        let (_, json_resp) = handle_create_account(State(registry.clone()), req).await.unwrap();
+        let (_, json_resp) = handle_create_account(
+            State(AdminState {
+                registry: registry.clone(),
+                startup: std::sync::Arc::new(crate::health::StartupDependencyState::all_ready()),
+                observability: std::sync::Arc::new(
+                    crate::observability::Observability::bootstrap(),
+                ),
+            }),
+            req,
+        )
+        .await
+        .unwrap();
         let account_id = json_resp.id;
 
         tokio::task::yield_now().await;
@@ -753,7 +827,10 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].action, "account_created");
         assert_eq!(events[0].resource_kind, "account");
-        assert_eq!(events[0].resource_id.as_deref(), Some(account_id.to_string().as_str()));
+        assert_eq!(
+            events[0].resource_id.as_deref(),
+            Some(account_id.to_string().as_str())
+        );
     }
 
     #[test]

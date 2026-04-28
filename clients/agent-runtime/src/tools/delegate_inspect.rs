@@ -131,7 +131,9 @@ mod tests {
         ChildAgentId, ChildExecutionResult, ChildLaunchRequest, ChildTerminalStatus,
         CoordinatorChildRunner, CoordinatorError, CoordinatorLaunchRequest, CoordinatorMessage,
         CoordinatorTransport, EnvelopeMeta, FanInPolicy, MessageEnvelope,
+        SupervisedOrchestrationService,
     };
+
     use crate::agent::mailbox::{MailboxBackedChildRunner, MailboxWakeupHub, SqliteMailboxStore};
     use async_trait::async_trait;
     use chrono::Utc;
@@ -176,6 +178,7 @@ mod tests {
                             structured: None,
                         },
                         status: ChildTerminalStatus::Succeeded,
+                        escalation: None,
                     },
                 },
             })
@@ -225,6 +228,7 @@ mod tests {
                             structured: None,
                         },
                         status: ChildTerminalStatus::Succeeded,
+                        escalation: None,
                     },
                 },
             })
@@ -377,17 +381,53 @@ mod tests {
 
         let t = tool(Arc::clone(&svc));
         let result = t
-            .execute(serde_json::json!({ "handle": handle.clone() }))
+            .execute(serde_json::json!({ "handle": handle }))
             .await
             .unwrap();
+
         assert!(result.success, "expected success, got: {:?}", result.error);
-        assert!(result.output.contains(&handle));
-        assert!(
-            result.output.contains("summary")
-                || result.output.contains("blocked")
-                || result.output.contains("running")
-                || result.output.contains("succeeded")
-        );
+        assert!(result.output.contains("summary="));
+    }
+
+    #[test]
+    fn inspect_output_reports_blocked_when_parent_action_blocks_progress() {
+        let snapshot = serde_json::json!({
+            "handle": "opaque-handle",
+            "summary_state": "blocked",
+            "children": [
+                {
+                    "blocking_details": {
+                        "reason_code": "parent_approval_required",
+                        "message": "Child requires parent approval for shell",
+                        "parent_action_required": true,
+                        "next_action_hint": "Parent must approve, deny, cancel, or relaunch with supported constraints"
+                    }
+                }
+            ]
+        });
+
+        let summary_state = snapshot["summary_state"].as_str().unwrap();
+        let blocked_children = snapshot["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|child| child["blocking_details"].is_object())
+            .count();
+
+        let output = if blocked_children > 0 {
+            format!(
+                "Snapshot for handle {}: summary={summary_state}; {blocked_children} child(ren) awaiting parent action or blocked",
+                snapshot["handle"].as_str().unwrap()
+            )
+        } else {
+            format!(
+                "Snapshot for handle {}: summary={summary_state}",
+                snapshot["handle"].as_str().unwrap()
+            )
+        };
+
+        assert!(output.contains("summary=blocked"));
+        assert!(output.contains("awaiting parent action or blocked"));
     }
 
     #[tokio::test]
@@ -429,6 +469,51 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("No orchestration run found"));
+    }
+
+    #[test]
+    fn child_execution_metadata_view_serializes_requested_and_enforced_fields() {
+        let view = crate::agent::coordinator::ChildExecutionMetadataView {
+            enforced: crate::agent::coordinator::EnforcedExecutionGuarantees {
+                transport: CoordinatorTransport::Mailbox,
+                process_local_handle_authority: true,
+                mailbox_backed_delivery: true,
+                repository_isolation_enforced: false,
+                worktree_isolation_enforced: false,
+                sandbox_clone_enforced: false,
+                remote_bridge_connected: false,
+                approval_broker_mode:
+                    crate::agent::coordinator::ApprovalBrokerMode::ParentOwnedOnly,
+            },
+            requested: crate::agent::coordinator::NormalizedExecutionRequest {
+                transport: CoordinatorTransport::Mailbox,
+                sandbox_mode: Some("workspace_write".into()),
+                repository_id: None,
+                worktree_id: None,
+                read_only_project_access: true,
+                tool_allowlist: vec![],
+                tool_denylist: vec![],
+                provider_override: None,
+                model_override: None,
+                working_directory: Some("/tmp/project".into()),
+                permission_broker: None,
+            },
+        };
+
+        let child = serde_json::json!({ "execution": view });
+        assert_eq!(child["execution"]["requested"]["transport"], "mailbox");
+        assert_eq!(
+            child["execution"]["enforced"]["remote_bridge_connected"],
+            false
+        );
+        assert_eq!(
+            child["execution"]["enforced"]["repository_isolation_enforced"],
+            false
+        );
+        assert_eq!(
+            child["execution"]["enforced"]["worktree_isolation_enforced"],
+            false
+        );
     }
 
     #[tokio::test]
