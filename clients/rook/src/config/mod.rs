@@ -176,7 +176,11 @@ impl RookConfig {
     }
 
     pub fn effective_bind_target(&self) -> String {
-        format!("{}:{}", self.host, self.port)
+        if self.host.contains(':') && !self.host.starts_with('[') && !self.host.ends_with(']') {
+            format!("[{}]:{}", self.host, self.port)
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
     }
 
     pub fn load_from_optional_file(path: Option<&Path>) -> Result<Self, RookError> {

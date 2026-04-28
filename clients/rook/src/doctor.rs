@@ -263,6 +263,14 @@ pub fn render_report(report: &DoctorReport) -> String {
                 render_status(check.status),
                 check.summary
             ));
+
+            for detail in &check.details {
+                lines.push(format!("  detail: {detail}"));
+            }
+
+            if let Some(guidance) = &check.guidance {
+                lines.push(format!("  guidance: {guidance}"));
+            }
         }
     }
 
@@ -368,11 +376,9 @@ mod tests {
     #[tokio::test]
     async fn doctor_report_fails_when_dashboard_assets_are_unavailable() {
         let env = initialized_db_env().await;
-        crate::dashboard::set_assets_ready_override(Some(false));
+        let _assets_override = crate::dashboard::AssetsReadyOverrideGuard::new(false);
 
         let report = run_with_config_path(None, &env).await;
-
-        crate::dashboard::set_assets_ready_override(None);
 
         assert_eq!(report.overall_status(), DoctorStatus::Fail);
         let assets = report
@@ -387,7 +393,8 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_report_fails_when_inbound_auth_is_enabled_without_token() {
-        let env = HashMap::from([("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string())]);
+        let mut env = initialized_db_env().await;
+        env.insert("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string());
 
         let report = run_with_config_path(None, &env).await;
 

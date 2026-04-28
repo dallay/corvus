@@ -36,7 +36,8 @@ async fn doctor_happy_path_reports_startup_equivalent_bind_target_and_ordered_ch
 
 #[tokio::test]
 async fn doctor_enabled_inbound_auth_without_token_reports_inbound_auth_failure() {
-    let env = HashMap::from([("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string())]);
+    let mut env = initialized_db_env().await;
+    env.insert("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string());
 
     let report = run_with_config_path(None, &env).await;
     let rendered = render_report(&report);
@@ -82,15 +83,13 @@ async fn doctor_database_failure_is_actionable_and_non_zero() {
 #[tokio::test]
 async fn doctor_assets_failure_is_actionable_and_non_zero() {
     let env = initialized_db_env().await;
-    rook::dashboard::set_assets_ready_override(Some(false));
+    let _assets_override = rook::dashboard::AssetsReadyOverrideGuard::new(false);
 
     let report = run_with_config_path(None, &env).await;
     let rendered = render_report(&report);
     let failure_text = ensure_success(&report)
         .expect_err("missing assets should fail doctor")
         .to_string();
-
-    rook::dashboard::set_assets_ready_override(None);
 
     assert_eq!(report.overall_status(), DoctorStatus::Fail);
     let assets = report

@@ -1,7 +1,7 @@
 change: rook-doctor-operational-diagnostics-679
 artifact_store: openspec
 project: corvus
-status: planned
+status: completed
 phases:
   explore:
     status: completed

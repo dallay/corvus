@@ -29,14 +29,15 @@ pub struct DashboardAssets;
 
 static ASSETS_READY_OVERRIDE: OnceLock<Mutex<Option<bool>>> = OnceLock::new();
 
-pub fn assets_ready() -> bool {
-    if let Some(override_value) = ASSETS_READY_OVERRIDE
+fn lock_assets_ready_override() -> std::sync::MutexGuard<'static, Option<bool>> {
+    ASSETS_READY_OVERRIDE
         .get_or_init(|| Mutex::new(None))
         .lock()
-        .expect("assets override lock should work")
-        .as_ref()
-        .copied()
-    {
+        .unwrap_or_else(|poison| poison.into_inner())
+}
+
+pub fn assets_ready() -> bool {
+    if let Some(override_value) = lock_assets_ready_override().as_ref().copied() {
         return override_value;
     }
 
@@ -44,11 +45,19 @@ pub fn assets_ready() -> bool {
 }
 
 #[doc(hidden)]
-pub fn set_assets_ready_override(value: Option<bool>) {
-    *ASSETS_READY_OVERRIDE
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .expect("assets override lock should work") = value;
+pub struct AssetsReadyOverrideGuard;
+
+impl AssetsReadyOverrideGuard {
+    pub fn new(value: bool) -> Self {
+        *lock_assets_ready_override() = Some(value);
+        Self
+    }
+}
+
+impl Drop for AssetsReadyOverrideGuard {
+    fn drop(&mut self) {
+        *lock_assets_ready_override() = None;
+    }
 }
 
 // ---------------------------------------------------------------------------

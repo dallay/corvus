@@ -2,7 +2,7 @@
 
 ## Intent
 
-`rook doctor` already exists, but today it only covers a narrow subset of the operational questions an operator needs answered before putting Rook into service. It validates that effective configuration can load, checks embedded dashboard assets, verifies inbound auth basics, and opens the database read-only, but it does not yet provide a sufficiently production-focused readiness picture or clearly separate critical failures from advisory findings.
+`rook doctor` already exists, but today it only covers a narrow subset of the operational questions an operator needs to answer before putting Rook into service. It validates that effective configuration can load, checks embedded dashboard assets, verifies inbound auth basics, and opens the database read-only, but it does not yet provide a sufficiently production-focused readiness picture or clearly separate critical failures from advisory findings.
 
 This change enhances the existing `rook doctor` command into a deterministic local diagnostics workflow for operators. The goal is to let an operator run one command and quickly learn whether the configured Rook instance is safe to start or debug further, with actionable failures, bounded checks, and non-zero exit behavior for conditions that would prevent correct local service startup.
 

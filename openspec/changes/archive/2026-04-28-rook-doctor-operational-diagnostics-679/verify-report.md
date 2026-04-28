@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: `rook-doctor-operational-diagnostics-679`  
 **Scope verified**: local-first `rook doctor` enhancement; optional upstream probing intentionally omitted
