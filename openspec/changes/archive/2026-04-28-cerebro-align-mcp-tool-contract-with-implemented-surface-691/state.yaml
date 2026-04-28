@@ -1,0 +1,15 @@
+change: cerebro-align-mcp-tool-contract-with-implemented-surface-691
+current_phase: archive
+completed:
+  - explore
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+  - archive
+next: none
+updated: 2026-04-28T00:00:00Z
+archived: true
+archive_path: openspec/changes/archive/2026-04-28-cerebro-align-mcp-tool-contract-with-implemented-surface-691
