@@ -1041,6 +1041,7 @@ mod tests {
                 "required": ["a", "b"]
             }),
             source: None,
+            aliases: vec![],
         }];
 
         let native = CopilotProvider::convert_tools(Some(&tools)).expect("tools must map");

@@ -1556,6 +1556,7 @@ mod tests {
                 "required": ["command"]
             }),
             source: None,
+            aliases: vec![],
         }];
 
         let tools = OpenAiCompatibleProvider::tool_specs_to_openai_format(&specs);

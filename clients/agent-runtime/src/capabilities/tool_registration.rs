@@ -92,6 +92,7 @@ fn build_descriptor_from_parts(
             parameters_schema: spec.parameters,
             source: spec.source,
             mcp: mcp_metadata,
+            aliases: spec.aliases,
         },
     })
 }
@@ -180,6 +181,15 @@ mod tests {
         fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object", "properties": {"command": {"type": "string"}}})
         }
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: self.name().to_string(),
+                description: self.description().to_string(),
+                parameters: self.parameters_schema(),
+                source: None,
+                aliases: vec!["sh".to_string()],
+            }
+        }
         async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<ToolResult> {
             Ok(ToolResult {
                 success: true,
@@ -219,6 +229,13 @@ mod tests {
             SourceClassification::Native
         );
         assert!(descriptor.metadata.mcp.is_none());
+    }
+
+    #[test]
+    fn native_tool_descriptor_preserves_aliases() {
+        let descriptor = build_native_tool_descriptor(&NativeTestTool).unwrap();
+
+        assert_eq!(descriptor.metadata.aliases, vec!["sh"]);
     }
 
     #[test]
@@ -332,6 +349,7 @@ mod tests {
                 server: Some("docs".into()),
                 original_name: Some("code-review".into()),
             }),
+            aliases: vec![],
         };
         let hint = ToolDescriptorHint {
             mcp: Some(ToolDescriptorMcpHint {

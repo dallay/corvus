@@ -52,6 +52,16 @@ impl Tool for TaskUpdateTool {
         })
     }
 
+    fn spec(&self) -> super::traits::ToolSpec {
+        super::traits::ToolSpec {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+            parameters: self.parameters_schema(),
+            source: None,
+            aliases: vec!["task_update".to_string()],
+        }
+    }
+
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
         if let Err(error) = self
             .security
@@ -168,5 +178,20 @@ impl Tool for TaskUpdateTool {
             }),
             Err(error) => Ok(tool_error(error.kind, error.message)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::test_helpers::task_tool_test_context;
+
+    #[test]
+    fn task_update_spec_exposes_snake_case_alias() {
+        let (_dir, security, service) = task_tool_test_context();
+        let tool = TaskUpdateTool::new(security, service);
+        let spec = tool.spec();
+        assert_eq!(spec.name, "TaskUpdate");
+        assert_eq!(spec.aliases, vec!["task_update"]);
     }
 }

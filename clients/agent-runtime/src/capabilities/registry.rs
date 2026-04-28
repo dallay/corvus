@@ -221,6 +221,7 @@ mod tests {
                 parameters_schema: serde_json::json!({"type": "object", "properties": {}}),
                 source: None,
                 mcp: None,
+                aliases: vec![],
             },
         }
     }

@@ -2,15 +2,53 @@
 
 ## Purpose
 
-Define the first implementation slice for Claude-style search and fetch parity in Corvus.
-This specification covers the dedicated `Glob`, `Grep`, and read-only `WebFetch` tool contracts,
-their validation and security boundaries, stable result contracts, and the parity mapping that MUST
-be surfaced consistently in documentation and tool inventory outputs.
+Define the implementation slice for Claude-style search, fetch, and persistent task parity in Corvus.
+This specification covers the dedicated `Glob`, `Grep`, read-only `WebFetch`, and persistent
+`TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, `TaskStop` tool contracts, their validation and
+security boundaries, stable result contracts, and the parity mapping that MUST be surfaced
+consistently in documentation and tool inventory outputs.
 
-This slice explicitly excludes `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, and `TaskStop`,
-and it does not require broad renaming or removal of existing Corvus-native tool names.
+This slice does not require broad renaming or removal of existing Corvus-native tool names.
+Canonical parity names remain additive and MUST continue to coexist with retained native contracts.
 
 ## Requirements
+
+### Requirement: Canonical Parity Names and Compatibility Aliases
+
+The system MUST preserve `Glob`, `Grep`, `WebFetch`, `TaskCreate`, `TaskGet`, `TaskList`,
+`TaskUpdate`, and `TaskStop` as canonical runtime names for this slice.
+
+The system MUST also accept these additive compatibility aliases:
+- `glob`
+- `grep`
+- `web_fetch`
+- `task_create`
+- `task_get`
+- `task_list`
+- `task_update`
+- `task_stop`
+
+Alias publication and invocation MUST resolve to the same implementation, permission boundary,
+backend support, and result contract as the canonical name.
+
+### Requirement: Published Parity Mapping
+
+Documentation and runtime inventory surfaces MUST publish the canonical parity mapping in a stable,
+deterministic format.
+
+At minimum, the published mapping MUST preserve these relationships:
+
+| Canonical parity name | Compatibility alias | Backing native/runtime surface | Mapping status |
+| --- | --- | --- | --- |
+| `Glob` | `glob` | workspace discovery helpers | additive |
+| `Grep` | `grep` | `code_search` search internals | canonical parity + retained native contract |
+| `WebFetch` | `web_fetch` | read-only wrapper over `http_request` URL policy boundary | canonical parity + retained native contract |
+| `TaskCreate` | `task_create` | persistent task lifecycle service | additive |
+| `TaskGet` | `task_get` | persistent task lifecycle service | additive |
+| `TaskList` | `task_list` | persistent task lifecycle service | additive |
+| `TaskUpdate` | `task_update` | persistent task lifecycle service | additive |
+| `TaskStop` | `task_stop` | persistent task lifecycle service | additive |
+
 
 ### Requirement: Dedicated `Glob` Tool Contract
 
@@ -238,15 +276,15 @@ The same documentation set MUST also state that:
 
 - GIVEN a maintainer or operator reviews the first-slice parity documentation
 - WHEN they look for `TaskCreate` and related task lifecycle tools
-- THEN the documentation MUST state that `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, and `TaskStop` are out of scope for this slice
-- AND it MUST NOT imply that `schedule` or `cron_*` already satisfy that task-tool contract
+- THEN the documentation MUST state that `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, and `TaskStop` are included in this slice as persistent task lifecycle tools
+- AND it MUST distinguish them from `schedule` and `cron_*`, which do not satisfy that task-tool contract
 
 ---
 
 ## Persistent Task Tools Slice
 
-This section covers the second tooling-parity implementation slice delivering persistent task lifecycle
-tools.
+This section covers the persistent task lifecycle portion of the same tooling-parity slice.
+Persistent task lifecycle parity remains distinct from `schedule` and `cron_*` capabilities.
 
 ### Requirement: Persistent Task Record Model and Slice Boundaries
 
