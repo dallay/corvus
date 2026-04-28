@@ -573,6 +573,9 @@ mod tests {
     #[derive(Clone, Default)]
     struct FailingIdempotencyService;
 
+    #[derive(Clone, Default)]
+    struct FinalizeFailingIdempotencyService;
+
     impl IdempotencyService for FailingIdempotencyService {
         fn reserve_chat_completion<'a>(
             &'a self,
@@ -587,6 +590,43 @@ mod tests {
                     "forced idempotency failure for tests".to_string(),
                 ))
             })
+        }
+
+        fn complete_chat_completion<'a>(
+            &'a self,
+            _scope: &'a ChatIdempotencyScope,
+            _request_hash: &'a str,
+            _response: StoredGatewayResponse,
+            _completed_at: chrono::DateTime<chrono::Utc>,
+        ) -> BoxFuture<'a, Result<(), RookError>> {
+            Box::pin(async { Err(RookError::Registry("forced completion failure".to_string())) })
+        }
+
+        fn prune_expired_chat_completions<'a>(
+            &'a self,
+            _now: chrono::DateTime<chrono::Utc>,
+        ) -> BoxFuture<'a, Result<u64, RookError>> {
+            Box::pin(async { Ok(0) })
+        }
+
+        fn get_chat_completion<'a>(
+            &'a self,
+            _scope: &'a ChatIdempotencyScope,
+        ) -> BoxFuture<'a, Result<Option<ChatIdempotencyRecord>, RookError>> {
+            Box::pin(async { Ok(None) })
+        }
+    }
+
+    impl IdempotencyService for FinalizeFailingIdempotencyService {
+        fn reserve_chat_completion<'a>(
+            &'a self,
+            _scope: &'a ChatIdempotencyScope,
+            _canonical_request_body: &'a [u8],
+            _request_hash: &'a str,
+            _now: chrono::DateTime<chrono::Utc>,
+            _replay_window: chrono::Duration,
+        ) -> BoxFuture<'a, Result<ReserveResult, RookError>> {
+            Box::pin(async { Ok(ReserveResult::ReservedNew) })
         }
 
         fn complete_chat_completion<'a>(
@@ -2153,6 +2193,70 @@ mod tests {
                     .uri("/v1/chat/completions")
                     .header("content-type", "application/json")
                     .header("idempotency-key", "chat-123")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
+        assert_eq!(json["error"]["code"], json!("idempotency_unavailable"));
+
+        let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
+        assert_eq!(metrics_status, StatusCode::OK);
+        let text = String::from_utf8(metrics_body).unwrap();
+        assert!(text.contains(
+            "rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"unavailable\"} 1"
+        ));
+        assert!(!text.contains(
+            "rook_idempotency_outcomes_total{surface=\"gateway_chat_completions\",outcome=\"pass\"} 1"
+        ));
+    }
+
+    #[tokio::test]
+    async fn chat_idempotency_finalize_failure_records_unavailable_without_pass_metrics() {
+        use axum::{routing::post, Json, Router};
+        use std::net::SocketAddr;
+
+        async fn ok_handler() -> Json<serde_json::Value> {
+            Json(json!({"id": "chat-ok"}))
+        }
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let upstream = Router::new().route("/v1/chat/completions", post(ok_handler));
+        let _server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        seed_route(
+            &registry,
+            "gpt-4o",
+            ProviderVendor::OpenAi,
+            Some(format!("http://{addr}")),
+            Some("sk-test".to_string()),
+        )
+        .await;
+        let app = build_app_with_registry_and_idempotency(
+            ServerConfig::default(),
+            registry,
+            SharedIdempotencyService::boxed(FinalizeFailingIdempotencyService),
+        )
+        .await
+        .unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .header("idempotency-key", "chat-finalize-fail")
                     .body(Body::from(
                         json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]})
                             .to_string(),
