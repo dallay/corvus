@@ -4,18 +4,18 @@ This directory contains all GitHub Actions workflows for the Corvus monorepo. Wo
 
 ## 📋 Quick Reference
 
-| Category        | Workflow                             | Purpose                                                           | Trigger                                 |
-| --------------- | ------------------------------------ | ----------------------------------------------------------------- | --------------------------------------- |
-| **CI/CD**       | `pull-request-check.yml`             | Main CI checks for PRs and protected pushes                       | Push to main/minor, PR to main/minor/\* |
-| **CI/CD**       | `pull-request-check-build-logic.yml` | Checks for build-logic changes                                    | Changes to `gradle/build-logic/**`      |
-| **CI/CD**       | `deploy-docs.yml`                    | Deploy documentation to GitHub Pages                              | Push docs to `main`, Release published  |
-| **Security**    | `codeql-analysis.yml`                | Security scanning with CodeQL                                     | Push to main/minor, daily schedule      |
-| **Security**    | `snyk-security.yml`                  | Snyk SAST/SCA/Container/IaC scans                                 | Push/PR to main/minor, manual           |
-| **Publishing**  | `publish-release.yml`                | Attach stable artifacts to canonical GitHub Release               | `release.published`                     |
-| **Publishing**  | `publish-snapshot.yml`               | Publish Gradle/Maven snapshots only                               | Manual, daily schedule                  |
-| **Publishing**  | `release-please.yml`                 | Create repo-wide release PRs, tags, and canonical GitHub Releases | Push to `main`, manual                  |
-| **Publishing**  | `release-please-beta.yml`            | Create beta prerelease PRs, tags, and canonical GitHub Releases   | Push to `beta`, manual                  |
-| **Publishing**  | `_publish.yml`                       | Reusable stable/beta/snapshot publish workflow                    | Called by other workflows               |
+| Category       | Workflow                             | Purpose                                                           | Trigger                                 |
+| -------------- | ------------------------------------ | ----------------------------------------------------------------- | --------------------------------------- |
+| **CI/CD**      | `pull-request-check.yml`             | Main CI checks for PRs and protected pushes                       | Push to main/minor, PR to main/minor/\* |
+| **CI/CD**      | `pull-request-check-build-logic.yml` | Checks for build-logic changes                                    | Changes to `gradle/build-logic/**`      |
+| **CI/CD**      | `deploy-docs.yml`                    | Deploy documentation to GitHub Pages                              | Push docs to `main`, Release published  |
+| **Security**   | `codeql-analysis.yml`                | Security scanning with CodeQL                                     | Push to main/minor, daily schedule      |
+| **Security**   | `snyk-security.yml`                  | Snyk SAST/SCA/Container/IaC scans                                 | Push/PR to main/minor, manual           |
+| **Publishing** | `publish-release.yml`                | Attach stable artifacts to canonical GitHub Release               | `release.published`                     |
+| **Publishing** | `publish-snapshot.yml`               | Publish Gradle/Maven snapshots only                               | Manual, daily schedule                  |
+| **Publishing** | `release-please.yml`                 | Create repo-wide release PRs, tags, and canonical GitHub Releases | Push to `main`, manual                  |
+| **Publishing** | `release-please-beta.yml`            | Create beta prerelease PRs, tags, and canonical GitHub Releases   | Push to `beta`, manual                  |
+| **Publishing** | `_publish.yml`                       | Reusable stable/beta/snapshot publish workflow                    | Called by other workflows               |
 
 ## Release Scope Resolution
 
@@ -25,19 +25,19 @@ This directory contains all GitHub Actions workflows for the Corvus monorepo. Wo
 - GitHub Releases remain the canonical stable and beta release notes surface.
 - `publish-release.yml` and `_publish.yml` never author canonical release notes.
 - `publish-snapshot.yml` never owns stable release notes.
-| **Automation**  | `auto-fix-lockfile.yml`              | Auto-update lockfiles                                             | Daily schedule, manual                  |
-| **Automation**  | `fix-renovate.yml`                   | Fix lockfiles for Renovate PRs                                    | Comment `/fix-lock` on PR               |
-| **Repo Mgmt**   | `git-issue-labeled.yml`              | Auto-comments/closes labeled issues                               | Issue labeled                           |
-| **Repo Mgmt**   | `git-issue-auto-close.yml`           | Close inactive issues                                             | Weekly schedule                         |
-| **Repo Mgmt**   | `git-sync-labels.yml`                | Sync labels from config                                           | Push to `labels.yml`                    |
-| **Quality**     | `semantic-pull-request.yml`          | Lint PR titles                                                    | PR open/edit                            |
-| **Quality**     | `pull-request-limit.yml`             | Block changes to restricted files                                 | PR touching CODEOWNERS/workflows        |
-| **Quality**     | `detekt.yml`                         | Kotlin static analysis for KMP surfaces                           | Kotlin/Gradle changes, weekly, manual   |
-| **Quality**     | `lychee-links.yml`                   | Check project links with Lychee (full repo)                       | Daily schedule (4am), manual            |
-| **Maintenance** | `cleanup-cache.yml`                  | Clean up Action caches                                            | PR closed                               |
-| **Maintenance** | `stale.yml`                          | Mark stale issues/PRs                                             | Daily schedule                          |
-| **Reporting**   | `contributor-report.yml`             | PR contributor reports                                            | PR events                               |
-| **Community**   | `greetings.yml`                      | Welcome new contributors                                          | PR/issue created                        |
+  | **Automation** | `auto-fix-lockfile.yml` | Auto-update lockfiles | Daily schedule, manual |
+  | **Automation** | `fix-renovate.yml` | Fix lockfiles for Renovate PRs | Comment `/fix-lock` on PR |
+  | **Repo Mgmt** | `git-issue-labeled.yml` | Auto-comments/closes labeled issues | Issue labeled |
+  | **Repo Mgmt** | `git-issue-auto-close.yml` | Close inactive issues | Weekly schedule |
+  | **Repo Mgmt** | `git-sync-labels.yml` | Sync labels from config | Push to `labels.yml` |
+  | **Quality** | `semantic-pull-request.yml` | Lint PR titles | PR open/edit |
+  | **Quality** | `pull-request-limit.yml` | Block changes to restricted files | PR touching CODEOWNERS/workflows |
+  | **Quality** | `detekt.yml` | Kotlin static analysis for KMP surfaces | Kotlin/Gradle changes, weekly, manual |
+  | **Quality** | `lychee-links.yml` | Check project links with Lychee (full repo) | Daily schedule (4am), manual |
+  | **Maintenance** | `cleanup-cache.yml` | Clean up Action caches | PR closed |
+  | **Maintenance** | `stale.yml` | Mark stale issues/PRs | Daily schedule |
+  | **Reporting** | `contributor-report.yml` | PR contributor reports | PR events |
+  | **Community** | `greetings.yml` | Welcome new contributors | PR/issue created |
 
 ---
 
