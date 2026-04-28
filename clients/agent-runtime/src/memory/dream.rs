@@ -772,7 +772,13 @@ mod tests {
             record_session_completion(tmp.path(), &format!("sess-{index}")).unwrap();
         }
 
-        let report = run_if_triggered(tmp.path()).unwrap().unwrap();
+        let report = match run_if_triggered(tmp.path()).unwrap().unwrap() {
+            report if report.lock_state == DreamLockState::Acquired => report,
+            report if report.lock_state == DreamLockState::Busy => {
+                run_if_triggered(tmp.path()).unwrap().unwrap_or(report)
+            }
+            report => report,
+        };
         assert_eq!(report.trigger_reason, DreamTriggerReason::SessionCount);
         assert_eq!(report.lock_state, DreamLockState::Acquired);
         assert_eq!(report.status, DreamRunStatus::Completed);

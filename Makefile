@@ -285,6 +285,15 @@ link-check-local: ## Check repository local links with Lychee (offline)
 
 lint-all: lint-kotlin lint-rust lint-android ## Run all linters
 
+sonar: check-tools ## Run local SonarQube analysis (coverage + scan)
+	@echo "🔍 $(BOLD)Running local SonarQube analysis...$(SGR0)"
+	@bash ./scripts/sonar.sh --validate-only
+	@$(GRADLEW) test jvmTest :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
+	@pnpm --dir clients/web install --frozen-lockfile
+	@pnpm --dir clients/web/apps/dashboard test:coverage
+	@$(MAKE) rust-coverage
+	@bash ./scripts/sonar.sh
+
 # --- TESTING ---
 
 test: ## Run all tests
@@ -314,7 +323,7 @@ rust-coverage: ## Run Rust coverage for agent-runtime
 		exit 1; \
 	}
 	@mkdir -p coverage
-	@cd clients/agent-runtime && cargo llvm-cov --lcov --output-path ../../coverage/agent-runtime-coverage.lcov
+	@cd clients/agent-runtime && cargo llvm-cov --lcov --output-path ../../coverage/agent-runtime-coverage.lcov -- --test-threads=1
 
 test-all: test rust-test web-test-all ## Run all tests (Gradle + Rust + Web)
 
@@ -420,7 +429,7 @@ sync-version: ## Sync VERSION with git tag
         web-install docs-dev docs-build docs-check docs-format \
         dashboard-dev dashboard-build dashboard-check dashboard-test \
         marketing-dev marketing-build marketing-check web-build-all web-clean-all web-test-all web-check-all \
-        format check-format check lint-kotlin lint-rust lint-android lint-all \
+        format check-format check lint-kotlin lint-rust lint-android lint-all sonar \
         test test-app test-core test-verbose test-coverage rust-coverage test-all check-all docs-code \
         deps deps-app deps-analysis deps-update \
         dev-up dev-up-dashboard dev-down dev-shell dev-agent dev-logs dev-status dev-build dev-clean clean-web clean-pnpm \

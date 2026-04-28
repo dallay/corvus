@@ -48,6 +48,21 @@
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=coverage)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 
+### Local monthly review
+
+Run the recurring Sonar review workflow locally with:
+
+```bash
+make sonar
+```
+
+Local prerequisites:
+- `SONAR_TOKEN` exported in your shell
+- `sonar-scanner` available on `PATH`
+- the standard repo toolchain required by `make check-tools`
+
+`make sonar` generates the same main coverage inputs used by CI before invoking the local scanner. The authoritative quality gate still lives in SonarCloud, but this command makes the monthly review reproducible from a developer workstation.
+
 ## 🛠️ Tech Stack
 
 ![Kotlin](https://img.shields.io/badge/kotlin-%237F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white)
