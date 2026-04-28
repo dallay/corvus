@@ -737,11 +737,13 @@ mod tests {
             description: "A test tool".into(),
             parameters: serde_json::json!({"type": "object"}),
             source: None,
+            aliases: vec!["test_alias".into()],
         };
         let json = serde_json::to_string(&spec).unwrap();
         let parsed: ToolSpec = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.name, "test");
         assert_eq!(parsed.description, "A test tool");
+        assert_eq!(parsed.aliases, vec!["test_alias"]);
     }
 
     #[test]

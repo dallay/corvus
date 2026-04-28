@@ -162,6 +162,16 @@ impl Tool for WebFetchTool {
         })
     }
 
+    fn spec(&self) -> super::traits::ToolSpec {
+        super::traits::ToolSpec {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+            parameters: self.parameters_schema(),
+            source: None,
+            aliases: vec!["web_fetch".to_string()],
+        }
+    }
+
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let request = match WebFetchRequest::from_args(&args) {
             Ok(request) => request,
@@ -350,7 +360,16 @@ mod tests {
         WebFetchTool::new(security, vec!["example.com".into()], 1024, 5)
     }
 
+    #[test]
+    fn web_fetch_spec_exposes_snake_case_alias() {
+        let tool = test_tool();
+        let spec = tool.spec();
+        assert_eq!(spec.name, "WebFetch");
+        assert_eq!(spec.aliases, vec!["web_fetch"]);
+    }
+
     fn test_tool_with_transport(transport: Arc<dyn WebFetchTransport>) -> WebFetchTool {
+
         let security = Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::ReadOnly,
             ..SecurityPolicy::default()

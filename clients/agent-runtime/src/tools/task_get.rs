@@ -45,6 +45,16 @@ impl Tool for TaskGetTool {
         })
     }
 
+    fn spec(&self) -> super::traits::ToolSpec {
+        super::traits::ToolSpec {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+            parameters: self.parameters_schema(),
+            source: None,
+            aliases: vec!["task_get".to_string()],
+        }
+    }
+
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
         if let Err(error) = self
             .security
@@ -83,5 +93,30 @@ impl Tool for TaskGetTool {
             }),
             Err(error) => Ok(tool_error(error.kind, error.message)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::SqliteMemory;
+    use crate::security::AutonomyLevel;
+    use crate::tasks::TaskService;
+    use tempfile::TempDir;
+
+    #[test]
+    fn task_get_spec_exposes_snake_case_alias() {
+        let dir = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::ReadOnly,
+            workspace_dir: dir.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let memory = Arc::new(SqliteMemory::new(dir.path()).unwrap());
+        let service = Arc::new(TaskService::new(memory));
+        let tool = TaskGetTool::new(security, service);
+        let spec = tool.spec();
+        assert_eq!(spec.name, "TaskGet");
+        assert_eq!(spec.aliases, vec!["task_get"]);
     }
 }
