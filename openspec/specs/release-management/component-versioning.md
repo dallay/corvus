@@ -2,230 +2,166 @@
 
 ## Status
 
-Design-only for release decoupling work associated with #652 and #653. This document defines the
-intended direction for component-aware release state without changing live workflows,
-`release-please` manifests, or publish automation yet.
+Design-only for release decoupling work associated with #652 and #653. This document defines the intended direction for component-aware release state without changing live workflows, `release-please` manifests, or publish automation yet.
 
 ## Problem
 
-The current release contract is expressed primarily at repo scope. That is sufficient for the
-canonical stable tag and release-note authority, but it is too coarse for a repository that
-contains multiple release-managed components with different publication policies.
+The current release contract is expressed primarily at repo scope. That is sufficient for canonical stable release authority, but it is too coarse for a monorepo that contains multiple release-managed components with different publication policies and dependency relationships.
 
 A repo-wide release train alone cannot clearly answer:
 
 - which component version is the latest published version for that component,
 - which components are release-eligible for the next stable cycle,
 - which components are validate-only versus publishable,
-- and which components are intentionally excluded from stable publication.
+- which changed paths should directly affect a component,
+- and which components must join a release transitively because a published dependency changed.
 
 That ambiguity creates coupling between version state, validation scope, and publish behavior.
 
 ## Goals
 
-- Preserve `release-please` as the canonical owner of the repo-wide stable PR, tag, and release
-  notes.
-- Introduce a component-scoped release-state model that can coexist with the canonical repo-wide
-  release contract.
+- Preserve `release-please` as the canonical owner of the repo-wide stable PR, tag, and release notes.
+- Introduce a release-component graph that can coexist with the canonical repo-wide release contract.
 - Make publish policy explicit per component.
-- Support future workflow changes where validation and publication can be decided per component.
+- Make direct ownership and transitive release dependencies explicit and machine-consumable.
+- Support future workflow changes where validation and publication can be decided per component from one source of truth.
 
 ## Non-Goals
 
-- Changing any live GitHub workflow behavior in this design step.
-- Editing `release-please` configuration, manifests, or workflow YAML.
+- Changing live GitHub workflow behavior in this design document alone.
+- Editing `release-please` configuration, manifests, or workflow YAML in this design document alone.
 - Introducing component-specific tags as an alternate stable release authority.
 - Replacing the canonical repo-wide `vX.Y.Z` tag.
+- Adding non-published surfaces such as web/docs/mobile into semantic artifact release by default.
 
 ## Design Principles
 
-1. **Repo-wide authority remains singular.** The canonical stable release still flows from the
-   repo-wide `release-please` PR and `vX.Y.Z` tag.
-2. **Component state is descriptive and operational.** Component records explain what each managed
-   component last released, what it intends to release next, and whether it should publish.
-3. **Publish policy is explicit, never inferred by omission.** If a component is excluded, the
-   state must say so.
-4. **Validation scope follows component eligibility.** Future gates should derive from the managed
-   components selected for the release, not from every package in the monorepo.
+1. **Repo-wide authority, component-aware planning**
+   - The repository keeps one canonical release authority while component participation is resolved independently.
+2. **Published artifacts only by default**
+   - Only externally versioned/published artifacts join the semantic release train unless explicitly promoted later.
+3. **One executable source of truth**
+   - Ownership rules, dependency edges, version surfaces, and publish policy should live in one canonical graph definition.
+4. **Explainable release fan-out**
+   - Every component in `affected_components` should have a direct, shared-infra, or transitive dependency reason.
+5. **Fail closed for unknown release impact**
+   - Missing graph coverage is safer when surfaced as an error than when silently ignored.
 
-## Proposed Component State Model
+## Canonical release-component graph
 
-Each release-managed component should have a canonical state entry with fields equivalent to the
-following logical model:
+The intended model is an explicit release-component graph with fields conceptually shaped like:
 
 ```text
-component_id
-component_path
-component_kind
-latest_released_version
-pending_version
-release_eligibility
-publish_policy
-validation_policy
-notes
+release_component
+  id
+  kind
+  owned_paths
+  shared_infra_paths
+  version_surfaces
+  published_artifacts
+  release_channels
+  publish_policy
+  depends_on_release_of
+  non_release_paths
+  notes
 ```
 
-### Field Intent
+### Field meaning
 
-- `component_id`: stable identifier used across docs, validation, and publish planning.
-- `component_path`: repository location anchoring the component to real files.
-- `component_kind`: package/app/runtime/library classification for operator understanding.
-- `latest_released_version`: the most recent version actually released for this component.
-- `pending_version`: planned next version for the component when a release is in progress.
-- `release_eligibility`: whether the component is in scope for the current stable cycle.
-- `publish_policy`: whether the component is published, validate-only, or excluded.
-- `validation_policy`: the level of validation the component must satisfy for stable release.
-- `notes`: operator-facing rationale for exceptions or transitional handling.
+- `id`: stable component identifier used in workflows, manifests, tests, and docs.
+- `kind`: runtime/crate/npm/gradle classification for operator understanding.
+- `owned_paths`: direct repository ownership for release scope resolution.
+- `shared_infra_paths`: paths whose change fans out to a declared component set.
+- `version_surfaces`: canonical files whose versions must remain aligned.
+- `published_artifacts`: externally visible outputs such as crates, npm packages, binaries, or Maven publications.
+- `release_channels`: allowed channels such as `stable`, `beta`, and `snapshot`.
+- `publish_policy`: whether the component is publishable or validate-only.
+- `depends_on_release_of`: upstream components whose release-relevant change requires downstream release participation.
+- `non_release_paths`: owned repository surfaces intentionally outside semantic artifact release.
+- `notes`: operator-facing rationale for transitional handling or exceptions.
 
-## State Semantics
+## Initial managed component set
 
-### Published Component
+The initial graph should reflect the repository's current release reality:
 
-A published component is expected to:
+### `rook`
 
-- maintain its own latest released version state,
-- participate in release planning when eligible,
-- and become publishable after the canonical tag exists.
+- publishable
+- owns `clients/rook/**`
+- ships crate, npm wrapper/platform packages, and release binaries
 
-### Validate-Only Component
+### `cerebro`
 
-A validate-only component is in managed release state but does not publish artifacts in the stable
-contract. It may still require checks because it affects shipped components, shared tooling, or
-consumer safety.
+- publishable
+- owns `clients/cerebro/**`
+- ships crate, binaries, and release assets through the shared publish flow
 
-`gradle-kmp` should remain in this bucket for now. The current repository carries two live Gradle
-version sources (`gradle.properties` and `gradle/build-logic/gradle.properties`) that must stay
-aligned for release-time validation, but that dual-source posture is not yet a strong enough basis
-to model `gradle-kmp` as a standalone `release-please` manifest authority.
+### `corvus-runtime`
 
-### Excluded Component
+- publishable
+- owns `clients/agent-runtime/**`
+- ships crate, npm wrapper/platform packages, and release binaries
+- has a published dependency relationship with `cerebro` that may require transitive release participation
 
-An excluded component remains visible in release state but is not considered part of stable publish
-scope. Exclusion must be explicit and documented so that omission is interpreted as policy, not as
-state drift.
+### `gradle-kmp`
 
-## Relationship to Repo-Wide Versioning
+- validate-only for now
+- owns `gradle/**`, `gradle.properties`, and related Gradle version surfaces
+- participates in validation posture and version alignment without yet becoming independent `release-please` manifest authority
 
-The repo-wide stable release version still exists and remains canonical for the stable PR/tag flow.
-Component-scoped version state does not replace that authority. Instead, it adds a second layer of
-state needed to manage release eligibility and publication decisions in a mixed-scope repository.
+## Direct ownership versus transitive dependency
 
-The key design constraint is:
+The graph must distinguish two different reasons a component enters release scope:
 
-- **repo-wide version authority answers "what stable release happened?"**
-- **component-scoped state answers "what does this component do in that release?"**
+### Direct ownership
 
-This preserves one stable release authority while enabling component-aware release operations.
+A component is directly affected when a changed path belongs to its owned paths or declared shared release infrastructure.
 
-## Tag and Release Authority
+Examples:
 
-The migration should preserve a single canonical interpretation of tag and release ownership.
+- `clients/rook/src/**` -> `rook`
+- `clients/cerebro/src/**` -> `cerebro`
+- `release-please-config.json` -> all declared shared-infra components
 
-### Stable authority
+### Transitive release dependency
 
-- The repo-wide stable `release-please` flow remains the canonical owner of the stable GitHub
-  Release, stable release notes, and the canonical `vX.Y.Z` release event.
-- Component-scoped release state exists to decide scope, validation, and publication behavior; it is
-  not a second competing stable authority.
-- Component-aware manifests may describe which components participate in a stable cycle, but they do
-  not replace the canonical repo-wide stable release event.
+A component is transitively affected when a published dependency relationship requires it to join the release set after another component changes.
 
-### Beta authority
+Example:
 
-- The beta `release-please` flow remains the canonical owner of beta release-note generation and the
-  beta release event for the repository.
-- Component participation in a beta cycle may vary by affected component set, but beta notes and the
-  triggering release event still come from the shared beta release flow.
+- `cerebro` changes directly
+- `corvus-runtime` depends on release of `cerebro`
+- final scope includes `cerebro` directly and `corvus-runtime` transitively
 
-### Current component-state interpretation
+This distinction is essential because workflows and operators must understand not only *which* components were released, but *why*.
 
-- `rook`, `corvus-runtime`, and `cerebro` currently participate in component-scoped version state.
-- `gradle-kmp` is currently `validate-only`: it influences validation and publish posture, but it is
-  not yet modeled as an independent `release-please` manifest authority.
-- Component state should answer “who is in scope?” and “what should publish?”, while repo-wide tag
-  authority answers “what release event is canonical?”.
+## Publish policy
 
-## Expected Multi-Component Behavior
+Each managed component should declare one of these policies:
 
-The rollout should support shared changes that affect more than one release-managed component at the
-same time.
+- **publishable**: participates in release PR/version/changelog/publish flows for external artifacts
+- **validate-only**: participates in validation and impact reasoning, but not yet as independent publish authority
 
-### Scenario A — `rook` only
+`gradle-kmp` remains validate-only in the intended near-term model. This keeps Gradle version alignment visible without forcing premature manifest authority changes.
 
-When only `rook` release surfaces change:
+## Relationship to `release-please`
 
-- resolver output should contain `rook`,
-- `release-please` scope should only advance `rook` component state,
-- `_publish.yml` should validate and publish only `rook` surfaces,
-- unaffected components should remain skipped.
+The release-component graph does not replace `release-please`. Instead:
 
-### Scenario B — `corvus-runtime` and `cerebro`
+- `release-please` remains canonical owner of release PRs, versions, tags, and changelogs;
+- the graph decides which components are affected by a change;
+- publish workflows validate graph-derived version surfaces and dependency pins before artifact publication.
 
-When shared changes affect both `corvus-runtime` and `cerebro`:
+## Relationship to non-release surfaces
 
-- resolver output should include both components,
-- version-state changes should remain aligned in config and manifest files,
-- `_publish.yml` should validate both component surfaces,
-- downstream publication should occur only for those two components.
+Web apps, docs, Android, and Compose clients remain outside semantic artifact release unless they later become externally versioned artifacts. They may still have deploy, preview, CI, or packaging workflows, but they do not join the component release graph by default.
 
-### Scenario C — shared workflow or release-plumbing change
+## Expected benefits
 
-When a shared release path changes (for example `release-please.yml`, `release-please-beta.yml`, or
-`_publish.yml`):
+A graph-backed versioning model should make it possible to answer, deterministically:
 
-- the affected component set may legitimately fan out to multiple components,
-- component-aware summaries must make that fan-out visible,
-- operators should be able to distinguish publishable components from validate-only ones.
-
-### Scenario D — `gradle-kmp` participation
-
-When Gradle release surfaces change:
-
-- resolver output may include `gradle-kmp`,
-- `_publish.yml` should validate Gradle version alignment,
-- `gradle-kmp` should appear in reporting as `validate-only`,
-- and no new standalone `release-please` manifest authority should be inferred from that validation
-  alone.
-
-## Migration Direction
-
-The intended migration path is:
-
-1. Document the component-scoped model in spec and design.
-2. Update operator-facing docs to explain that gating will move toward component-aware scope.
-3. Introduce implementation later in release state, validation selection, and publish planning.
-4. Only after the model is implemented should workflows and `release-please` integration be changed.
-
-## Risks and Mitigations
-
-### Risk: Dual state becomes contradictory
-
-If repo-wide and component-scoped state diverge, operators may not know which value is authoritative.
-
-**Mitigation:** document that repo-wide state owns canonical stable release identity, while
-component-scoped state owns component participation and policy.
-
-### Risk: Hidden exclusions create release surprises
-
-If excluded components are omitted from state entirely, missing publication may look like a bug.
-
-**Mitigation:** require explicit excluded entries with rationale.
-
-### Risk: Component gating becomes too granular too early
-
-Overly aggressive decoupling could weaken release confidence before the model is mature.
-
-**Mitigation:** this step is design-only; keep current live gating unchanged until component state
-and validation contracts are implemented and verified.
-
-## Expected Follow-On Implementation Areas
-
-When implementation begins, likely touch points include:
-
-- release state source-of-truth definitions,
-- validation planning logic,
-- publish planning logic,
-- operator documentation for release triage,
-- and workflow surfaces that currently assume repo-wide all-or-nothing gating.
-
-No such live changes are part of this design document itself.
+- which component versions are authoritative,
+- which components should release for a given change set,
+- which components are publishable versus validate-only,
+- which downstream components joined transitively,
+- and why a release was intentionally limited or expanded.

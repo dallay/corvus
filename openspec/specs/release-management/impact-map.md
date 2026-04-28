@@ -2,62 +2,64 @@
 
 ## Purpose
 
-Define which repository paths belong to each releaseable component and which shared release paths
-fan out to multiple components when changed.
+Define which repository paths belong to each release-managed component, which shared release paths fan out to multiple components, and which surfaces remain intentionally outside semantic artifact release.
 
-## Exclusive component ownership
+## Release-owned paths
 
-| Path prefix | Affected component(s) | Notes |
+| Path prefix / file | Directly affected component | Notes |
 | --- | --- | --- |
-| `clients/agent-runtime/` | `corvus-runtime` | includes the runtime crate, npm wrappers, and runtime-specific packaging/version wiring |
-| `clients/rook/` | `rook` | includes the rook crate, npm wrappers, and rook-specific release packaging |
-| `clients/cerebro/` | `cerebro` | includes the standalone memory service client crate and shipped binaries |
+| `clients/agent-runtime/` | `corvus-runtime` | includes runtime crate, npm wrappers, release binaries, and runtime-specific packaging/version wiring |
+| `clients/rook/` | `rook` | includes rook crate, npm wrappers, release binaries, and rook-specific packaging/version wiring |
+| `clients/cerebro/` | `cerebro` | includes standalone memory service crate, binaries, and cerebro-specific release wiring |
 | `gradle/` | `gradle-kmp` | includes Gradle build logic and publication-specific configuration |
 | `gradle.properties` | `gradle-kmp` | top-level Gradle publication version source |
+| `modules/agent-core-kmp/` | `gradle-kmp` | versioned Gradle/KMP module surface relevant to validation and publication posture |
 
-## Non-release-scoped paths
+## Shared release infrastructure fan-out
 
-The following paths are intentionally treated as outside the current component-scoped release
-resolver. Changes there should not fail release-scope resolution, but they also should not mint
-release scope on their own.
+These paths are not owned by a single release-managed component. Instead, they SHOULD fan out to the declared managed component set because they influence shared release planning, version state, or publication behavior.
 
-| Path prefix | Resolver treatment | Why |
+| Path prefix / file | Fan-out component set | Why |
 | --- | --- | --- |
-| `clients/web/` | ignored for release-scope resolution | current rollout only models release-managed surfaces for `corvus-runtime`, `rook`, `cerebro`, and `gradle-kmp` |
-| `clients/androidApp/` | ignored for release-scope resolution | Android app workspace changes are outside the current component-scoped release contract |
-| `clients/composeApp/` | ignored for release-scope resolution | Compose app workspace changes are outside the current component-scoped release contract |
-| `package.json` | ignored for release-scope resolution | root JavaScript workspace metadata is not yet part of component-scoped release authority |
-| `pnpm-lock.yaml` | ignored for release-scope resolution | root JS lockfile changes should not force release scope by themselves |
-| `pnpm-workspace.yaml` | ignored for release-scope resolution | root workspace wiring is outside the current component-scoped release contract |
+| `.github/workflows/release-please.yml` | `rook`, `cerebro`, `corvus-runtime`, `gradle-kmp` | stable release scope logic and canonical release orchestration |
+| `.github/workflows/release-please-beta.yml` | `rook`, `cerebro`, `corvus-runtime`, `gradle-kmp` | beta release scope logic and prerelease orchestration |
+| `.github/workflows/publish-release.yml` | `rook`, `cerebro`, `corvus-runtime`, `gradle-kmp` | stable publish handoff and release metadata resolution |
+| `.github/workflows/_publish.yml` | `rook`, `cerebro`, `corvus-runtime`, `gradle-kmp` | shared validation/publication behavior |
+| `release-please-config.json` | `rook`, `cerebro`, `corvus-runtime` | stable package version/changelog/tag authority |
+| `release-please-beta-config.json` | `rook`, `cerebro`, `corvus-runtime` | beta package version/changelog/tag authority |
+| `.release-please-manifest.json` | `rook`, `cerebro`, `corvus-runtime` | stable component version baseline |
+| `.release-please-beta-manifest.json` | `rook`, `cerebro`, `corvus-runtime` | beta component version baseline |
+| `scripts/release-contract.test.mjs` | `rook`, `cerebro`, `corvus-runtime`, `gradle-kmp` | shared release contract enforcement |
+| `version.txt` | `rook`, `cerebro`, `corvus-runtime`, `gradle-kmp` | shared version state used across release-managed surfaces |
 
-## Shared-path fan-out rules
+## Transitive dependency expansion
 
-| Path prefix | Affected component(s) | Why |
+After direct ownership and shared-infrastructure matching, the resolver SHOULD expand release scope through declared dependency edges.
+
+| Upstream component | Downstream component | Why |
 | --- | --- | --- |
-| `.github/workflows/release-please.yml` | `corvus-runtime`, `rook`, `cerebro`, `gradle-kmp` | stable orchestration remains shared across the monorepo release train |
-| `.github/workflows/release-please-beta.yml` | `corvus-runtime`, `rook`, `cerebro`, `gradle-kmp` | beta orchestration remains shared across the monorepo release train |
-| `.github/workflows/_publish.yml` | `corvus-runtime`, `rook`, `cerebro`, `gradle-kmp` | shared publish entrypoint validates and publishes all shipped release surfaces |
-| `.github/workflows/publish-release.yml` | `corvus-runtime`, `rook`, `cerebro`, `gradle-kmp` | stable publish handoff is shared and triggered from the canonical GitHub Release |
-| `.github/workflows/publish-snapshot.yml` | `gradle-kmp` | snapshot publishing currently belongs only to the Gradle publication surface |
-| `release-please-config.json` | `corvus-runtime`, `rook`, `cerebro`, `gradle-kmp` | stable release version fan-out policy is shared today |
-| `release-please-beta-config.json` | `corvus-runtime`, `rook`, `cerebro`, `gradle-kmp` | beta release version fan-out policy is shared today |
-| `.release-please-manifest.json` | `corvus-runtime`, `rook`, `cerebro`, `gradle-kmp` | stable release baseline state is still shared as one package entry |
-| `.release-please-beta-manifest.json` | `corvus-runtime`, `rook`, `cerebro`, `gradle-kmp` | beta release baseline state is still shared as one package entry |
-| `version.txt` | `corvus-runtime`, `rook`, `cerebro`, `gradle-kmp` | single repo-wide version root still feeds every shipped component |
-| `openspec/specs/release-management/**` | `corvus-runtime`, `rook`, `cerebro`, `gradle-kmp` | release policy/spec changes apply to the full release-management contract |
+| `cerebro` | `corvus-runtime` | runtime-shipped dependency/version surfaces must stay aligned with cerebro release state |
 
-## Initial precision rule for CI and planning
+This table records release fan-out caused by dependency relationships, not direct path ownership.
 
-- If every changed path maps to exactly one exclusive owner, treat the change as single-component.
-- If any changed path matches a shared-path fan-out rule, union all components named by that rule.
-- If both exclusive and shared rules match, the final affected set is the union.
-- If a path is unmapped, stop and update the inventory or impact map before automation depends on
-  that path.
+## Non-release paths
 
-## Notes
+The following paths are intentionally treated as outside the current semantic artifact release graph. Changes there should not fail release-scope resolution, but they also should not mint release scope on their own.
 
-- This map records repository reality while release-please manifests and configs still model a
-  single package `.`.
-- Keep component ids fixed as `corvus-runtime`, `rook`, `cerebro`, and `gradle-kmp`.
-- Use this document together with `component-inventory.md` when planning pilot decoupling work for
-  `#650` and `#651`.
+| Path prefix / file | Resolver treatment | Why |
+| --- | --- | --- |
+| `clients/web/` | non-release | current rollout only models externally versioned release-managed artifacts |
+| `clients/androidApp/` | non-release | Android app workspace changes are outside the current semantic artifact release contract |
+| `clients/composeApp/` | non-release | Compose app workspace changes are outside the current semantic artifact release contract |
+| `pnpm-workspace.yaml` | non-release unless later promoted | current root workspace metadata does not itself define a release-managed artifact |
+| `package.json` | non-release unless later promoted | root JavaScript workspace metadata is not yet semantic release authority for managed artifacts |
+| docs-only content outside managed release surfaces | non-release | documentation changes should not force artifact release on their own |
+
+## Impact-map invariants
+
+The impact map should remain sufficient to answer:
+
+- which changed paths directly affect a managed component,
+- which paths fan out to multiple components through shared release infrastructure,
+- which components join release scope transitively because of dependency edges,
+- and which repository paths are intentionally excluded from semantic artifact release.

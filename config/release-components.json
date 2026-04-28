@@ -1,0 +1,127 @@
+{
+  "components": {
+    "rook": {
+      "publishPolicy": "publishable",
+      "ownedPaths": [
+        "clients/rook/"
+      ],
+      "versionSurfaces": [
+        "version.txt",
+        "clients/rook/Cargo.toml",
+        "clients/rook/npm/rook/package.json"
+      ],
+      "releaseChannels": [
+        "stable",
+        "beta"
+      ],
+      "dependsOnReleaseOf": []
+    },
+    "cerebro": {
+      "publishPolicy": "publishable",
+      "ownedPaths": [
+        "clients/cerebro/"
+      ],
+      "versionSurfaces": [
+        "version.txt",
+        "clients/cerebro/Cargo.toml"
+      ],
+      "releaseChannels": [
+        "stable",
+        "beta"
+      ],
+      "dependsOnReleaseOf": []
+    },
+    "corvus-runtime": {
+      "publishPolicy": "publishable",
+      "ownedPaths": [
+        "clients/agent-runtime/"
+      ],
+      "versionSurfaces": [
+        "version.txt",
+        "clients/agent-runtime/Cargo.toml",
+        "clients/agent-runtime/npm/corvus/package.json"
+      ],
+      "releaseChannels": [
+        "stable",
+        "beta"
+      ],
+      "dependsOnReleaseOf": [
+        "cerebro"
+      ]
+    },
+    "gradle-kmp": {
+      "publishPolicy": "validate-only",
+      "ownedPaths": [
+        "gradle/",
+        "gradle.properties",
+        "modules/agent-core-kmp/"
+      ],
+      "versionSurfaces": [
+        "version.txt",
+        "gradle.properties",
+        "gradle/build-logic/gradle.properties"
+      ],
+      "releaseChannels": [
+        "stable",
+        "beta",
+        "snapshot"
+      ],
+      "dependsOnReleaseOf": []
+    }
+  },
+  "sharedInfraPaths": {
+    ".github/workflows/release-please.yml": [
+      "rook",
+      "cerebro",
+      "corvus-runtime",
+      "gradle-kmp"
+    ],
+    ".github/workflows/release-please-beta.yml": [
+      "rook",
+      "cerebro",
+      "corvus-runtime",
+      "gradle-kmp"
+    ],
+    ".github/workflows/publish-release.yml": [
+      "rook",
+      "cerebro",
+      "corvus-runtime",
+      "gradle-kmp"
+    ],
+    ".github/workflows/_publish.yml": [
+      "rook",
+      "cerebro",
+      "corvus-runtime",
+      "gradle-kmp"
+    ],
+    "release-please-config.json": [
+      "rook",
+      "cerebro",
+      "corvus-runtime"
+    ],
+    "release-please-beta-config.json": [
+      "rook",
+      "cerebro",
+      "corvus-runtime"
+    ],
+    "scripts/release-contract.test.mjs": [
+      "rook",
+      "cerebro",
+      "corvus-runtime",
+      "gradle-kmp"
+    ],
+    "version.txt": [
+      "rook",
+      "cerebro",
+      "corvus-runtime",
+      "gradle-kmp"
+    ]
+  },
+  "nonReleasePaths": [
+    "clients/web/",
+    "clients/androidApp/",
+    "clients/composeApp/",
+    "package.json",
+    "pnpm-workspace.yaml"
+  ]
+}

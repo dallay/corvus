@@ -40,6 +40,22 @@ function assertContainsInOrder(text, snippets, label) {
   }
 }
 
+function runReleaseComponentResolver(manualChangedFiles, extraEnv = {}, options = {}) {
+  const output = execFileSync("node", ["scripts/resolve-release-components.mjs"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      EVENT_NAME: "workflow_dispatch",
+      MANUAL_CHANGED_FILES: manualChangedFiles.join("\n"),
+      ...extraEnv,
+    },
+  });
+
+  return JSON.parse(output);
+}
+
 function trustedExecutableDirs() {
   return [
     process.env.HOME && path.join(process.env.HOME, ".cargo", "bin"),
@@ -102,6 +118,215 @@ const contractDocs = [
   "clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/ci-map.md",
   "CHANGELOG.md",
 ];
+
+test("release component graph config defines the canonical managed component set", () => {
+  const graph = readJson("config/release-components.json");
+  const components = Object.keys(graph.components ?? {});
+
+  assert.deepEqual(sortStrings(components), [
+    "cerebro",
+    "corvus-runtime",
+    "gradle-kmp",
+    "rook",
+  ]);
+  assert.equal(graph.components["gradle-kmp"]?.publishPolicy, "validate-only");
+  assert.deepEqual(graph.components["corvus-runtime"]?.dependsOnReleaseOf, ["cerebro"]);
+  assert.ok(graph.nonReleasePaths.includes("clients/web/"));
+});
+
+test("release component graph stays aligned with release-please managed packages", async () => {
+  const graph = readJson("config/release-components.json");
+  const stableConfig = readJson("release-please-config.json");
+  const betaConfig = readJson("release-please-beta-config.json");
+  const stableManifest = readJson(".release-please-manifest.json");
+  const betaManifest = readJson(".release-please-beta-manifest.json");
+  const { loadReleaseComponents } = await import(`../scripts/release-components.mjs?ts=${Date.now()}`);
+
+  const loadedGraph = loadReleaseComponents();
+  const graphPublishableComponents = sortStrings(
+    Object.entries(loadedGraph.components)
+      .filter(([, component]) => component.publishPolicy === "publishable")
+      .map(([componentId]) => componentId),
+  );
+  const stableReleasePleaseComponents = sortStrings(
+    Object.values(stableConfig.packages).map((pkg) => pkg.component),
+  );
+  const betaReleasePleaseComponents = sortStrings(
+    Object.values(betaConfig.packages).map((pkg) => pkg.component),
+  );
+  const stableManifestComponents = sortStrings(Object.keys(stableManifest));
+  const betaManifestComponents = sortStrings(Object.keys(betaManifest));
+
+  assert.deepEqual(graphPublishableComponents, ["cerebro", "corvus-runtime", "rook"]);
+  assert.deepEqual(stableReleasePleaseComponents, graphPublishableComponents);
+  assert.deepEqual(betaReleasePleaseComponents, graphPublishableComponents);
+  assert.deepEqual(stableManifestComponents, graphPublishableComponents);
+  assert.deepEqual(betaManifestComponents, graphPublishableComponents);
+  assert.equal(graph.components["gradle-kmp"]?.publishPolicy, "validate-only");
+  assert.ok(!stableManifestComponents.includes("gradle-kmp"));
+  assert.ok(!betaManifestComponents.includes("gradle-kmp"));
+});
+
+test("release component resolver marks rook-owned paths as direct rook scope", () => {
+  const resolved = runReleaseComponentResolver(["clients/rook/src/main.rs"]);
+
+  assert.deepEqual(resolved.affected_components, ["rook"]);
+  assert.deepEqual(resolved.direct_components, ["rook"]);
+  assert.deepEqual(resolved.transitive_components, []);
+  assert.deepEqual(resolved.non_release_paths, []);
+  assert.deepEqual(resolved.unmapped_paths, []);
+  assert.ok(resolved.reasons.rook.includes("owned:clients/rook/src/main.rs"));
+});
+
+test("release component resolver expands cerebro changes to runtime transitively", () => {
+  const resolved = runReleaseComponentResolver(["clients/cerebro/src/lib.rs"]);
+
+  assert.deepEqual(resolved.affected_components, ["cerebro", "corvus-runtime"]);
+  assert.deepEqual(resolved.direct_components, ["cerebro"]);
+  assert.deepEqual(resolved.transitive_components, ["corvus-runtime"]);
+  assert.ok(resolved.reasons.cerebro.includes("owned:clients/cerebro/src/lib.rs"));
+  assert.ok(resolved.reasons["corvus-runtime"].includes("depends-on-release-of:cerebro"));
+});
+
+test("release component resolver fans out shared release infra to declared components", () => {
+  const resolved = runReleaseComponentResolver([".github/workflows/_publish.yml"]);
+
+  assert.deepEqual(resolved.affected_components, ["cerebro", "corvus-runtime", "gradle-kmp", "rook"]);
+  assert.deepEqual(resolved.direct_components, ["cerebro", "corvus-runtime", "gradle-kmp", "rook"]);
+  assert.deepEqual(resolved.transitive_components, []);
+  assert.deepEqual(resolved.unmapped_paths, []);
+  for (const componentId of resolved.affected_components) {
+    assert.ok(
+      resolved.reasons[componentId].includes("shared-infra:.github/workflows/_publish.yml"),
+      `${componentId} should include shared infra reason`,
+    );
+  }
+});
+
+test("release component resolver classifies web-only changes as non-release", () => {
+  const resolved = runReleaseComponentResolver(["clients/web/apps/docs/src/content/docs/guides/release.md"]);
+
+  assert.deepEqual(resolved.affected_components, []);
+  assert.deepEqual(resolved.direct_components, []);
+  assert.deepEqual(resolved.transitive_components, []);
+  assert.deepEqual(resolved.unmapped_paths, []);
+  assert.deepEqual(resolved.non_release_paths, ["clients/web/apps/docs/src/content/docs/guides/release.md"]);
+});
+
+function runReleaseTagResolver(releaseTag, releaseBody = "", options = {}) {
+  const output = execFileSync("node", ["scripts/resolve-release-from-tag.mjs"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      RELEASE_TAG: releaseTag,
+      RELEASE_BODY: releaseBody,
+    },
+  });
+
+  return JSON.parse(output);
+}
+
+test("release tag resolver maps supported component tags", () => {
+  const resolved = runReleaseTagResolver("rook-v1.2.3");
+
+  assert.equal(resolved.supported_release, true);
+  assert.deepEqual(resolved.affected_components, ["rook"]);
+  assert.equal(resolved.resolution_reason, "release tag prefix");
+});
+
+test("release tag resolver accepts release body multi-component override", () => {
+  const resolved = runReleaseTagResolver(
+    "rook-v1.2.3",
+    "## Summary\naffected_components: rook, corvus-runtime\n",
+  );
+
+  assert.equal(resolved.supported_release, true);
+  assert.deepEqual(resolved.affected_components, ["corvus-runtime", "rook"]);
+  assert.equal(resolved.resolution_reason, "release body override");
+});
+
+function runAffectedComponentsValidator(affectedComponents, options = {}) {
+  const output = execFileSync("node", ["scripts/validate-affected-components.mjs"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      AFFECTED_COMPONENTS: affectedComponents,
+    },
+  });
+
+  return JSON.parse(output);
+}
+
+function getExecFileSyncFailure(fn) {
+  try {
+    fn();
+  } catch (error) {
+    const combinedMessage = [error.message, error.stderr, error.stdout]
+      .filter(Boolean)
+      .map((value) => String(value))
+      .join("\n");
+    error.combinedMessage = combinedMessage;
+    return error;
+  }
+
+  throw new Error("Expected command to fail");
+}
+
+test("affected components validator accepts publishable component payloads", () => {
+  const validated = runAffectedComponentsValidator('["rook","corvus-runtime"]');
+
+  assert.deepEqual(validated.affected_components, ["corvus-runtime", "rook"]);
+  assert.equal(validated.has_rook, true);
+  assert.equal(validated.has_corvus_runtime, true);
+  assert.equal(validated.has_cerebro, false);
+  assert.equal(validated.has_gradle_kmp, false);
+});
+
+test("release tag resolver marks unsupported tags as non-release", () => {
+  const resolved = runReleaseTagResolver("web-v1.2.3");
+
+  assert.equal(resolved.supported_release, false);
+  assert.deepEqual(resolved.affected_components, []);
+  assert.equal(resolved.resolution_reason, "unsupported release tag");
+});
+
+test("release tag resolver rejects invalid release body overrides", () => {
+  const error = getExecFileSyncFailure(() =>
+    runReleaseTagResolver("rook-v1.2.3", "affected_components: rook, web\n"),
+  );
+
+  assert.match(error.combinedMessage, /Unsupported affected_components override in release body: web/);
+});
+
+test("affected components validator rejects invalid JSON", () => {
+  const error = getExecFileSyncFailure(() => runAffectedComponentsValidator("not-json"));
+
+  assert.match(error.combinedMessage, /Invalid AFFECTED_COMPONENTS payload: not-json/);
+});
+
+test("affected components validator rejects empty arrays", () => {
+  const error = getExecFileSyncFailure(() => runAffectedComponentsValidator("[]"));
+
+  assert.match(error.combinedMessage, /No publishable affected components were provided to _publish/);
+});
+
+test("affected components validator rejects unknown components", () => {
+  const error = getExecFileSyncFailure(() => runAffectedComponentsValidator('["rook","web"]'));
+
+  assert.match(error.combinedMessage, /Unknown affected components in _publish input: web/);
+});
+
+test("release component resolver hard-fails unmapped paths in strict mode", () => {
+  const error = getExecFileSyncFailure(() =>
+    runReleaseComponentResolver(["totally-new-surface/file.txt"], { STRICT_RELEASE_GRAPH: "true" }),
+  );
+
+  assert.match(error.combinedMessage, /Unmapped release-relevant paths: totally-new-surface\/file\.txt/);
+});
 
 test("release-please fan-out only includes shipped stable artifacts", () => {
   const config = readJson("release-please-config.json");
@@ -179,13 +404,29 @@ test("runtime npm metadata only advertises supported shipped platforms", () => {
   ]);
 });
 
-test("sortStrings uses an explicit stable comparator", () => {
-  assert.deepEqual(sortStrings(["pkg-2", "pkg-10", "pkg-1"]), [
-    "pkg-1",
-    "pkg-2",
-    "pkg-10",
-  ]);
+test("release scope utils centralize stable sorting and publishable component helpers", () => {
+  const utilsScript = readText("scripts/release-scope-utils.mjs");
+
+  assert.match(utilsScript, /const stableStringCollator = new Intl\.Collator\("en", \{/);
+  assert.match(utilsScript, /numeric: true/);
+  assert.match(utilsScript, /sensitivity: "base"/);
+  assert.match(utilsScript, /export function sortStrings\(values\) \{/);
+  assert.match(utilsScript, /return \[\.\.\.values\]\.sort\(\(left, right\) => stableStringCollator\.compare\(left, right\)\);/);
+  assert.match(utilsScript, /export function getPublishableComponentIds\(graph\) \{/);
+  assert.match(utilsScript, /component\.publishPolicy === "publishable"/);
+  assert.match(utilsScript, /export function getKnownComponentIds\(graph\) \{/);
+
+  for (const scriptPath of [
+    "scripts/resolve-release-components.mjs",
+    "scripts/resolve-release-from-tag.mjs",
+    "scripts/validate-affected-components.mjs",
+  ]) {
+    const script = readText(scriptPath);
+    assert.match(script, /from "\.\/release-scope-utils\.mjs"/);
+    assert.doesNotMatch(script, /const stableStringCollator = new Intl\.Collator/);
+  }
 });
+
 
 test("release workflows encode release-please-owned stable and beta governance", () => {
   const releasePlease = readText(".github/workflows/release-please.yml");
@@ -195,16 +436,21 @@ test("release workflows encode release-please-owned stable and beta governance",
   const publishWorkflow = readText(".github/workflows/_publish.yml");
 
   assertIncludesAll(
-    releasePlease,
+    releasePleaseBeta,
     [
       /id: release-please/,
-      /manifest-file: \.release-please-manifest\.json/,
-      /release-please action outputs/i,
-      /canonical GitHub Release/i,
-      /release PR\/tag\/GitHub Release path/i,
+      /manifest-file: \.release-please-beta-manifest\.json/,
+      /prerelease release PR\/tag\/GitHub Release path/i,
+      /canonical beta GitHub Release notes/i,
+      /node scripts\/resolve-release-components\.mjs/,
+      /GITHUB_OUTPUT/,
+      /GITHUB_STEP_SUMMARY/,
     ],
     "release-please workflow",
   );
+  assert.doesNotMatch(releasePlease, /exclusive = \{/);
+  assert.doesNotMatch(releasePlease, /shared_exact = \{/);
+
   assertContainsInOrder(
     releasePlease,
     [
@@ -239,9 +485,14 @@ test("release workflows encode release-please-owned stable and beta governance",
       /target-branch: beta/,
       /prerelease release PR\/tag\/GitHub Release path/i,
       /canonical beta GitHub Release notes/i,
+      /node scripts\/resolve-release-components\.mjs/,
+      /GITHUB_OUTPUT/,
+      /GITHUB_STEP_SUMMARY/,
     ],
     "release-please-beta workflow",
   );
+  assert.doesNotMatch(releasePleaseBeta, /exclusive = \{/);
+  assert.doesNotMatch(releasePleaseBeta, /shared_exact = \{/);
   assertContainsInOrder(
     releasePleaseBeta,
     [
@@ -277,11 +528,15 @@ test("release workflows encode release-please-owned stable and beta governance",
       /cerebro-v\*/,
       /rook-v\*/,
       /affected_components:\s*rook, corvus-runtime/,
-      /supported_release=\{'true' if supported_release else 'false'\}/,
       /Resolution source:/,
+      /node scripts\/resolve-release-from-tag\.mjs/,
+      /GITHUB_OUTPUT/,
+      /GITHUB_STEP_SUMMARY/,
     ],
     "publish-release workflow",
   );
+  assert.doesNotMatch(publishRelease, /override_match = re\.search/);
+  assert.doesNotMatch(publishRelease, /supported_components = \{/);
   assert.doesNotMatch(publishRelease, /push:\s*tags:/s);
   assert.doesNotMatch(publishRelease, /changelog:\s*true/);
   assert.doesNotMatch(publishRelease, /secrets:\s+inherit/);
@@ -310,15 +565,24 @@ test("release workflows encode release-please-owned stable and beta governance",
       /release_version/,
       /release_channel/,
       /npm_dist_tag/,
-      /gh release upload/,
-      /release-please owns canonical stable release notes/i,
-      /release-please owns canonical beta release notes/i,
-      /Existing GitHub Release asset upload/i,
-      /corvus-cli is internal\/private/,
-      /Windows ARM64 is intentionally unsupported/,
+      /has_corvus_runtime/,
+      /has_rook/,
+      /has_cerebro/,
+      /has_gradle_kmp/,
+      /AFFECTED_COMPONENTS: \$\{\{ inputs\.affected_components \|\| '\[\]' \}\}/,
+      /No version checks configured for affected components:/,
+      /Release publish summary/,
+      /npm platform publish summary/,
+      /npm base publish summary/,
+      /Resolved affected components:/,
+      /scripts\/validate-affected-components\.mjs/,
+      /VALIDATION_OUTPUT: \$\{\{ runner\.temp \}\}\/affected-components\.json/,
     ],
-    "_publish workflow",
+    "publish workflow",
   );
+  assert.doesNotMatch(publishWorkflow, /known_components = \{/);
+  assert.doesNotMatch(publishWorkflow, /const stableStringCollator/);
+
   assert.doesNotMatch(publishWorkflow, /release-changelog-builder-action/);
   assert.doesNotMatch(publishWorkflow, /softprops\/action-gh-release/);
   assert.doesNotMatch(publishWorkflow, /\.github\/config\/changelog\.json/);
@@ -388,21 +652,24 @@ test("release docs, changelog, and CI maps describe one stable contract", () => 
   const docsEn = docsByPath["clients/web/apps/docs/src/content/docs/guides/release.md"];
   const docsEs = docsByPath["clients/web/apps/docs/src/content/docs/es/guides/release.md"];
   const workflowsReadme = docsByPath[".github/workflows/README.md"];
+  const ciMap = docsByPath["clients/web/apps/docs/src/content/docs/clients/agent-runtime/ci-map.md"];
+  const ciMapEs = docsByPath["clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/ci-map.md"];
   const changelog = docsByPath["CHANGELOG.md"];
 
   assertIncludesAll(
-    docsEn,
+    ciMapEs,
     [
-      /release-please-beta\.yml/i,
-      /beta branch/i,
-      /beta releases use the npm `beta` dist-tag/i,
-      /private web packages are excluded/i,
-      /manual recovery/i,
-      /through a pull request/i,
-      /attach assets to the existing GitHub Release/i,
+      /\.github\/workflows\/publish-release\.yml` \(`Publish Release`\)/,
+      /Propósito: publicar artefactos estables después de que se publique el GitHub Release canónico/i,
+      /\.github\/workflows\/release-please-beta\.yml` \(`Release Please Beta`\)/,
+      /Propósito: crear PRs beta, tags, GitHub Releases y publicación beta desde la rama `beta`/i,
+      /resolvers compartidos de release scope desde `scripts\/resolve-release-components\.mjs` y `scripts\/resolve-release-from-tag\.mjs`/i,
     ],
-    "English release runbook",
+    "Spanish CI map",
   );
+
+
+
   assertIncludesAll(
     docsEs,
     [
@@ -417,15 +684,31 @@ test("release docs, changelog, and CI maps describe one stable contract", () => 
     "Spanish release runbook",
   );
   assertIncludesAll(
-    workflowsReadme,
+    docsEs,
     [
-      /release-please .*canonical.*GitHub Release/i,
-      /release-please-beta\.yml.*beta/i,
-      /publish-release\.yml.*release\.published/i,
-      /_publish\.yml.*attach artifacts/i,
+      /`release-please\.yml` es dueño del PR repo-wide de release, del tag canónico `vX\.Y\.Z`, del GitHub Release canónico y de las notas canónicas del release estable\./i,
+      /`release-please-beta\.yml` es dueño del PR repo-wide beta, del tag canónico `vX\.Y\.Z-beta\.N`, del GitHub Release beta canónico y de las notas canónicas del release beta desde la rama `beta`\./i,
+      /`publish-release\.yml` y `_publish\.yml` solo son dueños de la publicación de artefactos después de que `release-please` publique el GitHub Release\./i,
+      /`publish-snapshot\.yml` es una ruta solo de snapshots para Gradle\/Maven y no es dueña de notas de release estables\./i,
+      /La automatización estable valida y publica solo artefactos enviados:/i,
+      /crate de Rust: `cerebro`/i,
+      /crate de Rust \+ paquete npm \+ imagen Docker: `corvus-runtime`/i,
+      /crate de Rust \+ paquete npm \+ imagen Docker: `rook`/i,
+      /`release-please\.yml` es dueño del PR repo-wide de release, del tag canónico `vX\.Y\.Z`, del GitHub Release canónico y de las notas canónicas del release estable\./i,
+      /`publish-release\.yml` y `_publish\.yml` solo son dueños de la publicación de artefactos después de que `release-please` publique el GitHub Release\./i,
+      /`release-please-beta\.yml` corre desde la rama `beta` y es dueño de los PRs, tags, GitHub Releases y notas del canal beta\./i,
+      /`publish-snapshot\.yml` es una ruta solo de snapshots para Gradle\/Maven y no es dueña de notas de release estables\./i,
+      /Solo `release-please` y `release-please-beta` son dueños de las notas canónicas del GitHub Release/i,
+      /`publish-release\.yml` y `_publish\.yml` nunca deben reemplazar, editar o reinterpretar las notas canónicas del GitHub Release/i,
+      /El workflow beta sigue respetando la misma superficie de artefactos: `cerebro`, `corvus-runtime` y `rook`/i,
+      /`config\/release-components\.json` es el graph canónico de componentes gestionados/i,
+      /`scripts\/resolve-release-components\.mjs` resuelve el scope por archivos cambiados para `release-please\.yml` y `release-please-beta\.yml`/i,
+      /`scripts\/resolve-release-from-tag\.mjs` resuelve el scope del publish estable desde el tag del release y el override opcional `affected_components:`/i,
     ],
-    "workflow README",
+    "Spanish release guide",
   );
+
+
   assertIncludesAll(
     changelog,
     [

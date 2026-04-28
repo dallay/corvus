@@ -2,8 +2,7 @@
 
 ## Goal
 
-Define a phased rollout from the current repo-wide release train to component-scoped release
-versioning and publish orchestration.
+Define a phased rollout from the current repo-wide release train and workflow-local component resolver logic toward a canonical release-component graph that drives component-scoped release planning, validation, and publication for externally versioned artifacts.
 
 ## Rollout phases
 
@@ -13,303 +12,65 @@ versioning and publish orchestration.
 - Require `component-inventory.md` and `impact-map.md` to be current before automation changes.
 - Confirm existing manifest/config/workflow state is healthy enough to serve as rollback baseline.
 
-### Phase 1: Documentation-first contract
+### Phase 1: Documentation-first graph contract
 
-- Add canonical inventory, impact map, and migration plan docs.
-- Do not change tag format, manifest shape, or publish gating yet.
-- Success signal: maintainers can determine release scope from docs alone.
+- Add the canonical release-component graph design and align release-management specs.
+- Define managed components, publish policy, direct ownership, shared release infrastructure, and known transitive dependency edges.
+- Do not change live workflow behavior yet.
+- Success signal: maintainers can determine release participation and exclusions from the documented contract alone.
 
-### Phase 2: Pilot component versioning
+### Phase 2: Canonical executable graph definition
 
-- Select one pilot component with the smallest shipped surface and lowest transversal dependency load.
-- Introduce component-scoped version state for that pilot while preserving repo-wide behavior for
-  non-pilot components.
-- Success signal: pilot release PR/tag/release output is correct and readable.
-- Failure signal: release-please cannot reconcile state, or publish scope becomes ambiguous.
+- Choose the file location and format for the executable release graph source of truth.
+- Encode the documented ownership rules, shared-infra fan-out, publish policy, version surfaces, and dependency edges in that source.
+- Add contract tests that compare graph data with existing `release-please` config/manifests.
+- Success signal: one canonical model can answer release-scope questions without reading workflow-local maps.
+- Failure signal: graph data cannot faithfully represent current release behavior or drifts from manifests/config.
 
-### Phase 3: Pilot selective publish
+### Phase 3: Shared resolver adoption
 
-- Gate stable/beta publish validation and artifact publication using the impact rules.
-- Support single-component and shared-change multi-component paths.
-- Success signal: changed component releases validate and publish without touching unaffected
-  components.
-- Failure signal: missing artifacts, over-publishing, or skipped validation.
+- Extract current workflow-local resolver logic into one reusable graph-backed resolver.
+- Update `release-please.yml` and `release-please-beta.yml` to consume the shared resolver.
+- Keep output parity for direct component scope while adding explicit reasoning for direct/shared/transitive inclusion.
+- Success signal: stable and beta workflows compute the same component membership for the same diff, apart from channel-specific prerelease behavior.
+- Failure signal: mismatched scope results, hidden regressions, or ambiguous workflow summaries.
 
-### Phase 4: Expand component coverage
+### Phase 4: Publish validation hardening
 
-- Repeat the pilot pattern for remaining components.
-- Remove repo-wide assumptions only after each component has a proven release contract.
+- Update `publish-release.yml` and `_publish.yml` to consume graph-backed metadata consistently.
+- Validate version surfaces and cross-component dependency pins for affected components before publication.
+- Keep validate-only components visible in validation posture without treating them as standalone publish authorities.
+- Success signal: affected publishable components validate and publish without touching unaffected components.
+- Failure signal: missing artifacts, over-publishing, or dependency/version drift.
 
-## Rollback rules
+### Phase 5: Fail-closed hardening
 
-- Roll back the smallest failing scope only: docs, config, manifest, workflow, or publish gating.
-- Revert `release-please` config + manifest files together when version-state changes are involved.
-- Revert workflow callers and `_publish.yml` together when publish gating changes are involved.
-- Do not mint competing tags to recover from a bad rollout; restore the last known-good config
-  first.
-- Do not advance to the next phase until the previous phase has explicit verification evidence.
+- Remove permissive fallback behavior once the canonical graph covers all release-relevant paths.
+- Make unmapped release-relevant changes fail closed.
+- Add operator-facing guidance for interpreting direct, shared-infra, and transitive release reasons.
+- Success signal: missing ownership data is surfaced immediately and corrected before release automation proceeds.
+- Failure signal: maintainers still need undocumented tribal knowledge to understand release scope.
 
-## Rollback procedures for current rollout slices
+### Phase 6: Future component promotion
 
-Use `git revert` to preserve audit history. Prefer reverting the smallest failing slice that restores a
-known-good release posture.
+- Promote additional surfaces into the release-component graph only when they become externally versioned/published artifacts.
+- Introduce new `release-please` package authority only after publish policy, version surfaces, and dependency posture are documented.
+- Examples of future candidates may include currently non-release surfaces only if they later acquire true external artifact/version ownership.
 
-### Slice A — Rook pilot component decoupling
+## Rollback posture
 
-Current commit:
+If any implementation phase introduces ambiguity or destabilizes release behavior:
 
-- `b7444cbd` — `feat(release): start component-scoped release decoupling with rook pilot`
+- revert to the last known-good workflow-local resolver behavior,
+- preserve existing `release-please` manifests/config as the release authority baseline,
+- and keep the documented graph contract for a later retry rather than forcing partially trusted automation into production use.
 
-Use when:
+## Exit criteria for steady state
 
-- the pilot resolver chooses the wrong component set,
-- pilot `rook` release PR output becomes unreadable,
-- or stable/beta release-please behavior regresses immediately after the pilot rollout.
+The migration should be considered complete only when:
 
-Rollback command:
-
-```bash
-git revert b7444cbd
-```
-
-Expected scope restored:
-
-- pilot-only component release behavior is removed,
-- prior repo-wide assumptions resume for the affected files touched by that slice.
-
-### Slice B — Centralized publish gating refactor
-
-Current commit:
-
-- `b3841bc5` — `refactor(release): centralize component gating in publish workflows`
-
-Use when:
-
-- publish jobs skip unexpectedly,
-- the component-flag outputs do not match resolver results,
-- or workflow/job dependency changes break artifact publication order.
-
-Rollback command:
-
-```bash
-git revert b3841bc5
-```
-
-Expected scope restored:
-
-- `_publish.yml` returns to the previous repeated-gating posture,
-- centralized component flags are removed.
-
-### Slice C — Expand release-managed components to corvus-runtime and cerebro
-
-Current commit:
-
-- `43266d2f` — `feat(release): expand component versioning to corvus-runtime and cerebro`
-
-Use when:
-
-- `release-please` cannot reconcile the expanded manifest state,
-- component release PR generation becomes ambiguous,
-- or non-rook component version updates fan out incorrectly.
-
-Rollback command:
-
-```bash
-git revert 43266d2f
-```
-
-Expected scope restored:
-
-- `release-please-config.json` and `release-please-beta-config.json` return to the prior component set,
-- `.release-please-manifest.json` and `.release-please-beta-manifest.json` return to the prior state,
-- `_publish.yml` no longer validates `corvus-runtime` and `cerebro` version surfaces added by that slice.
-
-Critical pairing rule:
-
-- revert `release-please` config and manifest files together,
-- never leave config expanded while manifests remain on the older component set.
-
-### Slice D — Keep gradle-kmp validate-only
-
-Current commit:
-
-- `1ff3d95d` — `refactor(release): keep gradle-kmp validate-only`
-
-Use when:
-
-- Gradle version-alignment checks are too strict for the current rollout,
-- or the validate-only posture needs to be relaxed temporarily while investigating Gradle publication
-  state.
-
-Rollback command:
-
-```bash
-git revert 1ff3d95d
-```
-
-Expected scope restored:
-
-- `_publish.yml` stops checking `gradle.properties` and `gradle/build-logic/gradle.properties`,
-- migration docs no longer call out `gradle-kmp` validate-only as the current explicit policy.
-
-### Paired rollback rules by file group
-
-If a rollback must be performed manually instead of by commit, keep these file groups aligned:
-
-- Version-state group:
-  - `release-please-config.json`
-  - `release-please-beta-config.json`
-  - `.release-please-manifest.json`
-  - `.release-please-beta-manifest.json`
-- Publish-gating group:
-  - `.github/workflows/release-please.yml`
-  - `.github/workflows/release-please-beta.yml`
-  - `.github/workflows/_publish.yml`
-- Policy/docs group:
-  - `openspec/specs/release-management/component-versioning.md`
-  - `openspec/specs/release-management/pipeline-gating.md`
-  - `openspec/specs/release-management/migration-plan.md`
-
-### Post-rollback verification checklist
-
-After any rollback:
-
-- run `actionlint` on the touched workflow files,
-- confirm the expected affected component set is recorded in the rollback PR description,
-- verify config/manifest pairs were reverted together when version state changed,
-- verify no compensating or alternate release tags were created,
-- and stop rollout progression until the restored state is understood and validated.
-
-## Pilot selection rule
-
-Choose the first pilot component using all of these constraints:
-
-1. smallest shipped artifact set
-2. minimal dependency on shared version roots
-3. clear operator-facing release outcome
-4. easy rollback if tag or publish behavior is wrong
-
-## Verification evidence required per phase
-
-- docs/spec diff merged
-- exact files changed listed in PR
-- expected affected component set recorded
-- stable/beta workflow behavior observed or dry-run validated
-- rollback command/document steps prepared before merge
-
-### Operational evidence checklist for the current rollout
-
-Use this checklist before advancing the component-scoped rollout beyond the current slice.
-
-#### 1. Record the intended scope explicitly
-
-For every PR or rollout step, record:
-
-- the target slice/commit being introduced or reverted,
-- the expected affected component set,
-- whether each affected component is `publishable` or `validate-only`,
-- and whether the change is expected to alter version state, publish gating, reporting only, or docs only.
-
-#### 2. Verify workflow syntax after every workflow-touching slice
-
-Minimum command:
-
-```bash
-actionlint .github/workflows/_publish.yml \
-  .github/workflows/release-please.yml \
-  .github/workflows/release-please-beta.yml \
-  .github/workflows/publish-release.yml \
-  .github/workflows/publish-snapshot.yml
-```
-
-Evidence to capture:
-
-- command output (success / no output expected),
-- exact workflow files included in the check,
-- and whether the slice changed workflow behavior or reporting only.
-
-#### 3. Verify version-state changes as paired config + manifest updates
-
-Whenever `release-please` component scope changes, review these files together:
-
-- `release-please-config.json`
-- `release-please-beta-config.json`
-- `.release-please-manifest.json`
-- `.release-please-beta-manifest.json`
-
-Evidence to capture:
-
-- the exact components present before and after the change,
-- whether the manifest keys match the config component model,
-- and confirmation that stable/beta config stayed structurally aligned.
-
-#### 4. Verify publish-gating changes against affected components
-
-Whenever `_publish.yml`, `release-please.yml`, or `release-please-beta.yml` changes, capture:
-
-- the resolver summary showing affected components,
-- the publish summary showing component-aware status,
-- confirmation that unaffected components are skipped,
-- and confirmation that validate-only components stop short of becoming standalone release-state authorities.
-
-#### 5. Use slice-specific evidence for the currently implemented rollout
-
-Current slices and their minimum evidence:
-
-- `b7444cbd` — rook pilot
-  - resolver output includes `rook` when expected,
-  - release-please output remains readable and scoped.
-- `b3841bc5` — centralized publish gating
-  - component flags match resolver output,
-  - downstream jobs are gated only when the component is affected.
-- `43266d2f` — expand versioning to `corvus-runtime` and `cerebro`
-  - config and manifest files show the same component set,
-  - `_publish.yml` validates the added version surfaces.
-- `1ff3d95d` — keep `gradle-kmp` validate-only
-  - Gradle version checks validate `gradle.properties` and `gradle/build-logic/gradle.properties`,
-  - `gradle-kmp` remains documented as validate-only.
-- `9f9642dd` — rollback procedures documented
-  - rollback commands exist for every rollout slice,
-  - paired file-group rules are documented.
-- `a78fddf6` — component-aware publish summary
-  - `GITHUB_STEP_SUMMARY` includes component status for affected components,
-  - the summary distinguishes publishable vs validate-only policy.
-
-#### 6. Do not advance phases on inferred confidence alone
-
-Before moving beyond the current rollout level, require at least:
-
-- one concrete workflow validation run,
-- one reviewed diff showing the exact files changed,
-- one explicit statement of expected affected components,
-- and one rollback path already documented for the slice under review.
-
-## Current completion status
-
-The current rollout should be considered materially complete for the initial component-scoped release
-migration phase.
-
-Completed in this phase:
-
-- canonical inventory and impact mapping are documented,
-- rollback rules and per-slice rollback procedures are documented,
-- operational verification evidence is defined,
-- component-scoped versioning is active for `rook`, `corvus-runtime`, and `cerebro`,
-- publish/reporting workflows are component-aware,
-- `gradle-kmp` is explicitly modeled as `validate-only`.
-
-This means the repository now has enough structure to operate a component-aware release rollout
-without treating every publishable surface as a single indistinguishable repo-wide release unit.
-
-## Deferred follow-up work
-
-The following items remain intentionally deferred beyond the current phase:
-
-- observing or dry-running a concrete multi-component release event with recorded evidence,
-- deciding whether `gradle-kmp` should ever become its own `release-please` manifest authority,
-- any future refinement of tag/release presentation beyond the current repo-wide canonical stable and
-  beta authority model,
-- and any additional simplification once the rollout has more operating history.
-
-These deferred items should not block closure of the current migration phase, but they should be
-tracked before declaring the rollout fully mature.
+- one canonical executable release graph defines managed components and release-scope semantics,
+- stable and beta release planning use that graph consistently,
+- publish validation enforces graph-derived version and dependency invariants,
+- non-release surfaces are explicitly excluded unless promoted later,
+- and maintainers can explain every component in a release by direct, shared-infra, or transitive reasoning.

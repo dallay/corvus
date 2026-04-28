@@ -2,17 +2,13 @@
 
 ## Purpose
 
-Define the canonical repo-wide release contract for Corvus so release orchestration, baseline
-recovery, version bump scope, artifact publication, release notes, and component-scoped release
-planning behave consistently while the repository still operates under a single
-`release-please`-driven release train.
+Define the canonical release contract for Corvus so release orchestration, baseline recovery, version bump scope, artifact publication, changelog generation, and component-aware release planning behave consistently while the repository preserves `release-please` as the canonical release authority.
 
 ## Requirements
 
 ### Requirement: Canonical Release Orchestration Ownership
 
-The system MUST treat `release-please` as the canonical owner of the stable repo-wide release PR
-and the canonical `vX.Y.Z` release tag for Corvus.
+The system MUST treat `release-please` as the canonical owner of the stable repo-wide release PR and the canonical `vX.Y.Z` release tag for Corvus.
 
 #### Scenario: Stable release advances through the canonical flow
 
@@ -24,167 +20,138 @@ and the canonical `vX.Y.Z` release tag for Corvus.
 
 #### Scenario: Non-canonical paths do not become release authority
 
-- GIVEN a workflow run, manual process, or auxiliary automation that does not originate from the
-  canonical release PR flow
+- GIVEN a workflow run, manual process, or auxiliary automation that does not originate from the canonical release PR flow
 - WHEN that path attempts to act as the stable release authority
 - THEN it MUST NOT become the source of truth for the repo-wide stable tag
-- AND operator-facing documentation MUST continue to identify `release-please` PR/tag flow as the
-  canonical stable release path
+- AND operator-facing documentation MUST continue to identify `release-please` PR/tag flow as the canonical stable release path
 
 ### Requirement: Release Baseline and State Recovery
 
-The system MUST support recovery of release baseline state so manifest state, canonical git tags,
-and stable release history agree before steady-state release automation is considered healthy.
+The system MUST support recovery of release baseline state so manifest state, canonical git tags, and stable release history agree before steady-state release automation is trusted.
 
-#### Scenario: Baseline is healthy
+#### Scenario: Baseline recovery reconciles canonical state
 
-- GIVEN a recorded release version in release state
-- WHEN operators verify the stable release baseline
-- THEN the manifest version, canonical `vX.Y.Z` tag history, and stable release history agree on
-  the latest released version
-- AND no bootstrap-only recovery setting remains active after baseline recovery is complete
+- GIVEN release state has drifted across manifests, tags, or recorded release history
+- WHEN maintainers perform baseline recovery
+- THEN the recovered state MUST re-establish agreement between canonical tags, release history, and manifest/config state before normal release automation resumes
 
-#### Scenario: Baseline drift is detected
+### Requirement: Canonical Release-Managed Component Graph
 
-- GIVEN release state shows a version that does not match canonical tag or stable release history
-- WHEN the repository performs release baseline verification
-- THEN the drift MUST be surfaced as a recovery condition
-- AND steady-state release operation MUST NOT be treated as healthy until the baseline is repaired
+The system MUST define one canonical release-component graph for externally versioned and published artifacts.
 
-### Requirement: Version Bump Scope Limited to Shipped Artifacts
+The canonical graph MUST identify at minimum:
 
-The system MUST apply the repo-wide stable version bump only to artifacts that are part of the
-shipped stable release set.
+- each release-managed component identifier;
+- whether the component is publishable or validate-only;
+- the paths directly owned by the component;
+- shared release infrastructure paths that fan out to multiple components;
+- the canonical version surfaces for the component;
+- the release channels supported by the component;
+- and any transitive dependency edges that require downstream release participation.
 
-#### Scenario: Shipped artifacts receive the repo-wide version
+#### Scenario: Maintainers inspect the canonical graph
 
-- GIVEN a stable release PR is generated for version `X.Y.Z`
-- WHEN release automation computes the version bump set
-- THEN every artifact defined as part of the shipped stable release set receives version `X.Y.Z`
-- AND version consistency validation for stable publishing uses that same shipped artifact set
+- GIVEN an operator or workflow needs to understand release scope
+- WHEN it reads the canonical release-component definition
+- THEN it MUST be able to determine which components are release-managed
+- AND whether each component is publishable or validate-only
+- AND which paths directly affect each component
+- AND which dependency edges can expand release scope transitively
 
-#### Scenario: Non-shipped private apps are excluded from release churn
+### Requirement: Semantic Release Participation Is Limited to Published Artifacts
 
-- GIVEN a package or manifest is not part of the shipped stable release set
-- WHEN a stable release PR is prepared
-- THEN that package or manifest MUST NOT be version-bumped solely to mirror the repo-wide stable
-  release version
+The system MUST include in the semantic release train only components that produce externally versioned or published artifacts, unless a new surface is explicitly promoted into the release graph.
 
-### Requirement: Releaseable Component Inventory Is Canonical
+#### Scenario: Non-published surface stays outside semantic release
 
-The system MUST maintain a canonical inventory of releaseable components, their shipped artifacts,
-current version sources, and current publish channels before component-scoped release automation is
-introduced.
+- GIVEN a repository surface such as web, docs, Android, or Compose that does not currently ship as an externally versioned artifact
+- WHEN changes land only within that surface
+- THEN those changes MUST NOT mint semantic artifact release scope on their own
+- AND they MAY continue to use independent deploy or validation workflows outside the semantic artifact release train
 
-#### Scenario: Maintainer inspects current release surfaces
+### Requirement: Release Scope Resolution Must Be Graph-Driven
 
-- GIVEN the repository still uses stable and beta `release-please` configs that model one package
-  `.`
-- WHEN a maintainer reviews release-management documentation
-- THEN they can identify the canonical component ids `corvus-runtime`, `rook`, `cerebro`, and
-  `gradle-kmp`
-- AND they can see the shipped artifacts, version source files, and active publish channels for
-  each component
+The system MUST resolve `affected_components` from the canonical release-component graph rather than from workflow-local conventions alone.
 
-#### Scenario: Excluded or private surfaces remain explicit
+The resolution algorithm MUST:
 
-- GIVEN a package or app is present in the repository but is not part of the public shipped stable
-  artifact set
-- WHEN operators inspect the component inventory
-- THEN the surface is documented as excluded or private
-- AND its omission from release fan-out is treated as intentional policy rather than missing data
+1. classify changed paths,
+2. derive directly affected components from owned paths and shared release infrastructure,
+3. expand transitive dependency edges until closure is reached,
+4. preserve direct and transitive inclusion reasons,
+5. and emit a deterministic affected component set.
 
-### Requirement: Publish Workflow Contract After Tag Creation
+#### Scenario: Direct ownership produces single-component release scope
 
-The system MUST treat canonical tag creation as the handoff point from release orchestration to
-stable artifact publication.
+- GIVEN only paths owned by `rook` have changed
+- WHEN release scope is resolved
+- THEN `rook` MUST be included in `affected_components`
+- AND unrelated components MUST NOT be included unless a declared shared-infra or dependency rule requires them
 
-#### Scenario: Publish pipeline starts from the canonical tag
+#### Scenario: Transitive dependency expands downstream release scope
 
-- GIVEN the canonical stable tag `vX.Y.Z` has been created
-- WHEN the stable publish workflow is triggered
-- THEN the workflow derives the release version from that tag
-- AND it publishes only the artifacts included in the stable publish contract
-- AND it performs release publication work after the canonical tag exists
+- GIVEN release-relevant paths owned by `cerebro` have changed
+- AND the canonical graph declares that `corvus-runtime` depends on the release of `cerebro`
+- WHEN release scope is resolved
+- THEN `cerebro` MUST be included as a direct component
+- AND `corvus-runtime` MUST be included as a transitive component
+- AND the emitted summary MUST preserve both reasons
 
-#### Scenario: Publish does not proceed without canonical tag context
+#### Scenario: Shared release infrastructure fans out to declared components
 
-- GIVEN a workflow invocation that does not have a valid canonical `vX.Y.Z` tag context
-- WHEN stable publish logic evaluates whether to proceed
-- THEN it MUST reject or stop the stable publish path
-- AND it MUST NOT publish release artifacts as if a canonical stable release occurred
+- GIVEN a changed path belongs to shared release infrastructure such as shared release workflow or release configuration state
+- WHEN release scope is resolved
+- THEN the resolver MUST include the declared fan-out component set from the canonical graph
+- AND the reason for inclusion MUST identify shared infrastructure fan-out rather than direct owned-code change
 
-### Requirement: Release Notes and Changelog Source of Truth
+### Requirement: Stable and Beta Flows Share Release Graph Semantics
 
-The system MUST have exactly one canonical source of truth for stable release notes and changelog
-content for each repo-wide release.
+The system MUST apply the same ownership, dependency, and publish-policy semantics to stable and beta release scope resolution.
 
-#### Scenario: Canonical release notes are generated consistently
+#### Scenario: Stable and beta resolvers agree on component scope
 
-- GIVEN a stable release completes for `vX.Y.Z`
-- WHEN operators review the release notes for that version
-- THEN there is one canonical release-note artifact for the stable release
-- AND operator-facing documentation points to that canonical source of truth
-- AND no parallel release-note path is presented as equally authoritative
+- GIVEN the same repository diff is evaluated for both stable and beta release planning
+- WHEN each resolver computes `affected_components`
+- THEN both resolvers MUST produce the same component membership and inclusion reasons
+- AND only channel-specific behavior such as prerelease versioning or prerelease tagging MAY differ
 
-#### Scenario: Stale or duplicate changelog paths are retired
+### Requirement: Release-Relevant Unknown Paths Fail Closed
 
-- GIVEN a changelog file, workflow behavior, or documentation path that conflicts with the
-  canonical release-note source
-- WHEN the release contract is evaluated
-- THEN the conflicting path MUST be retired, updated, or explicitly marked non-authoritative
-- AND operators MUST NOT have to reconcile multiple competing stable release histories
+The system MUST fail closed when a release-relevant changed path is neither mapped to a release-managed component nor explicitly classified as non-release or ignored.
 
-### Requirement: Explicit Treatment of Unpublished or Excluded Runtime Packages
+#### Scenario: Unmapped release-relevant path blocks release planning
 
-The system MUST make the status of each versioned runtime package explicit: published as part of
-the stable release contract or intentionally excluded by policy.
+- GIVEN a changed file is release-relevant
+- AND the canonical graph does not classify it as owned, shared release infrastructure, non-release, or ignored
+- WHEN release scope is resolved
+- THEN the resolver MUST fail instead of silently omitting the path
+- AND operator output MUST identify the unmapped path so the graph can be corrected
 
-#### Scenario: Published runtime packages align with the publish contract
+### Requirement: Version Surface and Dependency Consistency
 
-- GIVEN a runtime package is versioned as part of the shipped stable release set
-- WHEN stable publish automation runs for `vX.Y.Z`
-- THEN that package is included in the runtime publish contract for the release
-- AND the publish workflow attempts to publish it as part of the stable release
+The system MUST preserve version consistency across all version surfaces and cross-component dependency pins that are part of published artifacts.
 
-#### Scenario: Intentionally excluded runtime packages remain explicit
+#### Scenario: Affected component version surfaces stay aligned
 
-- GIVEN a runtime package is versioned in-repo but is intentionally not published in the stable
-  release contract
-- WHEN operators inspect release workflow policy or release documentation
-- THEN the package's excluded status and reason are explicitly documented
-- AND the package's omission from stable publish execution is treated as expected policy rather
-  than an unexplained gap
+- GIVEN a publishable component is selected for release
+- WHEN version validation runs before publication
+- THEN all canonical version surfaces for that component MUST agree on the release version
+- AND wrapper packages or platform packages for that component MUST reference the same version
 
-### Requirement: Release Impact Rules Are Explicit
+#### Scenario: Cross-component published dependency remains aligned
 
-The system MUST maintain explicit path-based and shared release infrastructure impact rules that
-determine which releaseable components are affected by a change.
+- GIVEN a publishable component ships a versioned dependency on another managed component
+- WHEN release validation runs for an affected release set
+- THEN the dependency pin MUST resolve to a version consistent with the release plan
+- AND publication MUST NOT continue if the pin would reference an unpublished or mismatched internal version
 
-#### Scenario: Maintainer evaluates a component-scoped change
+### Requirement: Component-Distinguishable Changelogs and Release Evidence
 
-- GIVEN a change only touches files owned by one releaseable component
-- WHEN release impact is evaluated
-- THEN only that component is marked affected unless an explicit shared dependency rule says
-  otherwise
+The system MUST keep release evidence, release PRs, tags, and changelog/release notes component-distinguishable.
 
-#### Scenario: Maintainer evaluates a shared release infrastructure change
+#### Scenario: Operators inspect component release notes
 
-- GIVEN a change touches shared release infrastructure, shared version state, or shared
-  release-management specifications
-- WHEN release impact is evaluated
-- THEN every component listed by the matching shared impact rule is marked affected
-- AND the reason for the fan-out is visible to operators
-
-## Acceptance Criteria
-
-- Stable releases use one canonical repo-wide `release-please` PR/tag flow.
-- Baseline verification can distinguish healthy release state from manifest/tag/release drift.
-- Repo-wide version bumps are limited to shipped stable artifacts unless an exception is explicit.
-- The repository includes a canonical inventory for `corvus-runtime`, `rook`, `cerebro`, and
-  `gradle-kmp`, including current shipped artifacts, version sources, and publish channels.
-- Stable publish execution starts from the canonical `vX.Y.Z` tag contract.
-- Stable release notes have one canonical source of truth without competing changelog ownership.
-- Each runtime package that is versioned has an explicit publish-or-exclude policy.
-- The repository includes canonical path and shared release infrastructure impact rules for each
-  releaseable component.
+- GIVEN an operator reviews a release PR, tag, or changelog entry for a managed component
+- WHEN it examines the published release evidence
+- THEN the component scope MUST be obvious
+- AND any downstream transitive inclusion SHOULD be explainable from emitted summaries or release metadata

@@ -68,22 +68,39 @@ jobs:
         shell: python
         env:
           AFFECTED_COMPONENTS: ${{ inputs.affected_components || '[]' }}
+          VALIDATION_OUTPUT: ${{ runner.temp }}/affected-components.json
         run: |
           import json
           import os
           import pathlib
+          import subprocess
 
-          affected = set(json.loads(os.environ["AFFECTED_COMPONENTS"]))
+          validation_output = pathlib.Path(os.environ["VALIDATION_OUTPUT"])
+          with validation_output.open("w", encoding="utf-8") as handle:
+              subprocess.run(
+                  ["node", "scripts/validate-affected-components.mjs"],
+                  check=True,
+                  text=True,
+                  stdout=handle,
+                  env=os.environ.copy(),
+              )
+
+          payload = json.loads(validation_output.read_text(encoding="utf-8"))
           flags = {
-              "has_corvus_runtime": "corvus-runtime" in affected,
-              "has_rook": "rook" in affected,
-              "has_cerebro": "cerebro" in affected,
-              "has_gradle_kmp": "gradle-kmp" in affected,
+              "has_corvus_runtime": payload["has_corvus_runtime"],
+              "has_rook": payload["has_rook"],
+              "has_cerebro": payload["has_cerebro"],
+              "has_gradle_kmp": payload["has_gradle_kmp"],
           }
 
           with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               for key, value in flags.items():
                   output.write(f"{key}={'true' if value else 'false'}\\n")
+
+          with pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write("### Resolved affected components\n\n")
+              summary.write(f"- Raw payload: `{payload['raw_payload']}`\n")
+              summary.write(f"- Resolved affected components: `{', '.join(payload['affected_components'])}`\n")
 
       - name: 🦀 Resolve Rust channel
         if: ${{ inputs.release }}

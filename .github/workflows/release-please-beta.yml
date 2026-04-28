@@ -45,100 +45,18 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE_SHA: ${{ github.event.before }}
           CURRENT_SHA: ${{ github.sha }}
+          RESOLVER_OUTPUT: ${{ runner.temp }}/release-components.json
         run: |
           set -euo pipefail
+          node scripts/resolve-release-components.mjs > "$RESOLVER_OUTPUT"
           python3 <<'PY'
           import json
           import os
           import pathlib
-          import subprocess
 
-          event_name = os.environ.get("EVENT_NAME", "")
-          before_sha = os.environ.get("BEFORE_SHA", "")
-          current_sha = os.environ.get("CURRENT_SHA", "")
-
-          exclusive = {
-              "clients/agent-runtime/": {"corvus-runtime", "cerebro"},
-              "clients/rook/": {"rook"},
-              "clients/cerebro/": {"cerebro"},
-              "gradle/": {"gradle-kmp"},
-              "gradle.properties": {"gradle-kmp"},
-          }
-          shared_exact = {
-              ".github/workflows/release-please.yml": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              ".github/workflows/release-please-beta.yml": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              ".github/workflows/_publish.yml": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              ".github/workflows/publish-release.yml": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              ".github/workflows/publish-snapshot.yml": {"gradle-kmp"},
-              "release-please-config.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              "release-please-beta-config.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              ".release-please-manifest.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              ".release-please-beta-manifest.json": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              "version.txt": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-          }
-
-          shared_prefix = {
-              ".github/workflows/": {"rook"},
-              "openspec/specs/release-management/": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-              "scripts/release-contract.test.mjs": {"corvus-runtime", "rook", "cerebro", "gradle-kmp"},
-          }
-
-          ignored_prefix = (
-              "clients/web/",
-              "clients/androidApp/",
-              "clients/composeApp/",
-          )
-          ignored_exact = {
-              "package.json",
-              "pnpm-lock.yaml",
-              "pnpm-workspace.yaml",
-          }
-
-          changed_files = []
-          resolver_mode = "git-diff"
-          if event_name == "workflow_dispatch" or not before_sha or set(before_sha) == {"0"}:
-              resolver_mode = "pilot-fallback"
-              affected = ["rook"]
-              reason_lines = ["- Fallback mode: workflow_dispatch or missing baseline commit", "- Affected components: `rook`"]
-          else:
-              result = subprocess.run(
-                  ["git", "diff", "--name-only", before_sha, current_sha],
-                  check=True,
-                  capture_output=True,
-                  text=True,
-              )
-              changed_files = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-              affected_set = set()
-              unmapped = []
-              for path in changed_files:
-                  matched = False
-                  if path in shared_exact:
-                      affected_set.update(shared_exact[path])
-                      matched = True
-                  for prefix, comps in shared_prefix.items():
-                      if path.startswith(prefix):
-                          affected_set.update(comps)
-                          matched = True
-                  for prefix, comps in exclusive.items():
-                      if path == prefix or path.startswith(prefix):
-                          affected_set.update(comps)
-                          matched = True
-                  if path in ignored_exact or any(path.startswith(prefix) for prefix in ignored_prefix):
-                      matched = True
-                  if not matched:
-                      unmapped.append(path)
-
-              if unmapped:
-                  raise SystemExit(
-                      "Unmapped changed paths for release scope resolution: " + ", ".join(unmapped)
-                  )
-              if not affected_set:
-                  affected_set = {"rook"}
-                  reason_lines = ["- No mapped release surfaces changed", "- Fallback affected components: `rook`"]
-              else:
-                  reason_lines = [f"- `{path}`" for path in changed_files]
-              affected = sorted(affected_set)
-
+          resolver_output = pathlib.Path(os.environ["RESOLVER_OUTPUT"])
+          payload = json.loads(resolver_output.read_text(encoding="utf-8"))
+          affected = payload["affected_components"]
           github_output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
           with github_output.open("a", encoding="utf-8") as fh:
               fh.write("affected_components=" + json.dumps(affected) + "\n")
@@ -146,16 +64,20 @@ jobs:
           summary = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
           with summary.open("a", encoding="utf-8") as fh:
               fh.write("### Affected components\n\n")
-              fh.write(f"- Resolver mode: `{resolver_mode}`\n")
+              fh.write("- Resolver: `node scripts/resolve-release-components.mjs`\n")
               fh.write(f"- Components: `{', '.join(affected)}`\n")
-              if changed_files:
+              if payload["changed_files"]:
                   fh.write("- Changed files considered:\n")
-                  for path in changed_files:
+                  for path in payload["changed_files"]:
                       fh.write(f"  - `{path}`\n")
-              else:
-                  for line in reason_lines:
-                      fh.write(line + "\n")
+              if payload["non_release_paths"]:
+                  fh.write("- Non-release paths:\n")
+                  for path in payload["non_release_paths"]:
+                      fh.write(f"  - `{path}`\n")
+              if payload["transitive_components"]:
+                  fh.write(f"- Transitive components: `{', '.join(payload['transitive_components'])}`\n")
           PY
+
 
       - name: 🤖 Run release-please
         id: release-please

@@ -16,6 +16,15 @@ This directory contains all GitHub Actions workflows for the Corvus monorepo. Wo
 | **Publishing**  | `release-please.yml`                 | Create repo-wide release PRs, tags, and canonical GitHub Releases | Push to `main`, manual                  |
 | **Publishing**  | `release-please-beta.yml`            | Create beta prerelease PRs, tags, and canonical GitHub Releases   | Push to `beta`, manual                  |
 | **Publishing**  | `_publish.yml`                       | Reusable stable/beta/snapshot publish workflow                    | Called by other workflows               |
+
+## Release Scope Resolution
+
+- `config/release-components.json` defines the canonical managed component graph.
+- `scripts/resolve-release-components.mjs` is the shared changed-file resolver for release-please stable and beta.
+- `scripts/resolve-release-from-tag.mjs` is the shared stable publish resolver for canonical release tags and `affected_components:` overrides.
+- GitHub Releases remain the canonical stable and beta release notes surface.
+- `publish-release.yml` and `_publish.yml` never author canonical release notes.
+- `publish-snapshot.yml` never owns stable release notes.
 | **Automation**  | `auto-fix-lockfile.yml`              | Auto-update lockfiles                                             | Daily schedule, manual                  |
 | **Automation**  | `fix-renovate.yml`                   | Fix lockfiles for Renovate PRs                                    | Comment `/fix-lock` on PR               |
 | **Repo Mgmt**   | `git-issue-labeled.yml`              | Auto-comments/closes labeled issues                               | Issue labeled                           |

@@ -2,169 +2,132 @@
 
 ## Status
 
-Implemented in part for release decoupling work associated with #652 and #653. The repository now
-uses component-aware release scope resolution in `release-please.yml`, `release-please-beta.yml`,
-and `publish-release.yml`, with `_publish.yml` consuming `affected_components` to gate
-validation/publication by component. Stable handoff supports single-component resolution from tag
-namespace and optional multi-component override from the GitHub Release body via an
-`affected_components:` line. This document still describes the target operating model for
-remaining follow-up work such as explicit multi-component stable handoff evidence and further
-contract simplification.
+Implemented in part for release decoupling work associated with #652 and #653. The repository already uses component-aware release scope resolution in `release-please.yml`, `release-please-beta.yml`, and `publish-release.yml`, with `_publish.yml` consuming `affected_components` to gate validation/publication by component. This document defines the intended steady-state gating model once release scope is driven by one canonical release-component graph.
 
 ## Problem
 
-Current release and CI documentation largely describe pipeline behavior at repository scope. That
-makes it difficult to distinguish between:
+Current release and CI documentation still describe portions of pipeline behavior at repository scope or as workflow-local resolver logic. That makes it difficult to distinguish between:
 
 - checks that must always gate every merge,
-- checks that gate only workflow changes,
-- checks that should gate stable release for specific managed components,
-- and checks that should remain informational for excluded or non-published components.
+- checks that gate only workflow or release-infrastructure changes,
+- checks that should gate stable or beta release for specific managed components,
+- and checks that should remain informational for non-release surfaces.
 
-Without component-aware gating, the repository risks either over-blocking releases with unrelated
-components or under-specifying which validations protect shipped artifacts.
+Without graph-backed gating, the repository risks either over-blocking releases with unrelated components or under-specifying which validations protect shipped artifacts.
 
 ## Goals
 
-- Define a future gating model based on component release eligibility and policy.
-- Separate component-scoped stable release validation from general merge-blocking CI.
-- Keep canonical release authority repo-wide while allowing validation/publish decisions per
-  component.
-- Provide an operator-facing migration target before workflow changes are implemented.
+- Define a gating model based on the canonical release-component graph.
+- Separate component-scoped stable/beta release validation from general merge-blocking CI.
+- Keep canonical release authority repo-wide while allowing validation and publication decisions per component.
+- Make direct, shared-infra, and transitive inclusion reasons operator-visible.
+- Keep validate-only and publishable components distinguishable in release summaries.
 
 ## Non-Goals
 
-- Changing current GitHub Actions required checks.
-- Editing workflow files or branch protection.
-- Introducing dynamic per-PR required-check mutation.
-- Replacing the existing repo-wide `CI Required Gate` today.
+- Changing live workflows in this document alone.
+- Making every repository surface release-blocking.
+- Promoting non-release surfaces into semantic artifact release without explicit future decisions.
 
-## Current vs Target Model
+## Intended gating model
 
-### Current Model
+### 1. General merge-blocking CI
 
-Today, the repository primarily thinks about gating in two buckets:
+These checks remain repository-wide and are not themselves evidence that a component should release:
 
-1. merge-blocking checks for normal development, and
-2. release/publish workflows triggered after the canonical release event.
+- lint and formatting
+- unit/integration tests unrelated to release authority
+- docs quality checks
+- dependency/security checks
+- general PR policy checks
 
-That model is simple, but it does not express which validations matter for which release-managed
-component.
+### 2. Release-scope resolution gate
 
-### Target Model
+Before stable or beta release planning proceeds, the system SHOULD resolve `affected_components` from the canonical release-component graph.
 
-The target model adds component awareness to release-time decisions:
+That gate should:
 
-1. **Merge gate** remains small, deterministic, and repo-safe.
-2. **Component validation gate** is computed from release-eligible managed components.
-3. **Component publish gate** is computed from components marked publishable for that cycle.
-4. **Excluded components** are documented as intentionally outside stable publish scope.
+- classify changed paths as release-owned, shared release infrastructure, non-release, or ignored;
+- determine directly affected components;
+- expand transitive dependency edges;
+- emit a stable sorted component set;
+- emit direct vs transitive reasons;
+- and fail closed on unmapped release-relevant paths.
 
-## Proposed Gating Layers
+### 3. Component-scoped validation gate
 
-### 1. Repository Merge Gate
+After scope resolution, validation SHOULD run according to component participation.
 
-This layer continues to protect normal development and should stay broadly applicable. It covers:
+For publishable components:
 
-- baseline CI,
-- workflow sanity for workflow edits,
-- and other deterministic checks needed for branch health.
+- version surface alignment checks SHOULD run;
+- package-specific validation SHOULD run;
+- publish prerequisites SHOULD be enforced.
 
-This gate is intentionally not responsible for expressing the full stable publish contract.
+For validate-only components:
 
-### 2. Component Validation Gate
+- validation SHOULD run when the component is in scope;
+- the component SHOULD appear in summaries;
+- but it SHOULD NOT be treated as independent publish authority unless explicitly promoted.
 
-This future layer evaluates only the components that are release-eligible for the stable cycle.
-Validation scope should be derived from component state, not from the existence of unrelated code in
-the monorepo.
+### 4. Publish gate
 
-Expected outcomes:
+Publication SHOULD consume graph-derived `affected_components` and publish only the publishable affected set.
 
-- publishable components must satisfy their required validation policy,
-- validate-only components may still run release checks,
-- excluded components do not become stable release blockers merely by existing.
-- `gradle-kmp` currently belongs in the validate-only bucket: version alignment and publish
-  credentials may be checked, but release state is not yet managed as its own `release-please`
-  component.
+The publish gate should reject publication when:
 
-### 3. Component Publish Gate
+- version surfaces for an affected component disagree;
+- cross-component dependency pins are inconsistent with the release plan;
+- or scope resolution evidence is missing or contradictory.
 
-This future layer decides whether a component can proceed to publication after canonical tag
-creation. It is narrower than validation because not every validated component is necessarily
-published.
+## Stable and beta parity
 
-Expected outcomes:
+Stable and beta release flows SHOULD share the same graph semantics:
 
-- only components marked `publish` enter publication,
-- validate-only components stop before publication,
-- excluded components are skipped by policy with explicit operator visibility.
+- the same owned-path rules,
+- the same shared release infrastructure fan-out,
+- the same transitive dependency expansion,
+- the same publish-policy classification.
 
-## Decision Inputs
+Only channel-specific differences such as prerelease versioning and prerelease metadata should vary.
 
-The target component-aware gating model should derive from component-scoped state including:
+## Operator-facing release evidence
 
-- component identifier,
-- release eligibility,
-- publish policy,
-- validation policy,
-- and any documented exception notes.
+The release pipeline SHOULD make it easy to understand why a component participated.
 
-No future gate should rely on implicit path heuristics alone when canonical component state is
-available.
+Expected summary elements:
 
-## Operator Interpretation Rules
+- directly affected components,
+- transitively affected components,
+- validate-only components,
+- publishable components,
+- and any shared release infrastructure path that caused broad fan-out.
 
-When the design is implemented, operators should be able to answer the following quickly:
+This helps reviewers distinguish a true component code change from a release-infrastructure change.
 
-- Is this check protecting general branch health or a component release decision?
-- Which components are in stable release scope for this cycle?
-- Which components are publishable versus validate-only?
-- Which components are intentionally excluded?
+## Example gating outcomes
 
-A component-aware gating system is successful only if those answers are visible without reading raw
-workflow YAML.
+### Scenario: `rook`-only change
 
-## Documentation Migration Direction
+- owned paths resolve to `rook`
+- no transitive dependency expands scope
+- validation/publish gates should run only for `rook`
 
-Operator-facing CI documentation should gradually move from a repo-wide-only description to a model
-that explains:
+### Scenario: `cerebro` change with downstream runtime dependency
 
-- current merge-blocking checks,
-- current non-blocking release workflows,
-- and the planned component-aware release gating direction.
+- owned paths resolve directly to `cerebro`
+- dependency graph expands scope to `corvus-runtime`
+- validation gates should run for both
+- publish gate should explain `cerebro` as direct and `corvus-runtime` as transitive
 
-That documentation change is part of this design step; live workflow behavior remains unchanged.
+### Scenario: shared release workflow change
 
-## Risks and Mitigations
+- shared infrastructure path fans out to all declared managed components
+- summaries should identify shared-infra fan-out as the reason
+- validate-only `gradle-kmp` should remain distinguishable from publishable components
 
-### Risk: Confusing merge gating with release gating
+### Scenario: web-only change
 
-If component-aware release validation is described as if it already blocks every PR, developers may
-misunderstand the current workflow contract.
-
-**Mitigation:** docs must clearly distinguish current behavior from migration direction.
-
-### Risk: Component policies drift from actual workflow behavior
-
-Design documents can become aspirational if they are not anchored to implementation sequencing.
-
-**Mitigation:** explicitly mark this as design-only and defer live workflow changes until state and
-policy mechanisms exist.
-
-### Risk: Excessive fragmentation of checks
-
-Too many tiny gates can reduce operator clarity.
-
-**Mitigation:** keep a small repo-wide merge gate and reserve component granularity for release-time
-validation/publish decisions.
-
-## Expected Follow-On Work
-
-Later implementation work is expected to:
-
-- encode component-scoped release eligibility and policy in release state,
-- map validation jobs to managed components,
-- classify publish jobs by component contract,
-- and update workflow/reporting surfaces to show component-aware status.
-
-Those changes are intentionally out of scope for this design phase.
+- changes resolve to non-release
+- semantic artifact release gates should not mint component release scope on their own
+- general CI may still run independently

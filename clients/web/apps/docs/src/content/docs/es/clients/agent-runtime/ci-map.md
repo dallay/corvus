@@ -64,6 +64,7 @@ Los checks merge-blocking deben mantenerse pequeños y deterministas. Los checks
 - Esto mantiene a `release-please` como la única autoridad canónica de notas de release mientras la publicación de assets ocurre después de que el release ya existe.
 - `release-please-beta.yml` es dueño del PR beta, del tag canónico `vX.Y.Z-beta.N`, del GitHub Release beta y de las notas del canal beta.
 - `_publish.yml` solo publica artefactos beta cuando `release-please-beta.yml` lo llama con `prerelease: true`.
+- Los workflows de release dependen de resolvers compartidos de release scope desde `scripts/resolve-release-components.mjs` y `scripts/resolve-release-from-tag.mjs`.
 - `Security Audit`: push a `main`, PRs a `main`, schedule semanal
 - `Workflow Sanity`: PR/push cuando cambian `.github/workflows/**`, `.github/*.yml`, o
   `.github/*.yaml`
