@@ -16,6 +16,7 @@ use axum::{
     Router,
 };
 use rust_embed::RustEmbed;
+use std::sync::{Mutex, OnceLock};
 
 // ---------------------------------------------------------------------------
 // Embedded asset bundle
@@ -26,8 +27,28 @@ use rust_embed::RustEmbed;
 #[folder = "assets/"]
 pub struct DashboardAssets;
 
+static ASSETS_READY_OVERRIDE: OnceLock<Mutex<Option<bool>>> = OnceLock::new();
+
 pub fn assets_ready() -> bool {
+    if let Some(override_value) = ASSETS_READY_OVERRIDE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .expect("assets override lock should work")
+        .as_ref()
+        .copied()
+    {
+        return override_value;
+    }
+
     DashboardAssets::get("index.html").is_some()
+}
+
+#[doc(hidden)]
+pub fn set_assets_ready_override(value: Option<bool>) {
+    *ASSETS_READY_OVERRIDE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .expect("assets override lock should work") = value;
 }
 
 // ---------------------------------------------------------------------------
