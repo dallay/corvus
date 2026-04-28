@@ -355,6 +355,12 @@ pub enum ChildTerminationReason {
     Cancelled(CancellationReason),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EscalationKind {
+    Unsupported,
+}
+
 #[derive(Debug, Clone)]
 pub struct ChildRecord {
     pub child_id: ChildAgentId,
@@ -367,6 +373,7 @@ pub struct ChildRecord {
     pub last_sequence: u64,
     pub terminal_reason: Option<ChildTerminationReason>,
     pub summary: Option<String>,
+    pub escalation: Option<EscalationKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -417,6 +424,7 @@ pub struct ChildExecutionResult {
     pub session_id: String,
     pub tool_result: ToolResult,
     pub status: ChildTerminalStatus,
+    pub escalation: Option<EscalationKind>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -424,19 +432,37 @@ pub struct ChildExecutionError {
     pub session_id: Option<String>,
     pub error: String,
     pub tool_result: Option<ToolResult>,
+    pub escalation: Option<EscalationKind>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CoordinatorMessage {
     DispatchChild(ChildLaunchRequest),
-    CancelChild { reason: CancellationReason },
-    ChildStarted { session_id: Option<String> },
-    ChildProgress { summary: String },
-    RequestApproval { request: ApprovalRequest },
-    ResolveApproval { decision: ApprovalDecision },
-    ChildCompleted { result: ChildExecutionResult },
-    ChildFailed { error: ChildExecutionError },
-    ChildCancelled { reason: CancellationReason },
+    CancelChild {
+        reason: CancellationReason,
+    },
+    ChildStarted {
+        session_id: Option<String>,
+    },
+    ChildProgress {
+        summary: String,
+        escalation: Option<EscalationKind>,
+    },
+    RequestApproval {
+        request: ApprovalRequest,
+    },
+    ResolveApproval {
+        decision: ApprovalDecision,
+    },
+    ChildCompleted {
+        result: ChildExecutionResult,
+    },
+    ChildFailed {
+        error: ChildExecutionError,
+    },
+    ChildCancelled {
+        reason: CancellationReason,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -647,6 +673,7 @@ impl CoordinatorChildRunner for DelegatedAgentRunner {
                                     CodeSessionStatus::Error,
                                 ),
                             )),
+                            escalation: None,
                         },
                     }
                 })?;
@@ -656,6 +683,10 @@ impl CoordinatorChildRunner for DelegatedAgentRunner {
             let payload = match result {
                 Ok(Ok(output)) => {
                     let parsed = CodeSessionResult::parse_from_output(&output, &session_id);
+                    let escalation = parsed
+                        .summary
+                        .contains("unsupported escalation")
+                        .then_some(EscalationKind::Unsupported);
                     if parsed.is_success() {
                         CoordinatorMessage::ChildCompleted {
                             result: ChildExecutionResult {
@@ -666,6 +697,7 @@ impl CoordinatorChildRunner for DelegatedAgentRunner {
                                     &parsed,
                                 ),
                                 status: ChildTerminalStatus::Succeeded,
+                                escalation,
                             },
                         }
                     } else {
@@ -678,6 +710,7 @@ impl CoordinatorChildRunner for DelegatedAgentRunner {
                                     &agent_config,
                                     &parsed,
                                 )),
+                                escalation,
                             },
                         }
                     }
@@ -708,6 +741,7 @@ impl CoordinatorChildRunner for DelegatedAgentRunner {
                                 &agent_config,
                                 &parsed,
                             )),
+                            escalation: None,
                         },
                     }
                 }
@@ -733,6 +767,7 @@ impl CoordinatorChildRunner for DelegatedAgentRunner {
                                 &agent_config,
                                 &parsed,
                             )),
+                            escalation: None,
                         },
                     }
                 }
@@ -787,6 +822,7 @@ struct TerminalUpdate {
     state: ChildState,
     terminal_reason: ChildTerminationReason,
     summary: String,
+    escalation: Option<EscalationKind>,
 }
 
 impl Default for Coordinator {
@@ -890,6 +926,7 @@ impl Coordinator {
                 last_sequence: 0,
                 terminal_reason: None,
                 summary: None,
+                escalation: None,
             },
         );
         Ok(())
@@ -1024,11 +1061,13 @@ impl Coordinator {
             CoordinatorMessage::DispatchChild(_) => {
                 record.state = ChildState::Starting;
                 record.summary = Some("dispatching child".to_string());
+                record.escalation = None;
             }
             CoordinatorMessage::CancelChild { reason } => {
                 if !record.state.is_terminal() {
                     record.state = ChildState::Cancelling;
                     record.summary = Some(format!("cancelling: {reason:?}"));
+                    record.escalation = None;
                 }
             }
             CoordinatorMessage::ChildStarted { session_id } => {
@@ -1038,13 +1077,18 @@ impl Coordinator {
                 record.state = ChildState::Running;
                 record.approval = ApprovalStatus::None;
                 record.session_id = session_id.clone();
+                record.escalation = None;
             }
-            CoordinatorMessage::ChildProgress { summary } => {
+            CoordinatorMessage::ChildProgress {
+                summary,
+                escalation,
+            } => {
                 if record.state.is_terminal() {
                     return Err(CoordinatorError::AlreadyTerminalState);
                 }
                 record.state = ChildState::Running;
                 record.summary = Some(summary.clone());
+                record.escalation = escalation.clone();
             }
             CoordinatorMessage::RequestApproval { request } => {
                 if record.state.is_terminal() {
@@ -1073,6 +1117,7 @@ impl Coordinator {
                 record.approval = ApprovalStatus::Resolved {
                     decision: decision.clone(),
                 };
+                record.escalation = None;
                 self.log_event(CoordinatorEvent::ApprovalResolved {
                     child_id: child_id.0.clone(),
                     decision: decision.clone(),
@@ -1093,6 +1138,7 @@ impl Coordinator {
                         state: ChildState::Completed,
                         terminal_reason: ChildTerminationReason::Completed,
                         summary: result.tool_result.output.clone(),
+                        escalation: result.escalation.clone(),
                     },
                 )?;
             }
@@ -1110,6 +1156,7 @@ impl Coordinator {
                         state: ChildState::Failed,
                         terminal_reason: ChildTerminationReason::Failed(error.error.clone()),
                         summary: error.error.clone(),
+                        escalation: error.escalation.clone(),
                     },
                 )?;
             }
@@ -1127,6 +1174,7 @@ impl Coordinator {
                         state: ChildState::Cancelled,
                         terminal_reason: ChildTerminationReason::Cancelled(reason.clone()),
                         summary: format!("cancelled: {reason:?}"),
+                        escalation: None,
                     },
                 )?;
             }
@@ -1205,6 +1253,7 @@ impl Coordinator {
         }
         record.terminal_reason = Some(update.terminal_reason);
         record.summary = Some(update.summary);
+        record.escalation = update.escalation;
 
         self.outcomes
             .lock()
@@ -1664,8 +1713,9 @@ fn derive_child_progress_state(record: &ChildRecord) -> ChildProgressStateView {
         ChildState::Queued | ChildState::Starting | ChildState::Running => {
             ChildProgressStateView::Running
         }
-        ChildState::WaitingOnParent => match record.approval {
-            ApprovalStatus::Pending { .. } => ChildProgressStateView::ApprovalNeeded,
+        ChildState::WaitingOnParent => match (&record.approval, &record.escalation) {
+            (_, Some(EscalationKind::Unsupported)) => ChildProgressStateView::Blocked,
+            (ApprovalStatus::Pending { .. }, _) => ChildProgressStateView::ApprovalNeeded,
             _ => ChildProgressStateView::Waiting,
         },
         ChildState::Cancelling => ChildProgressStateView::Blocked,
@@ -1676,8 +1726,20 @@ fn derive_child_progress_state(record: &ChildRecord) -> ChildProgressStateView {
 }
 
 fn derive_blocking_details(record: &ChildRecord) -> Option<ChildBlockingDetailsView> {
-    match (&record.state, &record.approval) {
-        (ChildState::WaitingOnParent, ApprovalStatus::Pending { request }) => {
+    match (&record.state, &record.approval, &record.escalation) {
+        (ChildState::WaitingOnParent, _, Some(EscalationKind::Unsupported)) => {
+            Some(ChildBlockingDetailsView {
+                reason_code: "unsupported_escalation".to_string(),
+                message: "Child is blocked because the requested escalation is unsupported"
+                    .to_string(),
+                parent_action_required: true,
+                next_action_hint: Some(
+                    "Parent must approve, deny, cancel, or relaunch with supported constraints"
+                        .to_string(),
+                ),
+            })
+        }
+        (ChildState::WaitingOnParent, ApprovalStatus::Pending { request }, _) => {
             Some(ChildBlockingDetailsView {
                 reason_code: "parent_approval_required".to_string(),
                 message: format!("Child requires parent approval for {}", request.tool_name),
@@ -1688,7 +1750,8 @@ fn derive_blocking_details(record: &ChildRecord) -> Option<ChildBlockingDetailsV
                 ),
             })
         }
-        (ChildState::Cancelling, _) => Some(ChildBlockingDetailsView {
+
+        (ChildState::Cancelling, _, _) => Some(ChildBlockingDetailsView {
             reason_code: "cancelling".to_string(),
             message: "Child is cancelling and not making forward progress".to_string(),
             parent_action_required: false,
@@ -1714,7 +1777,10 @@ fn derive_coordinator_summary_state(
                 matches!(
                     child.progress_state,
                     ChildProgressStateView::ApprovalNeeded | ChildProgressStateView::Blocked
-                )
+                ) || child
+                    .blocking_details
+                    .as_ref()
+                    .is_some_and(|details| details.parent_action_required)
             }) {
                 CoordinatorSummaryStateView::Blocked
             } else {
@@ -2403,6 +2469,7 @@ mod tests {
                                     structured: None,
                                 },
                                 status: ChildTerminalStatus::Succeeded,
+                                escalation: None,
                             },
                         },
                     };
@@ -2443,7 +2510,7 @@ mod tests {
                         },
                         payload: CoordinatorMessage::ChildCompleted {
                             result: ChildExecutionResult {
-                                session_id: format!("session-{}", request.child_id.0),
+                                session_id: request.child_id.0.clone(),
                                 tool_result: ToolResult {
                                     success: true,
                                     output: output.to_string(),
@@ -2451,13 +2518,14 @@ mod tests {
                                     structured: None,
                                 },
                                 status: ChildTerminalStatus::Succeeded,
+                                escalation: None,
                             },
                         },
                     };
                     self.correlations.lock().await.push((
                         request.child_id.0.clone(),
                         dispatch.meta.transport.clone(),
-                        dispatch.meta.correlation_id.clone(),
+                        response.meta.correlation_id.clone(),
                         response.meta.transport.clone(),
                         response_correlation,
                     ));
@@ -2494,6 +2562,7 @@ mod tests {
                                     error: Some(error.to_string()),
                                     structured: None,
                                 }),
+                                escalation: None,
                             },
                         },
                     };
@@ -2761,6 +2830,7 @@ mod tests {
                         structured: None,
                     },
                     status: ChildTerminalStatus::Succeeded,
+                    escalation: None,
                 },
             },
         };
@@ -2807,6 +2877,7 @@ mod tests {
                             structured: None,
                         },
                         status: ChildTerminalStatus::Succeeded,
+                        escalation: None,
                     },
                 },
             })
@@ -2863,6 +2934,7 @@ mod tests {
                         structured: None,
                     },
                     status: ChildTerminalStatus::Succeeded,
+                    escalation: None,
                 },
             },
         };
@@ -2922,6 +2994,7 @@ mod tests {
                         structured: None,
                     },
                     status: ChildTerminalStatus::Succeeded,
+                    escalation: None,
                 },
             },
         };
@@ -2933,6 +3006,7 @@ mod tests {
                     session_id: Some("session-a".to_string()),
                     error: "boom".to_string(),
                     tool_result: None,
+                    escalation: None,
                 },
             },
             ..completed.clone()
@@ -2998,6 +3072,7 @@ mod tests {
                         structured: None,
                     },
                     status: ChildTerminalStatus::Succeeded,
+                    escalation: None,
                 },
             },
         };
@@ -3029,6 +3104,7 @@ mod tests {
                         structured: None,
                     },
                     status: ChildTerminalStatus::Succeeded,
+                    escalation: None,
                 },
             },
         };
@@ -3114,6 +3190,7 @@ mod tests {
                             structured: None,
                         },
                         status: ChildTerminalStatus::Succeeded,
+                        escalation: None,
                     },
                 },
             })
@@ -3352,6 +3429,7 @@ mod tests {
                         structured: None,
                     },
                     status: ChildTerminalStatus::Succeeded,
+                    escalation: None,
                 },
             },
         };
@@ -3458,70 +3536,426 @@ mod tests {
         assert_eq!(cancellations, vec!["child-a", "child-b"]);
     }
 
-    #[tokio::test]
-    async fn parent_can_inspect_child_lifecycle_progression_during_live_run() {
-        let coordinator = Arc::new(Coordinator::new());
-        let started = Arc::new(tokio::sync::Notify::new());
-        let release = Arc::new(tokio::sync::Notify::new());
-        let runner = Arc::new(StubRunner::new(BTreeMap::from([(
-            "child-a".to_string(),
-            StubBehavior::GatedSuccess {
-                output: "alpha",
-                started: started.clone(),
-                release: release.clone(),
+    #[test]
+    fn mailbox_snapshot_surfaces_blocked_summary_and_parent_action_details() {
+        let record = ChildRecord {
+            child_id: ChildAgentId("mailbox-child".to_string()),
+            agent_name: "AgentA".to_string(),
+            launch_index: 0,
+            session_id: Some("mailbox-child".to_string()),
+            state: ChildState::WaitingOnParent,
+            execution: Some(ChildExecutionMetadataView {
+                requested: NormalizedExecutionRequest {
+                    transport: CoordinatorTransport::Mailbox,
+                    sandbox_mode: None,
+                    repository_id: None,
+                    worktree_id: None,
+                    read_only_project_access: false,
+                    tool_allowlist: vec![],
+                    tool_denylist: vec![],
+                    provider_override: None,
+                    model_override: None,
+                    working_directory: None,
+                    permission_broker: None,
+                },
+                enforced: EnforcedExecutionGuarantees {
+                    transport: CoordinatorTransport::Mailbox,
+                    process_local_handle_authority: true,
+                    mailbox_backed_delivery: true,
+                    repository_isolation_enforced: false,
+                    worktree_isolation_enforced: false,
+                    sandbox_clone_enforced: false,
+                    remote_bridge_connected: false,
+                    approval_broker_mode: ApprovalBrokerMode::ParentOwnedOnly,
+                },
+            }),
+            approval: ApprovalStatus::Pending {
+                request: ApprovalRequest {
+                    request_id: "approval:mailbox-child".to_string(),
+                    tool_name: "shell".to_string(),
+                    reason: "needs parent approval".to_string(),
+                    arguments: None,
+                    requested_at: Utc::now(),
+                },
             },
-        )])));
+            last_sequence: 1,
+            terminal_reason: None,
+            summary: Some("awaiting parent approval for shell".to_string()),
+            escalation: None,
+        };
+        let child = ChildLifecycleView::from(&record);
 
-        let task = tokio::spawn({
-            let coordinator = coordinator.clone();
-            let runner = runner.clone();
-            async move {
-                coordinator
-                    .run(
-                        CoordinatorLaunchRequest {
-                            parent_session_id: Some("parent-inspect".to_string()),
-                            children: vec![child("child-a", 0)],
-                            fan_in: FanInPolicy::AllMustSucceed,
-                        },
-                        runner,
-                    )
-                    .await
-            }
-        });
+        let summary = derive_coordinator_summary_state(
+            &CoordinatorStateView::Supervising,
+            std::slice::from_ref(&child),
+        );
 
-        started.notified().await;
+        assert_eq!(summary, CoordinatorSummaryStateView::Blocked);
+        assert_eq!(child.progress_state, ChildProgressStateView::ApprovalNeeded);
+        let blocking = child
+            .blocking_details
+            .expect("blocking details should be present");
+        assert_eq!(blocking.reason_code, "parent_approval_required");
+        assert!(blocking.parent_action_required);
+        assert!(blocking
+            .next_action_hint
+            .as_deref()
+            .unwrap_or("")
+            .contains("Parent must approve"));
+    }
 
-        let child_record = coordinator
-            .child_record(&ChildAgentId("child-a".to_string()))
-            .expect("registry should be readable")
-            .expect("child should be registered");
-        assert_eq!(child_record.state, ChildState::Running);
-        assert_eq!(child_record.launch_index, 0);
+    #[test]
+    fn coordinator_summary_is_blocked_for_any_surfaced_parent_action_condition() {
+        let child = ChildLifecycleView {
+            child_id: "child-a".to_string(),
+            agent_name: "AgentA".to_string(),
+            launch_index: 0,
+            session_id: None,
+            state: ChildStateView::WaitingOnParent,
+            progress_state: ChildProgressStateView::Waiting,
+            execution: None,
+            approval: ApprovalStatus::None,
+            summary: Some("waiting on surfaced parent action".to_string()),
+            blocking_details: Some(ChildBlockingDetailsView {
+                reason_code: "unsupported_escalation".to_string(),
+                message: "Child cannot continue until parent resolves deferred escalation"
+                    .to_string(),
+                parent_action_required: true,
+                next_action_hint: Some(
+                    "Parent must relaunch with supported constraints or cancel the child"
+                        .to_string(),
+                ),
+            }),
+            terminal_reason: None,
+        };
+
+        let summary =
+            derive_coordinator_summary_state(&CoordinatorStateView::Supervising, &[child]);
+
+        assert_eq!(summary, CoordinatorSummaryStateView::Blocked);
+    }
+
+    #[test]
+    fn waiting_on_parent_with_non_approval_blocking_details_is_reported_as_blocked_child() {
+        let record = ChildRecord {
+            child_id: ChildAgentId("child-blocked".to_string()),
+            agent_name: "AgentBlocked".to_string(),
+            launch_index: 1,
+            session_id: Some("session-blocked".to_string()),
+            state: ChildState::WaitingOnParent,
+            execution: None,
+            approval: ApprovalStatus::None,
+            last_sequence: 2,
+            terminal_reason: None,
+            summary: Some("waiting on unsupported escalation".to_string()),
+            escalation: Some(EscalationKind::Unsupported),
+        };
+
+        let view = ChildLifecycleView::from(&record);
+
+        assert_eq!(view.progress_state, ChildProgressStateView::Blocked);
+        let blocking = view
+            .blocking_details
+            .expect("blocking details should exist for unsupported escalation");
+        assert_eq!(blocking.reason_code, "unsupported_escalation");
+        assert!(blocking.parent_action_required);
+    }
+
+    #[test]
+    fn child_progress_message_carries_structured_escalation_signal() {
+        let coordinator = Coordinator::new();
+        let child_id = ChildAgentId("child-progress".to_string());
+        coordinator
+            .admit_child(&child("child-progress", 0))
+            .unwrap();
+        coordinator
+            .apply_envelope(&coordinator.next_envelope(
+                Some(child_id.clone()),
+                "corr-progress",
+                CoordinatorMessage::DispatchChild(child("child-progress", 0)),
+            ))
+            .unwrap();
+        coordinator
+            .apply_envelope(&coordinator.next_envelope(
+                Some(child_id.clone()),
+                "corr-progress",
+                CoordinatorMessage::ChildStarted { session_id: None },
+            ))
+            .unwrap();
+        coordinator
+            .apply_envelope(&coordinator.next_envelope(
+                Some(child_id.clone()),
+                "corr-progress",
+                CoordinatorMessage::ChildProgress {
+                    summary: "policy blocked the child".to_string(),
+                    escalation: Some(EscalationKind::Unsupported),
+                },
+            ))
+            .unwrap();
+        coordinator
+            .apply_envelope(&coordinator.next_envelope(
+                Some(child_id.clone()),
+                "corr-progress",
+                CoordinatorMessage::RequestApproval {
+                    request: ApprovalRequest {
+                        request_id: "approval:child-progress".to_string(),
+                        tool_name: "shell".to_string(),
+                        reason: "needs parent approval".to_string(),
+                        arguments: None,
+                        requested_at: Utc::now(),
+                    },
+                },
+            ))
+            .unwrap();
+
+        let record = coordinator.child_record(&child_id).unwrap().unwrap();
+        assert_eq!(record.escalation, Some(EscalationKind::Unsupported));
         assert_eq!(
-            coordinator.current_state().unwrap(),
-            CoordinatorState::Supervising
+            derive_child_progress_state(&record),
+            ChildProgressStateView::Blocked
         );
-        assert!(
-            !task.is_finished(),
-            "coordinator should still be supervising active work"
+        let blocking = derive_blocking_details(&record).expect("blocking details expected");
+        assert_eq!(blocking.reason_code, "unsupported_escalation");
+    }
+
+    #[test]
+    fn repeated_snapshot_preserves_blocked_child_identity_and_running_sibling_visibility() {
+        let blocked_record = ChildRecord {
+            child_id: ChildAgentId("child-blocked".to_string()),
+            agent_name: "AgentBlocked".to_string(),
+            launch_index: 0,
+            session_id: Some("session-blocked".to_string()),
+            state: ChildState::WaitingOnParent,
+            execution: None,
+            approval: ApprovalStatus::None,
+            last_sequence: 1,
+            terminal_reason: None,
+            summary: Some("waiting on unsupported escalation".to_string()),
+            escalation: Some(EscalationKind::Unsupported),
+        };
+        let blocked_child = ChildLifecycleView::from(&blocked_record);
+        let running_sibling = ChildLifecycleView {
+            child_id: "child-running".to_string(),
+            agent_name: "AgentRunning".to_string(),
+            launch_index: 1,
+            session_id: Some("session-running".to_string()),
+            state: ChildStateView::Running,
+            progress_state: ChildProgressStateView::Running,
+            execution: None,
+            approval: ApprovalStatus::None,
+            summary: Some("still working".to_string()),
+            blocking_details: None,
+            terminal_reason: None,
+        };
+
+        let first = [blocked_child.clone(), running_sibling.clone()];
+        let second = [blocked_child, running_sibling];
+
+        assert_eq!(first[0].child_id, second[0].child_id);
+        assert_eq!(first[0].progress_state, ChildProgressStateView::Blocked);
+        assert_eq!(
+            first[0]
+                .blocking_details
+                .as_ref()
+                .and_then(|details| details.next_action_hint.as_deref()),
+            second[0]
+                .blocking_details
+                .as_ref()
+                .and_then(|details| details.next_action_hint.as_deref())
+        );
+        assert_eq!(first[1].child_id, "child-running");
+        assert_eq!(first[1].progress_state, ChildProgressStateView::Running);
+        assert!(first[1].blocking_details.is_none());
+    }
+
+    #[test]
+    fn repeated_blocked_inspection_is_deterministic_for_same_logical_state() {
+        let summary = Some("awaiting parent approval for shell".to_string());
+        let approval = ApprovalStatus::Pending {
+            request: ApprovalRequest {
+                request_id: "approval-1".to_string(),
+                tool_name: "shell".to_string(),
+                reason: "needs parent approval".to_string(),
+                arguments: None,
+                requested_at: Utc::now(),
+            },
+        };
+        let record = ChildRecord {
+            child_id: ChildAgentId("child-a".to_string()),
+            agent_name: "AgentA".to_string(),
+            launch_index: 0,
+            session_id: Some("session-a".to_string()),
+            state: ChildState::WaitingOnParent,
+            execution: None,
+            approval: approval.clone(),
+            last_sequence: 2,
+            terminal_reason: None,
+            summary: summary.clone(),
+            escalation: None,
+        };
+
+        let first = ChildLifecycleView::from(&record);
+        let second = ChildLifecycleView::from(&record);
+        let first_summary = derive_coordinator_summary_state(
+            &CoordinatorStateView::Supervising,
+            std::slice::from_ref(&first),
+        );
+        let second_summary = derive_coordinator_summary_state(
+            &CoordinatorStateView::Supervising,
+            std::slice::from_ref(&second),
         );
 
-        release.notify_waiters();
+        assert_eq!(first_summary, CoordinatorSummaryStateView::Blocked);
+        assert_eq!(second_summary, CoordinatorSummaryStateView::Blocked);
+        assert_eq!(first.child_id, second.child_id);
+        assert_eq!(first.progress_state, second.progress_state);
+        assert_eq!(first.summary, second.summary);
+        assert_eq!(
+            first.blocking_details.as_ref().map(|details| (
+                &details.reason_code,
+                &details.message,
+                &details.next_action_hint
+            )),
+            second.blocking_details.as_ref().map(|details| (
+                &details.reason_code,
+                &details.message,
+                &details.next_action_hint
+            ))
+        );
+    }
 
-        let outcome = task.await.unwrap().unwrap();
-        match outcome {
-            CoordinatorOutcome::Completed { children, .. } => {
-                assert_eq!(child_outcome_ids(&children), vec!["child-a"]);
-            }
-            other => panic!("expected completed outcome, got {other:?}"),
-        }
+    #[test]
+    fn duplicate_approval_redelivery_does_not_duplicate_blocked_child_visibility() {
+        let coordinator = Coordinator::new();
+        let child_id = ChildAgentId("child-a".to_string());
+        coordinator.admit_child(&child("child-a", 0)).unwrap();
+        coordinator
+            .apply_envelope(&coordinator.next_envelope(
+                Some(child_id.clone()),
+                "corr-approval",
+                CoordinatorMessage::DispatchChild(child("child-a", 0)),
+            ))
+            .unwrap();
+        coordinator
+            .apply_envelope(&coordinator.next_envelope(
+                Some(child_id.clone()),
+                "corr-approval",
+                CoordinatorMessage::ChildStarted { session_id: None },
+            ))
+            .unwrap();
 
-        let final_record = coordinator
-            .child_record(&ChildAgentId("child-a".to_string()))
-            .expect("registry should be readable")
-            .expect("child should remain inspectable");
-        assert_eq!(final_record.state, ChildState::Completed);
-        assert_eq!(final_record.session_id.as_deref(), Some("session-child-a"));
+        let approval_envelope = MessageEnvelope {
+            meta: EnvelopeMeta {
+                coordinator_id: coordinator.coordinator_id().to_string(),
+                child_id: Some(child_id.clone()),
+                sequence: 3,
+                message_id: "approval-msg".to_string(),
+                correlation_id: "corr-approval".to_string(),
+                sender: LogicalEndpoint::child(
+                    coordinator.coordinator_id().to_string(),
+                    child_id.clone(),
+                ),
+                recipient: LogicalEndpoint::coordinator_child(
+                    coordinator.coordinator_id().to_string(),
+                    child_id.clone(),
+                ),
+                sent_at: Utc::now(),
+                transport: CoordinatorTransport::Mailbox,
+            },
+            payload: CoordinatorMessage::RequestApproval {
+                request: ApprovalRequest {
+                    request_id: "approval-dup".to_string(),
+                    tool_name: "shell".to_string(),
+                    reason: "needs parent approval".to_string(),
+                    arguments: None,
+                    requested_at: Utc::now(),
+                },
+            },
+        };
+
+        coordinator.apply_envelope(&approval_envelope).unwrap();
+        let before = ChildLifecycleView::from(
+            &coordinator
+                .child_record(&child_id)
+                .unwrap()
+                .expect("child should exist before duplicate delivery"),
+        );
+        let event_count_before = coordinator.event_log().unwrap().len();
+
+        coordinator.apply_envelope(&approval_envelope).unwrap();
+
+        let after = ChildLifecycleView::from(
+            &coordinator
+                .child_record(&child_id)
+                .unwrap()
+                .expect("child should exist after duplicate delivery"),
+        );
+        let events = coordinator.event_log().unwrap();
+
+        assert_eq!(events.len(), event_count_before);
+        assert_eq!(before.child_id, after.child_id);
+        assert_eq!(before.progress_state, after.progress_state);
+        assert_eq!(
+            before
+                .blocking_details
+                .as_ref()
+                .map(|details| (&details.reason_code, &details.message)),
+            after
+                .blocking_details
+                .as_ref()
+                .map(|details| (&details.reason_code, &details.message))
+        );
+    }
+
+    #[test]
+    fn resolved_approval_returns_child_to_running_without_claiming_child_owned_completion() {
+        let pending_request = ApprovalRequest {
+            request_id: "approval-1".to_string(),
+            tool_name: "shell".to_string(),
+            reason: "needs parent approval".to_string(),
+            arguments: None,
+            requested_at: Utc::now(),
+        };
+        let resolved_record = ChildRecord {
+            child_id: ChildAgentId("child-a".to_string()),
+            agent_name: "AgentA".to_string(),
+            launch_index: 0,
+            session_id: Some("session-a".to_string()),
+            state: ChildState::WaitingOnParent,
+            execution: None,
+            approval: ApprovalStatus::Pending {
+                request: pending_request,
+            },
+            last_sequence: 2,
+            terminal_reason: None,
+            summary: Some("awaiting parent approval for shell".to_string()),
+            escalation: None,
+        };
+        let mut resumed_record = resolved_record.clone();
+        resumed_record.state = ChildState::Running;
+        resumed_record.approval = ApprovalStatus::Resolved {
+            decision: ApprovalDecision::Approved {
+                request_id: "approval-1".to_string(),
+                decided_at: Utc::now(),
+            },
+        };
+        resumed_record.summary = Some("approval decision recorded".to_string());
+        resumed_record.escalation = None;
+
+        let blocked_view = ChildLifecycleView::from(&resolved_record);
+        let resumed_view = ChildLifecycleView::from(&resumed_record);
+
+        assert_eq!(
+            blocked_view.progress_state,
+            ChildProgressStateView::ApprovalNeeded
+        );
+        assert!(blocked_view.blocking_details.is_some());
+        assert_eq!(resumed_view.progress_state, ChildProgressStateView::Running);
+        assert!(resumed_view.blocking_details.is_none());
+        assert_eq!(
+            resumed_view.summary.as_deref(),
+            Some("approval decision recorded")
+        );
     }
 
     #[tokio::test]

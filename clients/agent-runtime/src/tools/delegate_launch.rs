@@ -328,6 +328,7 @@ mod tests {
                             structured: None,
                         },
                         status: ChildTerminalStatus::Succeeded,
+                        escalation: None,
                     },
                 },
             })
