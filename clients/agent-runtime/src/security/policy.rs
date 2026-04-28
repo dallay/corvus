@@ -2068,7 +2068,10 @@ mod tests {
     #[test]
     fn command_risk_level_detects_encoded_dangerous_snippets() {
         let p = default_policy();
-        assert_eq!(p.command_risk_level("rm%20-rf%20%2f"), CommandRiskLevel::High);
+        assert_eq!(
+            p.command_risk_level("rm%20-rf%20%2f"),
+            CommandRiskLevel::High
+        );
 
         let encoded_fork = "%3a%28%29%7b%3a%7c%3a%26%7d%3b%3a";
         assert_eq!(p.command_risk_level(encoded_fork), CommandRiskLevel::High);
