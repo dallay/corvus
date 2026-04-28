@@ -60,8 +60,11 @@ Local prerequisites:
 - `SONAR_TOKEN` exported in your shell
 - `sonar-scanner` available on `PATH`
 - the standard repo toolchain required by `make check-tools`
+- the Rust coverage tooling required by `rust-coverage`:
+  - `cargo install cargo-llvm-cov`
+  - `rustup component add llvm-tools-preview`
 
-`make sonar` generates the same main coverage inputs used by CI before invoking the local scanner. The authoritative quality gate still lives in SonarCloud, but this command makes the monthly review reproducible from a developer workstation.
+`make sonar` generates the same main coverage inputs used by CI before invoking the local scanner. As part of that flow it runs the `rust-coverage` target, so missing `cargo-llvm-cov` or `llvm-tools-preview` will cause `make sonar` to exit during preflight. The authoritative quality gate still lives in SonarCloud, but this command makes the monthly review reproducible from a developer workstation.
 
 ## 🛠️ Tech Stack
 

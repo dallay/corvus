@@ -285,7 +285,7 @@ link-check-local: ## Check repository local links with Lychee (offline)
 
 lint-all: lint-kotlin lint-rust lint-android ## Run all linters
 
-sonar: check-tools ## Run local SonarQube analysis (coverage + scan)
+sonar: check-tools rust-coverage-validate ## Run local SonarQube analysis (coverage + scan)
 	@echo "🔍 $(BOLD)Running local SonarQube analysis...$(SGR0)"
 	@bash ./scripts/sonar.sh --validate-only
 	@$(GRADLEW) test jvmTest :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
@@ -313,7 +313,7 @@ test-coverage: rust-coverage ## Run coverage reports
 	@echo "📊 Kotlin report: modules/agent-core-kmp/build/reports/kover/html/index.html"
 	@echo "📊 Rust report: coverage/agent-runtime-coverage.lcov"
 
-rust-coverage: ## Run Rust coverage for agent-runtime
+rust-coverage-validate: ## Validate Rust coverage prerequisites for agent-runtime
 	@command -v cargo-llvm-cov >/dev/null 2>&1 || { \
 		echo "cargo-llvm-cov is required. Install with: cargo install cargo-llvm-cov" >&2; \
 		exit 1; \
@@ -322,6 +322,8 @@ rust-coverage: ## Run Rust coverage for agent-runtime
 		echo "llvm-tools-preview (or llvm-tools) is required. Install with: rustup component add llvm-tools-preview" >&2; \
 		exit 1; \
 	}
+
+rust-coverage: rust-coverage-validate ## Run Rust coverage for agent-runtime
 	@mkdir -p coverage
 	@cd clients/agent-runtime && cargo llvm-cov --lcov --output-path ../../coverage/agent-runtime-coverage.lcov -- --test-threads=1
 

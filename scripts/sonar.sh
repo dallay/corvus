@@ -56,4 +56,4 @@ sonar-scanner \
   -Dsonar.rust.lcov.reportPaths="$RUST_LCOV_REPORT" \
   -Dsonar.javascript.lcov.reportPaths="$WEB_LCOV_REPORT" \
   -Dsonar.python.version=3.12 \
-  -Dsonar.typescript.node="$ROOT_DIR/clients/web/node_modules"
+  -Dsonar.nodejs.executable="$(command -v node)"

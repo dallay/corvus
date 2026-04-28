@@ -62,7 +62,7 @@ describe("dashboard run-coverage script", () => {
 
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const [command, args, options] = spawnMock.mock.calls[0];
-    expect(command).toBe("pnpm");
+    expect(String(command)).toMatch(/pnpm(\.cmd)?$/);
     expect(args.slice(0, 9)).toEqual([
       "exec",
       "vitest",
@@ -77,7 +77,7 @@ describe("dashboard run-coverage script", () => {
     expect(args.slice(9)).toEqual(
       expect.arrayContaining([
         expect.stringMatching(/alpha\.spec\.ts$/),
-        expect.stringMatching(/nested\/beta\.spec\.ts$/),
+        expect.stringMatching(/nested[\\/]beta\.spec\.ts$/),
         expect.stringMatching(/zeta\.spec\.ts$/),
       ])
     );
