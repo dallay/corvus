@@ -68,7 +68,7 @@ class SocketIosRuntimeCompanionClient(
   override fun createSession(metadata: Map<String, String>): RuntimeSession =
     sessionFrom(
       requireNotNull(sendCommand("__corvus_create_session__")) {
-        "sendCommand('__corvus_create_session__') returned null in createSession(metadata=$metadata)"
+        "sendCommand('__corvus_create_session__') returned null in createSession"
       }
     )
 
@@ -88,13 +88,14 @@ class SocketIosRuntimeCompanionClient(
       ?.toList()
       ?: emptyList()
 
-  override fun resumeSession(sessionId: RuntimeSessionId): RuntimeSession =
-    sessionFrom(
-      requireNotNull(sendCommand("__corvus_resume_session__${sessionId.value}")) {
-        "sendCommand('__corvus_resume_session__${sessionId.value}') returned null " +
-          "in resumeSession(sessionId=$sessionId)"
+  override fun resumeSession(sessionId: RuntimeSessionId): RuntimeSession {
+    val command = "__corvus_resume_session__${sessionId.value}"
+    return sessionFrom(
+      requireNotNull(sendCommand(command)) {
+        "sendCommand('$command') returned null in resumeSession(sessionId=$sessionId)"
       }
     )
+  }
 
   override fun endSession(sessionId: RuntimeSessionId) {
     val result = sendCommand("__corvus_end_session__${sessionId.value}")
@@ -142,7 +143,7 @@ class SocketIosRuntimeCompanionClient(
       // Apply send/receive timeouts
       val tv = alloc<timeval>()
       tv.tv_sec = (config.timeoutMs / 1000).convert()
-      tv.tv_usec = ((config.timeoutMs % 1000) * 1000).toInt()
+      tv.tv_usec = ((config.timeoutMs % 1000).toInt() * 1000)
       setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, tv.ptr, sizeOf<timeval>().convert())
       setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, tv.ptr, sizeOf<timeval>().convert())
 
