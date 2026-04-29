@@ -226,7 +226,7 @@ test("internal release dependency sync check fails on version drift", () => {
   () => runInternalReleaseSyncFailure(["--check"]));
 
   assert.match(output, /version-drift:/);
-  assert.match(output, new RegExp(`expected ${escapeRegex(releaseVersion)} but found 0\\.0\\.0`));
+  assert.ok(output.includes(`expected ${releaseVersion} but found 0.0.0`));
 });
 
 test("internal release dependency sync write mode rewrites version drift", () => {
@@ -237,9 +237,9 @@ test("internal release dependency sync write mode rewrites version drift", () =>
     const output = runInternalReleaseSync(["--write"]);
     const manifest = readText("clients/agent-runtime/Cargo.toml");
 
-    assert.match(output, new RegExp(`0\\.0\\.0 -> ${escapeRegex(releaseVersion)}`));
+    assert.ok(output.includes(`0.0.0 -> ${releaseVersion}`));
     assert.match(output, /written successfully/);
-    assert.match(manifest, new RegExp(`cerebro = \\{ version = "${escapeRegex(releaseVersion)}", path = "\\.\\.\\/\\.\\.\\/clients\\/cerebro" \\}`));
+    assert.ok(manifest.includes(alignedDependency));
   });
 });
 

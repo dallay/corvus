@@ -33,10 +33,6 @@ function writeText(relativePath, content) {
   fs.writeFileSync(resolvePath(relativePath), content, "utf8");
 }
 
-function escapeRegex(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function extractPackageVersion(manifestText, manifestPath) {
   const packageBlockMatch = manifestText.match(/\[package\]([\s\S]*?)(\n\[|$)/);
   if (!packageBlockMatch) {
@@ -52,20 +48,33 @@ function extractPackageVersion(manifestText, manifestPath) {
 }
 
 function extractDependencyBlock(manifestText, dependencyName, manifestPath) {
-  const regex = new RegExp(`^(${escapeRegex(dependencyName)}\\s*=\\s*\\{[^\\n]*\\})$`, "m");
-  const match = manifestText.match(regex);
-  if (!match) {
-    throw new Error(`missing-dependency-entry: ${dependencyName} not found in ${manifestPath}`);
+  for (const line of manifestText.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(`${dependencyName} = {`) || !trimmed.endsWith("}")) {
+      continue;
+    }
+    return trimmed;
   }
-  return match[1];
+
+  throw new Error(`missing-dependency-entry: ${dependencyName} not found in ${manifestPath}`);
 }
 
 function extractField(block, fieldName, manifestPath, dependencyName) {
-  const match = block.match(new RegExp(`${escapeRegex(fieldName)}\\s*=\\s*"([^"]+)"`));
-  if (!match) {
-    throw new Error(`Could not resolve ${fieldName} for ${dependencyName} in ${manifestPath}`);
+  const fields = block
+    .slice(block.indexOf("{") + 1, block.lastIndexOf("}"))
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  for (const entry of fields) {
+    const [rawKey, rawValue] = entry.split("=").map((part) => part.trim());
+    if (rawKey !== fieldName || !rawValue?.startsWith('"') || !rawValue.endsWith('"')) {
+      continue;
+    }
+    return rawValue.slice(1, -1);
   }
-  return match[1];
+
+  throw new Error(`Could not resolve ${fieldName} for ${dependencyName} in ${manifestPath}`);
 }
 
 function updateVersionInBlock(block, expectedVersion) {
