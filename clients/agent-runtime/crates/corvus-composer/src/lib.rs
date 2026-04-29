@@ -290,7 +290,11 @@ backend = "firejail"
 
     #[test]
     fn from_path_reads_valid_manifest_file() {
-        let tmp = std::env::temp_dir().join("corvus_composer_from_path_valid.toml");
+        let filename = format!(
+            "corvus_composer_from_path_valid_{}.toml",
+            std::process::id()
+        );
+        let tmp = std::env::temp_dir().join(filename);
         std::fs::write(&tmp, valid_manifest()).expect("write temp manifest");
         let result = AgentComposer::from_path(&tmp);
         std::fs::remove_file(&tmp).ok();
