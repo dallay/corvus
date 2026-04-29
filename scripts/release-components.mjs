@@ -3,6 +3,17 @@ import path from "node:path";
 
 const RELEASE_COMPONENTS_PATH = path.resolve("config/release-components.json");
 const VALID_PUBLISH_POLICIES = new Set(["publishable", "validate-only"]);
+const VALID_INTERNAL_RELEASE_DEPENDENCY_MODES = new Set(["must-match-release-version"]);
+const REQUIRED_INTERNAL_DEPENDENCY_FIELDS = [
+  "dependentComponent",
+  "upstreamComponent",
+  "manifestPath",
+  "dependencyName",
+  "dependencyPath",
+  "versionSelector",
+  "mode",
+  "notes",
+];
 
 function readReleaseComponentsFile() {
   return JSON.parse(fs.readFileSync(RELEASE_COMPONENTS_PATH, "utf8"));
@@ -11,6 +22,42 @@ function readReleaseComponentsFile() {
 function validateStringArray(value, label) {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.length === 0)) {
     throw new Error(`${label} must be a non-empty string array when provided`);
+  }
+}
+
+function validateInternalReleaseDependencies(graph) {
+  if (!Array.isArray(graph.internalReleaseDependencies)) {
+    throw new Error("release component graph must define an internalReleaseDependencies array");
+  }
+
+  for (const [index, edge] of graph.internalReleaseDependencies.entries()) {
+    if (!edge || typeof edge !== "object" || Array.isArray(edge)) {
+      throw new Error(`internalReleaseDependencies[${index}] must be an object`);
+    }
+
+    for (const field of REQUIRED_INTERNAL_DEPENDENCY_FIELDS) {
+      if (typeof edge[field] !== "string" || edge[field].length === 0) {
+        throw new Error(`internalReleaseDependencies[${index}].${field} must be a non-empty string`);
+      }
+    }
+
+    if (!graph.components[edge.dependentComponent]) {
+      throw new Error(
+        `internalReleaseDependencies[${index}] references unknown dependent component ${edge.dependentComponent}`,
+      );
+    }
+
+    if (!graph.components[edge.upstreamComponent]) {
+      throw new Error(
+        `internalReleaseDependencies[${index}] references unknown upstream component ${edge.upstreamComponent}`,
+      );
+    }
+
+    if (!VALID_INTERNAL_RELEASE_DEPENDENCY_MODES.has(edge.mode)) {
+      throw new Error(
+        `internalReleaseDependencies[${index}] has unsupported mode ${edge.mode}`,
+      );
+    }
   }
 }
 
@@ -28,6 +75,8 @@ function validateGraph(graph) {
   }
 
   validateStringArray(graph.nonReleasePaths, "nonReleasePaths");
+
+  validateInternalReleaseDependencies(graph);
 
   const componentIds = Object.keys(graph.components);
   if (componentIds.length === 0) {
@@ -81,4 +130,8 @@ export function loadReleaseComponents() {
   return validateGraph(readReleaseComponentsFile());
 }
 
-export { RELEASE_COMPONENTS_PATH, VALID_PUBLISH_POLICIES };
+export {
+  RELEASE_COMPONENTS_PATH,
+  VALID_PUBLISH_POLICIES,
+  VALID_INTERNAL_RELEASE_DEPENDENCY_MODES,
+};

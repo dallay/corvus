@@ -121,6 +121,13 @@ jobs:
           github.event.pull_request.user.login != 'renovate[bot]'
         run: ./gradlew checkLocksAll --no-parallel
 
+      - name: 🔍 Check internal release dependency sync
+        if: >
+          github.event.pull_request.user.login != 'github-actions[bot]' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' &&
+          github.event.pull_request.user.login != 'renovate[bot]'
+        run: node scripts/sync-internal-release-deps.mjs --check
+
       - name: 🦀 Check Rust lockfiles are up to date
         if: >
           github.event.pull_request.user.login != 'github-actions[bot]' &&
