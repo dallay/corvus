@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -43,12 +44,10 @@ internal fun ConfigPanel(
     shape = RoundedCornerShape(20.dp),
     color = corvusColors.glassSurface,
   ) {
-    Box(
-      modifier =
-        Modifier.background(
-          brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
-        )
-    ) {
+    val backgroundBrush = remember {
+      Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
+    }
+    Box(modifier = Modifier.background(brush = backgroundBrush)) {
       configSettingsList(
         bridgeState = bridgeState,
         resumableSessions = resumableSessions,
@@ -70,7 +69,7 @@ internal fun configSettingsList(
 ) {
   val corvusColors = CorvusTheme.colors
   val onboardingState = bridgeState.onboardingState
-  val detailLines = buildDiagnosticsLines(bridgeState)
+  val detailLines = remember(bridgeState) { buildDiagnosticsLines(bridgeState) }
 
   LazyColumn(
     modifier = Modifier.fillMaxSize().padding(20.dp),
@@ -111,10 +110,13 @@ internal fun configSettingsList(
     }
 
     item {
+      val safeDetails = remember(bridgeState, targetLabel) {
+        buildSafeDiagnosticLines(bridgeState, targetLabel)
+      }
       diagnosticsCard(
         title = "Safe diagnostics",
         subtitle = "Parity-critical bridge details only",
-        details = buildSafeDiagnosticLines(bridgeState, targetLabel),
+        details = safeDetails,
       )
     }
 
@@ -184,24 +186,23 @@ internal fun configSettingsList(
     }
 
     item {
+      val dividerBrush =
+        remember(corvusColors.glassOverlay) {
+          Brush.horizontalGradient(
+            listOf(Color.Transparent, corvusColors.glassOverlay, Color.Transparent)
+          )
+        }
       Box(
-        modifier =
-          Modifier.fillMaxWidth()
-            .height(1.dp)
-            .background(
-              brush =
-                Brush.horizontalGradient(
-                  listOf(Color.Transparent, corvusColors.glassOverlay, Color.Transparent)
-                )
-            )
+        modifier = Modifier.fillMaxWidth().height(1.dp).background(brush = dividerBrush)
       )
     }
 
     item {
+      val resetOptions = remember { buildResetOptionLines() }
       diagnosticsCard(
         title = "Reset options",
         subtitle = "Relink or disconnect without exposing unsafe controls",
-        details = buildResetOptionLines(),
+        details = resetOptions,
       )
     }
 
