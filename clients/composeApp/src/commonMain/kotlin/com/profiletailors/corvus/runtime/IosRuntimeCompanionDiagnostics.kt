@@ -2,7 +2,6 @@ package com.profiletailors.corvus.runtime
 
 internal val IOS_COMPANION_MISSING_INFRASTRUCTURE: List<String> =
   listOf(
-    "no companion IPC transport client exists in this repository",
     "no embedded Rust FFI bridge exists in this repository",
   )
 
