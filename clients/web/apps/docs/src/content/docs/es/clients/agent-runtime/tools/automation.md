@@ -34,7 +34,7 @@ Delega una subtarea a un agente especializado.
 
 Inicia una ejecución de orquestación supervisada de múltiples hijos.
 
-- **Security Tier:** De Acción (Con riesgo).
+- **Nivel de Seguridad:** De Acción (Con riesgo).
 - **Alcance:** Solo a nivel de proceso (local).
 - **Retorno:** Un `handle` opaco y un `snapshot` inicial.
 
@@ -52,7 +52,7 @@ Cada descriptor de hijo requiere `child_id`, `agent_name` y `prompt`. Los metada
 
 Devuelve una instantánea (snapshot) de una ejecución de orquestación activa.
 
-- **Security Tier:** Solo Lectura (Segura).
+- **Nivel de Seguridad:** Solo Lectura (Segura).
 - **Contrato:** Requiere el `handle` devuelto por `delegate_launch`.
 
 ### Parámetros
@@ -67,7 +67,7 @@ Devuelve una instantánea (snapshot) de una ejecución de orquestación activa.
 
 Cancela una ejecución de orquestación supervisada activa.
 
-- **Security Tier:** De Acción (Con riesgo).
+- **Nivel de Seguridad:** De Acción (Con riesgo).
 - **Contrato:** Requiere el `handle` devuelto por `delegate_launch`.
 
 ### Parámetros
