@@ -102,3 +102,14 @@ All three identified issues have been fixed:
 - Removed deprecated `surreal-graphs` and `surreal` memory backends from `onboard` command.
 **Validation:** Results of `make docs-check` and `make docs-build` passed (80 pages built).
 **Notes:** Bilingual parity maintained for all changes.
+
+## 2026-04-29 - Orchestration & Tooling Parity Update - Complete
+
+**Verification:** Verified actual tool implementations in `clients/agent-runtime/src/tools/` for new delegation and task/cron tools.
+**Changes:**
+- Updated `clients/web/apps/docs/src/content/docs/es/guides/cli-reference.md` to sync with English (dashboard activation, status example cleanup).
+- Updated `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/index.mdx` (en/es) to include `memory_forget` in Action-Bearing tier.
+- Added `delegate_launch`, `delegate_inspect`, and `delegate_cancel` documentation to `automation.md` (en/es).
+- Improved `cron_runs` and `cron_update` parameter documentation in `automation.md` (en/es).
+**Validation:** Results of `make docs-check` and `make docs-build` passed (84 pages built).
+**Notes:** Maintaining bilingual parity between root (English) and `es/` directory.
