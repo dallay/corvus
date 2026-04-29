@@ -384,6 +384,40 @@ fn sanitize_sse_id(session_id: &str) -> String {
         .replace(['\r', '\n'], "")
 }
 
+fn handled_ingress_to_webhook_result(
+    request: &WebhookTurnRequest,
+    model: &str,
+    handled: HandledIngress,
+) -> Option<WebhookTurnResult> {
+    match handled {
+        HandledIngress::Handled(HandledIngressOutcome::SessionCommandSuccess(success)) => {
+            Some(WebhookTurnResult {
+                session_id: request.session_id.clone(),
+                model: model.to_string(),
+                outcome: WebhookTerminalOutcome::Completed,
+                response_text: Some(success.message.clone()),
+                event_frames: Vec::new(),
+                tools_called: Vec::new(),
+            })
+        }
+        HandledIngress::Handled(HandledIngressOutcome::SessionCommandFailure {
+            class: _,
+            failure,
+        }) => Some(WebhookTurnResult {
+            session_id: request.session_id.clone(),
+            model: model.to_string(),
+            outcome: WebhookTerminalOutcome::Failed,
+            response_text: Some(failure.message),
+            event_frames: Vec::new(),
+            tools_called: Vec::new(),
+        }),
+        HandledIngress::Handled(HandledIngressOutcome::Blocking(blocking)) => Some(
+            map_canonical_result(request, model, CanonicalWebhookResult::Blocking(blocking)),
+        ),
+        HandledIngress::NotHandled => None,
+    }
+}
+
 pub(crate) async fn execute(
     config: &Config,
     provider: Arc<dyn Provider>,
@@ -400,50 +434,10 @@ pub(crate) async fn execute(
         Err(result) => return result,
     };
 
-    match evaluate_webhook_ingress(memory.as_ref(), &tool_snapshot, &request, clamped_mode).await {
-        HandledIngress::Handled(HandledIngressOutcome::SessionCommandSuccess(success)) => {
-            return WebhookTurnResult {
-                session_id: request.session_id.clone(),
-                model: model.to_string(),
-                outcome: WebhookTerminalOutcome::Completed,
-                response_text: Some(success.message.clone()),
-                event_frames: Vec::new(),
-                tools_called: Vec::new(),
-            };
-        }
-        HandledIngress::Handled(HandledIngressOutcome::SessionCommandFailure {
-            class: _,
-            failure,
-        }) => {
-            return WebhookTurnResult {
-                session_id: request.session_id.clone(),
-                model: model.to_string(),
-                outcome: WebhookTerminalOutcome::Failed,
-                response_text: Some(failure.message),
-                event_frames: Vec::new(),
-                tools_called: Vec::new(),
-            };
-        }
-        HandledIngress::Handled(HandledIngressOutcome::Blocking(blocking)) => match blocking {
-            BlockingOutcome::ApprovalRequired { tool, reason } => {
-                return map_canonical_result(
-                    &request,
-                    model,
-                    CanonicalWebhookResult::Blocking(BlockingOutcome::ApprovalRequired {
-                        tool,
-                        reason,
-                    }),
-                );
-            }
-            other => {
-                return map_canonical_result(
-                    &request,
-                    model,
-                    CanonicalWebhookResult::Blocking(other),
-                );
-            }
-        },
-        HandledIngress::NotHandled => {}
+    let handled_ingress =
+        evaluate_webhook_ingress(memory.as_ref(), &tool_snapshot, &request, clamped_mode).await;
+    if let Some(result) = handled_ingress_to_webhook_result(&request, model, handled_ingress) {
+        return result;
     }
 
     let mut effective_config = config.clone();
@@ -658,6 +652,26 @@ mod tests {
         assert!(!frame.contains("malicious"));
         assert!(!frame.contains("id "));
         assert_eq!(frame.matches("id:").count(), 1);
+    }
+
+    #[test]
+    fn handled_ingress_failure_maps_to_failed_webhook_result() {
+        let request = sample_request(WebhookSessionSource::Explicit);
+        let handled = HandledIngress::Handled(HandledIngressOutcome::SessionCommandFailure {
+            class: crate::pre_execution::SessionCommandFailureClass::Failed,
+            failure: crate::session_commands::SessionCommandFailure {
+                kind: crate::session_commands::SessionCommandFailureKind::InvalidState,
+                message: "boom".into(),
+                command: "/tldr",
+                session_id: Some("webhook-123".into()),
+            },
+        });
+
+        let result = handled_ingress_to_webhook_result(&request, "test-model", handled)
+            .expect("expected handled result");
+
+        assert_eq!(result.outcome, WebhookTerminalOutcome::Failed);
+        assert_eq!(result.response_text.as_deref(), Some("boom"));
     }
 
     #[test]

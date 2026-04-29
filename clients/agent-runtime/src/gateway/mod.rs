@@ -1713,6 +1713,255 @@ async fn finalize_generated_session_if_needed(
     }
 }
 
+async fn ensure_webhook_session(
+    state: &AppState,
+    session_id: &str,
+    token_hash: Option<&str>,
+    reserved_idempotency_key: Option<&str>,
+) -> Option<WebhookResponse> {
+    if let Err(error) = state.mem.upsert_session(session_id, token_hash).await {
+        if token_hash.is_some() {
+            tracing::error!("session upsert failed for token-scoped request: {error:#}");
+            release_idempotency_key(state, reserved_idempotency_key, false);
+            return Some((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Session tracking failed"})),
+            ));
+        }
+        tracing::debug!("session upsert best-effort failed: {error}");
+    }
+
+    None
+}
+
+async fn maybe_execute_legacy_http_ingress(
+    state: &AppState,
+    session_id: &str,
+    session_source: webhook_dispatch::WebhookSessionSource,
+    scrubbed_message: &str,
+    token_hash: Option<&str>,
+    reserved_idempotency_key: Option<&str>,
+) -> Option<WebhookResponse> {
+    let http_source = webhook_http_source(session_source);
+    let maybe_response =
+        maybe_handle_http_ingress(state, session_id, http_source, scrubbed_message, token_hash)
+            .await;
+
+    if let Some((response, persist_idempotency)) = maybe_response {
+        release_idempotency_key(state, reserved_idempotency_key, persist_idempotency);
+        update_session_activity_if_persisted(state, session_id, token_hash, persist_idempotency)
+            .await;
+        return Some(response);
+    }
+
+    None
+}
+
+async fn execute_dispatcher_webhook(
+    state: &AppState,
+    config: &Config,
+    request: webhook_dispatch::WebhookTurnRequest,
+    reserved_idempotency_key: Option<&str>,
+) -> WebhookResponse {
+    log_webhook_runtime_path(&request.session_id, true, "dispatcher_flag_enabled");
+    let dispatch_result = webhook_dispatch::execute(
+        config,
+        Arc::clone(&state.provider),
+        Arc::clone(&state.mem),
+        Arc::clone(&state.observer),
+        state.cost_tracker.clone(),
+        &state.model,
+        request.clone(),
+    )
+    .await;
+    log_webhook_terminal_outcome(
+        &request.session_id,
+        "dispatcher_agent",
+        webhook_outcome_label(&dispatch_result.outcome),
+    );
+    let (response, persist_idempotency) = webhook_response_from_dispatch_result(dispatch_result);
+    release_idempotency_key(state, reserved_idempotency_key, persist_idempotency);
+    update_session_activity_if_persisted(
+        state,
+        &request.session_id,
+        request.caller_token_hash.as_deref(),
+        persist_idempotency,
+    )
+    .await;
+    response
+}
+
+async fn prepare_stream_request(
+    state: &AppState,
+    headers: &HeaderMap,
+    body: WebhookJsonBody,
+) -> Result<
+    (
+        WebhookBody,
+        String,
+        webhook_dispatch::WebhookSessionSource,
+        Option<String>,
+        Config,
+        Vec<crate::session_commands::SessionCommandToolEntry>,
+    ),
+    WebhookResponse,
+> {
+    let webhook_body = parse_webhook_body(body)?;
+    let (session_id, session_source) = resolve_session_id(headers)?;
+    let token_hash = utils::extract_bearer_token(headers).map(|t| compute_token_hash(&t));
+
+    if let Err(error) = state
+        .mem
+        .upsert_session(&session_id, token_hash.as_deref())
+        .await
+    {
+        if token_hash.is_some() {
+            tracing::error!("session upsert failed for token-scoped request: {error:#}");
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Session tracking failed"})),
+            ));
+        }
+        tracing::debug!("session upsert best-effort failed: {error}");
+    }
+
+    let config = state.config.lock().clone();
+    let tool_snapshot =
+        crate::bootstrap::slash_tool_snapshot_from_config(&config).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to derive effective tool snapshot"})),
+            )
+        })?;
+
+    Ok((
+        webhook_body,
+        session_id,
+        session_source,
+        token_hash,
+        config,
+        tool_snapshot,
+    ))
+}
+
+async fn maybe_stream_handled_ingress_response(
+    state: &AppState,
+    handled_ingress: &crate::pre_execution::HandledIngress,
+    session_id: &str,
+    token_hash: Option<&str>,
+) -> Option<axum::response::Response> {
+    let crate::pre_execution::HandledIngress::Handled(handled) = handled_ingress else {
+        return None;
+    };
+
+    if let Err(e) = state
+        .mem
+        .update_session_activity(session_id, token_hash)
+        .await
+    {
+        tracing::debug!("session activity update best-effort failed: {e}");
+    }
+
+    let sid = session_id.to_string();
+    let (events, status) = match handled {
+        crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success) => {
+            let message_id = Uuid::new_v4().to_string();
+            (
+                vec![
+                    Ok::<Event, std::convert::Infallible>(
+                        Event::default()
+                            .event("chunk")
+                            .data(success.message.clone()),
+                    ),
+                    Ok::<Event, std::convert::Infallible>(
+                        Event::default()
+                            .event("done")
+                            .json_data(serde_json::json!({
+                                "message_id": message_id,
+                                "session_id": sid,
+                                "tools_called": [],
+                            }))
+                            .expect("serializable done event"),
+                    ),
+                ],
+                StatusCode::OK,
+            )
+        }
+        crate::pre_execution::HandledIngressOutcome::SessionCommandFailure {
+            class: _,
+            failure,
+        } => (
+            vec![Ok::<Event, std::convert::Infallible>(
+                Event::default()
+                    .event("error")
+                    .json_data(serde_json::json!({
+                        "code": map_session_command_failure_code(&failure.kind),
+                        "message": failure.message,
+                    }))
+                    .expect("serializable error event"),
+            )],
+            StatusCode::OK,
+        ),
+        crate::pre_execution::HandledIngressOutcome::Blocking(blocking) => match blocking {
+            crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => (
+                vec![Ok::<Event, std::convert::Infallible>(
+                    Event::default()
+                        .event("error")
+                        .json_data(serde_json::json!({
+                            "code": "approval_required",
+                            "tool": tool,
+                            "reason": reason,
+                            "message": format!("Approval required for tool `{tool}`: {reason}"),
+                        }))
+                        .expect("serializable error event"),
+                )],
+                StatusCode::OK,
+            ),
+            crate::pre_execution::BlockingOutcome::TimeoutAborted => (
+                vec![Ok::<Event, std::convert::Infallible>(
+                    Event::default()
+                        .event("error")
+                        .json_data(serde_json::json!({
+                            "code": "timeout",
+                            "message": "Request timed out",
+                        }))
+                        .expect("serializable error event"),
+                )],
+                StatusCode::OK,
+            ),
+            crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                let message_id = Uuid::new_v4().to_string();
+                (
+                    vec![
+                        Ok::<Event, std::convert::Infallible>(
+                            Event::default()
+                                .event("chunk")
+                                .data(scrub_sensitive_boundary_text(response)),
+                        ),
+                        Ok::<Event, std::convert::Infallible>(
+                            Event::default()
+                                .event("done")
+                                .json_data(serde_json::json!({
+                                    "message_id": message_id,
+                                    "session_id": sid,
+                                    "tools_called": [],
+                                }))
+                                .expect("serializable done event"),
+                        ),
+                    ],
+                    StatusCode::OK,
+                )
+            }
+        },
+    };
+
+    let mut response = Sse::new(futures::stream::iter(events))
+        .keep_alive(KeepAlive::default())
+        .into_response();
+    *response.status_mut() = status;
+    Some(response)
+}
+
 fn webhook_http_source(
     session_source: webhook_dispatch::WebhookSessionSource,
 ) -> crate::session_commands::CommandSessionSource {
@@ -2064,7 +2313,6 @@ async fn handle_webhook(
     let server_execution_mode = config.agent.execution_mode;
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
     let token_hash = utils::extract_bearer_token(&headers).map(|t| compute_token_hash(&t));
-    let http_source = webhook_http_source(session_source);
 
     let reserved_idempotency_key = match reserve_webhook_idempotency_key(&state, &headers) {
         Ok(key) => key,
@@ -2072,53 +2320,35 @@ async fn handle_webhook(
     };
 
     if is_preview && !dispatcher_enabled {
-        if let Some((response, persist_idempotency)) = maybe_handle_http_ingress(
+        if let Some(response) = maybe_execute_legacy_http_ingress(
             &state,
             &session_id,
-            http_source,
+            session_source,
             &scrubbed_message,
             token_hash.as_deref(),
+            reserved_idempotency_key.as_deref(),
         )
         .await
         {
-            release_idempotency_key(
-                &state,
-                reserved_idempotency_key.as_deref(),
-                persist_idempotency,
-            );
             return response;
         }
     }
 
-    // Track session lifecycle: create or touch session record.
-    // When a bearer token is present, session tracking is required for
-    // token-scoped ownership — fail the request if upsert fails.
-    // Without a token, tracking is best-effort/observational.
-    if let Err(e) = state
-        .mem
-        .upsert_session(&session_id, token_hash.as_deref())
-        .await
+    if let Some(response) = ensure_webhook_session(
+        &state,
+        &session_id,
+        token_hash.as_deref(),
+        reserved_idempotency_key.as_deref(),
+    )
+    .await
     {
-        if token_hash.is_some() {
-            tracing::error!("session upsert failed for token-scoped request: {e:#}");
-            release_idempotency_key(&state, reserved_idempotency_key.as_deref(), false);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "Session tracking failed"})),
-            );
-        }
-        tracing::debug!("session upsert best-effort failed: {e}");
+        return response;
     }
 
     if dispatcher_enabled {
-        log_webhook_runtime_path(&session_id, true, "dispatcher_flag_enabled");
-        let dispatch_result = webhook_dispatch::execute(
+        return execute_dispatcher_webhook(
+            &state,
             &config,
-            Arc::clone(&state.provider),
-            Arc::clone(&state.mem),
-            Arc::clone(&state.observer),
-            state.cost_tracker.clone(),
-            &state.model,
             webhook_dispatch::WebhookTurnRequest {
                 session_id: session_id.clone(),
                 session_source,
@@ -2130,54 +2360,23 @@ async fn handle_webhook(
                 ),
                 include_sse_frames: is_preview,
             },
-        )
-        .await;
-        log_webhook_terminal_outcome(
-            &session_id,
-            "dispatcher_agent",
-            webhook_outcome_label(&dispatch_result.outcome),
-        );
-        let (response, persist_idempotency) =
-            webhook_response_from_dispatch_result(dispatch_result);
-        release_idempotency_key(
-            &state,
             reserved_idempotency_key.as_deref(),
-            persist_idempotency,
-        );
-        update_session_activity_if_persisted(
-            &state,
-            &session_id,
-            token_hash.as_deref(),
-            persist_idempotency,
         )
         .await;
-        return response;
     }
 
     // Intercept shared handled-ingress commands before plan/cost guards so they can
     // short-circuit without being blocked by execution-mode or cost checks.
-    let http_source = webhook_http_source(session_source);
-    if let Some((response, persist_idempotency)) = maybe_handle_http_ingress(
+    if let Some(response) = maybe_execute_legacy_http_ingress(
         &state,
         &session_id,
-        http_source,
+        session_source,
         &scrubbed_message,
         token_hash.as_deref(),
+        reserved_idempotency_key.as_deref(),
     )
     .await
     {
-        release_idempotency_key(
-            &state,
-            reserved_idempotency_key.as_deref(),
-            persist_idempotency,
-        );
-        update_session_activity_if_persisted(
-            &state,
-            &session_id,
-            token_hash.as_deref(),
-            persist_idempotency,
-        )
-        .await;
         return response;
     }
 
@@ -2266,41 +2465,12 @@ async fn handle_chat_stream(
         return Err(rejection);
     }
 
-    let webhook_body = parse_webhook_body(body)?;
+    let (webhook_body, session_id, session_source, token_hash, config, tool_snapshot) =
+        prepare_stream_request(&state, &headers, body).await?;
     let message = &webhook_body.message;
     let scrubbed_message = scrub_sensitive_boundary_text(message);
-    let (session_id, session_source) = resolve_session_id(&headers)?;
-
-    // Track session lifecycle: create or touch session record.
-    // When a bearer token is present, session tracking is required for
-    // token-scoped ownership — fail the request if upsert fails.
-    // Without a token, tracking is best-effort/observational.
-    let token_hash = utils::extract_bearer_token(&headers).map(|t| compute_token_hash(&t));
-    if let Err(e) = state
-        .mem
-        .upsert_session(&session_id, token_hash.as_deref())
-        .await
-    {
-        if token_hash.is_some() {
-            tracing::error!("session upsert failed for token-scoped request: {e:#}");
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "Session tracking failed"})),
-            ));
-        }
-        tracing::debug!("session upsert best-effort failed: {e}");
-    }
-
-    let config = state.config.lock().clone();
     let server_execution_mode = config.agent.execution_mode;
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
-    let tool_snapshot =
-        crate::bootstrap::slash_tool_snapshot_from_config(&config).map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "Failed to derive effective tool snapshot"})),
-            )
-        })?;
 
     // ── Process message via existing dispatch ────────────
     enum StreamProcessingOutcome {
@@ -2332,111 +2502,14 @@ async fn handle_chat_stream(
         .await,
     );
 
-    if let crate::pre_execution::HandledIngress::Handled(handled) = &handled_ingress {
-        // Update session activity before returning early
-        if let Err(e) = state
-            .mem
-            .update_session_activity(&session_id, token_hash.as_deref())
-            .await
-        {
-            tracing::debug!("session activity update best-effort failed: {e}");
-        }
-
-        let sid = session_id.clone();
-        let (events, status) =
-            match handled {
-                crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success) => {
-                    let message_id = Uuid::new_v4().to_string();
-                    (
-                        vec![
-                            Ok::<Event, std::convert::Infallible>(
-                                Event::default()
-                                    .event("chunk")
-                                    .data(success.message.clone()),
-                            ),
-                            Ok::<Event, std::convert::Infallible>(
-                                Event::default()
-                                    .event("done")
-                                    .json_data(serde_json::json!({
-                                        "message_id": message_id,
-                                        "session_id": sid,
-                                        "tools_called": [],
-                                    }))
-                                    .expect("serializable done event"),
-                            ),
-                        ],
-                        StatusCode::OK,
-                    )
-                }
-                crate::pre_execution::HandledIngressOutcome::SessionCommandFailure {
-                    class: _,
-                    failure,
-                } => (
-                    vec![Ok::<Event, std::convert::Infallible>(
-                        Event::default()
-                            .event("error")
-                            .json_data(serde_json::json!({
-                                "code": map_session_command_failure_code(&failure.kind),
-                                "message": failure.message,
-                            }))
-                            .expect("serializable error event"),
-                    )],
-                    StatusCode::OK,
-                ),
-                crate::pre_execution::HandledIngressOutcome::Blocking(blocking) => match blocking {
-                    crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, reason } => (
-                        vec![Ok::<Event, std::convert::Infallible>(Event::default()
-                            .event("error")
-                            .json_data(serde_json::json!({
-                                "code": "approval_required",
-                                "tool": tool,
-                                "reason": reason,
-                                "message": format!("Approval required for tool `{tool}`: {reason}"),
-                            }))
-                            .expect("serializable error event"))],
-                        StatusCode::OK,
-                    ),
-                    crate::pre_execution::BlockingOutcome::TimeoutAborted => (
-                        vec![Ok::<Event, std::convert::Infallible>(
-                            Event::default()
-                                .event("error")
-                                .json_data(serde_json::json!({
-                                    "code": "timeout",
-                                    "message": "Request timed out",
-                                }))
-                                .expect("serializable error event"),
-                        )],
-                        StatusCode::OK,
-                    ),
-                    crate::pre_execution::BlockingOutcome::Fallback { response } => {
-                        let message_id = Uuid::new_v4().to_string();
-                        (
-                            vec![
-                                Ok::<Event, std::convert::Infallible>(
-                                    Event::default()
-                                        .event("chunk")
-                                        .data(scrub_sensitive_boundary_text(response)),
-                                ),
-                                Ok::<Event, std::convert::Infallible>(
-                                    Event::default()
-                                        .event("done")
-                                        .json_data(serde_json::json!({
-                                            "message_id": message_id,
-                                            "session_id": sid,
-                                            "tools_called": [],
-                                        }))
-                                        .expect("serializable done event"),
-                                ),
-                            ],
-                            StatusCode::OK,
-                        )
-                    }
-                },
-            };
-        let mut response = Sse::new(futures::stream::iter(events))
-            .keep_alive(KeepAlive::default())
-            .into_response();
-        *response.status_mut() = status;
+    if let Some(response) = maybe_stream_handled_ingress_response(
+        &state,
+        &handled_ingress,
+        &session_id,
+        token_hash.as_deref(),
+    )
+    .await
+    {
         return Ok(response);
     }
 
