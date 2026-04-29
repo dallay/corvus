@@ -56,6 +56,18 @@ function runReleaseComponentResolver(manualChangedFiles, extraEnv = {}, options 
   return JSON.parse(output);
 }
 
+function runInternalReleaseSync(args = [], options = {}) {
+  return execFileSync("node", ["scripts/sync-internal-release-deps.mjs", ...args], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      ...options.env,
+    },
+  });
+}
+
 function trustedExecutableDirs() {
   return [
     process.env.HOME && path.join(process.env.HOME, ".cargo", "bin"),
@@ -132,6 +144,119 @@ test("release component graph config defines the canonical managed component set
   assert.equal(graph.components["gradle-kmp"]?.publishPolicy, "validate-only");
   assert.deepEqual(graph.components["corvus-runtime"]?.dependsOnReleaseOf, ["cerebro"]);
   assert.ok(graph.nonReleasePaths.includes("clients/web/"));
+});
+
+test("release component graph defines internal release dependency sync edges", () => {
+  const graph = readJson("config/release-components.json");
+  const edges = graph.internalReleaseDependencies ?? [];
+
+  assert.deepEqual(edges, [
+    {
+      dependentComponent: "corvus-runtime",
+      upstreamComponent: "cerebro",
+      manifestPath: "clients/agent-runtime/Cargo.toml",
+      dependencyName: "cerebro",
+      dependencyPath: "../../clients/cerebro",
+      versionSelector: "dependencies.cerebro.version",
+      mode: "must-match-release-version",
+      notes: "corvus-runtime ships a versioned path dependency on cerebro",
+    },
+  ]);
+});
+
+test("internal release dependency sync check passes when manifests are aligned", () => {
+  const output = runInternalReleaseSync(["--check"]);
+
+  assert.match(output, /All internal release dependencies are aligned/);
+  assert.match(output, /corvus-runtime -> cerebro/);
+});
+
+test("internal release dependency sync supports write mode flag", () => {
+  const help = runInternalReleaseSync(["--help"]);
+
+  assert.match(help, /--check/);
+  assert.match(help, /--write/);
+});
+
+test("internal release dependency sync write mode is idempotent on aligned manifests", () => {
+  const output = runInternalReleaseSync(["--write"]);
+
+  assert.match(output, /No internal release dependency updates were required/);
+});
+
+test("release component graph loader exposes internal release dependency metadata", async () => {
+  const { loadReleaseComponents } = await import(`../scripts/release-components.mjs?sync=${Date.now()}`);
+  const graph = loadReleaseComponents();
+
+  assert.equal(graph.internalReleaseDependencies.length, 1);
+  assert.equal(graph.internalReleaseDependencies[0].dependencyName, "cerebro");
+  assert.equal(graph.internalReleaseDependencies[0].dependencyPath, "../../clients/cerebro");
+});
+
+test("pull-request checks validate internal release dependency sync before Cargo lockfiles", () => {
+  const workflow = readText(".github/workflows/pull-request-check.yml");
+
+  assertContainsInOrder(
+    workflow,
+    [
+      "- name: 🔍 Check internal release dependency sync",
+      "node scripts/sync-internal-release-deps.mjs --check",
+      "- name: 🦀 Check Rust lockfiles are up to date",
+    ],
+    "pull-request-check.yml",
+  );
+});
+
+test("stable release workflow normalizes internal dependency sync after release-please", () => {
+  const workflow = readText(".github/workflows/release-please.yml");
+
+  assertContainsInOrder(
+    workflow,
+    [
+      "- name: 🤖 Run release-please",
+      "- name: 🔁 Sync internal release dependencies",
+      "node scripts/sync-internal-release-deps.mjs --write",
+    ],
+    "release-please.yml",
+  );
+});
+
+test("beta release workflow normalizes internal dependency sync after release-please", () => {
+  const workflow = readText(".github/workflows/release-please-beta.yml");
+
+  assertContainsInOrder(
+    workflow,
+    [
+      "- name: 🤖 Run release-please",
+      "- name: 🔁 Sync internal release dependencies",
+      "node scripts/sync-internal-release-deps.mjs --write",
+    ],
+    "release-please-beta.yml",
+  );
+});
+
+test("sync-cargo-lockfiles runs internal dependency sync before lockfile regeneration", () => {
+  const workflow = readText(".github/workflows/sync-cargo-lockfiles.yml");
+
+  assertContainsInOrder(
+    workflow,
+    [
+      "- name: 🔁 Sync internal release dependencies",
+      "node scripts/sync-internal-release-deps.mjs --write",
+      "- name: 🔄 Regenerate Cargo.lock files",
+    ],
+    "sync-cargo-lockfiles.yml",
+  );
+});
+
+test("release runbooks describe internal dependency sync diagnostics", () => {
+  const english = readText("clients/web/apps/docs/src/content/docs/guides/release.md");
+  const spanish = readText("clients/web/apps/docs/src/content/docs/es/guides/release.md");
+
+  assert.match(english, /sync-internal-release-deps\.mjs/);
+  assert.match(english, /internal release dependency/i);
+  assert.match(spanish, /sync-internal-release-deps\.mjs/);
+  assert.match(spanish, /dependenc/i);
 });
 
 test("release component graph stays aligned with release-please managed packages", async () => {

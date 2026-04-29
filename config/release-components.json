@@ -69,6 +69,18 @@
       "dependsOnReleaseOf": []
     }
   },
+  "internalReleaseDependencies": [
+    {
+      "dependentComponent": "corvus-runtime",
+      "upstreamComponent": "cerebro",
+      "manifestPath": "clients/agent-runtime/Cargo.toml",
+      "dependencyName": "cerebro",
+      "dependencyPath": "../../clients/cerebro",
+      "versionSelector": "dependencies.cerebro.version",
+      "mode": "must-match-release-version",
+      "notes": "corvus-runtime ships a versioned path dependency on cerebro"
+    }
+  ],
   "sharedInfraPaths": {
     ".github/workflows/release-please.yml": [
       "rook",

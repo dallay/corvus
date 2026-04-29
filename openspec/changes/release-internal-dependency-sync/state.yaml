@@ -1,0 +1,25 @@
+change: release-internal-dependency-sync
+artifact_store: openspec
+project: corvus
+status: planned
+phases:
+  explore:
+    status: completed
+  propose:
+    status: completed
+  spec:
+    status: completed
+  design:
+    status: completed
+  tasks:
+    status: completed
+  apply:
+    status: pending
+  verify:
+    status: pending
+artifacts:
+  proposal: proposal.md
+  design: design.md
+  tasks: tasks.md
+notes:
+  source_topic: prevent release PR failures from internal dependency version drift

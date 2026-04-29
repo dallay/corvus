@@ -42,6 +42,7 @@ Before you publish, confirm:
 - `scripts/release-components.mjs` loads and validates that graph before workflows consume it.
 - `scripts/resolve-release-components.mjs` resolves changed-file scope for `release-please.yml` and `release-please-beta.yml`.
 - `scripts/resolve-release-from-tag.mjs` resolves stable publish scope from the release tag and optional `affected_components:` override in the release body.
+- `scripts/sync-internal-release-deps.mjs` validates and normalizes versioned internal release dependencies before lockfile regeneration and heavy Rust validation.
 
 ### What ships in a stable `vX.Y.Z` release
 
@@ -71,8 +72,9 @@ Stable publish automation validates and publishes only shipped artifacts:
 
 1. Merge release-ready work into `main`.
 2. `release-please.yml` opens or updates one repo-wide release PR.
-3. Review the release PR diff. Only shipped stable artifacts should be version-bumped.
-4. Merge the release PR.
+3. Release PR maintenance runs `node scripts/sync-internal-release-deps.mjs --write` so versioned internal path dependencies stay aligned before lockfile regeneration.
+4. Review the release PR diff. Only shipped stable artifacts and their declared internal release dependency pins should be version-bumped.
+5. Merge the release PR.
 5. release-please creates the canonical `vX.Y.Z` tag and canonical GitHub Release.
 6. `publish-release.yml` runs from `release.published` and passes explicit `release_tag` / `release_id` context into `_publish.yml`.
 7. `_publish.yml` validates shipped artifact versions, publishes artifacts, and attaches assets to the existing GitHub Release.
@@ -199,6 +201,12 @@ Use this procedure when the manifest, tags, or GitHub Releases drift:
 - Check the merged release PR for stale `release-please` labels.
 - If the merged release PR still has `autorelease: pending`, remove that label and rerun `release-please`.
 - Treat a stale `autorelease: pending` label as release state drift, not as proof of a GitHub App permission problem.
+
+### Internal release dependency drift
+
+- Run `node scripts/sync-internal-release-deps.mjs --check` to validate release-managed internal dependency pins.
+- If the check reports drift, run `node scripts/sync-internal-release-deps.mjs --write` and regenerate lockfiles.
+- Treat mismatches like `corvus-runtime -> cerebro` as release-contract failures, not as generic Cargo.lock failures.
 
 ### Stable publish failed
 

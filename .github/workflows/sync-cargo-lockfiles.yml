@@ -60,6 +60,11 @@ jobs:
         with:
           toolchain: ${{ steps.rust-channel.outputs.channel }}
 
+      - name: 🔁 Sync internal release dependencies
+        run: |
+          set -euo pipefail
+          node scripts/sync-internal-release-deps.mjs --write
+
       - name: 🔄 Regenerate Cargo.lock files
         run: |
           set -euo pipefail

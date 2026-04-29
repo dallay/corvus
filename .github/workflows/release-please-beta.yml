@@ -88,6 +88,11 @@ jobs:
           target-branch: beta
           fork: false
 
+      - name: 🔁 Sync internal release dependencies
+        run: |
+          set -euo pipefail
+          node scripts/sync-internal-release-deps.mjs --write
+
       - name: 🧾 Resolve GitHub Release id
         if: ${{ steps.release-please.outputs.releases_created == 'true' || steps.release-please.outputs.release_created == 'true' }}
         id: resolve-release-id
