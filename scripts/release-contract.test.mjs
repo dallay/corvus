@@ -308,6 +308,31 @@ test("internal release dependency sync scans release-managed manifests beyond de
   }
 });
 
+test("internal release dependency sync treats sibling client references as release-managed paths", () => {
+  const originalGraph = readText("config/release-components.json");
+  const originalRookManifest = readText("clients/rook/Cargo.toml");
+  const rogueDependency = `cerebro = { path = "../cerebro", version = "${releaseVersion}" }\n`;
+
+  const updatedGraph = originalGraph.replace(
+    '      "ownedPaths": [\n        "clients/rook/"\n      ],',
+    '      "ownedPaths": [\n        "clients/rook/"\n      ],\n      "versionSurfaces": [\n        "version.txt",\n        "clients/rook/Cargo.toml",\n        "clients/rook/npm/rook/package.json"\n      ],',
+  );
+  const updatedRookManifest = originalRookManifest.replace('[dependencies]\n', `[dependencies]\n${rogueDependency}`);
+
+  fs.writeFileSync("config/release-components.json", updatedGraph, "utf8");
+  fs.writeFileSync("clients/rook/Cargo.toml", updatedRookManifest, "utf8");
+
+  try {
+    const output = runInternalReleaseSyncFailure(["--check"]);
+    assert.match(output, /unmanaged-internal-release-edge:/);
+    assert.match(output, /clients\/rook\/Cargo\.toml/);
+    assert.match(output, /\.\.\/cerebro/);
+  } finally {
+    fs.writeFileSync("config/release-components.json", originalGraph, "utf8");
+    fs.writeFileSync("clients/rook/Cargo.toml", originalRookManifest, "utf8");
+  }
+});
+
 test("pull-request checks validate internal release dependency sync before Cargo lockfiles", () => {
   const workflow = readText(".github/workflows/pull-request-check.yml");
 
@@ -381,10 +406,16 @@ test("sync-cargo-lockfiles commit step stages all rewritten manifests and lockfi
     workflow,
     [
       "- name: 💾 Commit updated lockfiles",
-      "git add --all -- clients/**/*.Cargo.toml clients/**/*.Cargo.lock",
+      "git add --all -- clients/**/Cargo.toml clients/**/Cargo.lock",
     ],
     "sync-cargo-lockfiles.yml",
   );
+});
+
+test("archived verify report keeps blank line after each scenario heading", () => {
+  const verifyReport = readText("openspec/changes/archive/2026-04-29-release-internal-dependency-sync/verify-report.md");
+
+  assert.doesNotMatch(verifyReport, /^#### Scenario: .*\n- /m);
 });
 
 test("archived openspec state reflects completed apply and verify phases", () => {

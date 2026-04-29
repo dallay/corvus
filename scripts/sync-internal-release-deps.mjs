@@ -101,6 +101,10 @@ function collectInternalPathDependencies(manifestText) {
   const dependencyRegex = /^([A-Za-z0-9_-]+)\s*=\s*\{([^\n]*path\s*=\s*"([^\"]+)"[^\n]*)\}$/gm;
 
   for (const match of manifestText.matchAll(dependencyRegex)) {
+    if (!match[2].includes("version")) {
+      continue;
+    }
+
     dependencies.push({
       dependencyName: match[1],
       path: match[3],
@@ -117,7 +121,22 @@ let rewrites = 0;
 
 const edgeKey = (manifestPath, dependencyName) => `${manifestPath}::${dependencyName}`;
 const managedEdges = new Map(graph.internalReleaseDependencies.map((edge) => [edgeKey(edge.manifestPath, edge.dependencyName), edge]));
-const releaseManagedPathPrefixes = ["../../clients/", "../clients/", "clients/"];
+const componentEntries = Object.entries(graph.components);
+
+function resolveManifestRelativeClientTarget(manifestPath, dependencyPath) {
+  const manifestDirectory = path.posix.dirname(manifestPath);
+  return path.posix.normalize(path.posix.join(manifestDirectory, dependencyPath));
+}
+
+function findOwningComponentId(targetPath) {
+  for (const [componentId, component] of componentEntries) {
+    if (component.ownedPaths.some((ownedPath) => targetPath === ownedPath.slice(0, -1))) {
+      return componentId;
+    }
+  }
+
+  return null;
+}
 
 const manifestTexts = new Map();
 const releaseManagedManifestPaths = new Set([
@@ -132,9 +151,12 @@ for (const manifestPath of releaseManagedManifestPaths) {
 }
 
 for (const [manifestPath, manifestText] of manifestTexts.entries()) {
+  const manifestOwner = findOwningComponentId(manifestPath);
+
   for (const dependency of collectInternalPathDependencies(manifestText)) {
-    const isReleaseManagedPath = releaseManagedPathPrefixes.some((prefix) => dependency.path.startsWith(prefix));
-    if (!isReleaseManagedPath) {
+    const resolvedDependencyTarget = resolveManifestRelativeClientTarget(manifestPath, dependency.path);
+    const targetOwner = findOwningComponentId(resolvedDependencyTarget);
+    if (!targetOwner || targetOwner === manifestOwner) {
       continue;
     }
 
