@@ -39,6 +39,9 @@ const vitestArgs = [
   "--environment",
   "happy-dom",
   "--coverage",
+  "--coverage.reporter=lcov",
+  "--coverage.reporter=html",
+  "--coverage.reporter=text",
   ...specFiles,
 ];
 
