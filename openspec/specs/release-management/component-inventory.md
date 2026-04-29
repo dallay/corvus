@@ -2,43 +2,46 @@
 
 ## Purpose
 
-Provide the canonical inventory for release-decoupling work: releaseable component, shipped
-artifacts, current version sources, publish channels, and current workflow ownership as they exist
-in the repository today.
+Provide the canonical inventory for release-decoupling work: release-managed component, shipped artifacts, version sources, publish policy, release channels, and current workflow ownership as they exist in the repository today.
 
-## Component Matrix
+## Managed component matrix
 
-| Component | Shipped artifacts today | Version source(s) today | Publish channel(s) today | Current workflow / job owner |
-| --- | --- | --- | --- | --- |
-| `corvus-runtime` | `clients/agent-runtime` crate, `@dallay/corvus`, platform npm packages (`corvus-darwin-x64`, `corvus-darwin-arm64`, `corvus-linux-x64`, `corvus-linux-arm64`, `corvus-windows-x64`) | `version.txt`, `gradle.properties`, `gradle/build-logic/gradle.properties`, `clients/agent-runtime/Cargo.toml`, `clients/agent-runtime/npm/**/package.json`, dependency pin for `cerebro` in `clients/agent-runtime/Cargo.toml` | stable release, beta release | `release-please-config.json`, `release-please-beta-config.json`, `.github/workflows/_publish.yml`, `.github/workflows/publish-release.yml`, `.github/workflows/release-please-beta.yml` |
-| `rook` | `clients/rook` crate, `@dallay/rook`, platform npm packages (`rook-darwin-x64`, `rook-darwin-arm64`, `rook-linux-x64`, `rook-linux-arm64`, `rook-windows-x64`) | `version.txt`, `clients/rook/Cargo.toml`, `clients/rook/npm/**/package.json`, optional dependency pins in `clients/rook/npm/rook/package.json` | stable release, beta release | `release-please-config.json`, `release-please-beta-config.json`, `.github/workflows/_publish.yml`, `.github/workflows/publish-release.yml`, `.github/workflows/release-please-beta.yml` |
-| `cerebro` | `clients/cerebro` client crate, `cerebro` and `cerebro-serve` binaries, release assets attached through shared publish flow | `version.txt`, `clients/cerebro/Cargo.toml`, dependency pin in `clients/agent-runtime/Cargo.toml` | stable release, beta release | `release-please-config.json`, `release-please-beta-config.json`, `.github/workflows/_publish.yml`, `.github/workflows/publish-release.yml`, `.github/workflows/release-please-beta.yml` |
-| `gradle-kmp` | Gradle/Maven publications and build-logic publication | `version.txt`, `gradle.properties`, `gradle/build-logic/gradle.properties` | stable release, beta release, snapshot | `.github/workflows/_publish.yml`, `.github/workflows/publish-release.yml`, `.github/workflows/publish-snapshot.yml`, `release-please-config.json`, `release-please-beta-config.json` |
+| Component | Publish policy | Shipped artifacts today | Version source(s) today | Release channel(s) today | Current workflow / job owner | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| `corvus-runtime` | publishable | `clients/agent-runtime` crate, `@dallay/corvus`, platform npm packages (`corvus-darwin-x64`, `corvus-darwin-arm64`, `corvus-linux-x64`, `corvus-linux-arm64`, `corvus-windows-x64`) | `version.txt`, `gradle.properties`, `gradle/build-logic/gradle.properties`, `clients/agent-runtime/Cargo.toml`, `clients/agent-runtime/npm/**/package.json`, dependency pin for `cerebro` in `clients/agent-runtime/Cargo.toml` | stable, beta | `release-please-config.json`, `release-please-beta-config.json`, `.github/workflows/release-please.yml`, `.github/workflows/release-please-beta.yml`, `.github/workflows/_publish.yml`, `.github/workflows/publish-release.yml` | downstream release participant when graph rules require runtime to follow `cerebro` |
+| `rook` | publishable | `clients/rook` crate, `@dallay/rook`, platform npm packages (`rook-darwin-x64`, `rook-darwin-arm64`, `rook-linux-x64`, `rook-linux-arm64`, `rook-windows-x64`) | `version.txt`, `clients/rook/Cargo.toml`, `clients/rook/npm/**/package.json`, optional dependency pins in `clients/rook/npm/rook/package.json` | stable, beta | `release-please-config.json`, `release-please-beta-config.json`, `.github/workflows/release-please.yml`, `.github/workflows/release-please-beta.yml`, `.github/workflows/_publish.yml`, `.github/workflows/publish-release.yml` | independently releaseable when only rook-owned surfaces change |
+| `cerebro` | publishable | `clients/cerebro` crate, `cerebro` and `cerebro-serve` binaries, release assets attached through shared publish flow | `version.txt`, `clients/cerebro/Cargo.toml`, release binary naming/version metadata, any shared release notes metadata used by publish flow | stable, beta | `release-please-config.json`, `release-please-beta-config.json`, `.github/workflows/release-please.yml`, `.github/workflows/release-please-beta.yml`, `.github/workflows/_publish.yml`, `.github/workflows/publish-release.yml` | upstream dependency for at least `corvus-runtime` release planning |
+| `gradle-kmp` | validate-only | Gradle/KMP publication and version alignment surfaces, snapshot validation, Maven-oriented release checks | `gradle.properties`, `gradle/build-logic/gradle.properties`, `modules/agent-core-kmp/**`, Gradle publication/version wiring | snapshot validation, stable validation, beta validation | `.github/workflows/_publish.yml`, `.github/workflows/publish-snapshot.yml`, Gradle validation steps in release workflows | visible in release planning and validation, but not yet independent `release-please` manifest authority |
 
-## Shared release state today
+## Non-release surfaces intentionally excluded from semantic artifact release
 
-- Stable `release-please` currently models the monorepo as one package `.` in
-  `release-please-config.json`.
-- Beta `release-please` currently models the monorepo as one package `.` in
-  `release-please-beta-config.json`.
-- Stable release state is tracked in `.release-please-manifest.json` as a single `.` entry.
-- Beta release state is tracked in `.release-please-beta-manifest.json` as a single `.` entry.
-- The current repo-wide version root is `version.txt`, and the checked-in stable version is `3.6.2`.
+The following surfaces remain outside the release-managed component set unless they are explicitly promoted later:
 
-## Explicit non-releaseable or excluded surfaces today
+- `clients/web/**`
+- `clients/androidApp/**`
+- `clients/composeApp/**`
+- docs-only or marketing-only surfaces
+- root JavaScript workspace metadata that does not directly version published release artifacts
 
-| Surface | Status | Why it matters |
-| --- | --- | --- |
-| `clients/web/**` apps and packages | excluded from current repo-wide release fan-out | prevents web app churn from being treated as shipped release scope |
-| `clients/agent-runtime/npm/corvus-cli/package.json` | internal/private | must not be treated as a public npm release artifact |
-| `clients/rook/npm/rook-cli/package.json` | internal/private unless policy changes | must stay separate from the public rook npm distribution |
-| `clients/agent-runtime/npm/corvus-windows-arm64/package.json` | versioned in repo but excluded from current publish surface | unsupported npm platform artifact today |
+These surfaces may still have CI, deploy, or packaging concerns, but they do not currently mint semantic artifact release scope on their own.
 
-## Notes
+## Current dependency posture
 
-- This document is descriptive first: it records current repository reality before per-component
-  release state exists.
-- Keep component ids fixed as `corvus-runtime`, `rook`, `cerebro`, and `gradle-kmp` across all
-  release-management documentation.
-- Any future change to shipped artifacts, version sources, or publish ownership must update this
-  inventory before rollout automation depends on the new contract.
+### Known transitive release edge
+
+- `corvus-runtime` depends on release of `cerebro` when runtime-shipped versioned dependency state must remain aligned with a `cerebro` release.
+
+### Current no-edge expectation
+
+- `rook` does not currently require release participation merely because `cerebro` or `corvus-runtime` changed, unless a future shared versioned dependency relationship is declared.
+- `gradle-kmp` participates in validation posture and shared release infrastructure fan-out, but is not yet treated as an independent publish authority.
+
+## Inventory invariants
+
+The managed component inventory should remain sufficient to answer:
+
+- which components are part of semantic artifact release,
+- which components are publishable versus validate-only,
+- which version surfaces must stay aligned for each component,
+- which release channels each component supports,
+- and which known dependency relationships may expand release scope transitively.

@@ -36,11 +36,21 @@ Antes de publicar, confirma:
 
 ## Contrato de Release Estable
 
+### Graph canónico de release scope y resolvers
+
+- `config/release-components.json` es el graph canónico de componentes gestionados.
+- `scripts/release-components.mjs` carga y valida ese graph antes de que lo consuman los workflows.
+- `scripts/resolve-release-components.mjs` resuelve el scope por archivos cambiados para `release-please.yml` y `release-please-beta.yml`.
+- `scripts/resolve-release-from-tag.mjs` resuelve el scope del publish estable desde el tag del release y el override opcional `affected_components:` en el body del release.
+
 ### Qué sale en un release estable `vX.Y.Z`
 
 La automatización estable valida y publica solo artefactos enviados:
 
 - artefactos Gradle/KMP, incluida la publicación de build-logic
+- crate de Rust: `cerebro`
+- crate de Rust + paquete npm + imagen Docker: `corvus-runtime`
+- crate de Rust + paquete npm + imagen Docker: `rook`
 - crate `clients/agent-runtime`
 - assets de release de `clients/cerebro`
 - paquetes npm del runtime:
@@ -94,6 +104,11 @@ La automatización beta publica las mismas superficies de artefactos que el cana
 - La publicación beta de Docker usa la versión exacta del prerelease más el tag móvil `beta` y no debe sobrescribir alias estables como `latest`, `X` o `X.Y`.
 
 ## Flujo de Release Beta
+
+Solo `release-please` y `release-please-beta` son dueños de las notas canónicas del GitHub Release.
+`publish-release.yml` y `_publish.yml` nunca deben reemplazar, editar o reinterpretar las notas canónicas del GitHub Release.
+El workflow beta sigue respetando la misma superficie de artefactos: `cerebro`, `corvus-runtime` y `rook`.
+
 
 1. Crea o refresca la rama `beta` desde `minor` cuando un candidato prerelease esté listo para validación más amplia.
 2. Mergea fixes listos para salir en `beta`.

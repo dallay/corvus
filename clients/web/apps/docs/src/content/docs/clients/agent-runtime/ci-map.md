@@ -63,6 +63,7 @@ and maintenance, but should not block normal development.
 - This keeps `release-please` as the only canonical release-note authority while still letting asset publication run after the release exists.
 - `release-please-beta.yml` owns the beta release PR, canonical `vX.Y.Z-beta.N` tag, beta GitHub Release, and beta release notes.
 - `_publish.yml` publishes beta artifacts only when `release-please-beta.yml` calls it with `prerelease: true`.
+- Release workflows rely on shared release-scope resolvers from `scripts/resolve-release-components.mjs` and `scripts/resolve-release-from-tag.mjs`.
 - `Security Audit`: push to `main`, PRs to `main`, weekly schedule
 - `Workflow Sanity`: PR/push when `.github/workflows/**`, `.github/*.yml`, or `.github/*.yaml`
   change

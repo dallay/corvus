@@ -36,6 +36,13 @@ Before you publish, confirm:
 
 ## Stable Release Contract
 
+### Canonical release scope graph and resolvers
+
+- `config/release-components.json` is the canonical managed component graph.
+- `scripts/release-components.mjs` loads and validates that graph before workflows consume it.
+- `scripts/resolve-release-components.mjs` resolves changed-file scope for `release-please.yml` and `release-please-beta.yml`.
+- `scripts/resolve-release-from-tag.mjs` resolves stable publish scope from the release tag and optional `affected_components:` override in the release body.
+
 ### What ships in a stable `vX.Y.Z` release
 
 Stable publish automation validates and publishes only shipped artifacts:
