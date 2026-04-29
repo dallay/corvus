@@ -1,6 +1,6 @@
 use crate::providers::{ChatMessage, ChatResponse, ConversationMessage, ToolResultMessage};
 use crate::security::{source_kind_for_tool, ExecutionOrigin, SecurityPolicy, ToolPolicyDecision};
-use crate::tools::{Tool, ToolSpec};
+use crate::tools::{canonical_tool_name_for_alias, Tool, ToolSpec};
 use serde_json::Value;
 use std::fmt::Write;
 
@@ -10,7 +10,16 @@ const SAFE_TOOL_NAMES: &[&str] = &[
     "echo",
     "mock_price",
     "counter",
+    "Glob",
+    "Grep",
+    "WebFetch",
+    "TaskGet",
+    "TaskList",
 ];
+
+fn canonicalize_tool_name_for_policy(tool_name: &str) -> &str {
+    canonical_tool_name_for_alias(tool_name)
+}
 
 #[derive(Debug, Clone)]
 pub struct ParsedToolCall {
@@ -72,8 +81,10 @@ pub fn evaluate_tool_risk_with_policy_for_origin(
     policy: &SecurityPolicy,
     origin: ExecutionOrigin,
 ) -> DispatchAction {
+    let canonical_tool_name = canonicalize_tool_name_for_policy(tool_name);
+
     // Always consult the security policy first.
-    let outcome = policy.evaluate_tool_policy_outcome_for_origin(tool_name, origin);
+    let outcome = policy.evaluate_tool_policy_outcome_for_origin(canonical_tool_name, origin);
     if outcome.decision == ToolPolicyDecision::Deny {
         return DispatchAction::Blocked {
             code: outcome.code.unwrap_or("policy_denied").to_string(),
@@ -99,7 +110,9 @@ pub fn evaluate_tool_risk_with_policy_for_origin(
 }
 
 pub fn evaluate_tool_risk_for_origin(tool_name: &str, _origin: ExecutionOrigin) -> DispatchAction {
-    match source_kind_for_tool(tool_name) {
+    let canonical_tool_name = canonicalize_tool_name_for_policy(tool_name);
+
+    match source_kind_for_tool(canonical_tool_name) {
         crate::security::ToolSourceKind::Mcp
         | crate::security::ToolSourceKind::McpResource
         | crate::security::ToolSourceKind::McpPrompt => {
@@ -110,12 +123,12 @@ pub fn evaluate_tool_risk_for_origin(tool_name: &str, _origin: ExecutionOrigin) 
         crate::security::ToolSourceKind::Unknown | crate::security::ToolSourceKind::Native => {}
     }
 
-    match tool_name {
+    match canonical_tool_name {
         "shell" | "bash" | "execute_command" => {
             DispatchAction::ApprovalRequired(tool_name.to_string())
         }
         _ => {
-            if SAFE_TOOL_NAMES.contains(&tool_name) {
+            if SAFE_TOOL_NAMES.contains(&canonical_tool_name) {
                 DispatchAction::Execute
             } else {
                 DispatchAction::ApprovalRequired(tool_name.to_string())
@@ -214,10 +227,17 @@ impl ToolDispatcher for XmlToolDispatcher {
         instructions.push_str("### Available Tools\n\n");
 
         for tool in tools {
+            let spec = tool.spec();
+            let alias_suffix = if spec.aliases.is_empty() {
+                String::new()
+            } else {
+                format!(" (aliases: {})", spec.aliases.join(", "))
+            };
             let _ = writeln!(
                 instructions,
-                "- **{}**: {}\n  Parameters: `{}`",
+                "- **{}**{}: {}\n  Parameters: `{}`",
                 tool.name(),
+                alias_suffix,
                 tool.description(),
                 tool.parameters_schema()
             );
@@ -349,6 +369,55 @@ mod tests {
     }
 
     #[test]
+    fn xml_prompt_instructions_publish_aliases_deterministically() {
+        struct PromptAliasTool;
+
+        #[async_trait::async_trait]
+        impl Tool for PromptAliasTool {
+            fn name(&self) -> &str {
+                "Glob"
+            }
+
+            fn description(&self) -> &str {
+                "Search files by glob"
+            }
+
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({"type": "object"})
+            }
+
+            fn spec(&self) -> ToolSpec {
+                ToolSpec {
+                    name: self.name().to_string(),
+                    description: self.description().to_string(),
+                    parameters: self.parameters_schema(),
+                    source: None,
+                    aliases: vec!["glob".to_string()],
+                }
+            }
+
+            async fn execute(
+                &self,
+                _args: serde_json::Value,
+            ) -> anyhow::Result<crate::tools::ToolResult> {
+                Ok(crate::tools::ToolResult {
+                    success: true,
+                    output: String::new(),
+                    error: None,
+                    structured: None,
+                })
+            }
+        }
+
+        let dispatcher = XmlToolDispatcher;
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(PromptAliasTool)];
+        let instructions = dispatcher.prompt_instructions(&tools);
+
+        assert!(instructions.contains("- **Glob** (aliases: glob): Search files by glob"));
+        assert!(!instructions.contains("- **glob**:"));
+    }
+
+    #[test]
     fn native_dispatcher_roundtrip() {
         let response = ChatResponse {
             text: Some("ok".into()),
@@ -430,6 +499,17 @@ mod tests {
         assert_eq!(
             unknown_action,
             DispatchAction::ApprovalRequired("unknown_tool".into())
+        );
+
+        let alias_safe_action =
+            dispatcher.check_tool_risk("glob", &serde_json::json!({"pattern": "**/*.rs"}));
+        assert_eq!(alias_safe_action, DispatchAction::Execute);
+
+        let alias_act_action =
+            dispatcher.check_tool_risk("task_update", &serde_json::json!({"id": "x"}));
+        assert_eq!(
+            alias_act_action,
+            DispatchAction::ApprovalRequired("task_update".into())
         );
 
         let mcp_action = dispatcher.check_tool_risk("mcp.docs.search", &serde_json::json!({}));

@@ -448,6 +448,11 @@ mod tests {
             .structured
             .expect("expected structured validation error");
         assert_eq!(structured["error_code"], "remote_bridge_deferred");
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("local orchestration slice"));
     }
 
     #[tokio::test]
@@ -478,6 +483,59 @@ mod tests {
         let structured = result.structured.expect("structured payload");
         assert!(structured["handle"].is_string());
         assert!(structured["snapshot"].is_object());
+    }
+
+    #[tokio::test]
+    async fn mailbox_backed_launch_preserves_enforced_local_isolation_contract() {
+        let tmp = TempDir::new().unwrap();
+        let service = Arc::new(SupervisedOrchestrationService::new());
+        let mailbox = Arc::new(
+            SqliteMailboxStore::from_db_path(tmp.path().join("state/orchestration/mailbox.db"))
+                .unwrap(),
+        );
+        let runner: Arc<dyn CoordinatorChildRunner> = Arc::new(MailboxBackedChildRunner::new(
+            mailbox,
+            Arc::new(NoOpRunner),
+            Arc::new(MailboxWakeupHub::default()),
+        ));
+        let tool = DelegateLaunchTool::new(service, runner);
+
+        let result = tool
+            .execute(serde_json::json!({
+                "children": [
+                    {
+                        "child_id": "a",
+                        "agent_name": "AgentA",
+                        "prompt": "p",
+                        "execution": {
+                            "transport": "mailbox",
+                            "repository_id": "repo-1",
+                            "worktree_id": "wt-1",
+                            "read_only_project_access": true
+                        }
+                    }
+                ]
+            }))
+            .await
+            .unwrap();
+
+        assert!(result.success, "expected success, got: {:?}", result.error);
+        let structured = result.structured.expect("structured payload");
+        let execution = &structured["snapshot"]["children"][0]["execution"];
+        assert_eq!(execution["requested"]["repository_id"], "repo-1");
+        assert_eq!(execution["requested"]["worktree_id"], "wt-1");
+        assert_eq!(
+            execution["enforced"]["mailbox_backed_delivery"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            execution["enforced"]["repository_isolation_enforced"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            execution["enforced"]["worktree_isolation_enforced"],
+            serde_json::json!(true)
+        );
     }
 
     #[tokio::test]
@@ -543,6 +601,8 @@ mod tests {
                         "execution": {
                             "transport": "mailbox",
                             "sandbox_mode": "workspace_write",
+                            "repository_id": "repo-1",
+                            "worktree_id": "wt-1",
                             "tool_allowlist": ["read"],
                             "read_only_project_access": true,
                             "working_directory": "/tmp/project"
@@ -558,6 +618,8 @@ mod tests {
         let execution = &structured["snapshot"]["children"][0]["execution"];
         assert_eq!(execution["requested"]["transport"], "mailbox");
         assert_eq!(execution["requested"]["sandbox_mode"], "workspace_write");
+        assert_eq!(execution["requested"]["repository_id"], "repo-1");
+        assert_eq!(execution["requested"]["worktree_id"], "wt-1");
         assert_eq!(
             execution["requested"]["read_only_project_access"],
             serde_json::json!(true)
@@ -565,6 +627,14 @@ mod tests {
         assert_eq!(execution["enforced"]["transport"], "mailbox");
         assert_eq!(
             execution["enforced"]["process_local_handle_authority"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            execution["enforced"]["repository_isolation_enforced"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            execution["enforced"]["worktree_isolation_enforced"],
             serde_json::json!(true)
         );
         assert_eq!(

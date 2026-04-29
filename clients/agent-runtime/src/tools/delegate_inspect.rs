@@ -41,6 +41,27 @@ impl DelegateInspectTool {
             structured: None,
         }
     }
+
+    fn format_snapshot_output(handle: &str, snapshot: &serde_json::Value) -> String {
+        let summary_state = snapshot["summary_state"].as_str().unwrap_or("unknown");
+        let blocked_children = snapshot["children"]
+            .as_array()
+            .map(|children| {
+                children
+                    .iter()
+                    .filter(|child| child["blocking_details"].is_object())
+                    .count()
+            })
+            .unwrap_or(0);
+
+        if blocked_children > 0 {
+            format!(
+                "Snapshot for handle {handle}: summary={summary_state}; {blocked_children} child(ren) awaiting parent action or blocked"
+            )
+        } else {
+            format!("Snapshot for handle {handle}: summary={summary_state}")
+        }
+    }
 }
 
 #[async_trait]
@@ -85,20 +106,9 @@ impl Tool for DelegateInspectTool {
 
         match self.service.inspect(&handle) {
             Ok(Some(snapshot)) => {
-                let summary_state = format!("{:?}", snapshot.summary_state).to_ascii_lowercase();
-                let blocked_children = snapshot
-                    .children
-                    .iter()
-                    .filter(|child| child.blocking_details.is_some())
-                    .count();
                 let structured = serde_json::json!({ "snapshot": snapshot });
-                let output = if blocked_children > 0 {
-                    format!(
-                        "Snapshot for handle {handle_str}: summary={summary_state}; {blocked_children} child(ren) awaiting parent action or blocked"
-                    )
-                } else {
-                    format!("Snapshot for handle {handle_str}: summary={summary_state}")
-                };
+                let output =
+                    Self::format_snapshot_output(handle_str.as_str(), &structured["snapshot"]);
                 Ok(ToolResult {
                     success: true,
                     output,
@@ -128,9 +138,9 @@ impl Tool for DelegateInspectTool {
 mod tests {
     use super::*;
     use crate::agent::coordinator::{
-        ChildAgentId, ChildExecutionResult, ChildLaunchRequest, ChildTerminalStatus,
-        CoordinatorChildRunner, CoordinatorError, CoordinatorLaunchRequest, CoordinatorMessage,
-        CoordinatorTransport, EnvelopeMeta, FanInPolicy, MessageEnvelope,
+        ChildAgentId, ChildExecutionResult, ChildExecutionSpec, ChildLaunchRequest,
+        ChildTerminalStatus, CoordinatorChildRunner, CoordinatorError, CoordinatorLaunchRequest,
+        CoordinatorMessage, CoordinatorTransport, EnvelopeMeta, FanInPolicy, MessageEnvelope,
         SupervisedOrchestrationService,
     };
 
@@ -318,6 +328,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn inspect_surfaces_requested_vs_enforced_local_isolation_fields() {
+        let svc = Arc::new(SupervisedOrchestrationService::new());
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let runner = Arc::new(GatedRunner {
+            started: started.clone(),
+            release: release.clone(),
+        });
+
+        let request = CoordinatorLaunchRequest {
+            parent_session_id: None,
+            children: vec![ChildLaunchRequest {
+                child_id: ChildAgentId("c1".into()),
+                agent_name: "AgentA".into(),
+                prompt: "do it".into(),
+                context: None,
+                launch_index: 0,
+                execution: Some(ChildExecutionSpec {
+                    transport: Some(CoordinatorTransport::Mailbox),
+                    repository_id: Some("repo-1".into()),
+                    worktree_id: Some("wt-1".into()),
+                    read_only_project_access: true,
+                    ..ChildExecutionSpec::default()
+                }),
+            }],
+            fan_in: FanInPolicy::AllMustSucceed,
+        };
+
+        let receipt = svc.launch(request, runner).await.unwrap();
+        started.notified().await;
+
+        let result = tool(Arc::clone(&svc))
+            .execute(serde_json::json!({ "handle": receipt.handle.0.clone() }))
+            .await
+            .unwrap();
+
+        assert!(result.success, "expected success, got: {:?}", result.error);
+        let structured = result.structured.unwrap();
+        let child = &structured["snapshot"]["children"][0];
+        assert_eq!(child["execution"]["requested"]["repository_id"], "repo-1");
+        assert_eq!(child["execution"]["requested"]["worktree_id"], "wt-1");
+        assert_eq!(
+            child["execution"]["requested"]["read_only_project_access"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            child["execution"]["enforced"]["repository_isolation_enforced"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            child["execution"]["enforced"]["worktree_isolation_enforced"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            child["execution"]["enforced"]["remote_bridge_connected"],
+            serde_json::json!(false)
+        );
+
+        release.notify_waiters();
+    }
+
+    #[tokio::test]
     async fn inspect_reports_parent_action_blocking_details() {
         let svc = service();
         let started = Arc::new(tokio::sync::Notify::new());
@@ -392,7 +464,6 @@ mod tests {
     #[test]
     fn inspect_output_reports_blocked_when_parent_action_blocks_progress() {
         let snapshot = serde_json::json!({
-            "handle": "opaque-handle",
             "summary_state": "blocked",
             "children": [
                 {
@@ -406,28 +477,49 @@ mod tests {
             ]
         });
 
-        let summary_state = snapshot["summary_state"].as_str().unwrap();
-        let blocked_children = snapshot["children"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|child| child["blocking_details"].is_object())
-            .count();
-
-        let output = if blocked_children > 0 {
-            format!(
-                "Snapshot for handle {}: summary={summary_state}; {blocked_children} child(ren) awaiting parent action or blocked",
-                snapshot["handle"].as_str().unwrap()
-            )
-        } else {
-            format!(
-                "Snapshot for handle {}: summary={summary_state}",
-                snapshot["handle"].as_str().unwrap()
-            )
-        };
+        let output = DelegateInspectTool::format_snapshot_output("opaque-handle", &snapshot);
 
         assert!(output.contains("summary=blocked"));
         assert!(output.contains("awaiting parent action or blocked"));
+    }
+
+    #[test]
+    fn inspect_output_reports_non_blocked_summary_states_without_blocked_suffix() {
+        for summary_state in ["running", "cancelling", "succeeded", "failed", "cancelled"] {
+            let snapshot = serde_json::json!({
+                "summary_state": summary_state,
+                "children": []
+            });
+
+            let output = DelegateInspectTool::format_snapshot_output("opaque-handle", &snapshot);
+
+            assert!(output.contains(&format!("summary={summary_state}")));
+            assert!(!output.contains("awaiting parent action or blocked"));
+        }
+    }
+
+    #[test]
+    fn inspect_output_keeps_next_action_hints_descriptive_not_imperative() {
+        let snapshot = serde_json::json!({
+            "summary_state": "blocked",
+            "children": [
+                {
+                    "blocking_details": {
+                        "reason_code": "unsupported_escalation",
+                        "message": "Child is blocked because the requested escalation is unsupported",
+                        "parent_action_required": true,
+                        "next_action_hint": "Parent must relaunch with supported constraints or cancel the child"
+                    }
+                }
+            ]
+        });
+
+        let output = DelegateInspectTool::format_snapshot_output("opaque-handle", &snapshot);
+
+        assert!(output.contains("summary=blocked"));
+        assert!(!output.contains("complete approval"));
+        assert!(!output.contains("remote bridge"));
+        assert!(!output.contains("restart recovery"));
     }
 
     #[tokio::test]
@@ -478,8 +570,8 @@ mod tests {
                 transport: CoordinatorTransport::Mailbox,
                 process_local_handle_authority: true,
                 mailbox_backed_delivery: true,
-                repository_isolation_enforced: false,
-                worktree_isolation_enforced: false,
+                repository_isolation_enforced: true,
+                worktree_isolation_enforced: true,
                 sandbox_clone_enforced: false,
                 remote_bridge_connected: false,
                 approval_broker_mode:
@@ -488,8 +580,8 @@ mod tests {
             requested: crate::agent::coordinator::NormalizedExecutionRequest {
                 transport: CoordinatorTransport::Mailbox,
                 sandbox_mode: Some("workspace_write".into()),
-                repository_id: None,
-                worktree_id: None,
+                repository_id: Some("repo-1".into()),
+                worktree_id: Some("wt-1".into()),
                 read_only_project_access: true,
                 tool_allowlist: vec![],
                 tool_denylist: vec![],
@@ -502,17 +594,27 @@ mod tests {
 
         let child = serde_json::json!({ "execution": view });
         assert_eq!(child["execution"]["requested"]["transport"], "mailbox");
+        assert_eq!(child["execution"]["requested"]["repository_id"], "repo-1");
+        assert_eq!(child["execution"]["requested"]["worktree_id"], "wt-1");
         assert_eq!(
-            child["execution"]["enforced"]["remote_bridge_connected"],
-            false
+            child["execution"]["requested"]["read_only_project_access"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            child["execution"]["enforced"]["process_local_handle_authority"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            child["execution"]["enforced"]["mailbox_backed_delivery"],
+            serde_json::json!(true)
         );
         assert_eq!(
             child["execution"]["enforced"]["repository_isolation_enforced"],
-            false
+            serde_json::json!(true)
         );
         assert_eq!(
             child["execution"]["enforced"]["worktree_isolation_enforced"],
-            false
+            serde_json::json!(true)
         );
     }
 

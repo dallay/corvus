@@ -287,9 +287,10 @@ lint-all: lint-kotlin lint-rust lint-android ## Run all linters
 
 sonar: check-tools rust-coverage-validate ## Run local SonarQube analysis (coverage + scan)
 	@echo "🔍 $(BOLD)Running local SonarQube analysis...$(SGR0)"
+	@echo "   Mirrors the hosted Sonar workflow inputs for Kotlin, dashboard web, and Rust coverage."
+	@pnpm --dir clients/web install --frozen-lockfile
 	@bash ./scripts/sonar.sh --validate-only
 	@$(GRADLEW) test jvmTest :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
-	@pnpm --dir clients/web install --frozen-lockfile
 	@pnpm --dir clients/web/apps/dashboard test:coverage
 	@$(MAKE) rust-coverage
 	@bash ./scripts/sonar.sh

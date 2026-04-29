@@ -120,7 +120,10 @@ impl Tool for TaskCreateTool {
             description: self.description().to_string(),
             parameters: self.parameters_schema(),
             source: None,
-            aliases: vec!["task_create".to_string()],
+            aliases: super::parity_alias_for(self.name())
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
         }
     }
 
