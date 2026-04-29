@@ -23,6 +23,12 @@ Inicializa tu espacio de trabajo y configuración.
 - `--provider <NAME>`: Nombre del proveedor (por defecto: openrouter).
 - `--memory <TYPE>`: Backend de memoria (sqlite, lucid, markdown, none).
 
+Al usar `--interactive`, el asistente ahora termina con un paso opcional para el dashboard:
+
+- Pregunta: `Activate web dashboard now? (optional)`
+- Ruta de aceptación: imprime una guía de activación compacta, intenta abrir el navegador opcionalmente (no fatal) y reporta una salida de estado `DASH-*` determinista con comandos de respaldo.
+- Ruta de rechazo: preserva la finalización solo por CLI e imprime un bloque de comandos para reanudar más tarde.
+
 **Ejemplo:**
 
 ```bash
@@ -117,11 +123,6 @@ Incluye una sección `Web dashboard (resume anytime)` con comandos seguros para 
 
 ```bash
 corvus status
-corvus doctor
-corvus gateway
-# desde la raíz del repositorio Corvus (source checkout):
-make dev-up
-./dev/cli.sh up-dashboard
 ```
 
 ### Códigos de diagnóstico de activación del dashboard

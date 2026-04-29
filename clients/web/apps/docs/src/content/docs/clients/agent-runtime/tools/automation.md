@@ -30,6 +30,54 @@ Delegates a subtask to a specialized agent.
 
 ---
 
+## `delegate_launch`
+
+Launch a supervised multi-child orchestration run.
+
+- **Security Tier:** Action-Bearing (Risk-bearing).
+- **Scope:** Process-local only.
+- **Returns:** An opaque `handle` and an initial `snapshot`.
+
+### Parameters
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `children` | `array` | **Required.** List of child agent launch descriptors. |
+
+Each child descriptor requires `child_id`, `agent_name`, and `prompt`. Optional `execution` metadata can override sandbox modes, models, and transport.
+
+---
+
+## `delegate_inspect`
+
+Return a point-in-time snapshot of an active orchestration run.
+
+- **Security Tier:** Read-Only (Safe).
+- **Contract:** Requires the `handle` returned by `delegate_launch`.
+
+### Parameters
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `handle` | `string` | **Required.** The opaque handle from `delegate_launch`. |
+
+---
+
+## `delegate_cancel`
+
+Cancel an active supervised orchestration run.
+
+- **Security Tier:** Action-Bearing (Risk-bearing).
+- **Contract:** Requires the `handle` returned by `delegate_launch`.
+
+### Parameters
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `handle` | `string` | **Required.** The opaque handle from `delegate_launch`. |
+
+---
+
 ## `composio`
 
 Executes actions on 1000+ managed apps via the Composio platform.
@@ -88,8 +136,8 @@ Tools for managing autonomous, time-based execution. Corvus provides both a set 
 | `cron_list` | List all configured cron jobs. |
 | `cron_remove` | Delete a cron job by ID. |
 | `cron_run` | Force-run a job immediately. |
-| `cron_runs` | View recent run history for a job. |
-| `cron_update` | Patch an existing job's schedule or configuration. |
+| `cron_runs` | View recent run history for a job (requires `job_id`). |
+| `cron_update` | Patch an existing job's schedule or configuration (requires `job_id` and `patch`). |
 | `schedule` | Unified tool for `create`, `list`, `get`, `cancel`, `pause`, and `resume`. |
 
 ---

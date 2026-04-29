@@ -30,6 +30,54 @@ Delega una subtarea a un agente especializado.
 
 ---
 
+## `delegate_launch`
+
+Inicia una ejecución de orquestación supervisada de múltiples hijos.
+
+- **Nivel de Seguridad:** De Acción (Con riesgo).
+- **Alcance:** Solo a nivel de proceso (local).
+- **Retorno:** Un `handle` opaco y un `snapshot` inicial.
+
+### Parámetros
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `children` | `array` | **Requerido.** Lista de descriptores de lanzamiento de agentes hijos. |
+
+Cada descriptor de hijo requiere `child_id`, `agent_name` y `prompt`. Los metadatos opcionales de `execution` pueden anular modos de sandbox, modelos y transporte.
+
+---
+
+## `delegate_inspect`
+
+Devuelve una instantánea (snapshot) de una ejecución de orquestación activa.
+
+- **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Contrato:** Requiere el `handle` devuelto por `delegate_launch`.
+
+### Parámetros
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `handle` | `string` | **Requerido.** El handle opaco de `delegate_launch`. |
+
+---
+
+## `delegate_cancel`
+
+Cancela una ejecución de orquestación supervisada activa.
+
+- **Nivel de Seguridad:** De Acción (Con riesgo).
+- **Contrato:** Requiere el `handle` devuelto por `delegate_launch`.
+
+### Parámetros
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `handle` | `string` | **Requerido.** El handle opaco de `delegate_launch`. |
+
+---
+
 ## `composio`
 
 Ejecuta acciones en más de 1000 aplicaciones gestionadas a través de la plataforma Composio.
@@ -88,8 +136,8 @@ Herramientas para gestionar la ejecución autónoma basada en el tiempo. Corvus 
 | `cron_list` | Lista todos los trabajos cron configurados. |
 | `cron_remove` | Elimina un trabajo cron por ID. |
 | `cron_run` | Fuerza la ejecución inmediata de un trabajo. |
-| `cron_runs` | Ver el historial de ejecuciones recientes de un trabajo. |
-| `cron_update` | Parchea la programación o configuración de un trabajo existente. |
+| `cron_runs` | Muestra el historial de ejecuciones recientes de una tarea (requiere `job_id`). |
+| `cron_update` | Parchea la programación o configuración de una tarea existente (requiere `job_id` y `patch`). |
 | `schedule` | Herramienta unificada para `create`, `list`, `get`, `cancel`, `pause` y `resume`. |
 
 ---
