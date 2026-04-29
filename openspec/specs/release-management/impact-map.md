@@ -4,6 +4,8 @@
 
 Define which repository paths belong to each release-managed component, which shared release paths fan out to multiple components, and which surfaces remain intentionally outside semantic artifact release.
 
+This impact map serves as the canonical path-to-component ownership contract for the release-component graph. It enables deterministic resolution of `affected_components` from changed file paths during stable and beta release planning.
+
 ## Release-owned paths
 
 | Path prefix / file | Directly affected component | Notes |
@@ -34,13 +36,13 @@ These paths are not owned by a single release-managed component. Instead, they S
 
 ## Transitive dependency expansion
 
-After direct ownership and shared-infrastructure matching, the resolver SHOULD expand release scope through declared dependency edges.
+After direct ownership and shared-infrastructure matching, the resolver MUST expand release scope through declared dependency edges.
 
 | Upstream component | Downstream component | Why |
 | --- | --- | --- |
 | `cerebro` | `corvus-runtime` | runtime-shipped dependency/version surfaces must stay aligned with cerebro release state |
 
-This table records release fan-out caused by dependency relationships, not direct path ownership.
+This table records release fan-out caused by dependency relationships, not direct path ownership. The graph resolver uses these edges to compute transitive inclusion after direct component scope is determined. When an upstream component is directly affected by a change, all downstream components that depend on its release must join the affected set to preserve version consistency across published dependency boundaries.
 
 ## Non-release paths
 
@@ -57,9 +59,11 @@ The following paths are intentionally treated as outside the current semantic ar
 
 ## Impact-map invariants
 
-The impact map should remain sufficient to answer:
+The impact map MUST remain sufficient to answer:
 
 - which changed paths directly affect a managed component,
 - which paths fan out to multiple components through shared release infrastructure,
 - which components join release scope transitively because of dependency edges,
 - and which repository paths are intentionally excluded from semantic artifact release.
+
+The graph resolver consumes this impact map as the authoritative source for path classification and component ownership during release scope resolution. Any release-relevant path not classified by this map MUST cause resolution to fail closed, preventing silent omission of required release participants.

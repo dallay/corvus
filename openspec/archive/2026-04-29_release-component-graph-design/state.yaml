@@ -1,0 +1,66 @@
+change: release-component-graph-design
+artifact_store: openspec
+project: corvus
+status: verify_complete
+phases:
+  explore:
+    status: completed
+  propose:
+    status: completed
+  spec:
+    status: completed
+  design:
+    status: completed
+  tasks:
+    status: completed
+  apply:
+    status: completed
+    started: 2026-04-29T17:05:44Z
+    completed: 2026-04-29T17:07:50Z
+  verify:
+    status: completed
+    started: 2026-04-29T17:12:11Z
+    completed: 2026-04-29T17:12:55Z
+    result: PASS
+artifacts:
+  proposal: proposal.md
+  spec: spec.md
+  design: design.md
+  tasks: tasks.md
+  apply_summary: apply-summary.md
+  verify_report: verify-report.md
+  verify_result: verify-result.json
+implementation:
+  phase_1_completed:
+    - Updated openspec/specs/release-management/spec.md with graph-backed component scope resolution
+    - Updated openspec/specs/release-management/component-versioning.md with graph resolution algorithm
+    - Updated openspec/specs/release-management/component-inventory.md with graph authority statement
+    - Updated openspec/specs/release-management/impact-map.md with graph-driven path classification
+    - Updated openspec/specs/release-management/pipeline-gating.md with MUST-level gating requirements
+    - Updated openspec/specs/release-management/migration-plan.md with phased rollout clarity
+  phase_2_completed:
+    - Created openspec/changes/release-component-graph-design/spec.md with complete requirements
+    - Updated openspec/changes/release-component-graph-design/state.yaml with progress tracking
+    - Created openspec/changes/release-component-graph-design/apply-summary.md
+  phase_3_pending:
+    - Identify executable graph file location and format
+    - Define first implementation slice for graph-backed resolver
+    - Define publish-validation follow-up work
+    - Confirm multi-component handoff contract
+  phase_4_completed:
+    - Verified terminology consistency across all artifacts
+    - Verified RFC 2119 compliance (MUST/SHOULD/MAY usage)
+    - Confirmed rollback posture documentation
+verification:
+  status: PASS
+  date: 2026-04-29T17:12:55Z
+  requirements_verified: 8
+  scenarios_verified: 30
+  tasks_complete: 10
+  tasks_total: 10
+  completion_rate: 100%
+  critical_issues: 0
+  warnings: 0
+  observations: 3
+next_phase: archive
+updated: 2026-04-29T17:12:55Z

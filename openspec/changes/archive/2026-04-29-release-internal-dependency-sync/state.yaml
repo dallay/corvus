@@ -1,7 +1,7 @@
-change: release-component-graph-design
+change: release-internal-dependency-sync
 artifact_store: openspec
 project: corvus
-status: planned
+status: completed
 phases:
   explore:
     status: completed
@@ -14,12 +14,12 @@ phases:
   tasks:
     status: completed
   apply:
-    status: pending
+    status: completed
   verify:
-    status: pending
+    status: completed
 artifacts:
   proposal: proposal.md
   design: design.md
   tasks: tasks.md
 notes:
-  source_topic: component-aware release graph for versioned artifacts
+  source_topic: prevent release PR failures from internal dependency version drift

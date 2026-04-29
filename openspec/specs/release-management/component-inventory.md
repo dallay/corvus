@@ -4,6 +4,8 @@
 
 Provide the canonical inventory for release-decoupling work: release-managed component, shipped artifacts, version sources, publish policy, release channels, and current workflow ownership as they exist in the repository today.
 
+This inventory serves as the authoritative record of which components participate in the release-component graph, their publish policies, dependency relationships, and version surface expectations.
+
 ## Managed component matrix
 
 | Component | Publish policy | Shipped artifacts today | Version source(s) today | Release channel(s) today | Current workflow / job owner | Notes |
@@ -30,6 +32,8 @@ These surfaces may still have CI, deploy, or packaging concerns, but they do not
 ### Known transitive release edge
 
 - `corvus-runtime` depends on release of `cerebro` when runtime-shipped versioned dependency state must remain aligned with a `cerebro` release.
+
+This transitive dependency edge is recorded in the release-component graph and drives downstream release participation. When `cerebro` changes in a release-relevant way, the graph resolver expands scope to include `corvus-runtime` transitively, ensuring version alignment across the published dependency boundary.
 
 ### Current no-edge expectation
 

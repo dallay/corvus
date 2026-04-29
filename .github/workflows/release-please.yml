@@ -87,6 +87,26 @@ jobs:
           target-branch: main
           fork: false
 
+      - name: 🔁 Sync internal release dependencies
+        run: |
+          set -euo pipefail
+          node scripts/sync-internal-release-deps.mjs --write
+
+      - name: 💾 Commit synced internal release dependencies
+        env:
+          SKIP_GIT_HOOKS: "1"
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add clients/agent-runtime/Cargo.toml clients/cerebro/Cargo.toml
+          if git diff --cached --quiet; then
+            echo "Internal release dependencies are already synchronized"
+          else
+            git commit -m "chore: sync internal release dependencies"
+            git push
+          fi
+
       - name: 🧾 Resolve GitHub Release id
         if: ${{ steps.release-please.outputs.releases_created == 'true' || steps.release-please.outputs.release_created == 'true' }}
         id: resolve-release-id
