@@ -110,9 +110,8 @@ internal fun configSettingsList(
     }
 
     item {
-      val safeDetails = remember(bridgeState, targetLabel) {
-        buildSafeDiagnosticLines(bridgeState, targetLabel)
-      }
+      val safeDetails =
+        remember(bridgeState, targetLabel) { buildSafeDiagnosticLines(bridgeState, targetLabel) }
       diagnosticsCard(
         title = "Safe diagnostics",
         subtitle = "Parity-critical bridge details only",
@@ -192,9 +191,7 @@ internal fun configSettingsList(
             listOf(Color.Transparent, corvusColors.glassOverlay, Color.Transparent)
           )
         }
-      Box(
-        modifier = Modifier.fillMaxWidth().height(1.dp).background(brush = dividerBrush)
-      )
+      Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(brush = dividerBrush))
     }
 
     item {
