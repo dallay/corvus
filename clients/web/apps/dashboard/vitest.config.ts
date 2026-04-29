@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath, URL } from "node:url";
 
 import vue from "@vitejs/plugin-vue";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 import { isPlaywrightFsAllowMode } from "./src/utils/playwrightEnv";
 
@@ -11,9 +11,13 @@ const isTestMode = isPlaywrightFsAllowMode();
 
 export default defineConfig({
   plugins: [vue()],
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
   server: {
     fs: {
-      // Only allow full repo access in test mode; otherwise use minimal paths
       allow: isTestMode
         ? [repoRoot]
         : [
@@ -23,9 +27,9 @@ export default defineConfig({
           ],
     },
   },
-  resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
-    },
+  test: {
+    environment: "happy-dom",
+    include: ["src/**/*.spec.ts"],
+    exclude: ["e2e/**"],
   },
 });

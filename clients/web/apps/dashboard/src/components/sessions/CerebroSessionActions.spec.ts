@@ -55,6 +55,15 @@ describe("CerebroSessionActions", () => {
     expect(wrapper.text()).toContain("not_implemented");
     expect(wrapper.text()).toContain("Context Lookup");
     expect(wrapper.findAll("button").some((button) => button.text() === "Run")).toBe(false);
+
+    const buttons = wrapper.findAll("button");
+    expect(buttons).toHaveLength(4);
+    expect(buttons.map((button) => button.text())).toEqual([
+      "not_implemented",
+      "not_implemented",
+      "not_implemented",
+      "not_implemented",
+    ]);
   });
 
   it("disables deferred context lookup and surfaces deferred messaging", async () => {

@@ -69,14 +69,16 @@ check_android_prerequisites() {
 test_android() {
   log_info "=== ANDROID SMOKE VALIDATION ==="
 
+  local device_count
+
   # Check device connection
-  DEVICE_COUNT=$(adb devices 2>/dev/null | grep -c "device$" || true)
-  if [ "$DEVICE_COUNT" -eq 0 ]; then
+  device_count=$(adb devices 2>/dev/null | grep -c "device$" || true)
+  if [[ "$device_count" -eq 0 ]]; then
     log_error "No Android devices connected"
     log_info "Connect device via USB and enable ADB debugging"
     exit 1
   fi
-  log_success "Found $DEVICE_COUNT Android device(s)"
+  log_success "Found $device_count Android device(s)"
 
   # Deploy corvus binary
   log_info "Deploying corvus binary to device..."
@@ -120,16 +122,18 @@ test_android() {
 test_ios() {
   log_info "=== iOS SMOKE VALIDATION ==="
 
+  local config_file="clients/iosApp/Configuration/Config.xcconfig"
+  local device_list
+
   # Check for connected devices
-  DEVICE_LIST=$(xcrun xctrace list devices 2>/dev/null | grep -A 100 "== Devices ==" | grep -B 100 "== " | head -20)
-  if echo "$DEVICE_LIST" | grep -q "Offline"; then
+  device_list=$(xcrun xctrace list devices 2>/dev/null | grep -A 100 "== Devices ==" | grep -B 100 "== " | head -20)
+  if grep -q "Offline" <<< "$device_list"; then
     log_warn "iOS devices detected but offline"
     log_info "Connect device via USB and trust this computer"
   fi
 
   # Check TEAM_ID configuration
-  local config_file="clients/iosApp/Configuration/Config.xcconfig"
-  if [ ! -f "$config_file" ]; then
+  if [[ ! -f "$config_file" ]]; then
     log_error "Config file not found: $config_file"
     log_info "Ensure iOS configuration exists before running smoke validation"
     exit 1
@@ -145,7 +149,7 @@ test_ios() {
     }
   ' "$config_file")
 
-  if [ -z "$TEAM_ID" ]; then
+  if [[ -z "$TEAM_ID" ]]; then
     log_error "TEAM_ID not configured in clients/iosApp/Configuration/Config.xcconfig"
     log_info "Add your Apple Developer Team ID to proceed with device builds"
     log_info "simulator builds work without TEAM_ID"
