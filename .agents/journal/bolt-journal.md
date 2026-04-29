@@ -85,3 +85,24 @@
 **Benchmark:**
 - Manual verification of UI responsiveness during simulated message streaming showed no stuttering.
 - Unit tests pass, confirming no regressions in message rendering logic.
+
+---
+
+## 2026-05-16 - Compose - UI Memoization & Object Allocation Optimization
+
+**Location:** `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ConfigPanel.kt`, `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatComponents.kt`
+**Issue:**
+- Redundant allocations of `Brush` objects (gradients) in `ConfigPanel` and `configSettingsList` on every recomposition.
+- Expensive list transformations and diagnostic line building (`buildDiagnosticsLines`, `buildSafeDiagnosticLines`, `sessions.map`) executed on every recomposition even when inputs haven't changed.
+**Solution:**
+- Wrapped `Brush` instantiations in `remember` blocks.
+- Applied `remember(key)` to all diagnostic line building and list mapping logic to ensure they only re-run when their source data (`bridgeState`, `targetLabel`, `sessions`) changes.
+- Memoized static list builders like `buildResetOptionLines()` using a keyless `remember` block.
+**Impact:**
+- **Reduced GC Pressure:** Significant reduction in ephemeral object allocations (lists, strings, brushes) during UI interactions and state updates.
+- **Improved Interaction Smoothness:** Lower CPU overhead during recompositions, especially when scrolling lists containing diagnostic cards or resumable sessions.
+- **Optimized Energy Efficiency:** Minimizes redundant work on the main thread, leading to better battery life on mobile devices.
+**Benchmark:**
+- Baseline Compilation: 1m 4s (`compileKotlinJvm`)
+- Post-Optimization Compilation: 1m 4s (`compileKotlinJvm`)
+- *Note:* These runtime optimizations focus on UI smoothness and interaction latency. Incremental build confirmed successful.

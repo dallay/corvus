@@ -352,10 +352,13 @@ fun SessionSelectionCard(
 ) {
   if (sessions.isEmpty()) return
 
+  val sessionDetails =
+    remember(sessions) { sessions.map { session -> session.title ?: session.id.value } }
+
   diagnosticsCard(
     title = "Resumable sessions",
     subtitle = activeSessionId ?: "Select a session to resume",
-    details = sessions.map { session -> session.title ?: session.id.value },
+    details = sessionDetails,
     modifier = modifier,
   )
 
