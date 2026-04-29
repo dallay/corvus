@@ -143,7 +143,7 @@ class SocketIosRuntimeCompanionClient(
       // Apply send/receive timeouts
       val tv = alloc<timeval>()
       tv.tv_sec = (config.timeoutMs / 1000).convert()
-      tv.tv_usec = ((config.timeoutMs % 1000).toInt() * 1000)
+      tv.tv_usec = ((config.timeoutMs % 1000).toInt() * 1000).convert()
       setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, tv.ptr, sizeOf<timeval>().convert())
       setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, tv.ptr, sizeOf<timeval>().convert())
 
