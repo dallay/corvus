@@ -504,7 +504,7 @@ backend = "none"
         let err = result.unwrap_err();
         assert!(matches!(
             err,
-            ValidationError::InvalidCapabilityConfig { name, .. } if name == "browser"
+            ValidationError::InvalidCapabilityConfig { ref name, .. } if name == "browser"
         ));
         assert!(err
             .to_string()

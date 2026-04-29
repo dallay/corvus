@@ -9,6 +9,8 @@ pub use registry_snapshot::*;
 pub use resolver::*;
 
 use anyhow::{Context, Result};
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
@@ -40,12 +42,21 @@ impl AgentComposer {
             .canonicalize()
             .with_context(|| format!("failed to resolve path {}", path.display()))?;
 
-        // Verify the path points to a regular file
-        if !canonical_path.is_file() {
-            anyhow::bail!("path {} is not a file", canonical_path.display());
+        // Open the file first, then validate its metadata from the open handle to avoid
+        // a TOCTOU race between the file-type check and the subsequent read.
+        let mut file = File::open(&canonical_path)
+            .with_context(|| format!("failed to open {}", canonical_path.display()))?;
+
+        let metadata = file
+            .metadata()
+            .with_context(|| format!("failed to read metadata for {}", canonical_path.display()))?;
+
+        if !metadata.is_file() {
+            anyhow::bail!("path {} is not a regular file", canonical_path.display());
         }
 
-        let content = std::fs::read_to_string(&canonical_path)
+        let mut content = String::new();
+        file.read_to_string(&mut content)
             .with_context(|| format!("failed to read manifest from {}", canonical_path.display()))?;
         Self::from_toml(&content)
     }
@@ -273,5 +284,37 @@ backend = "firejail"
         assert!(error
             .to_string()
             .contains("configuration exists for an unselected capability"));
+    }
+
+    // --- from_path tests ---
+
+    #[test]
+    fn from_path_reads_valid_manifest_file() {
+        let tmp = std::env::temp_dir().join("corvus_composer_from_path_valid.toml");
+        std::fs::write(&tmp, valid_manifest()).expect("write temp manifest");
+        let result = AgentComposer::from_path(&tmp);
+        std::fs::remove_file(&tmp).ok();
+        let composer = result.expect("from_path should succeed for a valid manifest file");
+        assert_eq!(composer.manifest().agent.name, "code-agent");
+    }
+
+    #[test]
+    fn from_path_rejects_directory() {
+        let tmp = std::env::temp_dir();
+        let error = AgentComposer::from_path(&tmp).unwrap_err();
+        assert!(
+            error.to_string().contains("is not a regular file"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn from_path_rejects_nonexistent_file() {
+        let nonexistent = std::env::temp_dir().join("corvus_composer_no_such_file_xyz.toml");
+        let error = AgentComposer::from_path(&nonexistent).unwrap_err();
+        assert!(
+            error.to_string().contains("failed to resolve path"),
+            "unexpected error: {error}"
+        );
     }
 }
