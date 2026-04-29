@@ -1678,7 +1678,7 @@ dependencies = [
 
 [[package]]
 name = "rook"
-version = "3.6.2"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
