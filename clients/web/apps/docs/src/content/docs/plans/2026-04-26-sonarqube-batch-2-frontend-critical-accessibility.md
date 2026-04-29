@@ -1,3 +1,13 @@
+---
+title: SonarQube Batch 2 Frontend Critical and Accessibility Implementation Plan
+description: Implementation plan for the second SonarQube remediation batch focused on dashboard, rook-dashboard, and accessibility issues.
+owner: team-platform
+status: draft
+lastReviewed: 2026-04-26
+appliesTo: web dashboard and rook-dashboard remediation
+docType: architecture
+---
+
 # SonarQube Batch 2 Frontend Critical and Accessibility Implementation Plan
 
 > **For agentic workers:** Execute this batch on branch `maintenance/sonarqube-remediation` after the Batch 1 backend refactor commit. Keep changes localized, test first where practical, and validate each app independently before final combined verification.

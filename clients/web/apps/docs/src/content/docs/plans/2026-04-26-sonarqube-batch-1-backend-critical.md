@@ -1,3 +1,13 @@
+---
+title: SonarQube Batch 1 Backend Critical Implementation Plan
+description: Implementation plan for the first SonarQube remediation batch focused on critical backend Rust issues in the agent runtime.
+owner: team-platform
+status: draft
+lastReviewed: 2026-04-26
+appliesTo: agent-runtime Rust remediation
+docType: architecture
+---
+
 # SonarQube Batch 1 Backend Critical Implementation Plan
 
 > **For agentic workers:** Implement this plan task-by-task using the `dispatching-parallel-agents`

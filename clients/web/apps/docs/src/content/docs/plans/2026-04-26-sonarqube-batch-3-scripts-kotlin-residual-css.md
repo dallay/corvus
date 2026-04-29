@@ -1,3 +1,13 @@
+---
+title: SonarQube Batch 3 Scripts, Kotlin, and Residual CSS Implementation Plan
+description: Implementation plan for the third SonarQube remediation batch focused on shell scripts, Kotlin cleanup, and small residual CSS issues.
+owner: team-platform
+status: draft
+lastReviewed: 2026-04-26
+appliesTo: scripts and compose runtime remediation
+docType: architecture
+---
+
 # SonarQube Batch 3 Scripts, Kotlin, and Residual CSS Implementation Plan
 
 > **For agentic workers:** Execute this batch on branch `maintenance/sonarqube-remediation` after the Batch 1 and Batch 2 remediation commits. Keep edits minimal and behavior-preserving. Prefer local helper extraction and explicit shell intent over broad rewrites.
