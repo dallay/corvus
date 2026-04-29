@@ -2320,6 +2320,17 @@ async fn handle_webhook(
     };
 
     if is_preview && !dispatcher_enabled {
+        if let Some(response) = ensure_webhook_session(
+            &state,
+            &session_id,
+            token_hash.as_deref(),
+            reserved_idempotency_key.as_deref(),
+        )
+        .await
+        {
+            return response;
+        }
+
         if let Some(response) = maybe_execute_legacy_http_ingress(
             &state,
             &session_id,
@@ -5167,14 +5178,16 @@ mod tests {
         .await
         .into_response();
 
-        // SqliteMemory returns 422 for missing session
-        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        // Session upsert now runs before the preview legacy fast path, so slash-session
+        // commands can still short-circuit without invoking the provider.
+        assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(payload["session_id"], "preview-slash");
-        assert_eq!(payload["error"]["code"], "unknown_session");
+        assert!(payload.get("response").is_some());
+        assert!(payload.get("error").is_none());
         assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
     }
 

@@ -171,7 +171,7 @@ class MobileRuntimeCoordinator(
           state.copy(
             bridgeSnapshot = bridgeSnapshotForSession(session.id),
             activeSessionId = session.id,
-            resumableSessions = replaceExistingSession(state.resumableSessions, session),
+            resumableSessions = replaceOrAppendSession(state.resumableSessions, session),
             pendingApproval = null,
           )
       }

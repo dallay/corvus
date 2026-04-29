@@ -5,6 +5,11 @@ last_updated: 2026-04-26
 tags: [sonarqube, remediation, quality, plan]
 status: draft
 summary: "Batch-based plan to resolve all current open SonarQube issues in Corvus by priority and domain."
+description: "Repository-wide SonarQube remediation plan covering backend, frontend, accessibility, scripts, and Kotlin follow-up work."
+owner: team-platform
+lastReviewed: 2026-04-26
+appliesTo: corvus runtime, web, and tooling remediation
+docType: architecture
 ---
 
 # SonarQube remediation plan

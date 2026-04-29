@@ -124,12 +124,15 @@ impl DelegateLaunchTool {
             .transpose()
             .map_err(|error| anyhow::anyhow!("invalid execution metadata: {error}"))?;
 
+        let launch_index = u32::try_from(launch_index)
+            .map_err(|_| anyhow::anyhow!("Child '{child_id}' launch_index overflowed u32"))?;
+
         Ok(ChildLaunchRequest {
             child_id: ChildAgentId(child_id),
             agent_name,
             prompt,
             context,
-            launch_index: u32::try_from(launch_index).unwrap_or(u32::MAX),
+            launch_index,
             execution,
         })
     }

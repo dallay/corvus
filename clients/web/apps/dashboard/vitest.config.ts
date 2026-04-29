@@ -16,20 +16,20 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  server: {
+    fs: {
+      allow: isTestMode
+        ? [repoRoot]
+        : [
+            path.join(repoRoot, "openspec"),
+            path.join(repoRoot, "tmp"),
+            path.join(repoRoot, "clients/composeApp"),
+          ],
+    },
+  },
   test: {
     environment: "happy-dom",
     include: ["src/**/*.spec.ts"],
     exclude: ["e2e/**"],
-    server: {
-      fs: {
-        allow: isTestMode
-          ? [repoRoot]
-          : [
-              path.join(repoRoot, "openspec"),
-              path.join(repoRoot, "tmp"),
-              path.join(repoRoot, "clients/composeApp"),
-            ],
-      },
-    },
   },
 });

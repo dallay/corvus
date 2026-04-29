@@ -1646,9 +1646,6 @@ async fn maybe_print_code_fast_path(config: &Config, message: Option<&str>) -> R
 async fn run_code_message_or_interactive(
     agent: &mut crate::agent::Agent,
     message: Option<String>,
-    provider_name: &str,
-    model_name: &str,
-    session_start: Instant,
 ) -> Result<()> {
     let Some(message) = message else {
         return agent.run_interactive().await;
@@ -1663,14 +1660,6 @@ async fn run_code_message_or_interactive(
             println!("{response}");
         }
         if let Some(err) = cli_blocking_error_from_turn_result(turn_result) {
-            let summary_result = agent.session_cost_summary(chrono::Utc::now());
-            agent.record_agent_end_event(provider_name, model_name, session_start.elapsed());
-            match summary_result {
-                Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Code),
-                Err(error) => {
-                    tracing::warn!("Failed to load code session cost summary: {error}");
-                }
-            }
             return Err(err);
         }
     }
@@ -1713,21 +1702,16 @@ async fn handle_code_command(
 
     agent.record_agent_start_event(&provider_name, &model_name);
 
-    let run_result = run_code_message_or_interactive(
-        &mut agent,
-        message,
+    let run_result = run_code_message_or_interactive(&mut agent, message).await;
+
+    finish_cli_session(
+        &agent,
         &provider_name,
         &model_name,
         session_start,
-    )
-    .await;
-
-    let summary_result = agent.session_cost_summary(chrono::Utc::now());
-    agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
-    match summary_result {
-        Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Code),
-        Err(error) => tracing::warn!("Failed to load code session cost summary: {error}"),
-    }
+        CliSessionSurface::Code,
+        "code",
+    );
 
     run_result
 }
