@@ -35,8 +35,18 @@ impl AgentComposer {
     }
 
     pub fn from_path(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read manifest from {}", path.display()))?;
+        // Canonicalize to prevent path traversal attacks via ".." or symlinks
+        let canonical_path = path
+            .canonicalize()
+            .with_context(|| format!("failed to resolve path {}", path.display()))?;
+
+        // Verify the path points to a regular file
+        if !canonical_path.is_file() {
+            anyhow::bail!("path {} is not a file", canonical_path.display());
+        }
+
+        let content = std::fs::read_to_string(&canonical_path)
+            .with_context(|| format!("failed to read manifest from {}", canonical_path.display()))?;
         Self::from_toml(&content)
     }
 
