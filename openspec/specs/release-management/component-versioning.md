@@ -80,6 +80,18 @@ release_component
 - `non_release_paths`: owned repository surfaces intentionally outside semantic artifact release.
 - `notes`: operator-facing rationale for transitional handling or exceptions.
 
+### Graph-backed component scope resolution
+
+The release-component graph serves as the executable source of truth for determining which components participate in a release. When changes land, the system resolves `affected_components` by:
+
+1. Classifying each changed path as release-owned, shared release infrastructure, non-release, or ignored.
+2. Deriving directly affected components from owned paths and shared infrastructure fan-out.
+3. Expanding transitive dependency edges until closure is reached.
+4. Preserving direct and transitive inclusion reasons for operator visibility.
+5. Emitting a deterministic, stable-sorted affected component set.
+
+This graph-driven resolution replaces workflow-local resolver maps and ensures stable and beta release flows use identical component membership semantics.
+
 ## Initial managed component set
 
 The initial graph should reflect the repository's current release reality:

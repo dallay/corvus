@@ -47,7 +47,14 @@ The canonical graph MUST identify at minimum:
 - shared release infrastructure paths that fan out to multiple components;
 - the canonical version surfaces for the component;
 - the release channels supported by the component;
-- and any transitive dependency edges that require downstream release participation.
+- any transitive dependency edges that require downstream release participation;
+- and published artifacts produced by the component.
+
+The canonical graph SHOULD also record:
+
+- the component kind (runtime/crate/npm/gradle) for operator understanding;
+- non-release paths owned by the component but intentionally outside semantic artifact release;
+- and operator-facing notes for transitional or exceptional handling.
 
 #### Scenario: Maintainers inspect the canonical graph
 
@@ -57,6 +64,7 @@ The canonical graph MUST identify at minimum:
 - AND whether each component is publishable or validate-only
 - AND which paths directly affect each component
 - AND which dependency edges can expand release scope transitively
+- AND which artifacts are published by each component
 
 ### Requirement: Semantic Release Participation Is Limited to Published Artifacts
 

@@ -67,10 +67,12 @@ If any implementation phase introduces ambiguity or destabilizes release behavio
 
 ## Exit criteria for steady state
 
-The migration should be considered complete only when:
+The migration is considered complete only when:
 
 - one canonical executable release graph defines managed components and release-scope semantics,
 - stable and beta release planning use that graph consistently,
 - publish validation enforces graph-derived version and dependency invariants,
 - non-release surfaces are explicitly excluded unless promoted later,
 - and maintainers can explain every component in a release by direct, shared-infra, or transitive reasoning.
+
+This phased approach ensures that each implementation slice can be validated independently and rolled back if necessary, while preserving the existing `release-please` authority as the stable baseline throughout the migration.

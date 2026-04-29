@@ -43,9 +43,9 @@ These checks remain repository-wide and are not themselves evidence that a compo
 
 ### 2. Release-scope resolution gate
 
-Before stable or beta release planning proceeds, the system SHOULD resolve `affected_components` from the canonical release-component graph.
+Before stable or beta release planning proceeds, the system MUST resolve `affected_components` from the canonical release-component graph.
 
-That gate should:
+That gate MUST:
 
 - classify changed paths as release-owned, shared release infrastructure, non-release, or ignored;
 - determine directly affected components;
@@ -56,25 +56,25 @@ That gate should:
 
 ### 3. Component-scoped validation gate
 
-After scope resolution, validation SHOULD run according to component participation.
+After scope resolution, validation MUST run according to component participation.
 
 For publishable components:
 
-- version surface alignment checks SHOULD run;
-- package-specific validation SHOULD run;
-- publish prerequisites SHOULD be enforced.
+- version surface alignment checks MUST run;
+- package-specific validation MUST run;
+- publish prerequisites MUST be enforced.
 
 For validate-only components:
 
-- validation SHOULD run when the component is in scope;
-- the component SHOULD appear in summaries;
-- but it SHOULD NOT be treated as independent publish authority unless explicitly promoted.
+- validation MUST run when the component is in scope;
+- the component MUST appear in summaries;
+- but it MUST NOT be treated as independent publish authority unless explicitly promoted.
 
 ### 4. Publish gate
 
-Publication SHOULD consume graph-derived `affected_components` and publish only the publishable affected set.
+Publication MUST consume graph-derived `affected_components` and publish only the publishable affected set.
 
-The publish gate should reject publication when:
+The publish gate MUST reject publication when:
 
 - version surfaces for an affected component disagree;
 - cross-component dependency pins are inconsistent with the release plan;
@@ -82,7 +82,7 @@ The publish gate should reject publication when:
 
 ## Stable and beta parity
 
-Stable and beta release flows SHOULD share the same graph semantics:
+Stable and beta release flows MUST share the same graph semantics:
 
 - the same owned-path rules,
 - the same shared release infrastructure fan-out,
@@ -93,7 +93,7 @@ Only channel-specific differences such as prerelease versioning and prerelease m
 
 ## Operator-facing release evidence
 
-The release pipeline SHOULD make it easy to understand why a component participated.
+The release pipeline MUST make it easy to understand why a component participated.
 
 Expected summary elements:
 
@@ -103,7 +103,7 @@ Expected summary elements:
 - publishable components,
 - and any shared release infrastructure path that caused broad fan-out.
 
-This helps reviewers distinguish a true component code change from a release-infrastructure change.
+This helps reviewers distinguish a true component code change from a release-infrastructure change. The graph resolver MUST emit inclusion reasons alongside the affected component set so operators can verify that release scope matches intent.
 
 ## Example gating outcomes
 

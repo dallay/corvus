@@ -3901,3 +3901,61 @@ The metrics surface MUST be observable without requiring operator access to appl
 - WHEN an operator inspects the metrics surface
 - THEN the metrics MUST expose upstream outcome counts by result type
 - AND the operator MUST NOT need to infer these counts exclusively from logs
+
+---
+
+### Requirement: Linux Release Binary Startup Smoke Validation
+
+The release workflow for the Linux Cerebro binary MUST execute a startup smoke validation that proves the built release artifact can start the real HTTP and MCP service surface, not merely parse CLI arguments or print help text.
+
+This validation MUST run the produced release binary with a temporary CI-specific configuration that defines explicit loopback binding, an explicit non-embedded storage mode suitable for CI, and a deterministic inbound bearer token for MCP authentication.
+
+The smoke validation MUST start the service as a background process, poll for startup within a bounded timeout, capture service logs for diagnostics, and terminate the process before the workflow step exits on both success and failure.
+
+The smoke validation scope for this change MUST apply at least to the Linux release build path.
+
+#### Scenario: Linux release artifact starts real service surface
+
+- GIVEN the Linux release workflow has built a Cerebro release binary
+- AND the workflow prepares a temporary configuration with explicit loopback binding, explicit CI-safe storage mode, and a known bearer token
+- WHEN the workflow launches the built binary for the smoke validation
+- THEN the binary MUST start the real HTTP and MCP service surface
+- AND the workflow MUST treat startup as successful only after the service responds within the configured timeout
+- AND the workflow MUST terminate the background process before the workflow step exits
+
+#### Scenario: Startup failure surfaces diagnostics and cleanup
+
+- GIVEN the Linux release workflow has launched the Cerebro release binary for smoke validation
+- WHEN the service fails to start or respond within the configured timeout
+- THEN the workflow MUST capture and surface the service logs for diagnostics
+- AND the workflow MUST terminate the background process before the workflow step exits
+- AND the workflow step MUST fail with a clear error message
+
+#### Scenario: Health endpoint responds after startup
+
+- GIVEN the Linux release workflow has successfully started the Cerebro release binary
+- WHEN the workflow polls the health endpoint
+- THEN the endpoint MUST respond with HTTP 200
+- AND the response MUST indicate the service is healthy
+
+#### Scenario: Readiness endpoint responds after startup
+
+- GIVEN the Linux release workflow has successfully started the Cerebro release binary
+- WHEN the workflow queries the readiness endpoint
+- THEN the endpoint MUST respond with HTTP 200
+- AND the response MUST indicate the service is ready to accept requests
+
+#### Scenario: Unauthenticated MCP request is rejected
+
+- GIVEN the Linux release workflow has successfully started the Cerebro release binary with a configured bearer token
+- WHEN the workflow sends an MCP request without authentication
+- THEN the service MUST reject the request
+- AND the response MUST indicate authentication is required
+
+#### Scenario: Authenticated MCP request succeeds
+
+- GIVEN the Linux release workflow has successfully started the Cerebro release binary with a configured bearer token
+- WHEN the workflow sends an authenticated MCP tools/list request with the correct bearer token
+- THEN the service MUST accept the request
+- AND the response MUST be a valid JSON-RPC 2.0 success response
+- AND the response MUST include a tools array in the result
