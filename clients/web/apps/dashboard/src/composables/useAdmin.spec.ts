@@ -62,6 +62,23 @@ describe("useAdmin", () => {
       expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer test-token");
     });
 
+    it("uses zero offset for the first page with a custom page size", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ sessions: [], total: 0, limit: 25, offset: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+      const admin = createAdmin();
+      await admin.fetchSessions({ page: 1, per_page: 25 });
+
+      const [url] = fetchMock.mock.calls[0] ?? [];
+      const parsed = new URL(url as string);
+      expect(parsed.searchParams.get("limit")).toBe("25");
+      expect(parsed.searchParams.get("offset")).toBe("0");
+    });
+
     it("populates sessions ref and totalSessions on success", async () => {
       fetchMock.mockResolvedValueOnce(
         new Response(

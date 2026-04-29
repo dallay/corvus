@@ -66,6 +66,92 @@ impl DelegateLaunchTool {
             })),
         }
     }
+
+    fn parse_children_array(args: &serde_json::Value) -> anyhow::Result<&Vec<serde_json::Value>> {
+        let children_val = match args.get("children") {
+            Some(v) => v,
+            None => anyhow::bail!("Missing 'children' parameter"),
+        };
+
+        match children_val.as_array() {
+            Some(items) if !items.is_empty() => Ok(items),
+            _ => anyhow::bail!("'children' must be a non-empty array"),
+        }
+    }
+
+    fn child_rejects_streaming(item: &serde_json::Value) -> bool {
+        item.get("stream").is_some()
+            || item.get("stream_results").is_some()
+            || item.get("stream_tool_progress").is_some()
+    }
+
+    fn parse_child_request(
+        item: &serde_json::Value,
+        launch_index: usize,
+        seen_ids: &mut std::collections::HashSet<String>,
+    ) -> anyhow::Result<ChildLaunchRequest> {
+        if Self::child_rejects_streaming(item) {
+            anyhow::bail!("streaming payloads remain out of scope for this slice");
+        }
+
+        let child_id = match item.get("child_id").and_then(|v| v.as_str()) {
+            Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+            _ => anyhow::bail!("Child at index {launch_index} is missing a non-empty 'child_id'"),
+        };
+
+        if !seen_ids.insert(child_id.clone()) {
+            anyhow::bail!("Duplicate child_id '{child_id}'");
+        }
+
+        let agent_name = match item.get("agent_name").and_then(|v| v.as_str()) {
+            Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+            _ => anyhow::bail!("Child '{child_id}' is missing a non-empty 'agent_name'"),
+        };
+
+        let prompt = match item.get("prompt").and_then(|v| v.as_str()) {
+            Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+            _ => anyhow::bail!("Child '{child_id}' is missing a non-empty 'prompt'"),
+        };
+
+        let context = item
+            .get("context")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let execution = item
+            .get("execution")
+            .cloned()
+            .map(serde_json::from_value::<crate::agent::coordinator::ChildExecutionSpec>)
+            .transpose()
+            .map_err(|error| anyhow::anyhow!("invalid execution metadata: {error}"))?;
+
+        let launch_index = u32::try_from(launch_index)
+            .map_err(|_| anyhow::anyhow!("Child '{child_id}' launch_index overflowed u32"))?;
+
+        Ok(ChildLaunchRequest {
+            child_id: ChildAgentId(child_id),
+            agent_name,
+            prompt,
+            context,
+            launch_index,
+            execution,
+        })
+    }
+
+    fn validate_transport(request: &ChildLaunchRequest) -> Option<ToolResult> {
+        if request
+            .execution
+            .as_ref()
+            .and_then(|spec| spec.transport.clone())
+            == Some(CoordinatorTransport::RemoteBridge)
+        {
+            return Some(Self::structured_validation_error(
+                "remote_bridge_deferred",
+                "Requested child execution transport 'remote_bridge' is deferred and not available in the local orchestration slice",
+            ));
+        }
+
+        None
+    }
 }
 
 #[async_trait]
@@ -150,20 +236,9 @@ impl Tool for DelegateLaunchTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let children_val = match args.get("children") {
-            Some(v) => v,
-            None => {
-                return Ok(Self::validation_error("Missing 'children' parameter"));
-            }
-        };
-
-        let children_arr = match children_val.as_array() {
-            Some(a) if !a.is_empty() => a,
-            _ => {
-                return Ok(Self::validation_error(
-                    "'children' must be a non-empty array",
-                ));
-            }
+        let children_arr = match Self::parse_children_array(&args) {
+            Ok(items) => items,
+            Err(error) => return Ok(Self::validation_error(error.to_string())),
         };
 
         let mut child_requests: Vec<ChildLaunchRequest> = Vec::with_capacity(children_arr.len());
@@ -171,76 +246,16 @@ impl Tool for DelegateLaunchTool {
             std::collections::HashSet::with_capacity(children_arr.len());
 
         for (launch_index, item) in children_arr.iter().enumerate() {
-            if item.get("stream").is_some()
-                || item.get("stream_results").is_some()
-                || item.get("stream_tool_progress").is_some()
-            {
-                return Ok(Self::validation_error(
-                    "streaming payloads remain out of scope for this slice",
-                ));
-            }
-
-            let child_id = match item.get("child_id").and_then(|v| v.as_str()) {
-                Some(s) if !s.trim().is_empty() => s.trim().to_string(),
-                _ => {
-                    return Ok(Self::validation_error(format!(
-                        "Child at index {launch_index} is missing a non-empty 'child_id'"
-                    )));
-                }
+            let child_request = match Self::parse_child_request(item, launch_index, &mut seen_ids) {
+                Ok(request) => request,
+                Err(error) => return Ok(Self::validation_error(error.to_string())),
             };
 
-            if !seen_ids.insert(child_id.clone()) {
-                return Ok(Self::validation_error(format!(
-                    "Duplicate child_id '{child_id}'"
-                )));
+            if let Some(result) = Self::validate_transport(&child_request) {
+                return Ok(result);
             }
 
-            let agent_name = match item.get("agent_name").and_then(|v| v.as_str()) {
-                Some(s) if !s.trim().is_empty() => s.trim().to_string(),
-                _ => {
-                    return Ok(Self::validation_error(format!(
-                        "Child '{child_id}' is missing a non-empty 'agent_name'"
-                    )));
-                }
-            };
-
-            let prompt = match item.get("prompt").and_then(|v| v.as_str()) {
-                Some(s) if !s.trim().is_empty() => s.trim().to_string(),
-                _ => {
-                    return Ok(Self::validation_error(format!(
-                        "Child '{child_id}' is missing a non-empty 'prompt'"
-                    )));
-                }
-            };
-
-            let context = item
-                .get("context")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let execution = item
-                .get("execution")
-                .cloned()
-                .map(serde_json::from_value::<crate::agent::coordinator::ChildExecutionSpec>)
-                .transpose()
-                .map_err(|error| anyhow::anyhow!("invalid execution metadata: {error}"))?;
-
-            if execution.as_ref().and_then(|spec| spec.transport.clone())
-                == Some(CoordinatorTransport::RemoteBridge)
-            {
-                return Ok(Self::structured_validation_error(
-                    "remote_bridge_deferred",
-                    "Requested child execution transport 'remote_bridge' is deferred and not available in the local orchestration slice",
-                ));
-            }
-
-            child_requests.push(ChildLaunchRequest {
-                child_id: ChildAgentId(child_id),
-                agent_name,
-                prompt,
-                context,
-                launch_index: u32::try_from(launch_index).unwrap_or(u32::MAX),
-                execution,
-            });
+            child_requests.push(child_request);
         }
 
         let request = CoordinatorLaunchRequest {
@@ -394,6 +409,21 @@ mod tests {
             .unwrap();
         assert!(!result.success);
         assert!(result.error.is_some());
+    }
+
+    #[tokio::test]
+    async fn rejects_child_without_agent_name_before_dispatch() {
+        let result = tool()
+            .execute(serde_json::json!({
+                "children": [
+                    { "child_id": "a", "agent_name": "", "prompt": "p" }
+                ]
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result.error.as_deref().unwrap_or("").contains("agent_name"));
     }
 
     #[tokio::test]

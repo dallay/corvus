@@ -457,6 +457,43 @@ impl SecurityPolicy {
             .any(|w| w == "tee" || w.ends_with("/tee"))
     }
 
+    fn is_likely_path(arg: &str) -> bool {
+        (arg.contains('/') && !arg.contains(':'))
+            || arg.starts_with('~')
+            || arg.starts_with('.')
+            || arg.contains(std::path::MAIN_SEPARATOR)
+    }
+
+    fn effective_path_arg(arg: &str) -> &str {
+        if arg.starts_with("--") {
+            arg.split_once('=').map(|(_, value)| value).unwrap_or(arg)
+        } else if arg.starts_with('-') && arg.len() > 2 {
+            arg.char_indices()
+                .nth(2)
+                .map(|(idx, _)| &arg[idx..])
+                .unwrap_or("")
+        } else {
+            arg
+        }
+    }
+
+    fn is_path_argument_safe(&self, effective_arg: &str) -> bool {
+        if !Self::is_likely_path(effective_arg) {
+            return true;
+        }
+
+        if Path::new(effective_arg)
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+            || (self.workspace_only
+                && (effective_arg.starts_with('/') || effective_arg.starts_with('~')))
+        {
+            return false;
+        }
+
+        !matches_any_forbidden_path(effective_arg, &self.forbidden_paths)
+    }
+
     fn validate_command_segments(&self, command: &str) -> bool {
         let normalized = self.normalize_command(command);
 
@@ -494,50 +531,18 @@ impl SecurityPolicy {
             .map(|arg| arg.to_ascii_lowercase())
             .collect();
 
-        // Helper to identify tokens that likely represent paths
-        fn is_likely_path(arg: &str) -> bool {
-            (arg.contains('/') && !arg.contains(':'))
-                || arg.starts_with('~')
-                || arg.starts_with('.')
-                || arg.contains(std::path::MAIN_SEPARATOR)
-        }
-
-        // Ensure no argument is a forbidden path or a traversal attempt.
-        // We only check arguments that look like paths to avoid false positives
-        // on non-path tokens (e.g., git diff patterns, grep globs, brace literals).
-        for (_raw_arg, arg) in raw_args.iter().zip(normalized_args.iter()) {
-            // Extract potential path from flags (e.g. --file=/path or -C/path)
-            let effective_arg = if arg.starts_with("--") {
-                arg.split_once('=').map(|(_, v)| v).unwrap_or(arg)
-            } else if arg.starts_with('-') && arg.len() > 2 {
-                arg.char_indices()
-                    .nth(2)
-                    .map(|(idx, _)| &arg[idx..])
-                    .unwrap_or("")
-            } else {
-                arg
-            };
-
-            if !is_likely_path(effective_arg) {
-                continue;
-            }
-
-            if Path::new(effective_arg)
-                .components()
-                .any(|c| matches!(c, std::path::Component::ParentDir))
-                || (self.workspace_only
-                    && (effective_arg.starts_with('/') || effective_arg.starts_with('~')))
-            {
-                return false;
-            }
-
-            // Check against forbidden paths (e.g. /etc, ~/.ssh)
-            if matches_any_forbidden_path(effective_arg, &self.forbidden_paths) {
+        for arg in &normalized_args {
+            let effective_arg = Self::effective_path_arg(arg);
+            if !self.is_path_argument_safe(effective_arg) {
                 return false;
             }
         }
 
-        self.is_args_safe(base_raw, &args)
+        if !self.is_args_safe(base_raw, &args) {
+            return false;
+        }
+
+        true
     }
 
     fn is_allowed_command(&self, base_raw: &str) -> bool {
@@ -1433,6 +1438,12 @@ mod tests {
     }
 
     // ── Edge cases: path traversal ──────────────────────────
+
+    #[test]
+    fn command_with_flag_embedded_absolute_path_is_blocked() {
+        let p = default_policy();
+        assert!(!p.is_command_allowed("grep --file=/etc/passwd foo.txt"));
+    }
 
     #[test]
     fn path_traversal_encoded_dots() {

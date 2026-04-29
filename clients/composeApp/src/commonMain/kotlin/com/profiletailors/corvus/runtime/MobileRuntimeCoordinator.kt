@@ -72,12 +72,9 @@ class MobileRuntimeCoordinator(
     state =
       state.copy(
         bridgeSnapshot =
-          MobileBridgeSnapshot(
-            runtimeAvailable = readiness.runtimeAvailable,
-            linkEstablished = readiness.linkEstablished,
-            sessionCapable = readiness.sessionCapable,
-            sessionId = activeSessionId?.value,
-            environmentSupported = readiness.environmentSupported,
+          buildBridgeSnapshot(
+            readiness = readiness,
+            activeSessionId = activeSessionId,
             recoveryOverride = recoveryOverride,
             targetLabel = updatedLinkedMetadata?.targetId,
           ),
@@ -87,6 +84,22 @@ class MobileRuntimeCoordinator(
         targetLabel = updatedLinkedMetadata?.targetId,
       )
   }
+
+  private fun buildBridgeSnapshot(
+    readiness: RuntimeReadinessSnapshot,
+    activeSessionId: RuntimeSessionId?,
+    recoveryOverride: MobileRecoveryKind?,
+    targetLabel: String?,
+  ): MobileBridgeSnapshot =
+    MobileBridgeSnapshot(
+      runtimeAvailable = readiness.runtimeAvailable,
+      linkEstablished = readiness.linkEstablished,
+      sessionCapable = readiness.sessionCapable,
+      sessionId = activeSessionId?.value,
+      environmentSupported = readiness.environmentSupported,
+      recoveryOverride = recoveryOverride,
+      targetLabel = targetLabel,
+    )
 
   private fun computeActiveSessionId(
     persistedSessionId: RuntimeSessionId?,
@@ -140,12 +153,9 @@ class MobileRuntimeCoordinator(
         persistence.saveActiveSessionId(session.id)
         state =
           state.copy(
-            bridgeSnapshot =
-              state.bridgeSnapshot.copy(sessionId = session.id.value, recoveryOverride = null),
+            bridgeSnapshot = bridgeSnapshotForSession(session.id),
             activeSessionId = session.id,
-            resumableSessions =
-              (state.resumableSessions -
-                state.resumableSessions.filter { it.id == session.id }.toSet()) + session,
+            resumableSessions = replaceOrAppendSession(state.resumableSessions, session),
             messages = emptyList(),
             pendingApproval = null,
           )
@@ -159,11 +169,9 @@ class MobileRuntimeCoordinator(
         persistence.saveActiveSessionId(session.id)
         state =
           state.copy(
-            bridgeSnapshot =
-              state.bridgeSnapshot.copy(sessionId = session.id.value, recoveryOverride = null),
+            bridgeSnapshot = bridgeSnapshotForSession(session.id),
             activeSessionId = session.id,
-            resumableSessions =
-              state.resumableSessions.map { if (it.id == session.id) session else it },
+            resumableSessions = replaceOrAppendSession(state.resumableSessions, session),
             pendingApproval = null,
           )
       }
@@ -177,7 +185,7 @@ class MobileRuntimeCoordinator(
         persistence.clearActiveSessionId()
         state =
           state.copy(
-            bridgeSnapshot = state.bridgeSnapshot.copy(sessionId = null, recoveryOverride = null),
+            bridgeSnapshot = clearedSessionBridgeSnapshot(),
             activeSessionId = null,
             messages = emptyList(),
             pendingApproval = null,
@@ -224,6 +232,23 @@ class MobileRuntimeCoordinator(
       )
   }
 
+  private fun bridgeSnapshotForSession(sessionId: RuntimeSessionId): MobileBridgeSnapshot =
+    state.bridgeSnapshot.copy(sessionId = sessionId.value, recoveryOverride = null)
+
+  private fun clearedSessionBridgeSnapshot(): MobileBridgeSnapshot =
+    state.bridgeSnapshot.copy(sessionId = null, recoveryOverride = null)
+
+  private fun replaceOrAppendSession(
+    sessions: List<RuntimeSession>,
+    session: RuntimeSession,
+  ): List<RuntimeSession> = (sessions - sessions.filter { it.id == session.id }.toSet()) + session
+
+  private fun replaceExistingSession(
+    sessions: List<RuntimeSession>,
+    session: RuntimeSession,
+  ): List<RuntimeSession> =
+    sessions.map { existing -> if (existing.id == session.id) session else existing }
+
   private fun applyTurnResult(result: RuntimeTurnResult) {
     val assistantMessages = mutableListOf<ChatMessage>()
     var pendingApproval: RuntimeApprovalRequest? = state.pendingApproval
@@ -237,14 +262,9 @@ class MobileRuntimeCoordinator(
             assistantChatMessage(state.messages.size, event.text, assistantMessages.size)
 
         is RuntimeEvent.ApprovalPending -> pendingApproval = event.request
-        is RuntimeEvent.Failure -> {
+        is RuntimeEvent.Failure ->
           assistantMessages +=
-            ChatMessage(
-              id = computeNextMessageId(state.messages.size, assistantMessages.size),
-              role = ChatRole.Assistant,
-              content = event.message,
-            )
-        }
+            assistantChatMessage(state.messages.size, event.message, assistantMessages.size)
       }
     }
     state =
