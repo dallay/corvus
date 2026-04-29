@@ -74,4 +74,4 @@ Executed successfully:
 ## Risks / Follow-up
 
 - The current contract covers the initial `corvus-runtime -> cerebro` edge. Future release-managed internal path dependencies MUST be added to `internalReleaseDependencies` before they are introduced into release-managed manifests.
-- Archive should be retried after this report is accepted so delta specs can be synced into `openspec/specs/release-management/*`.
+- The source-of-truth release-management spec has already been synchronized with this change, and the archive record is complete.

@@ -1,7 +1,7 @@
 change: release-internal-dependency-sync
 artifact_store: openspec
 project: corvus
-status: planned
+status: completed
 phases:
   explore:
     status: completed
@@ -14,9 +14,9 @@ phases:
   tasks:
     status: completed
   apply:
-    status: pending
+    status: completed
   verify:
-    status: pending
+    status: completed
 artifacts:
   proposal: proposal.md
   design: design.md

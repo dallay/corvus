@@ -111,10 +111,15 @@ const managedEdges = new Map(graph.internalReleaseDependencies.map((edge) => [ed
 const releaseManagedPathPrefixes = ["../../clients/", "../clients/", "clients/"];
 
 const manifestTexts = new Map();
-for (const edge of graph.internalReleaseDependencies) {
-  if (!manifestTexts.has(edge.manifestPath)) {
-    manifestTexts.set(edge.manifestPath, readText(edge.manifestPath));
-  }
+const releaseManagedManifestPaths = new Set([
+  ...graph.internalReleaseDependencies.map((edge) => edge.manifestPath),
+  ...Object.values(graph.components)
+    .flatMap((component) => component.versionSurfaces)
+    .filter((surface) => surface.endsWith("Cargo.toml") && surface.startsWith("clients/")),
+]);
+
+for (const manifestPath of releaseManagedManifestPaths) {
+  manifestTexts.set(manifestPath, readText(manifestPath));
 }
 
 for (const [manifestPath, manifestText] of manifestTexts.entries()) {
