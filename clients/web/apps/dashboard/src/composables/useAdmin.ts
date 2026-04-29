@@ -60,6 +60,13 @@ type RequestBucket =
   | "cerebroAction"
   | "cost";
 
+function resolvePageOffset(page?: number, perPage = 50): number | undefined {
+  if (!page) {
+    return undefined;
+  }
+  return (page - 1) * perPage;
+}
+
 function isNormalizedCerebroError(value: unknown): value is AdminCerebroActionError {
   if (!value || typeof value !== "object") {
     return false;
@@ -233,7 +240,7 @@ export function useAdmin(
         {
           status: params.status,
           limit: params.per_page,
-          offset: params.page ? (params.page - 1) * (params.per_page ?? 50) : undefined,
+          offset: resolvePageOffset(params.page, params.per_page ?? 50),
           sort: params.sort,
           order: params.order,
         }
@@ -321,7 +328,7 @@ export function useAdmin(
           session_id: params.session_id,
           q: params.search,
           limit: params.per_page,
-          offset: params.page ? (params.page - 1) * (params.per_page ?? 50) : undefined,
+          offset: resolvePageOffset(params.page, params.per_page ?? 50),
         }
       );
     } catch (e: unknown) {

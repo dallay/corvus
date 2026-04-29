@@ -1632,6 +1632,41 @@ async fn maybe_handle_cli_handled_ingress(
     }
 }
 
+async fn maybe_print_code_fast_path(config: &Config, message: Option<&str>) -> Result<bool> {
+    if let Some(raw_message) = message {
+        if let Some(result_message) = maybe_handle_cli_handled_ingress(config, raw_message).await? {
+            println!("{result_message}");
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+async fn run_code_message_or_interactive(
+    agent: &mut crate::agent::Agent,
+    message: Option<String>,
+) -> Result<()> {
+    let Some(message) = message else {
+        return agent.run_interactive().await;
+    };
+
+    let turn_result = agent
+        .turn_with_context(&message, crate::agent::TurnContext::default())
+        .await;
+
+    if let Ok(turn_result) = &turn_result {
+        if let Some(response) = turn_result.final_text.as_deref() {
+            println!("{response}");
+        }
+        if let Some(err) = cli_blocking_error_from_turn_result(turn_result) {
+            return Err(err);
+        }
+    }
+
+    turn_result.map(|_| ())
+}
+
 async fn handle_code_command(
     config: Config,
     message: Option<String>,
@@ -1643,13 +1678,8 @@ async fn handle_code_command(
 ) -> Result<()> {
     let config = apply_code_session_config(config, provider, model, temperature, plan);
 
-    // Intercept shared handled-ingress commands before agent initialization.
-    if let Some(raw_message) = message.as_deref() {
-        if let Some(result_message) = maybe_handle_cli_handled_ingress(&config, raw_message).await?
-        {
-            println!("{result_message}");
-            return Ok(());
-        }
+    if maybe_print_code_fast_path(&config, message.as_deref()).await? {
+        return Ok(());
     }
 
     info!("Starting code-specialist session (profile=code)");
@@ -1672,38 +1702,16 @@ async fn handle_code_command(
 
     agent.record_agent_start_event(&provider_name, &model_name);
 
-    let run_result = if let Some(msg) = message {
-        let turn_result = agent
-            .turn_with_context(&msg, crate::agent::TurnContext::default())
-            .await;
-        if let Ok(turn_result) = &turn_result {
-            let blocking_err = cli_blocking_error_from_turn_result(turn_result);
-            if let Some(response) = turn_result.final_text.as_deref() {
-                println!("{response}");
-            }
-            if let Some(err) = blocking_err {
-                let summary_result = agent.session_cost_summary(chrono::Utc::now());
-                agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
-                match summary_result {
-                    Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Code),
-                    Err(error) => {
-                        tracing::warn!("Failed to load code session cost summary: {error}");
-                    }
-                }
-                return Err(err);
-            }
-        }
-        turn_result.map(|_| ())
-    } else {
-        agent.run_interactive().await
-    };
+    let run_result = run_code_message_or_interactive(&mut agent, message).await;
 
-    let summary_result = agent.session_cost_summary(chrono::Utc::now());
-    agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
-    match summary_result {
-        Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Code),
-        Err(error) => tracing::warn!("Failed to load code session cost summary: {error}"),
-    }
+    finish_cli_session(
+        &agent,
+        &provider_name,
+        &model_name,
+        session_start,
+        CliSessionSurface::Code,
+        "code",
+    );
 
     run_result
 }

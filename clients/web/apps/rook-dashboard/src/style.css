@@ -100,7 +100,7 @@ code {
 .account-meta,
 .empty-state p,
 .detail-grid dd {
-  color: #bfd2e8;
+  color: #d5e3f2;
   line-height: 1.6;
 }
 
@@ -110,7 +110,7 @@ code {
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7dd3fc;
+  color: #93ddff;
 }
 
 .session-card,
@@ -292,13 +292,13 @@ input {
 }
 
 .state-banner.info {
-  background: rgb(14 165 233 / 12%);
-  color: #c8f1ff;
+  background: rgb(14 165 233 / 18%);
+  color: #e0f7ff;
 }
 
 .state-banner.danger {
-  background: rgb(239 68 68 / 14%);
-  color: #fecaca;
+  background: rgb(239 68 68 / 18%);
+  color: #ffe0e0;
 }
 
 .empty-state {
