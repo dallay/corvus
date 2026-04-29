@@ -8,7 +8,7 @@
 
 1.3 Update `openspec/specs/release-management/component-inventory.md` to record the initial `corvus-runtime -> cerebro` dependency alignment rule and any future release-managed internal edges.
 
-1.4 Extend `config/release-components.json` with a canonical `internal_release_dependencies` section covering the initial managed edge and required metadata for validation/sync.
+1.4 Extend `config/release-components.json` with a canonical `internalReleaseDependencies` section covering the initial managed edge and required metadata for validation/sync.
 
 ## Phase 2 — Executable sync and validation
 

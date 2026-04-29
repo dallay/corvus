@@ -68,6 +68,30 @@ function runInternalReleaseSync(args = [], options = {}) {
   });
 }
 
+function runInternalReleaseSyncFailure(args = [], options = {}) {
+  try {
+    runInternalReleaseSync(args, options);
+    throw new Error(`Expected sync script to fail for args: ${args.join(" ")}`);
+  } catch (error) {
+    if (error?.status === 0) {
+      throw error;
+    }
+    return `${error.stdout ?? ""}${error.stderr ?? ""}`;
+  }
+}
+
+function withPatchedFile(filePath, transform, callback) {
+  const original = readText(filePath);
+  const updated = transform(original);
+  assert.notEqual(updated, original, `${filePath} patch did not change file contents`);
+  fs.writeFileSync(filePath, updated, "utf8");
+  try {
+    return callback();
+  } finally {
+    fs.writeFileSync(filePath, original, "utf8");
+  }
+}
+
 function trustedExecutableDirs() {
   return [
     process.env.HOME && path.join(process.env.HOME, ".cargo", "bin"),
@@ -157,7 +181,7 @@ test("release component graph defines internal release dependency sync edges", (
       manifestPath: "clients/agent-runtime/Cargo.toml",
       dependencyName: "cerebro",
       dependencyPath: "../../clients/cerebro",
-      versionSelector: "dependencies.cerebro.version",
+      versionSelector: "package.version",
       mode: "must-match-release-version",
       notes: "corvus-runtime ships a versioned path dependency on cerebro",
     },
@@ -193,6 +217,67 @@ test("release component graph loader exposes internal release dependency metadat
   assert.equal(graph.internalReleaseDependencies[0].dependencyPath, "../../clients/cerebro");
 });
 
+test("internal release dependency sync check fails on version drift", () => {
+  const output = withPatchedFile("clients/agent-runtime/Cargo.toml", (text) =>
+    text.replace('cerebro = { version = "3.6.2", path = "../../clients/cerebro" }', 'cerebro = { version = "0.0.0", path = "../../clients/cerebro" }'),
+  () => runInternalReleaseSyncFailure(["--check"]));
+
+  assert.match(output, /version-drift:/);
+  assert.match(output, /expected 3\.6\.2 but found 0\.0\.0/);
+});
+
+test("internal release dependency sync write mode rewrites version drift", () => {
+  withPatchedFile("clients/agent-runtime/Cargo.toml", (text) =>
+    text.replace('cerebro = { version = "3.6.2", path = "../../clients/cerebro" }', 'cerebro = { version = "0.0.0", path = "../../clients/cerebro" }'),
+  () => {
+    const output = runInternalReleaseSync(["--write"]);
+    const manifest = readText("clients/agent-runtime/Cargo.toml");
+
+    assert.match(output, /0\.0\.0 -> 3\.6\.2/);
+    assert.match(output, /written successfully/);
+    assert.match(manifest, /cerebro = \{ version = "3\.6\.2", path = "\.\.\/\.\.\/clients\/cerebro" \}/);
+  });
+});
+
+test("internal release dependency sync fails on path mismatch in both modes", () => {
+  withPatchedFile("clients/agent-runtime/Cargo.toml", (text) =>
+    text.replace('cerebro = { version = "3.6.2", path = "../../clients/cerebro" }', 'cerebro = { version = "3.6.2", path = "../../clients/not-cerebro" }'),
+  () => {
+    const checkOutput = runInternalReleaseSyncFailure(["--check"]);
+    const writeOutput = runInternalReleaseSyncFailure(["--write"]);
+
+    assert.match(checkOutput, /path-mismatch:/);
+    assert.match(writeOutput, /path-mismatch:/);
+  });
+});
+
+test("internal release dependency sync fails when expected dependency entry is missing", () => {
+  const output = withPatchedFile("clients/agent-runtime/Cargo.toml", (text) =>
+    text.replace(/^cerebro\s*=\s*\{[^\n]*\}\n/m, ""),
+  () => runInternalReleaseSyncFailure(["--check"]));
+
+  assert.match(output, /missing-dependency-entry:/);
+  assert.match(output, /cerebro not found/);
+});
+
+test("internal release dependency sync flags unmanaged internal path edges", () => {
+  const output = withPatchedFile("clients/agent-runtime/Cargo.toml", (text) =>
+    text.replace('[dependencies]\n', '[dependencies]\nrogue-cerebro = { path = "../../clients/cerebro", version = "3.6.2", package = "cerebro" }\n'),
+  () => runInternalReleaseSyncFailure(["--check"]));
+
+  assert.match(output, /unmanaged-internal-release-edge:/);
+  assert.match(output, /rogue-cerebro/);
+});
+
+test("internal release dependency sync write mode still reports unmanaged internal path edges", () => {
+  const output = withPatchedFile("clients/agent-runtime/Cargo.toml", (text) =>
+    text.replace('[dependencies]\n', '[dependencies]\nrogue-cerebro = { path = "../../clients/cerebro", version = "3.6.2", package = "cerebro" }\n'),
+  () => runInternalReleaseSyncFailure(["--write"]));
+
+  assert.match(output, /unmanaged-internal-release-edge:/);
+  assert.match(output, /rogue-cerebro/);
+});
+
 test("pull-request checks validate internal release dependency sync before Cargo lockfiles", () => {
   const workflow = readText(".github/workflows/pull-request-check.yml");
 
@@ -207,7 +292,7 @@ test("pull-request checks validate internal release dependency sync before Cargo
   );
 });
 
-test("stable release workflow normalizes internal dependency sync after release-please", () => {
+test("stable release workflow normalizes and persists internal dependency sync after release-please", () => {
   const workflow = readText(".github/workflows/release-please.yml");
 
   assertContainsInOrder(
@@ -216,12 +301,17 @@ test("stable release workflow normalizes internal dependency sync after release-
       "- name: 🤖 Run release-please",
       "- name: 🔁 Sync internal release dependencies",
       "node scripts/sync-internal-release-deps.mjs --write",
+      "- name: 💾 Commit synced internal release dependencies",
+      "SKIP_GIT_HOOKS: \"1\"",
+      "git add clients/agent-runtime/Cargo.toml clients/cerebro/Cargo.toml",
+      "git commit -m \"chore: sync internal release dependencies\"",
+      "git push",
     ],
     "release-please.yml",
   );
 });
 
-test("beta release workflow normalizes internal dependency sync after release-please", () => {
+test("beta release workflow normalizes and persists internal dependency sync after release-please", () => {
   const workflow = readText(".github/workflows/release-please-beta.yml");
 
   assertContainsInOrder(
@@ -230,6 +320,11 @@ test("beta release workflow normalizes internal dependency sync after release-pl
       "- name: 🤖 Run release-please",
       "- name: 🔁 Sync internal release dependencies",
       "node scripts/sync-internal-release-deps.mjs --write",
+      "- name: 💾 Commit synced internal release dependencies",
+      "SKIP_GIT_HOOKS: \"1\"",
+      "git add clients/agent-runtime/Cargo.toml clients/cerebro/Cargo.toml",
+      "git commit -m \"chore: sync internal release dependencies\"",
+      "git push",
     ],
     "release-please-beta.yml",
   );
@@ -247,6 +342,31 @@ test("sync-cargo-lockfiles runs internal dependency sync before lockfile regener
     ],
     "sync-cargo-lockfiles.yml",
   );
+});
+
+test("sync-cargo-lockfiles commit step stages rewritten manifest and lockfiles", () => {
+  const workflow = readText(".github/workflows/sync-cargo-lockfiles.yml");
+
+  assertContainsInOrder(
+    workflow,
+    [
+      "- name: 💾 Commit updated lockfiles",
+      "git add clients/agent-runtime/Cargo.toml clients/agent-runtime/Cargo.lock clients/cerebro/Cargo.lock",
+    ],
+    "sync-cargo-lockfiles.yml",
+  );
+});
+
+test("openspec design and tasks use canonical internalReleaseDependencies naming", () => {
+  const design = readText("openspec/changes/release-internal-dependency-sync/design.md");
+  const tasks = readText("openspec/changes/release-internal-dependency-sync/tasks.md");
+
+  assert.match(design, /internalReleaseDependencies/);
+  assert.match(design, /versionSelector/);
+  assert.doesNotMatch(design, /internal_release_dependency/);
+  assert.doesNotMatch(design, /version_selector/);
+  assert.match(tasks, /internalReleaseDependencies/);
+  assert.doesNotMatch(tasks, /internal_release_dependencies/);
 });
 
 test("release runbooks describe internal dependency sync diagnostics", () => {

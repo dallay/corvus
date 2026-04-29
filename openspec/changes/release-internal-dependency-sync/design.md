@@ -27,28 +27,28 @@ Today, however, there is no executable contract describing which release-managed
 
 ### Target internal dependency sync model
 
-The target model introduces one canonical configuration section for internal release dependencies. Conceptually, each entry looks like this:
+The target model introduces one canonical configuration section for internal release dependencies. Conceptually, the config looks like this:
 
 ```text
-internal_release_dependency
-  dependent_component
-  upstream_component
-  manifest_path
-  dependency_name
-  dependency_path
-  version_selector
+internalReleaseDependencies[]
+  dependentComponent
+  upstreamComponent
+  manifestPath
+  dependencyName
+  dependencyPath
+  versionSelector
   mode
   notes
 ```
 
 Field intent:
 
-- `dependent_component`: release-managed component that ships the dependency pin.
-- `upstream_component`: release-managed component whose version is authoritative.
-- `manifest_path`: downstream manifest containing the dependency entry to validate/update.
-- `dependency_name`: Cargo dependency key to rewrite.
-- `dependency_path`: expected local path for the dependency, used as a safety check.
-- `version_selector`: field selector identifying the version value to sync.
+- `dependentComponent`: release-managed component that ships the dependency pin.
+- `upstreamComponent`: release-managed component whose version is authoritative.
+- `manifestPath`: downstream manifest containing the dependency entry to validate/update.
+- `dependencyName`: Cargo dependency key to rewrite.
+- `dependencyPath`: expected local path for the dependency, used as a safety check.
+- `versionSelector`: field selector identifying the version value to sync.
 - `mode`: synchronization policy, initially `must-match-release-version`.
 - `notes`: operator-facing explanation for why the edge exists.
 

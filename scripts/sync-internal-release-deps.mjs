@@ -72,9 +72,65 @@ function updateVersionInBlock(block, expectedVersion) {
   return block.replace(/version\s*=\s*"([^"]+)"/, `version = "${expectedVersion}"`);
 }
 
+function resolveVersionBySelector(manifestText, manifestPath, versionSelector) {
+  if (versionSelector === "package.version") {
+    return extractPackageVersion(manifestText, manifestPath);
+  }
+
+  const parts = versionSelector.split(".");
+  if (parts.length !== 3 || parts[0] !== "dependencies" || parts[2] !== "version") {
+    throw new Error(`upstream-version-unresolvable: unsupported versionSelector ${versionSelector} for ${manifestPath}`);
+  }
+
+  const dependencyName = parts[1];
+  const dependencyBlock = extractDependencyBlock(manifestText, dependencyName, manifestPath);
+  return extractField(dependencyBlock, "version", manifestPath, dependencyName);
+}
+
+function collectInternalPathDependencies(manifestText) {
+  const dependencies = [];
+  const dependencyRegex = /^([A-Za-z0-9_-]+)\s*=\s*\{([^\n]*path\s*=\s*"([^\"]+)"[^\n]*)\}$/gm;
+
+  for (const match of manifestText.matchAll(dependencyRegex)) {
+    dependencies.push({
+      dependencyName: match[1],
+      path: match[3],
+      block: match[0],
+    });
+  }
+
+  return dependencies;
+}
+
 const graph = loadReleaseComponents();
 const changes = [];
 let rewrites = 0;
+
+const edgeKey = (manifestPath, dependencyName) => `${manifestPath}::${dependencyName}`;
+const managedEdges = new Map(graph.internalReleaseDependencies.map((edge) => [edgeKey(edge.manifestPath, edge.dependencyName), edge]));
+const releaseManagedPathPrefixes = ["../../clients/", "../clients/", "clients/"];
+
+const manifestTexts = new Map();
+for (const edge of graph.internalReleaseDependencies) {
+  if (!manifestTexts.has(edge.manifestPath)) {
+    manifestTexts.set(edge.manifestPath, readText(edge.manifestPath));
+  }
+}
+
+for (const [manifestPath, manifestText] of manifestTexts.entries()) {
+  for (const dependency of collectInternalPathDependencies(manifestText)) {
+    const isReleaseManagedPath = releaseManagedPathPrefixes.some((prefix) => dependency.path.startsWith(prefix));
+    if (!isReleaseManagedPath) {
+      continue;
+    }
+
+    if (!managedEdges.has(edgeKey(manifestPath, dependency.dependencyName))) {
+      const message = `unmanaged-internal-release-edge: ${manifestPath} declares ${dependency.dependencyName} -> ${dependency.path} without internalReleaseDependencies coverage`;
+      changes.push(message);
+      throw new Error(message);
+    }
+  }
+}
 
 for (const edge of graph.internalReleaseDependencies) {
   const upstreamManifestPath = graph.components[edge.upstreamComponent].versionSurfaces.find((entry) => entry.endsWith("Cargo.toml"));
@@ -84,7 +140,7 @@ for (const edge of graph.internalReleaseDependencies) {
 
   const upstreamText = readText(upstreamManifestPath);
   const downstreamText = readText(edge.manifestPath);
-  const expectedVersion = extractPackageVersion(upstreamText, upstreamManifestPath);
+  const expectedVersion = resolveVersionBySelector(upstreamText, upstreamManifestPath, edge.versionSelector);
   const dependencyBlock = extractDependencyBlock(downstreamText, edge.dependencyName, edge.manifestPath);
   const actualVersion = extractField(dependencyBlock, "version", edge.manifestPath, edge.dependencyName);
   const actualPath = extractField(dependencyBlock, "path", edge.manifestPath, edge.dependencyName);
