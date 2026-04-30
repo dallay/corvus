@@ -64,7 +64,10 @@ numeric_prefix() {
 
 has_command() {
   local command_name="$1"
-  command -v "$command_name" >/dev/null 2>&1
+  if command -v "$command_name" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
 }
 
 # 1. Java

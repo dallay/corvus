@@ -243,12 +243,6 @@ class MobileRuntimeCoordinator(
     session: RuntimeSession,
   ): List<RuntimeSession> = (sessions - sessions.filter { it.id == session.id }.toSet()) + session
 
-  private fun replaceExistingSession(
-    sessions: List<RuntimeSession>,
-    session: RuntimeSession,
-  ): List<RuntimeSession> =
-    sessions.map { existing -> if (existing.id == session.id) session else existing }
-
   private fun applyTurnResult(result: RuntimeTurnResult) {
     val assistantMessages = mutableListOf<ChatMessage>()
     var pendingApproval: RuntimeApprovalRequest? = state.pendingApproval
