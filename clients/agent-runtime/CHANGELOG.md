@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0](https://github.com/dallay/corvus/compare/corvus-runtime-v0.1.0...corvus-runtime-v0.2.0) (2026-04-30)
+
+
+### Features
+
+* **tools:** implement alias resolution for search, fetch, and task tools ([c2cb49e](https://github.com/dallay/corvus/commit/c2cb49e27c93354deb406d583d31d34d964d6843))
+
+
+### Bug Fixes
+
+* fix TOCTOU in from_path and add security tests ([fcbae94](https://github.com/dallay/corvus/commit/fcbae94084aaa120e850d5b627419a399a71b102))
+* **security:** harden path handling for telegram and skills ([e075b2d](https://github.com/dallay/corvus/commit/e075b2d5076d1fe0f837ceaedfd248b7afd7884f))
+* use unique temp filename in from_path test to avoid parallel collisions ([b820b7a](https://github.com/dallay/corvus/commit/b820b7a60b8095c05a621540bd4132e590bc4fac))
+
 ## 0.1.0 (2026-04-29)
 
 
