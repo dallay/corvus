@@ -152,19 +152,19 @@ rust-build: ## Build agent runtime binary
 # --- CEREBRO MEMORY SERVICE ---
 
 cerebro-check: ## Run cargo check for cerebro
-	@cargo check --manifest-path modules/cerebro/Cargo.toml
+	@cargo check --manifest-path clients/cerebro/Cargo.toml
 
 cerebro-test: ## Run cargo tests for cerebro
-	@cargo test --manifest-path modules/cerebro/Cargo.toml
+	@cargo test --manifest-path clients/cerebro/Cargo.toml
 
 cerebro-clippy: ## Run clippy for cerebro
-	@cargo clippy --manifest-path modules/cerebro/Cargo.toml --all-targets -- -D warnings
+	@cargo clippy --manifest-path clients/cerebro/Cargo.toml --all-targets -- -D warnings
 
 cerebro-fmt: ## Check Rust formatting for cerebro
-	@cargo fmt --manifest-path modules/cerebro/Cargo.toml -- --check
+	@cargo fmt --manifest-path clients/cerebro/Cargo.toml -- --check
 
 cerebro-build: ## Build cerebro binary
-	@cargo build --manifest-path modules/cerebro/Cargo.toml --release --bin cerebro
+	@cargo build --manifest-path clients/cerebro/Cargo.toml --release --bin cerebro
 
 # --- ROOK DISTRIBUTION FOUNDATIONS ---
 

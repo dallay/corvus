@@ -6,8 +6,8 @@ ARG TARGETARCH
 
 RUN mkdir -p /cerebro-data /etc/cerebro
 
-COPY modules/cerebro/dist/cerebro-linux-x64 /tmp/cerebro-linux-x64
-COPY modules/cerebro/dist/cerebro-linux-arm64 /tmp/cerebro-linux-arm64
+COPY clients/cerebro/dist/cerebro-linux-x64 /tmp/cerebro-linux-x64
+COPY clients/cerebro/dist/cerebro-linux-arm64 /tmp/cerebro-linux-arm64
 
 RUN case "$TARGETARCH" in \
   amd64) cp /tmp/cerebro-linux-x64 /tmp/cerebro ;; \
