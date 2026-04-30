@@ -513,6 +513,143 @@ class ComposeAppCommonTest {
     // The actual assertion is that the coordinator uses explicit methods, not defaults
   }
 
+  @Test
+  fun `should expose session list via bridge for session history display`() {
+    val session1 =
+      RuntimeSession(
+        id = RuntimeSessionId("550e8400-e29b-41d4-a716-446655440000"),
+        title = "First session",
+        isActive = false,
+      )
+    val session2 =
+      RuntimeSession(
+        id = RuntimeSessionId("123e4567-e89b-12d3-a456-426614174000"),
+        title = "Second session",
+        isActive = true,
+      )
+    val coordinator =
+      MobileRuntimeCoordinator(
+        facade =
+          FakeMobileRuntimeFacade(
+            readiness = readyReadiness(),
+            sessions = mutableListOf(session1, session2),
+          ),
+        persistence = FakeMobileRuntimePersistence(),
+      )
+
+    coordinator.refresh()
+
+    assertEquals(2, coordinator.state.resumableSessions.size)
+    assertTrue(
+      coordinator.state.resumableSessions.any { it.id == session1.id },
+      "Session history must include first session",
+    )
+    assertTrue(
+      coordinator.state.resumableSessions.any { it.id == session2.id },
+      "Session history must include second session",
+    )
+  }
+
+  @Test
+  fun `should expose only id title and isActive in session list — no memory content`() {
+    val session =
+      RuntimeSession(
+        id = RuntimeSessionId("550e8400-e29b-41d4-a716-446655440000"),
+        title = "My session",
+        isActive = false,
+      )
+    val coordinator =
+      MobileRuntimeCoordinator(
+        facade =
+          FakeMobileRuntimeFacade(readiness = readyReadiness(), sessions = mutableListOf(session)),
+        persistence = FakeMobileRuntimePersistence(),
+      )
+
+    coordinator.refresh()
+
+    val result = coordinator.state.resumableSessions.first()
+    // RuntimeSession only has id, title, isActive — no memory content, keys, or categories
+    assertEquals(session.id, result.id)
+    assertEquals(session.title, result.title)
+    assertEquals(session.isActive, result.isActive)
+  }
+
+  @Test
+  fun `should switch active session via resume and update coordinator state`() {
+    val targetSession =
+      RuntimeSession(
+        id = RuntimeSessionId("550e8400-e29b-41d4-a716-446655440000"),
+        title = "Target session",
+        isActive = false,
+      )
+    val coordinator =
+      MobileRuntimeCoordinator(
+        facade =
+          FakeMobileRuntimeFacade(
+            readiness = readyReadiness(),
+            sessions = mutableListOf(targetSession),
+          ),
+        persistence = FakeMobileRuntimePersistence(),
+      )
+
+    coordinator.refresh()
+    coordinator.resumeSession(targetSession.id)
+
+    assertEquals(
+      targetSession.id,
+      coordinator.state.activeSessionId,
+      "Active session must match the resumed session",
+    )
+    assertEquals(
+      MobileOnboardingStatus.SESSION_READY,
+      coordinator.state.bridgeSnapshot.toOnboardingState().status,
+      "Status must be SESSION_READY after switching sessions",
+    )
+  }
+
+  @Test
+  fun `should preserve session history after starting a new session`() {
+    val existingSession =
+      RuntimeSession(
+        id = RuntimeSessionId("550e8400-e29b-41d4-a716-446655440000"),
+        title = "Existing session",
+        isActive = false,
+      )
+    val newSession =
+      RuntimeSession(
+        id = RuntimeSessionId("123e4567-e89b-12d3-a456-426614174000"),
+        title = "New session",
+        isActive = true,
+      )
+    val coordinator =
+      MobileRuntimeCoordinator(
+        facade =
+          FakeMobileRuntimeFacade(
+            readiness = readyReadiness(),
+            sessions = mutableListOf(existingSession),
+            createSessionResult = newSession,
+          ),
+        persistence = FakeMobileRuntimePersistence(),
+      )
+
+    coordinator.refresh()
+    coordinator.startNewSession()
+
+    assertTrue(
+      coordinator.state.resumableSessions.any { it.id == existingSession.id },
+      "Existing session must remain in history after creating a new session",
+    )
+    assertTrue(
+      coordinator.state.resumableSessions.any { it.id == newSession.id },
+      "New session must appear in session history",
+    )
+    assertEquals(
+      newSession.id,
+      coordinator.state.activeSessionId,
+      "Active session must be the newly created session",
+    )
+  }
+
   private fun readyReadiness() =
     RuntimeReadinessSnapshot(
       runtimeAvailable = true,

@@ -126,6 +126,7 @@ private fun AppOnboardingContent(
 private fun AppChatContent(platform: Platform, bindings: ChatBindings) {
   var query by remember { mutableStateOf("") }
   var showConfig by rememberSaveable { mutableStateOf(false) }
+  var showSessionHistory by rememberSaveable { mutableStateOf(false) }
   ChatWorkspace(
     state = ChatWorkspaceDefaults.state(modelName = AGENT_NAME),
     content =
@@ -139,6 +140,7 @@ private fun AppChatContent(platform: Platform, bindings: ChatBindings) {
         activeSessionId = bindings.coordinatorState.activeSessionId?.value,
         query = query,
         showConfig = showConfig,
+        showSessionHistory = showSessionHistory,
       ),
     bridgeActions =
       BridgeActions(
@@ -152,7 +154,14 @@ private fun AppChatContent(platform: Platform, bindings: ChatBindings) {
       ),
     onSendMessage = bindings.onSendMessage,
     onQueryChange = { query = it },
-    onShowConfigChange = { showConfig = it },
+    onShowConfigChange = { value ->
+      showConfig = value
+      if (value) showSessionHistory = false
+    },
+    onShowSessionHistoryChange = { value ->
+      showSessionHistory = value
+      if (value) showConfig = false
+    },
   )
 }
 
