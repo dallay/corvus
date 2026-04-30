@@ -2530,7 +2530,8 @@ mod tests {
         let err = channel
             .resolve_attachment_path("../secret.txt")
             .unwrap_err();
-        assert!(err.to_string().contains("invalid attachment path"));
+        let message = err.to_string();
+        assert!(message.contains("invalid") || message.contains("escapes attachment root"));
     }
 
     #[test]

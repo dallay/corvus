@@ -13,17 +13,33 @@ class PlatformRuntimeDependenciesCommonTest {
   private val iosUnavailableMessage = iosCompanionUnavailableMessage()
 
   @Test
-  fun `should document the missing iOS companion infrastructure explicitly`() {
+  fun `should document only remaining iOS infrastructure gaps`() {
     val message = iosCompanionUnavailableMessage()
 
     IOS_COMPANION_MISSING_INFRASTRUCTURE.forEach { missingPiece ->
       assertTrue(message.contains(missingPiece), "Expected message to mention: $missingPiece")
     }
+    // Companion IPC transport client now exists; this item must no longer appear in diagnostics
+    assertFalse(
+      message.contains("no companion IPC transport client exists in this repository"),
+      "Companion IPC transport client has been implemented; it must not appear in the missing-infrastructure list",
+    )
     assertFalse(
       message.contains(
         "no Swift or Objective-C companion client has been installed into ComposeApp"
       ),
       "Concrete fallback client now exists; only transport blockers should remain in the message",
+    )
+  }
+
+  @Test
+  fun `should list only the Rust FFI bridge as missing infrastructure`() {
+    assertEquals(1, IOS_COMPANION_MISSING_INFRASTRUCTURE.size)
+    assertTrue(
+      IOS_COMPANION_MISSING_INFRASTRUCTURE.contains(
+        "no embedded Rust FFI bridge exists in this repository"
+      ),
+      "Rust FFI bridge is still absent and must be documented",
     )
   }
 
