@@ -88,7 +88,7 @@ Cerebro also exposes Prometheus-compatible operational metrics at `GET /metrics`
 
 | Metric | Type | Labels | Description |
 | --- | --- | --- | --- |
-| `cerebro_requests_total` | counter | `method`, `status` | Total MCP JSON-RPC requests by method (`tools/call`, `tools/list`, or `unknown`) and outcome (`ok` or `error`). |
+| `cerebro_requests_total` | counter | `method`, `status` | Total MCP JSON-RPC requests by canonical method (`tools.call`, `tools.list`, or `unknown`) and outcome (`ok` or `error`). |
 | `cerebro_tool_latency_seconds` | histogram | `tool`, `status` | Tool execution latency by MCP tool name and outcome (`ok` or `error`). |
 | `cerebro_auth_failures_total` | counter | none | Authentication failures for MCP requests. |
 | `cerebro_readiness_failures_total` | counter | none | Readiness probe failures returned by `/readyz`. |

@@ -55,9 +55,10 @@ pub fn init() {
     Lazy::force(&CEREBRO_READINESS_FAILURES_TOTAL);
     Lazy::force(&CEREBRO_STORAGE_ERRORS_TOTAL);
 
-    CEREBRO_REQUESTS_TOTAL.with_label_values(&["tools/call", "ok"]);
-    CEREBRO_REQUESTS_TOTAL.with_label_values(&["tools/call", "error"]);
-    CEREBRO_REQUESTS_TOTAL.with_label_values(&["tools/list", "ok"]);
+    CEREBRO_REQUESTS_TOTAL.with_label_values(&["tools.call", "ok"]);
+    CEREBRO_REQUESTS_TOTAL.with_label_values(&["tools.call", "error"]);
+    CEREBRO_REQUESTS_TOTAL.with_label_values(&["tools.list", "ok"]);
+    CEREBRO_REQUESTS_TOTAL.with_label_values(&["tools.list", "error"]);
     CEREBRO_REQUESTS_TOTAL.with_label_values(&["unknown", "error"]);
     CEREBRO_TOOL_LATENCY_SECONDS.with_label_values(&["unknown", "ok"]);
     CEREBRO_TOOL_LATENCY_SECONDS.with_label_values(&["unknown", "error"]);

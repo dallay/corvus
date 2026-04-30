@@ -288,7 +288,7 @@ Cerebro MUST expose Prometheus-compatible operational metrics so production oper
 
 The metrics surface MUST include:
 
-- `cerebro_requests_total` counter labeled by `method` and `status`.
+- `cerebro_requests_total` counter labeled by `method` and `status`, where `method` is bounded to canonical values (`tools.call`, `tools.list`, or `unknown`).
 - `cerebro_tool_latency_seconds` histogram labeled by `tool` and `status`.
 - `cerebro_auth_failures_total` counter with no labels.
 - `cerebro_readiness_failures_total` counter with no labels.

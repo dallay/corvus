@@ -2,7 +2,7 @@ use crate::config::CerebroConfig;
 use crate::errors::{CerebroError, CerebroErrorResponse};
 use crate::metrics;
 use crate::storage::{storage_from_config, Storage};
-use crate::tools::CerebroTools;
+use crate::tools::{CerebroTools, DEFERRED_TOOL_NAMES, IMPLEMENTED_TOOL_NAMES};
 use crate::tui::event_bus::{EventBus, ToolCallEvent, ToolCallEventKind};
 use crate::tui::redaction::RedactionPolicy;
 use axum::extract::{DefaultBodyLimit, State};
@@ -54,6 +54,22 @@ pub struct JsonRpcResponse {
 }
 
 const MAX_REQUEST_BODY_BYTES: usize = 1024 * 1024;
+
+fn request_method_label(method: &str) -> &'static str {
+    match method {
+        "tools/call" => "tools.call",
+        "tools/list" => "tools.list",
+        _ => "unknown",
+    }
+}
+
+fn tool_name_label(tool: &str) -> String {
+    if IMPLEMENTED_TOOL_NAMES.contains(&tool) || DEFERRED_TOOL_NAMES.contains(&tool) {
+        tool.to_string()
+    } else {
+        "unknown".to_string()
+    }
+}
 
 #[derive(Clone)]
 pub struct CerebroService {
@@ -110,7 +126,7 @@ impl CerebroService {
         let id = request.id.clone();
         if request.jsonrpc != "2.0" {
             metrics::CEREBRO_REQUESTS_TOTAL
-                .with_label_values(&["unknown", "error"])
+                .with_label_values(&[request_method_label(&request.method), "error"])
                 .inc();
             return JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
@@ -126,7 +142,7 @@ impl CerebroService {
 
         if request.method != "tools/call" && request.method != "tools/list" {
             metrics::CEREBRO_REQUESTS_TOTAL
-                .with_label_values(&[&request.method, "error"])
+                .with_label_values(&[request_method_label(&request.method), "error"])
                 .inc();
             return JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
@@ -142,7 +158,7 @@ impl CerebroService {
 
         if request.method == "tools/list" {
             metrics::CEREBRO_REQUESTS_TOTAL
-                .with_label_values(&["tools/list", "ok"])
+                .with_label_values(&[request_method_label(&request.method), "ok"])
                 .inc();
             let tools = self.tools.list_manifest();
             return JsonRpcResponse {
@@ -155,7 +171,7 @@ impl CerebroService {
 
         let Some(params) = request.params else {
             metrics::CEREBRO_REQUESTS_TOTAL
-                .with_label_values(&["tools/call", "error"])
+                .with_label_values(&[request_method_label(&request.method), "error"])
                 .inc();
             return JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
@@ -170,6 +186,7 @@ impl CerebroService {
         };
 
         let tool_name = params.name.clone();
+        let tool_label = tool_name_label(&tool_name);
         let request_id = request
             .id
             .as_str()
@@ -190,7 +207,7 @@ impl CerebroService {
                 Err(error) => {
                     metrics::CEREBRO_AUTH_FAILURES_TOTAL.inc();
                     metrics::CEREBRO_REQUESTS_TOTAL
-                        .with_label_values(&["tools/call", "error"])
+                        .with_label_values(&[request_method_label(&request.method), "error"])
                         .inc();
                     tracing::warn!(error = %error, "authorization failed");
                     return error_response(id, error);
@@ -231,10 +248,10 @@ impl CerebroService {
                     let elapsed = start.elapsed();
                     let duration_ms = elapsed.as_millis() as u64;
                     metrics::CEREBRO_REQUESTS_TOTAL
-                        .with_label_values(&["tools/call", "ok"])
+                        .with_label_values(&[request_method_label(&request.method), "ok"])
                         .inc();
                     metrics::CEREBRO_TOOL_LATENCY_SECONDS
-                        .with_label_values(&[&tool_name, "ok"])
+                        .with_label_values(&[tool_label.as_str(), "ok"])
                         .observe(elapsed.as_secs_f64());
                     let safe_output = self
                         .tools
@@ -266,10 +283,10 @@ impl CerebroService {
                     let elapsed = start.elapsed();
                     let duration_ms = elapsed.as_millis() as u64;
                     metrics::CEREBRO_REQUESTS_TOTAL
-                        .with_label_values(&["tools/call", "error"])
+                        .with_label_values(&[request_method_label(&request.method), "error"])
                         .inc();
                     metrics::CEREBRO_TOOL_LATENCY_SECONDS
-                        .with_label_values(&[&tool_name, "error"])
+                        .with_label_values(&[tool_label.as_str(), "error"])
                         .observe(elapsed.as_secs_f64());
                     let redacted_error = self.redaction.redact_text(&error.to_string());
                     self.event_bus.publish(ToolCallEvent {
