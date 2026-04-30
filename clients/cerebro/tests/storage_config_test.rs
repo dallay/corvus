@@ -102,6 +102,20 @@ fn validation_rejects_remote_surreal_mode() {
 }
 
 #[test]
+fn validation_rejects_remote_surreal_fallback() {
+    let config = CerebroConfig {
+        storage_fallback: cerebro::StorageFallback::RemoteSurreal,
+        ..base_config()
+    };
+    let error = config
+        .validate_storage()
+        .expect_err("remote surrealdb fallback should be rejected");
+    assert!(error
+        .to_string()
+        .contains("remote surrealdb storage fallback is not available in this build"));
+}
+
+#[test]
 fn embedded_requires_credentials() {
     let mut config = base_config();
     config.surreal.username = None;

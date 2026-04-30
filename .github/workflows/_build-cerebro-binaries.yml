@@ -92,7 +92,7 @@ jobs:
         working-directory: clients/cerebro
         run: cargo build --release --locked --target ${{ matrix.target }} --bin cerebro
 
-      - name: 🔎 Smoke test built binary (Linux real startup)
+      - name: 🔎 Smoke test built binary (Linux real startup, test-only storage)
         if: runner.os == 'Linux'
         working-directory: clients/cerebro
         env:
@@ -139,6 +139,9 @@ jobs:
           host = "127.0.0.1"
           port = ${CEREBRO_SMOKE_PORT}
           auth_token = "${CEREBRO_SMOKE_TOKEN}"
+          # CI smoke uses non-durable in_memory only as test scaffolding.
+          # Production durable support remains single-node/local-first with
+          # embedded_surreal as default and disk as a node-local alternative.
           storage_mode = "in_memory"
 
           [tui]

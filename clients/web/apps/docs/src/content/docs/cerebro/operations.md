@@ -18,18 +18,18 @@ troubleshooting.
 
 ## Storage Modes
 
-Cerebro supports multiple storage backends. Choose based on your
-durability and performance requirements.
+Cerebro's supported durable production posture in this build is single-node and local-first.
+Choose among the supported local modes based on your durability and operational needs.
 
-| Mode              | Persistence | Performance | Use Case               |
-|-------------------|-------------|-------------|------------------------|
-| Embedded SurrealDB | Durable     | High        | Production (default)   |
-| Disk              | Durable     | Moderate    | Simple file-based      |
-| In-Memory         | None        | Highest     | Testing only           |
+| Mode              | Persistence | Performance | Use Case                           |
+|-------------------|-------------|-------------|------------------------------------|
+| Embedded SurrealDB | Durable     | High        | Default supported production mode  |
+| Disk              | Durable     | Moderate    | Node-local durable alternative     |
+| In-Memory         | None        | Highest     | CI, development, testing only      |
 
 :::caution
-`remote_surreal` mode is defined but **not yet implemented**.
-Do not use it in production.
+`remote_surreal`, shared remote persistence, and HA multi-node durability are unsupported in this
+build. Do not present them as current production options.
 :::
 
 ### Embedded SurrealDB (Default)
@@ -72,7 +72,8 @@ storage_mode = "in_memory"
 ### Disk Mode
 
 Simple file-based persistence. Less performant than SurrealDB
-but simpler to manage.
+but simpler to manage. This remains a node-local durable
+alternative rather than a shared or HA storage mode.
 
 ```toml
 storage_mode = "disk"
@@ -81,7 +82,7 @@ storage_path = "/var/lib/cerebro/disk-data"
 
 ## Storage Fallback
 
-Configure a fallback backend if the primary fails to
+Configure a supported local fallback backend if the primary fails to
 initialize:
 
 ```toml
@@ -91,7 +92,8 @@ storage_fallback = "in_memory"
 
 This can keep Cerebro running even if the primary backend is
 unavailable. Persistence is lost only if the fallback backend
-does not offer persistence (e.g., `in_memory`).
+does not offer persistence (e.g., `in_memory`). `remote_surreal`
+is unsupported in this build and is not a production recovery path.
 
 ## TUI Dashboard
 
