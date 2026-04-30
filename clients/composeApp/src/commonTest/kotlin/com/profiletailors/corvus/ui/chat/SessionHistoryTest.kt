@@ -24,6 +24,20 @@ class SessionHistoryTest {
   }
 
   @Test
+  fun `should not truncate a session ID that is exactly at the limit`() {
+    val exactId = "12345678" // exactly SESSION_ID_TRUNCATE_LENGTH = 8 chars
+    val result = truncateSessionId(exactId)
+    assertEquals(exactId, result)
+  }
+
+  @Test
+  fun `should not truncate an empty session ID`() {
+    val emptyId = ""
+    val result = truncateSessionId(emptyId)
+    assertEquals("", result)
+  }
+
+  @Test
   fun `should display session title when present instead of truncated ID`() {
     val sessionWithTitle =
       RuntimeSession(
