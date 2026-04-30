@@ -3,8 +3,8 @@ package com.profiletailors.corvus.ui.chat
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -357,10 +357,7 @@ private fun SessionHistoryToggleButton(
   val activeBackground =
     remember(corvusColors.glowCyan) {
       Brush.linearGradient(
-        listOf(
-          corvusColors.glowCyan.copy(alpha = 0.4f),
-          corvusColors.glowCyan.copy(alpha = 0.2f),
-        )
+        listOf(corvusColors.glowCyan.copy(alpha = 0.4f), corvusColors.glowCyan.copy(alpha = 0.2f))
       )
     }
   val background = if (showSessionHistory) activeBackground else iconBackgroundBrush
@@ -383,9 +380,7 @@ private fun SessionHistoryToggleButton(
 private fun HistoryIcon(tint: Color, contentDescription: String?, modifier: Modifier = Modifier) {
   val semanticsModifier =
     if (contentDescription != null) {
-      modifier.then(
-        Modifier.semantics { this.contentDescription = contentDescription }
-      )
+      modifier.then(Modifier.semantics { this.contentDescription = contentDescription })
     } else {
       modifier
     }
@@ -455,10 +450,7 @@ fun SessionHistoryPanel(
               fontWeight = FontWeight.Bold,
               color = MaterialTheme.colorScheme.onSurface,
             )
-            GradientButton(
-              text = "New Session",
-              onClick = onNewSession,
-            )
+            GradientButton(text = "New Session", onClick = onNewSession)
           }
         }
 
@@ -488,15 +480,10 @@ fun SessionHistoryPanel(
 }
 
 @Composable
-private fun SessionHistoryItem(
-  session: RuntimeSession,
-  isActive: Boolean,
-  onSwitch: () -> Unit,
-) {
+private fun SessionHistoryItem(session: RuntimeSession, isActive: Boolean, onSwitch: () -> Unit) {
   val corvusColors = CorvusTheme.colors
   val borderColor =
-    if (isActive) corvusColors.glowCyan.copy(alpha = 0.6f)
-    else corvusColors.glassOverlay
+    if (isActive) corvusColors.glowCyan.copy(alpha = 0.6f) else corvusColors.glassOverlay
 
   Surface(
     shape = RoundedCornerShape(14.dp),
@@ -516,8 +503,7 @@ private fun SessionHistoryItem(
           text = session.title ?: truncateSessionId(session.id.value),
           style = MaterialTheme.typography.bodyMedium,
           fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-          color =
-            if (isActive) corvusColors.glowCyan else MaterialTheme.colorScheme.onSurface,
+          color = if (isActive) corvusColors.glowCyan else MaterialTheme.colorScheme.onSurface,
         )
         if (isActive) {
           Text(
