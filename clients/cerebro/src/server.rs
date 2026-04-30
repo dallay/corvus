@@ -168,7 +168,6 @@ impl CerebroService {
             .as_str()
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| request.id.to_string());
-        let start = Instant::now();
         let span = tracing::info_span!(
             "cerebro_mcp_request",
             request_id = %request_id,
@@ -253,14 +252,14 @@ impl CerebroService {
             let tool_start = Instant::now();
             match self.tools.handle(&tool_name, params.arguments, &auth_context).await {
                 Ok(output) => {
-                    let elapsed = start.elapsed();
+                    let elapsed = tool_start.elapsed();
                     let duration_ms = elapsed.as_millis() as u64;
                     metrics::CEREBRO_REQUESTS_TOTAL
                         .with_label_values(&[request_method_label(&request.method), "ok"])
                         .inc();
                     metrics::CEREBRO_TOOL_LATENCY_SECONDS
                         .with_label_values(&[tool_label.as_str(), "ok"])
-                        .observe(tool_start.elapsed().as_secs_f64());
+                        .observe(elapsed.as_secs_f64());
                     let safe_output = self
                         .tools
                         .extract_safe_output(&tool_name, &output)
@@ -288,14 +287,14 @@ impl CerebroService {
                     }
                 }
                 Err(error) => {
-                    let elapsed = start.elapsed();
+                    let elapsed = tool_start.elapsed();
                     let duration_ms = elapsed.as_millis() as u64;
                     metrics::CEREBRO_REQUESTS_TOTAL
                         .with_label_values(&[request_method_label(&request.method), "error"])
                         .inc();
                     metrics::CEREBRO_TOOL_LATENCY_SECONDS
                         .with_label_values(&[tool_label.as_str(), "error"])
-                        .observe(tool_start.elapsed().as_secs_f64());
+                        .observe(elapsed.as_secs_f64());
                     let redacted_error = self.redaction.redact_text(&error.to_string());
                     self.event_bus.publish(ToolCallEvent {
                         kind: ToolCallEventKind::Failed,
