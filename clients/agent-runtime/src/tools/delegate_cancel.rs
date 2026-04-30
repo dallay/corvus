@@ -252,9 +252,9 @@ mod tests {
 
     #[tokio::test]
     async fn returns_not_found_for_unknown_handle() {
-        let t = tool(service());
+        let t = tool(Arc::new(SupervisedOrchestrationService::new()));
         let result = t
-            .execute(serde_json::json!({ "handle": "ghost-handle" }))
+            .execute(serde_json::json!({ "handle": "does-not-exist" }))
             .await
             .unwrap();
         assert!(!result.success);
@@ -262,7 +262,27 @@ mod tests {
             .error
             .as_deref()
             .unwrap_or("")
-            .contains("ghost-handle"));
+            .contains("does-not-exist"));
+    }
+
+    #[tokio::test]
+    async fn cancel_rejects_non_handle_approval_style_payloads() {
+        let t = tool(Arc::new(SupervisedOrchestrationService::new()));
+        let result = t
+            .execute(serde_json::json!({
+                "handle": "approval-1",
+                "approval_request_id": "approval-1",
+                "action": "approve"
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("No orchestration run found"));
     }
 
     #[tokio::test]

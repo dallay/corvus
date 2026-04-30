@@ -239,6 +239,16 @@ mod tests {
     }
 
     #[test]
+    fn registry_from_tools_preserves_canonical_and_alias_metadata_without_duplicate_entries() {
+        let registry = build_registry_from_tools(&[Box::new(NativeTestTool)]).unwrap();
+
+        assert_eq!(registry.len(), 1);
+        let descriptor = registry.get("shell").expect("descriptor present");
+        assert_eq!(descriptor.id, "shell");
+        assert_eq!(descriptor.metadata.aliases, vec!["sh"]);
+    }
+
+    #[test]
     fn builds_mcp_tool_descriptor_with_canonical_metadata() {
         let server = test_server("docs");
         let adapter = McpToolAdapter::from_manifest(

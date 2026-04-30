@@ -780,7 +780,14 @@ impl Agent {
             tracing::debug!(tool = %call.name, "Agent executing MCP tool call");
         }
 
-        let Some(tool) = self.tools.iter().find(|tool| tool.name() == call.name) else {
+        let Some(tool) = self.tools.iter().find(|tool| {
+            if tool.name() == call.name {
+                return true;
+            }
+
+            let spec = tool.spec();
+            spec.aliases.iter().any(|alias| alias == &call.name)
+        }) else {
             return self.finalize_tool_execution(
                 call,
                 start.elapsed(),

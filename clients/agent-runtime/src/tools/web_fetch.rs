@@ -168,7 +168,10 @@ impl Tool for WebFetchTool {
             description: self.description().to_string(),
             parameters: self.parameters_schema(),
             source: None,
-            aliases: vec!["web_fetch".to_string()],
+            aliases: super::parity_alias_for(self.name())
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
         }
     }
 

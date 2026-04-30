@@ -179,7 +179,7 @@ The system MUST NOT silently fall back from a requested remote bridge session to
 - GIVEN a bridge request is structurally valid but targets a capability not yet delivered in the
   current runtime context
 - WHEN the runtime evaluates the request
-- THEN the runtime MUST return a fail-closed non-admitted outcome
+- THEN the system MUST return a fail-closed non-admitted outcome
 - AND the outcome MUST indicate that the capability is deferred or unavailable rather than pretending
   the session is active.
 

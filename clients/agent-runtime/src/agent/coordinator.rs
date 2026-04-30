@@ -202,52 +202,19 @@ impl std::fmt::Display for LaunchContractRejection {
     }
 }
 
-fn enforced_execution_guarantees(
+fn bind_local_isolation_contract(
     requested: &NormalizedExecutionRequest,
-) -> EnforcedExecutionGuarantees {
-    EnforcedExecutionGuarantees {
-        transport: match requested.transport {
-            CoordinatorTransport::Mailbox => CoordinatorTransport::Mailbox,
-            CoordinatorTransport::InProcess | CoordinatorTransport::RemoteBridge => {
-                CoordinatorTransport::InProcess
-            }
-        },
-        process_local_handle_authority: true,
-        mailbox_backed_delivery: requested.transport == CoordinatorTransport::Mailbox,
-        repository_isolation_enforced: false,
-        worktree_isolation_enforced: false,
-        sandbox_clone_enforced: false,
-        remote_bridge_connected: false,
-        approval_broker_mode: ApprovalBrokerMode::ParentOwnedOnly,
-    }
-}
-
-fn normalize_execution_metadata(
-    spec: Option<&ChildExecutionSpec>,
-) -> Result<Option<ChildExecutionMetadataView>, LaunchContractRejection> {
-    let Some(spec) = spec else {
-        return Ok(None);
-    };
-
-    let requested = NormalizedExecutionRequest::from(spec);
-
+) -> Result<EnforcedExecutionGuarantees, LaunchContractRejection> {
     if requested.transport == CoordinatorTransport::RemoteBridge {
         return Err(LaunchContractRejection::UnsupportedTransport {
             requested: CoordinatorTransport::RemoteBridge,
         });
     }
 
-    if let Some(repository_id) = &requested.repository_id {
-        return Err(LaunchContractRejection::UnsupportedIsolation {
-            field: "repository_id".to_string(),
-            requested: repository_id.clone(),
-        });
-    }
-
-    if let Some(worktree_id) = &requested.worktree_id {
+    if requested.repository_id.is_none() && requested.worktree_id.is_some() {
         return Err(LaunchContractRejection::UnsupportedIsolation {
             field: "worktree_id".to_string(),
-            requested: worktree_id.clone(),
+            requested: requested.worktree_id.clone().unwrap_or_default(),
         });
     }
 
@@ -273,9 +240,36 @@ fn normalize_execution_metadata(
         }
     }
 
+    Ok(EnforcedExecutionGuarantees {
+        transport: match requested.transport {
+            CoordinatorTransport::Mailbox => CoordinatorTransport::Mailbox,
+            CoordinatorTransport::InProcess | CoordinatorTransport::RemoteBridge => {
+                CoordinatorTransport::InProcess
+            }
+        },
+        process_local_handle_authority: true,
+        mailbox_backed_delivery: requested.transport == CoordinatorTransport::Mailbox,
+        repository_isolation_enforced: requested.repository_id.is_some(),
+        worktree_isolation_enforced: requested.worktree_id.is_some(),
+        sandbox_clone_enforced: false,
+        remote_bridge_connected: false,
+        approval_broker_mode: ApprovalBrokerMode::ParentOwnedOnly,
+    })
+}
+
+fn normalize_execution_metadata(
+    spec: Option<&ChildExecutionSpec>,
+) -> Result<Option<ChildExecutionMetadataView>, LaunchContractRejection> {
+    let Some(spec) = spec else {
+        return Ok(None);
+    };
+
+    let requested = NormalizedExecutionRequest::from(spec);
+    let enforced = bind_local_isolation_contract(&requested)?;
+
     Ok(Some(ChildExecutionMetadataView {
-        enforced: enforced_execution_guarantees(&requested),
         requested,
+        enforced,
     }))
 }
 
@@ -3209,6 +3203,8 @@ mod tests {
                 ChildExecutionSpec {
                     transport: Some(CoordinatorTransport::Mailbox),
                     sandbox_mode: Some("workspace_write".to_string()),
+                    repository_id: Some("repo-1".to_string()),
+                    worktree_id: Some("wt-1".to_string()),
                     tool_allowlist: vec!["read".to_string()],
                     provider_override: Some("anthropic".to_string()),
                     model_override: Some("claude".to_string()),
@@ -3229,8 +3225,8 @@ mod tests {
         assert_eq!(metadata.enforced.transport, CoordinatorTransport::Mailbox);
         assert!(metadata.enforced.process_local_handle_authority);
         assert!(metadata.enforced.mailbox_backed_delivery);
-        assert!(!metadata.enforced.repository_isolation_enforced);
-        assert!(!metadata.enforced.worktree_isolation_enforced);
+        assert!(metadata.enforced.repository_isolation_enforced);
+        assert!(metadata.enforced.worktree_isolation_enforced);
         assert!(!metadata.enforced.sandbox_clone_enforced);
         assert!(!metadata.enforced.remote_bridge_connected);
         assert_eq!(
@@ -3241,10 +3237,72 @@ mod tests {
             metadata.requested.sandbox_mode.as_deref(),
             Some("workspace_write")
         );
+        assert_eq!(metadata.requested.repository_id.as_deref(), Some("repo-1"));
+        assert_eq!(metadata.requested.worktree_id.as_deref(), Some("wt-1"));
+        assert_eq!(metadata.requested.tool_allowlist, vec!["read"]);
+        assert_eq!(
+            metadata.requested.provider_override.as_deref(),
+            Some("anthropic")
+        );
+        assert_eq!(metadata.requested.model_override.as_deref(), Some("claude"));
         assert_eq!(
             metadata.requested.working_directory.as_deref(),
             Some("/tmp/project")
         );
+        assert!(metadata.requested.read_only_project_access);
+    }
+
+    #[test]
+    fn admit_child_rejects_worktree_without_repository_fail_closed() {
+        let coordinator = Coordinator::new();
+        let error = coordinator
+            .admit_child(&child_with_execution(
+                "child-a",
+                0,
+                ChildExecutionSpec {
+                    transport: Some(CoordinatorTransport::Mailbox),
+                    worktree_id: Some("wt-1".to_string()),
+                    ..ChildExecutionSpec::default()
+                },
+            ))
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoordinatorError::LaunchContractRejected(LaunchContractRejection::UnsupportedIsolation {
+                field,
+                requested
+            }) if field == "worktree_id" && requested == "wt-1"
+        ));
+    }
+
+    #[test]
+    fn admit_child_applies_same_repository_and_worktree_contract_for_in_process_transport() {
+        let coordinator = Coordinator::new();
+        coordinator
+            .admit_child(&child_with_execution(
+                "child-in-process",
+                0,
+                ChildExecutionSpec {
+                    transport: Some(CoordinatorTransport::InProcess),
+                    repository_id: Some("repo-1".to_string()),
+                    worktree_id: Some("wt-1".to_string()),
+                    read_only_project_access: true,
+                    ..ChildExecutionSpec::default()
+                },
+            ))
+            .unwrap();
+
+        let record = coordinator
+            .child_record(&ChildAgentId("child-in-process".to_string()))
+            .unwrap()
+            .unwrap();
+        let metadata = record.execution.expect("normalized execution metadata");
+
+        assert_eq!(metadata.enforced.transport, CoordinatorTransport::InProcess);
+        assert!(!metadata.enforced.mailbox_backed_delivery);
+        assert!(metadata.enforced.repository_isolation_enforced);
+        assert!(metadata.enforced.worktree_isolation_enforced);
         assert!(metadata.requested.read_only_project_access);
     }
 
@@ -3277,21 +3335,21 @@ mod tests {
     fn admit_child_rejects_unsupported_isolation_requests_fail_closed() {
         let coordinator = Coordinator::new();
 
-        let repository_error = coordinator
+        let malformed_worktree_error = coordinator
             .admit_child(&child_with_execution(
                 "child-a",
                 0,
                 ChildExecutionSpec {
-                    repository_id: Some("repo-1".to_string()),
+                    worktree_id: Some("wt-1".to_string()),
                     ..ChildExecutionSpec::default()
                 },
             ))
             .unwrap_err();
         assert!(matches!(
-            repository_error,
+            malformed_worktree_error,
             CoordinatorError::LaunchContractRejected(
                 LaunchContractRejection::UnsupportedIsolation { field, requested }
-            ) if field == "repository_id" && requested == "repo-1"
+            ) if field == "worktree_id" && requested == "wt-1"
         ));
 
         let sandbox_error = coordinator
@@ -3605,6 +3663,28 @@ mod tests {
     }
 
     #[test]
+    fn coordinator_summary_is_running_when_work_can_still_progress_without_parent_action() {
+        let child = ChildLifecycleView {
+            child_id: "child-running".to_string(),
+            agent_name: "AgentRunning".to_string(),
+            launch_index: 0,
+            session_id: None,
+            state: ChildStateView::Running,
+            progress_state: ChildProgressStateView::Running,
+            execution: None,
+            approval: ApprovalStatus::None,
+            summary: Some("still making progress".to_string()),
+            blocking_details: None,
+            terminal_reason: None,
+        };
+
+        let summary =
+            derive_coordinator_summary_state(&CoordinatorStateView::Supervising, &[child]);
+
+        assert_eq!(summary, CoordinatorSummaryStateView::Running);
+    }
+
+    #[test]
     fn coordinator_summary_is_blocked_for_any_surfaced_parent_action_condition() {
         let child = ChildLifecycleView {
             child_id: "child-a".to_string(),
@@ -3625,6 +3705,67 @@ mod tests {
                     "Parent must relaunch with supported constraints or cancel the child"
                         .to_string(),
                 ),
+            }),
+            terminal_reason: None,
+        };
+
+        let summary =
+            derive_coordinator_summary_state(&CoordinatorStateView::Supervising, &[child]);
+
+        assert_eq!(summary, CoordinatorSummaryStateView::Blocked);
+    }
+
+    #[test]
+    fn coordinator_summary_maps_terminal_and_cancelling_states_directly() {
+        let children = [ChildLifecycleView {
+            child_id: "child-any".to_string(),
+            agent_name: "AgentAny".to_string(),
+            launch_index: 0,
+            session_id: None,
+            state: ChildStateView::Running,
+            progress_state: ChildProgressStateView::Running,
+            execution: None,
+            approval: ApprovalStatus::None,
+            summary: None,
+            blocking_details: None,
+            terminal_reason: None,
+        }];
+
+        assert_eq!(
+            derive_coordinator_summary_state(&CoordinatorStateView::Cancelling, &children),
+            CoordinatorSummaryStateView::Cancelling
+        );
+        assert_eq!(
+            derive_coordinator_summary_state(&CoordinatorStateView::Completed, &children),
+            CoordinatorSummaryStateView::Succeeded
+        );
+        assert_eq!(
+            derive_coordinator_summary_state(&CoordinatorStateView::Failed, &children),
+            CoordinatorSummaryStateView::Failed
+        );
+        assert_eq!(
+            derive_coordinator_summary_state(&CoordinatorStateView::Cancelled, &children),
+            CoordinatorSummaryStateView::Cancelled
+        );
+    }
+
+    #[test]
+    fn coordinator_summary_is_blocked_for_approval_needed_children() {
+        let child = ChildLifecycleView {
+            child_id: "child-approval".to_string(),
+            agent_name: "AgentApproval".to_string(),
+            launch_index: 0,
+            session_id: None,
+            state: ChildStateView::WaitingOnParent,
+            progress_state: ChildProgressStateView::ApprovalNeeded,
+            execution: None,
+            approval: ApprovalStatus::None,
+            summary: Some("awaiting parent approval".to_string()),
+            blocking_details: Some(ChildBlockingDetailsView {
+                reason_code: "parent_approval_required".to_string(),
+                message: "Child requires parent approval".to_string(),
+                parent_action_required: true,
+                next_action_hint: Some("Parent must approve or deny the request".to_string()),
             }),
             terminal_reason: None,
         };

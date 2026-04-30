@@ -44,6 +44,30 @@ pub(crate) mod url_safety;
 pub mod web_fetch;
 pub mod web_search_tool;
 
+pub const PARITY_TOOL_ALIASES: &[(&str, &str)] = &[
+    ("Glob", "glob"),
+    ("Grep", "grep"),
+    ("WebFetch", "web_fetch"),
+    ("TaskCreate", "task_create"),
+    ("TaskGet", "task_get"),
+    ("TaskList", "task_list"),
+    ("TaskUpdate", "task_update"),
+    ("TaskStop", "task_stop"),
+];
+
+pub fn parity_alias_for(canonical_name: &str) -> Option<&'static str> {
+    PARITY_TOOL_ALIASES
+        .iter()
+        .find_map(|(canonical, alias)| (*canonical == canonical_name).then_some(*alias))
+}
+
+pub fn canonical_tool_name_for_alias(name: &str) -> &str {
+    PARITY_TOOL_ALIASES
+        .iter()
+        .find_map(|(canonical, alias)| (*alias == name).then_some(*canonical))
+        .unwrap_or(name)
+}
+
 #[cfg(test)]
 pub(crate) mod test_helpers {
     use crate::memory::SqliteMemory;
@@ -720,6 +744,18 @@ mod tests {
             assert_eq!(spec.description, tool.description());
             assert!(spec.parameters.is_object());
         }
+    }
+
+    #[test]
+    fn parity_alias_mapping_round_trips() {
+        assert_eq!(parity_alias_for("Glob"), Some("glob"));
+        assert_eq!(parity_alias_for("TaskUpdate"), Some("task_update"));
+        assert_eq!(canonical_tool_name_for_alias("glob"), "Glob");
+        assert_eq!(canonical_tool_name_for_alias("task_update"), "TaskUpdate");
+        assert_eq!(
+            canonical_tool_name_for_alias("unknown_tool"),
+            "unknown_tool"
+        );
     }
 
     #[test]

@@ -1568,6 +1568,25 @@ mod tests {
     }
 
     #[test]
+    fn tool_specs_convert_to_openai_format_do_not_publish_aliases_as_duplicate_tools() {
+        let specs = vec![crate::tools::ToolSpec {
+            name: "WebFetch".to_string(),
+            description: "Fetch web content".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {"url": {"type": "string"}, "prompt": {"type": "string"}},
+                "required": ["url", "prompt"]
+            }),
+            source: None,
+            aliases: vec!["web_fetch".to_string()],
+        }];
+
+        let tools = OpenAiCompatibleProvider::tool_specs_to_openai_format(&specs);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["function"]["name"], "WebFetch");
+    }
+
+    #[test]
     fn request_serializes_with_tools() {
         let tools = vec![serde_json::json!({
             "type": "function",

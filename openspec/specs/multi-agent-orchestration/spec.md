@@ -636,3 +636,289 @@ repository-per-agent execution isolation as delivered guarantees for this slice.
   authority reconstruction after parent loss
 - THEN the runtime MUST reject that authority reconstruction path
 - AND the system MUST keep live parent-owned orchestration state as the authoritative source.
+
+### Requirement: Parent-Visible Coordinator Lifecycle Summary
+
+The runtime MUST expose a parent-visible coordinator lifecycle summary for every orchestration handle
+owned by the current live parent runtime context. This summary MUST present the current aggregate run
+state as a deterministic operator-facing view rather than requiring the parent to infer overall
+status from individual child records alone.
+
+At minimum, the coordinator lifecycle summary MUST distinguish whether the run is actively running,
+blocked pending parent action, cancelling, terminally succeeded, terminally failed, or terminally
+cancelled. A blocked summary state MUST be reserved for live runs that cannot make forward progress
+without a parent-owned decision or another explicitly surfaced blocking condition.
+
+The summary MUST remain derived from the live parent-owned orchestration authority rather than from
+mailbox contents alone.
+
+#### Scenario: Parent sees aggregate blocked state without inspecting raw child transitions
+
+- GIVEN a live orchestration run has one or more children that cannot make forward progress because a
+  parent-owned approval or other surfaced blocking condition is outstanding
+- WHEN the parent inspects the run by orchestration handle
+- THEN the inspection result MUST report the coordinator lifecycle summary as blocked
+- AND the parent MUST NOT need to infer that blocked condition solely by reconstructing mailbox or
+  per-child event details.
+
+#### Scenario: Aggregate summary remains running while work can still progress
+
+- GIVEN a live orchestration run has active children and no surfaced blocking condition requiring
+  parent intervention
+- WHEN the parent inspects the run by orchestration handle
+- THEN the inspection result MUST report the coordinator lifecycle summary as running
+- AND the runtime MUST NOT report the run as blocked merely because not all children are terminal
+  yet.
+
+### Requirement: Approval-Needed and Blocked Child Visibility
+
+When a supervised child is prevented from progressing because additional parent-owned approval,
+unsupported elevation, or another surfaced blocking condition applies, inspection MUST expose that
+condition on the affected child record using a stable, parent-readable state or reason contract.
+
+This slice MUST distinguish an approval-needed or blocked child from a child that is merely queued,
+running, cancelling, failed, cancelled, or successfully completed. The inspection result MUST
+preserve parent-owned authority: child visibility MAY explain what is needed next, but it MUST NOT
+imply that the child can satisfy the approval or escalation on its own.
+
+#### Scenario: Inspection identifies exactly which child requires approval
+
+- GIVEN a parent-owned orchestration run contains multiple supervised children
+- AND one child has encountered a condition requiring parent-owned approval before it can continue
+- WHEN the parent inspects the run
+- THEN the inspection result MUST identify that specific child as approval-needed or equivalently
+  blocked by approval
+- AND unaffected children MUST retain their own distinct lifecycle states.
+
+#### Scenario: Unsupported escalation remains parent-visible but not child-authorized
+
+- GIVEN a child request would require an unsupported escalation or brokered capability under this
+  slice
+- WHEN the runtime surfaces that condition through inspection
+- THEN the affected child record MUST indicate the blocking reason in a parent-readable form
+- AND the system MUST NOT represent the child as having authority to complete that escalation on its
+  own.
+
+### Requirement: Blocking Reason and Next-Action Visibility
+
+For every blocked orchestration summary or blocked child record, the runtime MUST expose a stable,
+parent-readable reason describing why forward progress is currently prevented. When the next required
+step is parent-owned and known, inspection MUST also expose a normalized next-action hint that stays
+within the delivered local contract.
+
+The reason and next-action visibility in this slice MUST remain descriptive rather than imperative.
+It MAY indicate examples such as approval required, unsupported escalation, or unmet local contract
+constraint, but it MUST NOT claim that deferred transport, remote bridge, or stronger isolation
+capabilities are available to satisfy the condition.
+
+#### Scenario: Blocked inspection exposes a parent-actionable reason
+
+- GIVEN a live orchestration run is blocked because one child requires a parent-owned approval
+  decision
+- WHEN the parent inspects the run
+- THEN the inspection result MUST expose a blocking reason that identifies approval as the cause
+- AND the inspection result MUST expose a parent-readable next-action hint consistent with the local
+  orchestration contract.
+
+#### Scenario: Inspection does not fabricate unsupported remediation paths
+
+- GIVEN a live orchestration run is blocked by a request for a deferred capability such as stronger
+  isolation or remote bridge transport
+- WHEN the parent inspects the run
+- THEN the inspection result MUST report that blocking reason accurately
+- AND the runtime MUST NOT suggest that an unavailable remote bridge or isolation capability can be
+  completed within this slice.
+
+### Requirement: Deterministic Parent Inspection Narrative
+
+Repeated inspection of the same live orchestration run MUST produce a deterministic parent-readable
+narrative of run state, child state, and blocking conditions consistent with the same applied logical
+events. Duplicate mailbox delivery, different poll timing, or repeated inspection requests MUST NOT
+cause contradictory blocked-versus-running views for the same underlying coordinator state.
+
+When the underlying coordinator state has not changed, aggregate summary, blocking reasons,
+affected-child identities, and terminal child records MUST remain stable across repeated inspection.
+
+#### Scenario: Repeated inspection preserves the same blocked narrative
+
+- GIVEN a live orchestration run is blocked on a known parent-owned approval condition
+- AND no new logical lifecycle event has changed that condition
+- WHEN the parent inspects the run multiple times
+- THEN the aggregate summary, blocking reason, and affected child identity MUST remain the same
+- AND duplicate mailbox delivery or polling cadence MUST NOT produce conflicting inspection views.
+
+#### Scenario: Duplicate delivery does not create extra blocked children
+
+- GIVEN a valid child lifecycle envelope has already been applied for a supervised child in a blocked
+  orchestration run
+- WHEN that same logical envelope is re-delivered through at-least-once mailbox semantics
+- THEN the inspection result MUST preserve the same set of blocked and non-blocked child records as
+  before
+- AND the runtime MUST NOT surface a duplicate blocked child entry or a second conflicting state for
+  the same child.
+
+### Requirement: Coordinator UX Slice Boundaries
+
+This slice MUST remain limited to parent-visible lifecycle/read-model semantics for local
+orchestration. It MUST NOT be treated as delivery of remote bridge lifecycle UX, cross-process
+reattachment, mailbox-backed historical replay, child-owned approval completion, or richer isolation
+enforcement.
+
+This slice MAY define the state vocabulary and parent-readable structure needed by future UI
+surfaces, but it MUST NOT require a specific terminal, dashboard, or chat presentation.
+
+#### Scenario: Local coordinator UX does not imply remote bridge visibility
+
+- GIVEN an orchestration request or inspection expectation depends on remote bridge child execution or
+  remote session lifecycle visibility
+- WHEN that expectation is evaluated under this slice
+- THEN the system MUST treat that visibility as out of scope for this slice
+- AND the local coordinator UX contract MUST NOT claim that remote bridge inspection is delivered.
+
+#### Scenario: Read-model slice does not imply enforced isolation
+
+- GIVEN a parent inspects a child’s requested execution metadata while using the richer coordinator
+  lifecycle view
+- WHEN the runtime reports the child’s current state and blocking conditions
+- THEN the inspection result MAY describe requested local execution attributes
+- AND the system MUST NOT imply that stronger isolation guarantees are enforced unless another slice
+  explicitly delivers them.
+
+### Requirement: Enforceable Local Execution Isolation Contract
+
+For any child execution request the runtime accepts under delivered local Track 4 transports, the
+runtime MUST enforce a concrete local execution isolation contract rather than treating repository,
+worktree, and access constraints as advisory metadata only.
+
+At minimum, when those fields are part of an accepted child contract, the runtime MUST bind the
+child to the accepted local repository identity, accepted local worktree identity if one is required
+for that mode, and the accepted read-only versus writable project access posture. If the runtime
+cannot enforce the accepted local contract for a requested child, it MUST reject the launch rather
+than silently admitting the child with weaker guarantees.
+
+#### Scenario: Accepted local child remains bound to enforced repository and worktree scope
+
+- GIVEN a parent launches a child through a delivered local transport with an accepted repository and
+  worktree contract
+- WHEN the runtime admits that child into the orchestration run
+- THEN the runtime MUST enforce that the child executes within that accepted local repository and
+  worktree scope
+- AND the system MUST NOT silently allow the child to execute against a different repository or
+  worktree context.
+
+#### Scenario: Launch is rejected when local isolation cannot be enforced
+
+- GIVEN a child launch request asks for a local repository, worktree, or access posture that the
+  runtime cannot actually enforce in the current live context
+- WHEN the runtime evaluates the request
+- THEN the runtime MUST reject the launch
+- AND the system MUST NOT silently continue with weaker or unspecified local isolation.
+
+### Requirement: Requested Versus Enforced Local Isolation Visibility
+
+Inspection for an accepted local child MUST distinguish between the isolation attributes originally
+requested by the parent and the local isolation guarantees actually enforced by the runtime. The
+system MUST present enforced local isolation as its own authoritative contract state rather than
+forcing the parent to infer enforcement from request echoes alone.
+
+If a requested isolation-related attribute was preserved for traceability but not delivered as an
+enforced guarantee in this slice, inspection MUST make that distinction explicit and MUST NOT present
+that requested attribute as currently enforced behavior.
+
+#### Scenario: Inspection shows enforced local access posture distinctly from request metadata
+
+- GIVEN a parent launches an accepted local child with isolation-related request metadata
+- WHEN the parent later inspects that orchestration run
+- THEN the inspection result MUST distinguish the child’s requested local isolation attributes from
+  the local guarantees actually enforced for that child
+- AND the enforced access posture MUST be visible without relying on request payload reconstruction.
+
+#### Scenario: Deferred stronger isolation is not misreported as enforced
+
+- GIVEN a parent requested stronger isolation characteristics that this slice still treats as deferred
+  or unsupported
+- WHEN the parent inspects the resulting launch rejection or accepted child record
+- THEN the inspection or launch outcome MUST clearly indicate whether those characteristics were
+  rejected, deferred, or merely requested
+- AND the system MUST NOT misreport them as enforced local guarantees.
+
+### Requirement: No Silent Local Isolation Downgrade
+
+The runtime MUST fail closed when a child request asks for a local isolation guarantee that exceeds
+what the delivered local Track 4 contract can enforce. The system MUST NOT silently drop requested
+repository/worktree/access constraints, silently convert writable access into broader access, or
+silently substitute a less isolated local execution mode.
+
+This prohibition applies equally to in-process local children and mailbox-backed local children. A
+change in delivery path MUST NOT become a reason to weaken accepted local isolation semantics.
+
+#### Scenario: Mailbox-backed child does not receive weaker isolation by transport choice alone
+
+- GIVEN two child requests ask for the same accepted local isolation contract
+- AND one child is launched through `in_process` transport while the other is launched through
+  mailbox-backed local transport
+- WHEN both launches are accepted
+- THEN the runtime MUST preserve the same local isolation semantics for both children where the
+  contract says they are delivered
+- AND mailbox-backed transport alone MUST NOT justify a weaker local isolation guarantee.
+
+#### Scenario: Unsupported stronger local mode is rejected without fallback
+
+- GIVEN a child request asks for a stronger local isolation mode than this slice delivers
+- WHEN the runtime evaluates that request
+- THEN the runtime MUST reject the request as unsupported or unenforceable
+- AND the system MUST NOT silently fall back to a broader shared local execution context.
+
+### Requirement: Local Isolation Verification and Regression Coverage
+
+The system MUST include targeted verification or regression coverage for the enforceable local
+isolation contract added by this slice. At minimum, coverage MUST exercise accepted local binding to
+repository/worktree/access constraints where delivered, launch rejection when those guarantees cannot
+be enforced, inspection visibility for requested versus enforced isolation, and prevention of silent
+downgrade across local transport modes.
+
+The regression suite MUST be specific enough to detect a future change that broadens child execution
+scope beyond the accepted local contract, hides the distinction between requested and enforced
+isolation, or weakens rejection behavior for unsupported stronger modes.
+
+#### Scenario: Regression suite catches silent isolation downgrade
+
+- GIVEN a code change causes a child request with enforceable local isolation constraints to be
+  admitted under weaker effective local scope than the contract allows
+- WHEN the regression suite is executed
+- THEN at least one targeted test MUST fail
+- AND the failure MUST identify that local isolation downgrade behavior was violated.
+
+#### Scenario: Regression suite catches missing requested-versus-enforced distinction
+
+- GIVEN a code change causes inspection to report requested local isolation metadata as though it were
+  enforced runtime state
+- WHEN the regression suite is executed
+- THEN at least one targeted test MUST fail
+- AND the failure MUST identify that requested-versus-enforced visibility behavior was violated.
+
+### Requirement: Local Isolation Slice Boundaries
+
+This slice MUST remain limited to enforceable local isolation guarantees for delivered Track 4 child
+execution. It MUST NOT be treated as delivery of repository cloning, worktree cloning, sandbox
+cloning, repository-per-agent execution, remote bridge isolation, reconnect/resume, or durable
+authority reconstruction after parent loss.
+
+The runtime MAY enforce a narrower local contract in this slice than the full Claude Code parity
+vision, but it MUST state that narrower contract honestly and fail closed for anything stronger.
+
+#### Scenario: Enforced local contract does not imply cloned repository isolation
+
+- GIVEN a parent inspects an accepted local child with enforced repository and access constraints
+- WHEN the parent evaluates that result under this slice
+- THEN the inspection result MAY claim only the delivered local isolation guarantees
+- AND the system MUST NOT imply that cloned repository, cloned worktree, or repository-per-agent
+  execution has been delivered.
+
+#### Scenario: Local isolation slice does not imply remote isolation delivery
+
+- GIVEN a parent requests or expects remote bridge isolation behavior for a child
+- WHEN the runtime evaluates that expectation under this slice
+- THEN the system MUST treat remote isolation as out of scope
+- AND the local isolation contract MUST NOT claim that remote bridge execution or recovery behavior is
+  delivered.

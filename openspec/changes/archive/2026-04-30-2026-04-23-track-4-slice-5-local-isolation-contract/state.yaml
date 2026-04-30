@@ -1,0 +1,21 @@
+change_id: 2026-04-23-track-4-slice-5-local-isolation-contract
+stage: apply
+status: completed
+artifacts:
+  proposal: proposal.md
+  design: design.md
+  tasks: tasks.md
+  spec: specs/multi-agent-orchestration/spec.md
+  apply_report: apply-report.md
+  apply_result: apply-result.json
+verification:
+  status: passed
+  commands:
+    - cargo test --manifest-path clients/agent-runtime/Cargo.toml isolation -- --nocapture
+tasks:
+  all_checked: true
+audit:
+  documentation_catchup: true
+  notes:
+    - Apply artifacts were missing and have now been persisted.
+    - Implementation/testing work was already completed before this documentation step.
