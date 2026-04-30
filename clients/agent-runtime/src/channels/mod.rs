@@ -2580,6 +2580,7 @@ pub(crate) fn build_telegram_channel(config: &Config) -> Option<Arc<TelegramChan
     config.channels_config.telegram.as_ref().map(|tg| {
         Arc::new(
             TelegramChannel::new(tg.bot_token.clone(), tg.allowed_users.clone())
+                .with_attachment_root(config.workspace_dir.clone())
                 .with_streaming(tg.stream_mode, tg.draft_update_interval_ms),
         )
     })

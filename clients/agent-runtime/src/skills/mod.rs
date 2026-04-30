@@ -178,17 +178,35 @@ fn scan_third_party_skill(skill: &mut Skill, config: &crate::config::SkillsConfi
 
 fn load_workspace_skills(workspace_dir: &Path) -> Vec<Skill> {
     let skills_dir = workspace_dir.join("skills");
-    load_skills_from_directory(&skills_dir)
+    load_skills_from_directory(workspace_dir, &skills_dir)
 }
 
-fn load_skills_from_directory(skills_dir: &Path) -> Vec<Skill> {
+fn load_skills_from_directory(workspace_dir: &Path, skills_dir: &Path) -> Vec<Skill> {
     if !skills_dir.exists() {
         return Vec::new();
     }
 
     let mut skills = Vec::new();
 
-    let Ok(entries) = std::fs::read_dir(skills_dir) else {
+    let canonical_workspace = match workspace_dir.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return skills,
+    };
+    let canonical_skills_dir = match skills_dir.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return skills,
+    };
+
+    if !canonical_skills_dir.starts_with(&canonical_workspace) {
+        tracing::warn!(
+            "skills directory '{}' escapes workspace '{}'; skipping load",
+            canonical_skills_dir.display(),
+            canonical_workspace.display(),
+        );
+        return skills;
+    }
+
+    let Ok(entries) = std::fs::read_dir(&canonical_skills_dir) else {
         return skills;
     };
 
@@ -198,23 +216,36 @@ fn load_skills_from_directory(skills_dir: &Path) -> Vec<Skill> {
             continue;
         }
 
+        let canonical_skill_dir = match path.canonicalize() {
+            Ok(path) => path,
+            Err(_) => continue,
+        };
+        if !canonical_skill_dir.starts_with(&canonical_skills_dir) {
+            tracing::warn!(
+                "skill directory '{}' escapes skills root '{}'; skipping",
+                canonical_skill_dir.display(),
+                canonical_skills_dir.display(),
+            );
+            continue;
+        }
+
         // Validate directory name per Agent Skills standard (warn only for backward compat)
         let dir_name = entry.file_name().to_string_lossy().to_string();
         if let Err(err) = validation::validate_skill_name(&dir_name) {
             tracing::warn!("skill '{}' has invalid name: {err}", dir_name);
         }
 
-        let md_path = path.join("SKILL.md");
+        let md_path = canonical_skill_dir.join("SKILL.md");
 
         if md_path.exists() {
-            if let Ok(skill) = load_skill_md(&md_path, &path) {
+            if let Ok(skill) = load_skill_md(&md_path, &canonical_skill_dir) {
                 skills.push(skill);
             }
-        } else if path.join("SKILL.toml").exists() {
+        } else if canonical_skill_dir.join("SKILL.toml").exists() {
             tracing::warn!(
                 "Skill directory '{}' contains only SKILL.toml which is no longer supported. \
                  Create a SKILL.md file with YAML frontmatter instead. Skipping.",
-                path.display(),
+                canonical_skill_dir.display(),
             );
         }
     }
@@ -1143,12 +1174,21 @@ fn install_remote_skill(skills_path: &Path, source: &str) -> Result<PathBuf> {
 }
 
 fn install_local_skill(skills_path: &Path, source: &str) -> Result<PathBuf> {
+    if source.contains('\0') {
+        anyhow::bail!("Invalid skill source path: {source}");
+    }
+
     let src = PathBuf::from(source);
     if !src.exists() {
         anyhow::bail!("Source path does not exist: {source}");
     }
 
-    let name = src
+    let canonical_src = src.canonicalize()?;
+    if !canonical_src.is_dir() {
+        anyhow::bail!("Local skill source must be a directory: {source}");
+    }
+
+    let name = canonical_src
         .file_name()
         .filter(|name| !name.is_empty())
         .filter(|name| *name != std::ffi::OsStr::new("."))
@@ -1156,7 +1196,7 @@ fn install_local_skill(skills_path: &Path, source: &str) -> Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("Invalid skill source path: {source}"))?;
     let dest = skills_path.join(name);
 
-    link_or_copy_local_skill(&src, &dest)?;
+    link_or_copy_local_skill(&canonical_src, &dest)?;
     Ok(dest)
 }
 
@@ -1716,6 +1756,45 @@ mod tests {
 
         let error = install_local_skill(&skills_path, "/").unwrap_err();
         assert!(error.to_string().contains("Invalid skill source path"));
+    }
+
+    #[test]
+    fn install_local_skill_rejects_non_directory_source() {
+        let temp = tempfile::tempdir().unwrap();
+        let skills_path = temp.path().join("skills");
+        fs::create_dir_all(&skills_path).unwrap();
+        let file_path = temp.path().join("not-a-dir.txt");
+        fs::write(&file_path, "content").unwrap();
+
+        let error =
+            install_local_skill(&skills_path, file_path.to_string_lossy().as_ref()).unwrap_err();
+        assert!(error.to_string().contains("must be a directory"));
+    }
+
+    #[test]
+    fn load_skills_from_directory_ignores_symlink_escape() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_skills = dir.path().join("skills");
+        fs::create_dir_all(&workspace_skills).unwrap();
+
+        let outside = tempfile::tempdir().unwrap();
+        let outside_skill = outside.path().join("escaped-skill");
+        fs::create_dir_all(&outside_skill).unwrap();
+        fs::write(
+            outside_skill.join("SKILL.md"),
+            "---\nname: escaped-skill\n---\nbody",
+        )
+        .unwrap();
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside_skill, workspace_skills.join("escaped-skill")).unwrap();
+
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&outside_skill, workspace_skills.join("escaped-skill"))
+            .unwrap();
+
+        let skills = load_skills(dir.path());
+        assert!(skills.iter().all(|skill| skill.name != "escaped-skill"));
     }
 
     // ── Catalog install rejects unknown skill (R20.3) ────────────

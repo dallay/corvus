@@ -10,7 +10,7 @@ use futures_util::StreamExt;
 use parking_lot::Mutex;
 use reqwest::multipart::{Form, Part};
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -567,6 +567,7 @@ pub struct TelegramChannel {
     stream_mode: StreamMode,
     draft_update_interval_ms: u64,
     last_draft_edit: Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    attachment_root: Option<PathBuf>,
 }
 
 impl TelegramChannel {
@@ -592,7 +593,67 @@ impl TelegramChannel {
             draft_update_interval_ms: 1000,
             last_draft_edit: Mutex::new(std::collections::HashMap::new()),
             typing_handle: Mutex::new(None),
+            attachment_root: None,
         }
+    }
+
+    pub fn with_attachment_root(mut self, attachment_root: PathBuf) -> Self {
+        self.attachment_root = Some(attachment_root);
+        self
+    }
+
+    fn resolve_attachment_path(&self, target: &str) -> anyhow::Result<PathBuf> {
+        if target.contains('\0') {
+            anyhow::bail!("Telegram attachment path contains null byte");
+        }
+
+        let raw_path = Path::new(target);
+        if raw_path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+        {
+            anyhow::bail!("Telegram attachment path is invalid: {target}");
+        }
+
+        let root = self
+            .attachment_root
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Telegram attachment root is not configured"))?;
+        let canonical_root = root.canonicalize().with_context(|| {
+            format!(
+                "Failed to resolve Telegram attachment root {}",
+                root.display()
+            )
+        })?;
+
+        let candidate = if raw_path.is_absolute() {
+            raw_path.to_path_buf()
+        } else {
+            canonical_root.join(raw_path)
+        };
+
+        let resolved = candidate.canonicalize().with_context(|| {
+            format!(
+                "Failed to resolve Telegram attachment path {}",
+                candidate.display()
+            )
+        })?;
+
+        if !resolved.starts_with(&canonical_root) {
+            anyhow::bail!(
+                "Telegram attachment path escapes attachment root: {}",
+                resolved.display()
+            );
+        }
+
+        if !resolved.is_file() {
+            anyhow::bail!(
+                "Telegram attachment path is not a file: {}",
+                resolved.display()
+            );
+        }
+
+        Ok(resolved)
     }
 
     /// Configure streaming mode for progressive draft updates.
@@ -1088,19 +1149,29 @@ impl TelegramChannel {
             };
         }
 
-        let path = Path::new(target);
-        if !path.exists() {
-            anyhow::bail!("Telegram attachment path not found: {target}");
-        }
+        let resolved_path = self.resolve_attachment_path(target)?;
 
         match attachment.kind {
-            TelegramAttachmentKind::Image => self.send_photo(chat_id, thread_id, path, None).await,
-            TelegramAttachmentKind::Document => {
-                self.send_document(chat_id, thread_id, path, None).await
+            TelegramAttachmentKind::Image => {
+                self.send_photo(chat_id, thread_id, &resolved_path, None)
+                    .await
             }
-            TelegramAttachmentKind::Video => self.send_video(chat_id, thread_id, path, None).await,
-            TelegramAttachmentKind::Audio => self.send_audio(chat_id, thread_id, path, None).await,
-            TelegramAttachmentKind::Voice => self.send_voice(chat_id, thread_id, path, None).await,
+            TelegramAttachmentKind::Document => {
+                self.send_document(chat_id, thread_id, &resolved_path, None)
+                    .await
+            }
+            TelegramAttachmentKind::Video => {
+                self.send_video(chat_id, thread_id, &resolved_path, None)
+                    .await
+            }
+            TelegramAttachmentKind::Audio => {
+                self.send_audio(chat_id, thread_id, &resolved_path, None)
+                    .await
+            }
+            TelegramAttachmentKind::Voice => {
+                self.send_voice(chat_id, thread_id, &resolved_path, None)
+                    .await
+            }
         }
     }
 
@@ -2435,6 +2506,31 @@ mod tests {
         assert_eq!(attachments[0].target, "/tmp/a.png");
         assert_eq!(attachments[1].kind, TelegramAttachmentKind::Document);
         assert_eq!(attachments[1].target, "https://example.com/a.pdf");
+    }
+
+    #[test]
+    fn resolve_attachment_path_rejects_workspace_escape() {
+        let workspace = tempfile::tempdir().unwrap();
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        let channel = TelegramChannel::new("fake-token".into(), vec!["*".into()])
+            .with_attachment_root(workspace.path().to_path_buf());
+
+        let err = channel
+            .resolve_attachment_path(outside.path().to_string_lossy().as_ref())
+            .unwrap_err();
+        assert!(err.to_string().contains("escapes attachment root"));
+    }
+
+    #[test]
+    fn resolve_attachment_path_rejects_parent_dir_segments() {
+        let workspace = tempfile::tempdir().unwrap();
+        let channel = TelegramChannel::new("fake-token".into(), vec!["*".into()])
+            .with_attachment_root(workspace.path().to_path_buf());
+
+        let err = channel
+            .resolve_attachment_path("../secret.txt")
+            .unwrap_err();
+        assert!(err.to_string().contains("invalid attachment path"));
     }
 
     #[test]
