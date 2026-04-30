@@ -18,19 +18,19 @@ respaldos y resolución de problemas.
 
 ## Modos de Almacenamiento
 
-Cerebro soporta múltiples backends de almacenamiento. Elige según
-tus requisitos de durabilidad y rendimiento.
+La postura de producción durable soportada en esta versión es de nodo único y local-first.
+SurrealDB embebido es el modo durable soportado por defecto. `disk` es una alternativa
+durable local al nodo. `in_memory` no es durable y solo es apropiado para CI/dev/emergencias.
 
-| Modo              | Persistencia | Rendimiento | Caso de Uso              |
-|-------------------|--------------|-------------|--------------------------|
-| SurrealDB embebido | Durable      | Alto        | Producción (default)     |
-| Disco             | Durable      | Moderado    | Basado en archivos       |
-| En memoria        | Ninguna      | Máximo      | Solo pruebas             |
+| Modo              | Persistencia | Rendimiento | Caso de Uso                         |
+|-------------------|--------------|-------------|-------------------------------------|
+| SurrealDB embebido | Durable      | Alto        | Producción (default, nodo único)    |
+| Disco             | Durable      | Moderado    | Alternativa durable local al nodo   |
+| En memoria        | Ninguna      | Máximo      | Solo CI/dev/pruebas                 |
 
-:::caution
-El modo `remote_surreal` está definido pero **aún no implementado**.
-No lo uses en producción.
-:::
+`remote_surreal`, la persistencia remota compartida y la durabilidad HA multi-nodo no están
+soportadas en esta versión. No configures `remote_surreal` como modo primario ni como
+fallback.
 
 ### SurrealDB Embebido (Default)
 
@@ -92,7 +92,8 @@ storage_fallback = "in_memory"
 Esto puede mantener Cerebro en ejecución aunque el backend
 primario no esté disponible. La pérdida de persistencia ocurre
 solo si el backend de fallback no ofrece persistencia (por
-ejemplo, `in_memory`).
+ejemplo, `in_memory`). `remote_surreal`
+no está soportado en esta versión y no es una opción de recuperación en producción.
 
 ## Panel TUI
 

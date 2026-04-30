@@ -83,12 +83,17 @@ El endpoint MCP está disponible en
 
 ## Modos de Almacenamiento
 
-| Modo              | Valor              | Descripción                     |
-|-------------------|--------------------|----------------------------------|
-| SurrealDB embebido| `embedded_surreal` | Default. Respaldado por RocksDB. |
-| En memoria        | `in_memory`        | Sin persistencia. Solo pruebas.  |
-| Disco             | `disk`             | Persistencia basada en archivos. |
-| SurrealDB remoto  | `remote_surreal`   | Aún no implementado.            |
+La postura de producción durable soportada actualmente es de nodo único y local-first. SurrealDB
+embebido es el modo durable soportado por defecto, `disk` es una alternativa durable local al nodo,
+`in_memory` no es durable y es solo para pruebas, y `remote_surreal` no está soportado en esta
+versión.
+
+| Modo              | Valor              | Descripción                                        |
+|-------------------|--------------------|-----------------------------------------------------|
+| SurrealDB embebido| `embedded_surreal` | Modo durable de nodo único soportado por defecto.   |
+| En memoria        | `in_memory`        | Sin persistencia. Solo CI/dev/pruebas.              |
+| Disco             | `disk`             | Alternativa durable local al nodo.                  |
+| SurrealDB remoto  | `remote_surreal`   | No soportado en esta versión.                       |
 
 :::note
 SurrealDB embebido requiere que `surreal.username` y
@@ -101,12 +106,12 @@ solo a loopback por defecto.
 Si el almacenamiento primario falla al inicializarse, Cerebro
 puede usar un respaldo alternativo:
 
-| Respaldo        | Valor            | Descripción                     |
-|-----------------|------------------|----------------------------------|
-| Ninguno         | `none`           | Default. Falla si el primario falla.|
-| En memoria      | `in_memory`      | Pierde persistencia, sigue corriendo.|
-| Disco           | `disk`           | Respaldo a almacenamiento en disco.|
-| SurrealDB remoto| `remote_surreal` | Aún no implementado.            |
+| Respaldo        | Valor            | Descripción                                         |
+|-----------------|------------------|------------------------------------------------------|
+| Ninguno         | `none`           | Default. Falla si el primario falla.                 |
+| En memoria      | `in_memory`      | Respaldo no durable para CI/dev/emergencias.         |
+| Disco           | `disk`           | Respaldo durable local al nodo.                      |
+| SurrealDB remoto| `remote_surreal` | No soportado en esta versión.                        |
 
 ## Variables de Entorno
 
