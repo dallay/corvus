@@ -1,0 +1,42 @@
+{
+  "change_id": "2026-04-23-track-4-slice-4-coordinator-ux",
+  "status": "completed",
+  "phase": "apply",
+  "summary": {
+    "title": "Track 4 Slice 4 — Coordinator UX and State Visibility",
+    "completed": true,
+    "implementation_surfaces": [
+      "clients/agent-runtime/src/agent/coordinator.rs",
+      "clients/agent-runtime/src/tools/delegate_inspect.rs"
+    ],
+    "outcomes": [
+      "Deterministic parent-visible coordinator lifecycle summary",
+      "Blocked and approval-needed child visibility",
+      "Parent-readable next-action hints",
+      "Stable deterministic inspection narrative"
+    ]
+  },
+  "verification": {
+    "commands": [
+      "cargo test --manifest-path clients/agent-runtime/Cargo.toml coordinator -- --nocapture"
+    ],
+    "status": "passed"
+  },
+  "tasks": {
+    "all_checked": true,
+    "source": "openspec/changes/2026-04-23-track-4-slice-4-coordinator-ux/tasks.md"
+  },
+  "artifacts": [
+    "proposal.md",
+    "design.md",
+    "tasks.md",
+    "specs/multi-agent-orchestration/spec.md",
+    "apply-report.md",
+    "apply-result.json",
+    "state.yaml"
+  ],
+  "notes": [
+    "Apply documentation was persisted after implementation/testing had already been completed.",
+    "This artifact exists to complete the OpenSpec audit chain for the change folder."
+  ]
+}

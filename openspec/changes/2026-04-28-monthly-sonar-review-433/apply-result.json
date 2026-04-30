@@ -1,0 +1,46 @@
+{
+  "change_id": "2026-04-28-monthly-sonar-review-433",
+  "status": "completed",
+  "phase": "apply",
+  "summary": {
+    "title": "Monthly Sonar review workflow and targeted quality remediation #433",
+    "completed": true,
+    "implementation_surfaces": [
+      "Makefile",
+      "scripts/sonar.sh",
+      ".github/workflows/sonarqube-analysis.yml"
+    ],
+    "outcomes": [
+      "Canonical local make sonar workflow",
+      "Centralized Sonar scanner invocation and prerequisite validation",
+      "Parity-oriented local coverage preparation for Kotlin, web, and Rust inputs",
+      "Fail-closed operator-facing workflow behavior for missing prerequisites"
+    ]
+  },
+  "verification": {
+    "commands": [],
+    "status": "documented-surfaces-reviewed",
+    "notes": [
+      "This change is primarily workflow/operational rather than a focused runtime unit-test slice.",
+      "A cargo test probe using a sonar filter timed out and was not treated as authoritative verification.",
+      "Verification evidence is based on checked tasks plus direct inspection of Makefile, scripts/sonar.sh, and the hosted Sonar workflow."
+    ]
+  },
+  "tasks": {
+    "all_checked": true,
+    "source": "openspec/changes/2026-04-28-monthly-sonar-review-433/tasks.md"
+  },
+  "artifacts": [
+    "proposal.md",
+    "design.md",
+    "tasks.md",
+    "specs/repository-quality-workflows/spec.md",
+    "apply-report.md",
+    "apply-result.json",
+    "state.yaml"
+  ],
+  "notes": [
+    "Apply documentation was persisted after implementation/testing had already been completed.",
+    "This artifact exists to complete the OpenSpec audit chain for the change folder."
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "change_id": "2026-04-26-track-6-slice-1-bridge-contract-auth",
+  "status": "completed",
+  "phase": "apply",
+  "summary": {
+    "title": "Track 6 Slice 1 — Bridge Contract, Auth, and Admission",
+    "completed": true,
+    "implementation_surfaces": [
+      "clients/agent-runtime/src/bridge/mod.rs",
+      "clients/agent-runtime/src/tools/delegate_launch.rs",
+      "openspec/changes/2026-04-26-track-6-slice-1-bridge-contract-auth/specs/bridge-remote-sessions/spec.md"
+    ],
+    "outcomes": [
+      "Dedicated bridge-remote-sessions source-of-truth domain",
+      "Versioned remote bridge admission contract",
+      "JWT-backed admission validation and subject/scope binding",
+      "Continued fail-closed local rejection of remote_bridge through Track 4 launch paths"
+    ]
+  },
+  "verification": {
+    "commands": [
+      "cargo test --manifest-path clients/agent-runtime/Cargo.toml bridge -- --nocapture"
+    ],
+    "status": "passed"
+  },
+  "tasks": {
+    "all_checked": true,
+    "source": "openspec/changes/2026-04-26-track-6-slice-1-bridge-contract-auth/tasks.md"
+  },
+  "artifacts": [
+    "proposal.md",
+    "design.md",
+    "tasks.md",
+    "specs/bridge-remote-sessions/spec.md",
+    "apply-report.md",
+    "apply-result.json",
+    "state.yaml"
+  ],
+  "notes": [
+    "Apply documentation was persisted after implementation/testing had already been completed.",
+    "This artifact exists to complete the OpenSpec audit chain for the change folder."
+  ]
+}

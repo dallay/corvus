@@ -1,0 +1,43 @@
+{
+  "change_id": "2026-04-23-track-4-slice-5-local-isolation-contract",
+  "status": "completed",
+  "phase": "apply",
+  "summary": {
+    "title": "Track 4 Slice 5 — Local Isolation Contract",
+    "completed": true,
+    "implementation_surfaces": [
+      "clients/agent-runtime/src/agent/coordinator.rs",
+      "clients/agent-runtime/src/tools/delegate_launch.rs",
+      "clients/agent-runtime/src/tools/delegate_inspect.rs"
+    ],
+    "outcomes": [
+      "Enforceable local repository/worktree/access contract for delivered local transports",
+      "Fail-closed rejection when local isolation cannot be enforced",
+      "Accurate requested-versus-enforced launch and inspection reporting",
+      "Transport choice does not weaken admitted local scope"
+    ]
+  },
+  "verification": {
+    "commands": [
+      "cargo test --manifest-path clients/agent-runtime/Cargo.toml isolation -- --nocapture"
+    ],
+    "status": "passed"
+  },
+  "tasks": {
+    "all_checked": true,
+    "source": "openspec/changes/2026-04-23-track-4-slice-5-local-isolation-contract/tasks.md"
+  },
+  "artifacts": [
+    "proposal.md",
+    "design.md",
+    "tasks.md",
+    "specs/multi-agent-orchestration/spec.md",
+    "apply-report.md",
+    "apply-result.json",
+    "state.yaml"
+  ],
+  "notes": [
+    "Apply documentation was persisted after implementation/testing had already been completed.",
+    "This artifact exists to complete the OpenSpec audit chain for the change folder."
+  ]
+}
