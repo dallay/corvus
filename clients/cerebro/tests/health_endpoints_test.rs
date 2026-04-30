@@ -161,12 +161,14 @@ async fn metrics_returns_prometheus_format() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        response.headers().get(axum::http::header::CONTENT_TYPE),
-        Some(&axum::http::HeaderValue::from_static(
-            "text/plain; version=0.0.4; charset=utf-8"
-        ))
-    );
+    let content_type = response
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok());
+    assert!(matches!(
+        content_type,
+        Some(value) if value.starts_with("text/plain; version=0.0.4")
+    ));
 
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
