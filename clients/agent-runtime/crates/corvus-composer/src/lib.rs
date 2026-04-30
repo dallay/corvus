@@ -56,8 +56,9 @@ impl AgentComposer {
         }
 
         let mut content = String::new();
-        file.read_to_string(&mut content)
-            .with_context(|| format!("failed to read manifest from {}", canonical_path.display()))?;
+        file.read_to_string(&mut content).with_context(|| {
+            format!("failed to read manifest from {}", canonical_path.display())
+        })?;
         Self::from_toml(&content)
     }
 
