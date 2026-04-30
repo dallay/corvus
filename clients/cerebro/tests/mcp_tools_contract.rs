@@ -72,7 +72,7 @@ async fn tools_list_requires_authorization() {
 
     let error = response.error.expect("expected authorization error");
     assert_eq!(error.code, -32001);
-    assert_eq!(error.message, "missing authorization");
+    assert_eq!(error.message, "unauthorized");
 }
 
 #[tokio::test]
