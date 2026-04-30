@@ -86,8 +86,7 @@ class SocketIosRuntimeCompanionClient(
           isActive = parts.getOrNull(2)?.toBooleanStrictOrNull() ?: false,
         )
       }
-      ?.toList()
-      ?: emptyList()
+      ?.toList() ?: emptyList()
 
   override fun resumeSession(sessionId: RuntimeSessionId): RuntimeSession {
     val command = "__corvus_resume_session__${sessionId.value}"
@@ -158,10 +157,7 @@ class SocketIosRuntimeCompanionClient(
       }
 
       val payload = "$command\n".encodeToByteArray()
-      val sent =
-        payload.usePinned {
-          send(sockfd, it.addressOf(0), payload.size.convert(), 0)
-        }
+      val sent = payload.usePinned { send(sockfd, it.addressOf(0), payload.size.convert(), 0) }
       if (sent < 0) return null
 
       val buf = ByteArray(SOCKET_BUFFER_SIZE)
