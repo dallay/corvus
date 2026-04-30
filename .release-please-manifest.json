@@ -2,7 +2,7 @@
   "corvus-runtime": "3.6.2",
   "cerebro": "3.6.2",
   "rook": "3.6.2",
-  "clients/agent-runtime": "0.1.0",
+  "clients/agent-runtime": "0.2.0",
   "clients/cerebro": "0.1.0",
   "clients/rook": "0.1.0"
 }
