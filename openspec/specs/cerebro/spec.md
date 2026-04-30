@@ -282,6 +282,34 @@ All MCP requests MUST be authenticated with a Bearer token.
 - WHEN a client calls `tools/call` without a Bearer token
 - THEN the service returns an unauthorized error
 
+### Requirement: Operational Metrics
+
+Cerebro MUST expose Prometheus-compatible operational metrics so production operators can scrape or export request, authentication, readiness, and storage signals.
+
+The metrics surface MUST include:
+
+- `cerebro_requests_total` counter labeled by `method` and `status`.
+- `cerebro_tool_latency_seconds` histogram labeled by `tool` and `status`.
+- `cerebro_auth_failures_total` counter with no labels.
+- `cerebro_readiness_failures_total` counter with no labels.
+- `cerebro_storage_errors_total` counter labeled by `operation`.
+
+The metrics endpoint MUST be scrapeable as Prometheus text exposition from `GET /metrics`. Operators MAY export this endpoint through Prometheus, an OpenTelemetry Collector Prometheus receiver, or any compatible scraper.
+
+#### Scenario: Metrics endpoint is scrapeable (happy path)
+
+- GIVEN a running Cerebro service
+- WHEN an operator scrapes `GET /metrics`
+- THEN the response uses Prometheus text exposition
+- AND it includes the Cerebro request, tool latency, auth failure, readiness failure, and storage error metric families
+
+#### Scenario: Failed authentication is counted (edge case)
+
+- GIVEN a running Cerebro MCP service with authentication enabled
+- WHEN a client calls `tools/call` without a valid Bearer token
+- THEN the service increments `cerebro_auth_failures_total`
+- AND the failed request is visible in the metrics scrape output
+
 ### Requirement: Data Hygiene Defaults
 
 Cerebro MUST exclude soft-deleted records from retrieval APIs by default, MUST return a `deleted`

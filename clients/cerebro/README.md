@@ -82,4 +82,16 @@ Cerebro emits structured tracing logs for:
 - tool execution outcome and latency
 - storage fallback warnings
 
-Production deployments should forward these logs to centralized log storage and alert on repeated readiness or authorization failures.
+Cerebro also exposes Prometheus-compatible operational metrics at `GET /metrics` for scraping by Prometheus, OpenTelemetry collectors with Prometheus receivers, or compatible observability stacks. Like `/healthz` and `/readyz`, this endpoint is unauthenticated and should be protected by network policy, ingress rules, or private service topology.
+
+### Metrics
+
+| Metric | Type | Labels | Description |
+| --- | --- | --- | --- |
+| `cerebro_requests_total` | counter | `method`, `status` | Total MCP JSON-RPC requests by method (`tools/call`, `tools/list`, or `unknown`) and outcome (`ok` or `error`). |
+| `cerebro_tool_latency_seconds` | histogram | `tool`, `status` | Tool execution latency by MCP tool name and outcome (`ok` or `error`). |
+| `cerebro_auth_failures_total` | counter | none | Authentication failures for MCP requests. |
+| `cerebro_readiness_failures_total` | counter | none | Readiness probe failures returned by `/readyz`. |
+| `cerebro_storage_errors_total` | counter | `operation` | Storage-layer errors by operation (`save`, `get`, `search`, `delete`, `timeline`, `count`, or `unknown`). |
+
+Production deployments should forward tracing logs and scrape `/metrics`; alert on repeated readiness failures, authorization failures, storage errors, and elevated tool latency.

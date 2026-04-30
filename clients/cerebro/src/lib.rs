@@ -1,5 +1,6 @@
 pub mod config;
 pub mod errors;
+pub mod metrics;
 pub mod migration;
 pub mod server;
 pub mod storage;

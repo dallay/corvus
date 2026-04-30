@@ -1,5 +1,6 @@
 use crate::config::CerebroConfig;
 use crate::errors::{CerebroError, CerebroErrorResponse};
+use crate::metrics;
 use crate::storage::{storage_from_config, Storage};
 use crate::tools::CerebroTools;
 use crate::tui::event_bus::{EventBus, ToolCallEvent, ToolCallEventKind};
@@ -10,6 +11,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
+use prometheus::{Encoder, TextEncoder};
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -64,6 +66,7 @@ pub struct CerebroService {
 
 impl CerebroService {
     pub fn new(config: CerebroConfig, storage: Arc<dyn Storage>) -> Self {
+        metrics::init();
         let event_bus = EventBus::new(config.tui.event_buffer);
         let redaction = RedactionPolicy::from_config(&config.tui);
         let tools = CerebroTools::new(storage.clone());
@@ -85,6 +88,7 @@ impl CerebroService {
         Router::new()
             .route("/healthz", get(handle_health))
             .route("/readyz", get(handle_ready))
+            .route("/metrics", get(handle_metrics))
             .route("/mcp", post(handle_mcp))
             .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_BYTES))
             .with_state(self)
@@ -105,6 +109,9 @@ impl CerebroService {
     ) -> JsonRpcResponse {
         let id = request.id.clone();
         if request.jsonrpc != "2.0" {
+            metrics::CEREBRO_REQUESTS_TOTAL
+                .with_label_values(&["unknown", "error"])
+                .inc();
             return JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id,
@@ -118,6 +125,9 @@ impl CerebroService {
         }
 
         if request.method != "tools/call" && request.method != "tools/list" {
+            metrics::CEREBRO_REQUESTS_TOTAL
+                .with_label_values(&[&request.method, "error"])
+                .inc();
             return JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id,
@@ -131,6 +141,9 @@ impl CerebroService {
         }
 
         if request.method == "tools/list" {
+            metrics::CEREBRO_REQUESTS_TOTAL
+                .with_label_values(&["tools/list", "ok"])
+                .inc();
             let tools = self.tools.list_manifest();
             return JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
@@ -141,6 +154,9 @@ impl CerebroService {
         }
 
         let Some(params) = request.params else {
+            metrics::CEREBRO_REQUESTS_TOTAL
+                .with_label_values(&["tools/call", "error"])
+                .inc();
             return JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id,
@@ -172,6 +188,10 @@ impl CerebroService {
             let auth_context = match self.authorize(auth_header) {
                 Ok(context) => context,
                 Err(error) => {
+                    metrics::CEREBRO_AUTH_FAILURES_TOTAL.inc();
+                    metrics::CEREBRO_REQUESTS_TOTAL
+                        .with_label_values(&["tools/call", "error"])
+                        .inc();
                     tracing::warn!(error = %error, "authorization failed");
                     return error_response(id, error);
                 }
@@ -208,7 +228,14 @@ impl CerebroService {
 
             match self.tools.handle(&tool_name, params.arguments, &auth_context).await {
                 Ok(output) => {
-                    let duration_ms = start.elapsed().as_millis() as u64;
+                    let elapsed = start.elapsed();
+                    let duration_ms = elapsed.as_millis() as u64;
+                    metrics::CEREBRO_REQUESTS_TOTAL
+                        .with_label_values(&["tools/call", "ok"])
+                        .inc();
+                    metrics::CEREBRO_TOOL_LATENCY_SECONDS
+                        .with_label_values(&[&tool_name, "ok"])
+                        .observe(elapsed.as_secs_f64());
                     let safe_output = self
                         .tools
                         .extract_safe_output(&tool_name, &output)
@@ -236,7 +263,14 @@ impl CerebroService {
                     }
                 }
                 Err(error) => {
-                    let duration_ms = start.elapsed().as_millis() as u64;
+                    let elapsed = start.elapsed();
+                    let duration_ms = elapsed.as_millis() as u64;
+                    metrics::CEREBRO_REQUESTS_TOTAL
+                        .with_label_values(&["tools/call", "error"])
+                        .inc();
+                    metrics::CEREBRO_TOOL_LATENCY_SECONDS
+                        .with_label_values(&[&tool_name, "error"])
+                        .observe(elapsed.as_secs_f64());
                     let redacted_error = self.redaction.redact_text(&error.to_string());
                     self.event_bus.publish(ToolCallEvent {
                         kind: ToolCallEventKind::Failed,
@@ -333,13 +367,39 @@ async fn handle_health() -> Json<Value> {
 async fn handle_ready(State(service): State<Arc<CerebroService>>) -> (StatusCode, Json<Value>) {
     match service.storage().ready().await {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "ready" }))),
-        Err(error) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({
-                "status": "not_ready",
-                "error": error.to_string(),
-            })),
-        ),
+        Err(error) => {
+            metrics::CEREBRO_READINESS_FAILURES_TOTAL.inc();
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "status": "not_ready",
+                    "error": error.to_string(),
+                })),
+            )
+        }
+    }
+}
+
+async fn handle_metrics() -> (StatusCode, String) {
+    let encoder = TextEncoder::new();
+    let metric_families = prometheus::gather();
+    let mut buffer = vec![];
+    if let Err(err) = encoder.encode(&metric_families, &mut buffer) {
+        tracing::error!(error = %err, "failed to encode metrics");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to encode metrics".to_string(),
+        );
+    }
+    match String::from_utf8(buffer) {
+        Ok(s) => (StatusCode::OK, s),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to convert metrics to string");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to parse metrics".to_string(),
+            )
+        }
     }
 }
 

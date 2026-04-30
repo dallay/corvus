@@ -140,3 +140,37 @@ async fn readyz_returns_service_unavailable_when_storage_readiness_fails() {
         .and_then(Value::as_str)
         .is_some_and(|error| !error.is_empty()));
 }
+
+#[tokio::test]
+async fn metrics_returns_prometheus_format() {
+    let config = CerebroConfig {
+        storage_mode: StorageMode::InMemory,
+        ..Default::default()
+    };
+    let service = Arc::new(CerebroService::new(config, InMemoryStorage::new()));
+    let app = service.router();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should be readable");
+    let payload = String::from_utf8(body.to_vec()).expect("body should be utf8");
+
+    // Check if some of our defined metrics are present
+    assert!(payload.contains("cerebro_requests_total"));
+    assert!(payload.contains("cerebro_tool_latency_seconds"));
+    assert!(payload.contains("cerebro_auth_failures_total"));
+    assert!(payload.contains("cerebro_readiness_failures_total"));
+    assert!(payload.contains("cerebro_storage_errors_total"));
+}
