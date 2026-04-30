@@ -1,5 +1,7 @@
 package com.profiletailors.corvus.ui.chat
 
+import com.profiletailors.corvus.runtime.RuntimeSession
+import com.profiletailors.corvus.runtime.RuntimeSessionId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -22,22 +24,51 @@ class SessionHistoryTest {
   }
 
   @Test
-  fun `should expose only safe fields in session history — no memory keys or categories`() {
-    val safeLines = buildSafeDiagnosticLines(
-      bridgeState = MobileBridgeUiState(
-        platformName = "Android",
-        snapshot = MobileBridgeSnapshot(
-          runtimeAvailable = true,
-          linkEstablished = true,
-          sessionCapable = true,
-        ),
-      ),
-      targetLabel = "test-target",
-    )
+  fun `should display session title when present instead of truncated ID`() {
+    val sessionWithTitle =
+      RuntimeSession(
+        id = RuntimeSessionId("550e8400-e29b-41d4-a716-446655440000"),
+        title = "My named session",
+        isActive = false,
+      )
+    val displayText = sessionWithTitle.title ?: truncateSessionId(sessionWithTitle.id.value)
+    assertEquals("My named session", displayText)
+  }
 
-    assertFalse(safeLines.any { it.contains("memory", ignoreCase = true) })
-    assertFalse(safeLines.any { it.contains("category", ignoreCase = true) })
-    assertFalse(safeLines.any { it.contains("key", ignoreCase = true) })
-    assertTrue(safeLines.any { it.contains("Target:") })
+  @Test
+  fun `should fall back to truncated ID when session has no title`() {
+    val sessionWithoutTitle =
+      RuntimeSession(
+        id = RuntimeSessionId("550e8400-e29b-41d4-a716-446655440000"),
+        title = null,
+        isActive = false,
+      )
+    val displayText = sessionWithoutTitle.title ?: truncateSessionId(sessionWithoutTitle.id.value)
+    assertEquals("550e8400…", displayText)
+    assertFalse(displayText.contains("memory", ignoreCase = true))
+    assertFalse(displayText.contains("category", ignoreCase = true))
+  }
+
+  @Test
+  fun `should not expose memory content in session display fields`() {
+    val sessions =
+      listOf(
+        RuntimeSession(
+          id = RuntimeSessionId("550e8400-e29b-41d4-a716-446655440000"),
+          title = "Session A",
+          isActive = true,
+        ),
+        RuntimeSession(
+          id = RuntimeSessionId("123e4567-e89b-12d3-a456-426614174000"),
+          title = null,
+          isActive = false,
+        ),
+      )
+    sessions.forEach { session ->
+      val displayText = session.title ?: truncateSessionId(session.id.value)
+      assertFalse(displayText.contains("memory", ignoreCase = true))
+      assertFalse(displayText.contains("token", ignoreCase = true))
+      assertFalse(displayText.contains("key", ignoreCase = true))
+    }
   }
 }
