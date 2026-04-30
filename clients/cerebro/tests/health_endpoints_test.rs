@@ -135,10 +135,10 @@ async fn readyz_returns_service_unavailable_when_storage_readiness_fails() {
         payload.get("status").and_then(Value::as_str),
         Some("not_ready")
     );
-    assert!(payload
-        .get("error")
-        .and_then(Value::as_str)
-        .is_some_and(|error| !error.is_empty()));
+    assert_eq!(
+        payload.get("error").and_then(Value::as_str),
+        Some("storage_unavailable")
+    );
 }
 
 #[tokio::test]
@@ -161,6 +161,12 @@ async fn metrics_returns_prometheus_format() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(axum::http::header::CONTENT_TYPE),
+        Some(&axum::http::HeaderValue::from_static(
+            "text/plain; version=0.0.4; charset=utf-8"
+        ))
+    );
 
     let body = to_bytes(response.into_body(), usize::MAX)
         .await

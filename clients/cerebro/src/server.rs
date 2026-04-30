@@ -6,8 +6,10 @@ use crate::tools::{CerebroTools, DEFERRED_TOOL_NAMES, IMPLEMENTED_TOOL_NAMES};
 use crate::tui::event_bus::{EventBus, ToolCallEvent, ToolCallEventKind};
 use crate::tui::redaction::RedactionPolicy;
 use axum::extract::{DefaultBodyLimit, State};
+use axum::http::header::CONTENT_TYPE;
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
@@ -156,37 +158,11 @@ impl CerebroService {
             };
         }
 
-        if request.method == "tools/list" {
-            metrics::CEREBRO_REQUESTS_TOTAL
-                .with_label_values(&[request_method_label(&request.method), "ok"])
-                .inc();
-            let tools = self.tools.list_manifest();
-            return JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: Some(json!({ "tools": tools })),
-                error: None,
-            };
-        }
-
-        let Some(params) = request.params else {
-            metrics::CEREBRO_REQUESTS_TOTAL
-                .with_label_values(&[request_method_label(&request.method), "error"])
-                .inc();
-            return JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: None,
-                error: Some(JsonRpcError {
-                    code: -32602,
-                    message: "missing params".to_string(),
-                    data: None,
-                }),
-            };
-        };
-
-        let tool_name = params.name.clone();
-        let tool_label = tool_name_label(&tool_name);
+        let tool_name_for_span = request
+            .params
+            .as_ref()
+            .map(|params| params.name.as_str())
+            .unwrap_or("");
         let request_id = request
             .id
             .as_str()
@@ -196,7 +172,7 @@ impl CerebroService {
         let span = tracing::info_span!(
             "cerebro_mcp_request",
             request_id = %request_id,
-            tool_name = %tool_name,
+            tool_name = %tool_name_for_span,
             auth_mode = tracing::field::Empty,
         );
 
@@ -223,6 +199,37 @@ impl CerebroService {
                 },
             );
 
+            if request.method == "tools/list" {
+                metrics::CEREBRO_REQUESTS_TOTAL
+                    .with_label_values(&[request_method_label(&request.method), "ok"])
+                    .inc();
+                let tools = self.tools.list_manifest();
+                return JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id,
+                    result: Some(json!({ "tools": tools })),
+                    error: None,
+                };
+            }
+
+            let Some(params) = request.params else {
+                metrics::CEREBRO_REQUESTS_TOTAL
+                    .with_label_values(&[request_method_label(&request.method), "error"])
+                    .inc();
+                return JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id,
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32602,
+                        message: "missing params".to_string(),
+                        data: None,
+                    }),
+                };
+            };
+
+            let tool_name = params.name.clone();
+            let tool_label = tool_name_label(&tool_name);
             let redaction = self.tools.redaction_for_tool(&tool_name);
             let redacted_args = self
                 .tools
@@ -243,6 +250,7 @@ impl CerebroService {
                 error: None,
             });
 
+            let tool_start = Instant::now();
             match self.tools.handle(&tool_name, params.arguments, &auth_context).await {
                 Ok(output) => {
                     let elapsed = start.elapsed();
@@ -252,7 +260,7 @@ impl CerebroService {
                         .inc();
                     metrics::CEREBRO_TOOL_LATENCY_SECONDS
                         .with_label_values(&[tool_label.as_str(), "ok"])
-                        .observe(elapsed.as_secs_f64());
+                        .observe(tool_start.elapsed().as_secs_f64());
                     let safe_output = self
                         .tools
                         .extract_safe_output(&tool_name, &output)
@@ -287,7 +295,7 @@ impl CerebroService {
                         .inc();
                     metrics::CEREBRO_TOOL_LATENCY_SECONDS
                         .with_label_values(&[tool_label.as_str(), "error"])
-                        .observe(elapsed.as_secs_f64());
+                        .observe(tool_start.elapsed().as_secs_f64());
                     let redacted_error = self.redaction.redact_text(&error.to_string());
                     self.event_bus.publish(ToolCallEvent {
                         kind: ToolCallEventKind::Failed,
@@ -386,18 +394,19 @@ async fn handle_ready(State(service): State<Arc<CerebroService>>) -> (StatusCode
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "ready" }))),
         Err(error) => {
             metrics::CEREBRO_READINESS_FAILURES_TOTAL.inc();
+            tracing::error!(error = %error, "readiness check failed");
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(json!({
                     "status": "not_ready",
-                    "error": error.to_string(),
+                    "error": "storage_unavailable",
                 })),
             )
         }
     }
 }
 
-async fn handle_metrics() -> (StatusCode, String) {
+async fn handle_metrics() -> Response {
     let encoder = TextEncoder::new();
     let metric_families = prometheus::gather();
     let mut buffer = vec![];
@@ -405,17 +414,21 @@ async fn handle_metrics() -> (StatusCode, String) {
         tracing::error!(error = %err, "failed to encode metrics");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
+            [(CONTENT_TYPE, "text/plain; charset=utf-8")],
             "failed to encode metrics".to_string(),
-        );
+        )
+            .into_response();
     }
     match String::from_utf8(buffer) {
-        Ok(s) => (StatusCode::OK, s),
+        Ok(s) => (StatusCode::OK, [(CONTENT_TYPE, encoder.format_type())], s).into_response(),
         Err(err) => {
             tracing::error!(error = %err, "failed to convert metrics to string");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
+                [(CONTENT_TYPE, "text/plain; charset=utf-8")],
                 "failed to parse metrics".to_string(),
             )
+                .into_response()
         }
     }
 }
