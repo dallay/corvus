@@ -197,26 +197,28 @@ make run
 
 We use a `Makefile` to standardize common operations:
 
-| Command       | Description                              |
-| ------------- | ---------------------------------------- |
-| `make build`  | Full build with tests                    |
-| `make test`   | Run all tests (Kotlin & Rust)            |
-| `make format` | Apply code formatting (Spotless & Biome) |
-| `make check`  | Run format, lint, and tests              |
+| Command       | Description                                |
+| ------------- | ------------------------------------------ |
+| `make build`  | Full build with tests                      |
+| `make test`   | Run all tests (Kotlin & Rust)              |
+| `make format` | Apply code formatting (Spotless & Biome)   |
+| `make check`  | Run format, lint, and tests                |
 | `make sonar`  | Reproduce the local monthly Sonar workflow |
-| `make clean`  | Remove build artifacts                   |
+| `make clean`  | Remove build artifacts                     |
 
 ### Local Sonar Review Workflow
 
 Use `make sonar` when you need to reproduce the monthly Sonar review locally before relying on the hosted SonarCloud workflow.
 
 Prerequisites:
+
 - `SONAR_TOKEN` exported in your shell
 - `sonar-scanner` available on `PATH`
 - Rust coverage prerequisites (`cargo-llvm-cov` and `llvm-tools-preview`)
 - web dependencies installed under `clients/web/node_modules` (the target runs `pnpm --dir clients/web install --frozen-lockfile` for you)
 
 What `make sonar` does:
+
 1. validates Sonar credentials and scanner prerequisites fail-closed;
 2. generates Kotlin Kover XML reports for `modules/agent-core-kmp` and `clients/composeApp`;
 3. installs dashboard web dependencies and generates dashboard LCOV coverage;
