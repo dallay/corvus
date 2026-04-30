@@ -60,6 +60,22 @@ fn response_result(response: &cerebro::JsonRpcResponse) -> &Value {
 }
 
 #[tokio::test]
+async fn tools_list_requires_authorization() {
+    let storage = InMemoryStorage::new();
+    let config = CerebroConfig {
+        auth_token: Some(SecretString::new("secret".to_string().into())),
+        ..CerebroConfig::default()
+    };
+    let service = CerebroService::new(config, storage);
+
+    let response = list_tools(&service, None).await;
+
+    let error = response.error.expect("expected authorization error");
+    assert_eq!(error.code, -32001);
+    assert_eq!(error.message, "unauthorized");
+}
+
+#[tokio::test]
 async fn tools_list_publishes_only_callable_implemented_inventory() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {

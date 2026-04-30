@@ -1,4 +1,5 @@
 use crate::errors::CerebroError;
+use crate::metrics;
 use crate::server::AuthContext;
 use crate::storage::{MemoryRecord, Storage};
 use crate::validation::{require_non_empty, require_optional_non_empty};
@@ -290,6 +291,28 @@ impl CerebroTools {
         Self { storage }
     }
 
+    async fn track_storage<T, F, Fut>(
+        &self,
+        operation: &'static str,
+        f: F,
+    ) -> Result<T, CerebroError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<T, CerebroError>>,
+    {
+        match f().await {
+            Ok(val) => Ok(val),
+            Err(e) => {
+                if matches!(e, CerebroError::Storage(_)) {
+                    metrics::CEREBRO_STORAGE_ERRORS_TOTAL
+                        .with_label_values(&[operation])
+                        .inc();
+                }
+                Err(e)
+            }
+        }
+    }
+
     pub fn redaction_for_tool(&self, tool: &str) -> ToolRedaction {
         ToolRedaction::for_tool(tool)
     }
@@ -482,7 +505,8 @@ impl CerebroTools {
             input.input.topic_key,
             observation,
         );
-        self.storage.save(record).await?;
+        self.track_storage("save", || async { self.storage.save(record).await })
+            .await?;
 
         Ok(json!({
           "memory_id": memory_id,
@@ -503,14 +527,17 @@ impl CerebroTools {
         let include_deleted = input.input.include_deleted.unwrap_or(false);
 
         let results = self
-            .storage
-            .search(
-                &input.input.query,
-                limit,
-                include_deleted,
-                input.input.scope.as_deref(),
-                input.input.topic_key.as_deref(),
-            )
+            .track_storage("search", || async {
+                self.storage
+                    .search(
+                        &input.input.query,
+                        limit,
+                        include_deleted,
+                        input.input.scope.as_deref(),
+                        input.input.topic_key.as_deref(),
+                    )
+                    .await
+            })
             .await?;
 
         let items: Vec<Value> = results
@@ -549,8 +576,11 @@ impl CerebroTools {
             (None, Some(topic_key)) => {
                 require_non_empty("topic_key", topic_key)?;
                 let record = self
-                    .storage
-                    .search("", 1, true, None, Some(topic_key))
+                    .track_storage("search", || async {
+                        self.storage
+                            .search("", 1, true, None, Some(topic_key))
+                            .await
+                    })
                     .await?
                     .into_iter()
                     .next()
@@ -564,7 +594,11 @@ impl CerebroTools {
             }
         };
 
-        let deleted = self.storage.delete(&memory_id, hard_delete).await?;
+        let deleted = self
+            .track_storage("delete", || async {
+                self.storage.delete(&memory_id, hard_delete).await
+            })
+            .await?;
         let status = if hard_delete {
             "hard_deleted"
         } else {
@@ -584,8 +618,9 @@ impl CerebroTools {
         require_non_empty("memory_id", &input.input.memory_id)?;
 
         let record = self
-            .storage
-            .get(&input.input.memory_id)
+            .track_storage("get", || async {
+                self.storage.get(&input.input.memory_id).await
+            })
             .await?
             .ok_or(CerebroError::NotFound)?;
 
@@ -617,8 +652,9 @@ impl CerebroTools {
         require_optional_non_empty("scope", input.input.scope.as_deref())?;
 
         let mut record = self
-            .storage
-            .get(&input.input.memory_id)
+            .track_storage("get", || async {
+                self.storage.get(&input.input.memory_id).await
+            })
             .await?
             .ok_or(CerebroError::NotFound)?;
 
@@ -644,7 +680,8 @@ impl CerebroTools {
             merge_metadata(&mut record.observation, metadata)?;
         }
 
-        self.storage.save(record).await?;
+        self.track_storage("save", || async { self.storage.save(record).await })
+            .await?;
 
         Ok(json!({
           "memory_id": input.input.memory_id,
@@ -694,20 +731,25 @@ impl CerebroTools {
         }
 
         let items = self
-            .storage
-            .timeline(
-                &input.input.memory_id,
-                before,
-                after,
-                input.input.include_deleted.unwrap_or(false),
-            )
+            .track_storage("timeline", || async {
+                self.storage
+                    .timeline(
+                        &input.input.memory_id,
+                        before,
+                        after,
+                        input.input.include_deleted.unwrap_or(false),
+                    )
+                    .await
+            })
             .await?;
 
         Ok(json!({ "items": items }))
     }
 
     async fn mem_stats(&self, _payload: Value) -> Result<Value, CerebroError> {
-        let count = self.storage.count().await?;
+        let count = self
+            .track_storage("count", || async { self.storage.count().await })
+            .await?;
         Ok(json!({
           "memory_count": count,
           "session_count": 0,

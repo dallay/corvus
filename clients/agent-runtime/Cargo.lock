@@ -784,6 +784,7 @@ dependencies = [
  "clap",
  "hex",
  "once_cell",
+ "prometheus",
  "regex",
  "secrecy",
  "serde",
