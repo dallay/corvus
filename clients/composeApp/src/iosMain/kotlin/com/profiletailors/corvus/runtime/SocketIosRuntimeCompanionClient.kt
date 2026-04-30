@@ -1,5 +1,3 @@
-@file:Suppress("TooManyFunctions") // Implements full IosRuntimeCompanionClient interface; split would be artificial
-
 package com.profiletailors.corvus.runtime
 
 import kotlinx.cinterop.alloc
@@ -44,7 +42,10 @@ data class IosRuntimeCompanionConfig(
   }
 }
 
-@Suppress("TooGenericExceptionCaught") // Socket I/O errors must be caught broadly at the boundary
+@Suppress(
+  "TooManyFunctions", // Implements full IosRuntimeCompanionClient; split would be artificial
+  "TooGenericExceptionCaught", // Socket I/O errors must be caught broadly at the boundary
+)
 class SocketIosRuntimeCompanionClient(
   private val config: IosRuntimeCompanionConfig = IosRuntimeCompanionConfig()
 ) : IosRuntimeCompanionClient {
