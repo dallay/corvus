@@ -52,11 +52,10 @@ The change remains intentionally bounded: it clarifies current truth already enf
 
 ### Decision: This change updates specification truth, not implementation reality
 
-**Choice**: Limit the change to design/spec alignment and avoid any code or workflow behavior modifications.
+**Choice**: Limit the change to spec alignment and downstream wording alignment in docs and workflow comments. Do not modify code behavior or workflow execution logic.
 
 **Alternatives considered**:
 - Implement `remote_surreal` support now.
-- Add CI jobs or docs changes in the same change.
 - Modify startup validation or readiness behavior to make the unsupported boundary more explicit in code.
 
 **Rationale**:

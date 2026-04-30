@@ -85,13 +85,11 @@ fi
 if [ "$HAS_DOCS" = "1" ]; then
     DOC_FILES=$(printf '%s\n' "$CHANGED_FILES" | grep -E '\.(md|mdx)$' || true)
     if [ -n "$DOC_FILES" ]; then
-        old_ifs=$IFS
-        IFS='
-'
-        set -f
-        set -- $DOC_FILES
-        IFS=$old_ifs
-        set +f
+        doc_args=()
+        while IFS= read -r f; do
+            [ -n "$f" ] && doc_args+=("$f")
+        done <<< "$DOC_FILES"
+        set -- "${doc_args[@]}"
 
         if command -v lychee >/dev/null 2>&1; then
             echo "📖 Running doc link check (changed docs detected)..."

@@ -636,7 +636,7 @@ mod tests {
     #[test]
     fn auth_source_oauth() {
         let provider = GeminiProvider {
-            auth: Some(GeminiAuth::OAuthToken("ya29.mock".into())),
+            auth: Some(GeminiAuth::OAuthToken("test-oauth-placeholder".into())),
             client: Client::new(),
         };
         assert_eq!(provider.auth_source(), "Gemini CLI OAuth");
@@ -663,7 +663,7 @@ mod tests {
 
     #[test]
     fn oauth_url_uses_internal_endpoint() {
-        let auth = GeminiAuth::OAuthToken("ya29.test-token".into());
+        let auth = GeminiAuth::OAuthToken("test-oauth-placeholder".into());
         let url = GeminiProvider::build_generate_content_url("gemini-2.0-flash", &auth);
         assert!(url.starts_with("https://cloudcode-pa.googleapis.com/v1internal"));
         assert!(url.ends_with(":generateContent"));
@@ -682,10 +682,10 @@ mod tests {
     #[test]
     fn oauth_request_uses_bearer_auth_header() {
         let provider = GeminiProvider {
-            auth: Some(GeminiAuth::OAuthToken("ya29.mock-token".into())),
+            auth: Some(GeminiAuth::OAuthToken("test-oauth-placeholder".into())),
             client: Client::new(),
         };
-        let auth = GeminiAuth::OAuthToken("ya29.mock-token".into());
+        let auth = GeminiAuth::OAuthToken("test-oauth-placeholder".into());
         let url = GeminiProvider::build_generate_content_url("gemini-2.0-flash", &auth);
         let body = GenerateContentRequest {
             contents: vec![Content {
@@ -711,7 +711,7 @@ mod tests {
                 .headers()
                 .get(AUTHORIZATION)
                 .and_then(|h| h.to_str().ok()),
-            Some("Bearer ya29.mock-token")
+            Some("Bearer test-oauth-placeholder")
         );
     }
 

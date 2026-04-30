@@ -3985,7 +3985,7 @@ The release workflow for the Linux Cerebro binary MUST execute a startup smoke v
 
 This validation MUST run the produced release binary with a temporary CI-specific configuration that defines explicit loopback binding, an explicit CI-safe non-production storage mode, and a deterministic inbound bearer token for MCP authentication.
 
-When the workflow uses `in_memory` or another non-default mode for smoke startup, that choice MUST be treated as test-only operational scaffolding and MUST NOT redefine the supported durable production posture.
+When the workflow uses a non-durable test mode (for example, `in_memory`) for smoke startup, that choice MUST be treated as test-only operational scaffolding and MUST NOT redefine the supported durable production posture.
 
 The smoke validation MUST start the service as a background process, poll for startup within a bounded timeout, capture service logs for diagnostics, and terminate the process before the workflow step exits on both success and failure.
 

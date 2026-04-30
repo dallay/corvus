@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: cerebro-single-node-vs-remote-ha-storage-strategy-700
 **Version**: N/A
@@ -6,6 +6,7 @@
 ---
 
 ### Completeness
+
 | Metric | Value |
 |--------|-------|
 | Tasks total | 11 |
@@ -86,6 +87,7 @@ Note: gateway scenarios are normative documentation/operational-contract scenari
 ---
 
 ### Correctness
+
 | Requirement | Status | Notes |
 |------------|--------|-------|
 | Gateway: Cerebro Supported Durable Production Topology | ✅ Implemented | Main source-of-truth explicitly states single-node/local-first durable production, embedded default, and disk as node-local alternative. |
@@ -98,6 +100,7 @@ Note: gateway scenarios are normative documentation/operational-contract scenari
 ---
 
 ### Coherence (Design)
+
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
 | `gateway` is the primary source-of-truth for operational support posture | ✅ Yes | Main spec changes live in `openspec/specs/gateway/spec.md`. |

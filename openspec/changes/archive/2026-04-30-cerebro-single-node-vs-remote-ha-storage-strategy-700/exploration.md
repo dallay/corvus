@@ -1,6 +1,6 @@
-## Exploration: cerebro-single-node-vs-remote-ha-storage-strategy-700
+# Exploration: cerebro-single-node-vs-remote-ha-storage-strategy-700
 
-### Current State
+## Current State
 Cerebro is currently local-first and effectively single-node for durable production use. The default `storage_mode` is `embedded_surreal`, and startup validation hard-rejects both `storage_mode = remote_surreal` and `storage_fallback = remote_surreal` with `NotImplemented` errors (`clients/cerebro/src/config.rs`). The storage factory only supports embedded SurrealDB, disk, and in-memory at runtime; `SurrealStorage::new_remote()` is a stub that always returns `NotImplemented` (`clients/cerebro/src/storage/surreal.rs`).
 
 Operationally, this means:
@@ -14,7 +14,7 @@ This is already reflected in the source-of-truth and docs:
 - Public docs mark `remote_surreal` as “not yet implemented”.
 - CI smoke validation in `openspec/specs/gateway/spec.md` and `.github/workflows/_build-cerebro-binaries.yml` already assumes an explicit non-embedded CI-safe mode (`in_memory`), which shows the gateway domain already owns the operational startup posture for the served HTTP/MCP surface.
 
-### Affected Areas
+## Affected Areas
 - `clients/cerebro/src/config.rs` — storage enums, startup validation, embedded-only security constraints, and production posture.
 - `clients/cerebro/src/storage/mod.rs` — storage factory and fallback orchestration.
 - `clients/cerebro/src/storage/surreal.rs` — embedded SurrealDB implementation and the unimplemented remote constructor.
@@ -27,7 +27,7 @@ This is already reflected in the source-of-truth and docs:
 - `openspec/specs/cerebro/spec.md` — current behavioral source for storage defaults, fallback, migration, and “remote unavailable in this build”.
 - `openspec/specs/gateway/spec.md` — should own the operational/serving implications because Cerebro’s externally served HTTP/MCP production posture, startup smoke expectations, and bind/auth assumptions already live here.
 
-### Approaches
+## Approaches
 1. **Document and formalize single-node/local-first as the supported production story** — keep remote storage out of scope for this change, clarify that production HA is not yet supported, and tighten specs/docs around acceptable deployment patterns.
    - Pros: Lowest risk; aligns with real code; avoids overcommitting to unfinished HA behavior; easy to verify.
    - Cons: Does not deliver remote/shared persistence; production scaling story remains limited to one durable node plus external failover/restore procedures.
@@ -43,7 +43,7 @@ This is already reflected in the source-of-truth and docs:
    - Cons: Still no HA in this release; may require touching both `cerebro` and `gateway` specs to separate current vs future guarantees.
    - Effort: Medium
 
-### Recommendation
+## Recommendation
 Recommend **Approach 3**, with an immediate proposal that codifies **single-node/local-first as the only supported durable production mode today** while explicitly reserving **remote/HA storage as a future capability**.
 
 Why this approach:

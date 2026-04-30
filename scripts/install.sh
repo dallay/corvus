@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IFS=$'\n\t'
+# NOTE: IFS is intentionally NOT set globally. Use local IFS in read commands:
+#   IFS=$'\n\t' read -r ...
 
 readonly CLI_PACKAGE="@dallay/corvus"
 readonly PRIMARY_REPO_SLUG="profiletailors/corvus"
