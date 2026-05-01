@@ -775,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "cerebro"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1094,7 +1094,7 @@ dependencies = [
 
 [[package]]
 name = "corvus"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1184,7 +1184,7 @@ dependencies = [
 
 [[package]]
 name = "corvus-channels"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "corvus-traits",
@@ -1192,7 +1192,7 @@ dependencies = [
 
 [[package]]
 name = "corvus-composer"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "corvus-channels",
@@ -1207,7 +1207,7 @@ dependencies = [
 
 [[package]]
 name = "corvus-memory"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "corvus-traits",
@@ -1215,14 +1215,14 @@ dependencies = [
 
 [[package]]
 name = "corvus-observability"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "corvus-providers"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "corvus-traits",
@@ -1230,7 +1230,7 @@ dependencies = [
 
 [[package]]
 name = "corvus-robot-kit"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1251,7 +1251,7 @@ dependencies = [
 
 [[package]]
 name = "corvus-security"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "corvus-traits",
@@ -1259,7 +1259,7 @@ dependencies = [
 
 [[package]]
 name = "corvus-tools"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "corvus-traits",
@@ -1267,7 +1267,7 @@ dependencies = [
 
 [[package]]
 name = "corvus-traits"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "async-trait",

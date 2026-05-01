@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.2](https://github.com/dallay/corvus/compare/corvus-runtime-v0.2.1...corvus-runtime-v0.2.2) (2026-05-01)
+
+
+### Bug Fixes
+
+* **security:** complete test constant extraction in webhook security tests ([28c219e](https://github.com/dallay/corvus/commit/28c219e7794c844d080042080c8b2cf768f8c8ba))
+* **security:** resolve code scanning hard-coded cryptographic value alerts ([e6d31cf](https://github.com/dallay/corvus/commit/e6d31cf5fd1fc37829100b7fee6949e2a561a1c6))
+* **security:** resolve code scanning hard-coded cryptographic value alerts ([82c7e0e](https://github.com/dallay/corvus/commit/82c7e0e308b5b5b854ce6702cdc584cc6e64ebea))
+
 ## [0.2.1](https://github.com/dallay/corvus/compare/corvus-runtime-v0.2.0...corvus-runtime-v0.2.1) (2026-04-30)
 
 
