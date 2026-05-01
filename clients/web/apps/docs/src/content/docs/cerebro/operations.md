@@ -18,6 +18,10 @@ troubleshooting.
 
 ## Production Abuse Controls
 
+:::note[Translation pending]
+The Spanish counterpart for **Production Abuse Controls** is not yet available. Keep this section reconciled when ES documentation parity is restored.
+:::
+
 Cerebro uses layered abuse controls. The service self-protects the MCP path, while production ingress owns request-frequency rate limiting.
 
 Recommended starting defaults:

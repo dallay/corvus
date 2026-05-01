@@ -32,6 +32,6 @@ Health, readiness, and metrics endpoints MUST remain outside the MCP concurrency
 
 ### Requirement: Exposed deployments rate-limit at ingress
 
-Cerebro does not own request-frequency rate limiting inside the service. Production deployments that expose Cerebro beyond loopback MUST enforce rate limiting at ingress using a trusted client key such as source IP, mTLS identity, or authenticated gateway principal.
+Cerebro does not own request-frequency rate limiting inside the service. Production deployments that expose Cerebro beyond loopback MUST enforce rate limiting at ingress using a trusted client key such as source IP, mTLS identity, or authenticated gateway principal. Source-IP keys are acceptable only when ingress is the sole trusted hop and strips or validates `X-Forwarded-For` and other forwarding headers; otherwise, prefer non-spoofable identities such as mTLS identity or an authenticated gateway principal in production.
 
 Recommended baseline: `60 requests/minute` per trusted client with burst controls, tuned for known automation workloads.
