@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.0](https://github.com/dallay/corvus/compare/cerebro-v0.1.0...cerebro-v0.2.0) (2026-04-30)
+
+
+### Features
+
+* **cerebro:** expose operational metrics ([a92058d](https://github.com/dallay/corvus/commit/a92058d88a235d8e271c06cedc757395680f8fb4))
+
+
+### Bug Fixes
+
+* **cerebro:** bound metrics label values ([5a54dd7](https://github.com/dallay/corvus/commit/5a54dd7a4c9cc0ca4f5740608e66b8150e5570f9))
+* **cerebro:** compute tool event duration from tool_start ([8a377b0](https://github.com/dallay/corvus/commit/8a377b0b7b7d7b9fb21df44397ffe4399ce3e882))
+* **cerebro:** tighten metrics endpoint and auth ([e11dee6](https://github.com/dallay/corvus/commit/e11dee68e90b20f03ab084620b034448a4c2a4bf))
+* **cerebro:** update Makefile and Docker paths from modules/cerebro to clients/cerebro ([27c4a1b](https://github.com/dallay/corvus/commit/27c4a1b732cdd47d766cd7deb97b0a2085dfd31d)), closes [#699](https://github.com/dallay/corvus/issues/699)
+
 ## 0.1.0 (2026-04-29)
 
 
