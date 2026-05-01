@@ -39,11 +39,16 @@ pub fn auth_header() -> Option<&'static str> {
 }
 
 /// Starts Cerebro server in background task with temporary storage.
-/// Returns the service, shutdown channel, and base URL.
+/// Returns the service, shutdown channel, base URL, and server task handle.
 #[allow(dead_code)]
 pub async fn start_cerebro_server(
     config: CerebroConfig,
-) -> anyhow::Result<(Arc<CerebroService>, watch::Sender<bool>, String)> {
+) -> anyhow::Result<(
+    Arc<CerebroService>,
+    watch::Sender<bool>,
+    String,
+    tokio::task::JoinHandle<()>,
+)> {
     let service = Arc::new(CerebroService::from_config(config.clone()).await?);
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
@@ -52,14 +57,14 @@ pub async fn start_cerebro_server(
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let service_clone = service.clone();
 
-    tokio::spawn(async move {
+    let server_handle = tokio::spawn(async move {
         axum::serve(listener, service_clone.router())
             .with_graceful_shutdown(wait_for_shutdown(shutdown_rx))
             .await
             .expect("server should run");
     });
 
-    Ok((service, shutdown_tx, base_url))
+    Ok((service, shutdown_tx, base_url, server_handle))
 }
 
 /// Waits for /readyz to return 200 with exponential backoff.
@@ -130,11 +135,13 @@ pub async fn create_test_memories(
         }
 
         let body: serde_json::Value = resp.json().await?;
-        
+
         // Extract memory_id from result.output.memory_id
         let memory_id = body["result"]["output"]["memory_id"]
             .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Failed to extract memory_id from response: {:?}", body))?
+            .ok_or_else(|| {
+                anyhow::anyhow!("Failed to extract memory_id from response: {:?}", body)
+            })?
             .to_string();
 
         memory_ids.push(memory_id);
