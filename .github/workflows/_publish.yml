@@ -156,6 +156,8 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_ID: ${{ inputs.release_id }}
           PRERELEASE: ${{ inputs.prerelease }}
+          AFFECTED_COMPONENTS: ${{ inputs.affected_components || '[]' }}
+          RELEASE_CONTEXT_OUTPUT: ${{ runner.temp }}/release-context.json
         run: |
           set -euo pipefail
 
@@ -165,51 +167,67 @@ jobs:
           fi
 
           release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
-          RELEASE_JSON="$release_json" RELEASE_TAG="$RELEASE_TAG" PRERELEASE="$PRERELEASE" python3 <<'PY'
+          release_tag_from_api="$(RELEASE_JSON="$release_json" python3 - <<'PY'
+          import json
+          import os
+          print(json.loads(os.environ["RELEASE_JSON"]).get("tag_name", ""))
+          PY
+          )"
+          release_draft_from_api="$(RELEASE_JSON="$release_json" python3 - <<'PY'
+          import json
+          import os
+          print("true" if json.loads(os.environ["RELEASE_JSON"]).get("draft") else "false")
+          PY
+          )"
+          release_prerelease_from_api="$(RELEASE_JSON="$release_json" python3 - <<'PY'
+          import json
+          import os
+          print("true" if json.loads(os.environ["RELEASE_JSON"]).get("prerelease") else "false")
+          PY
+          )"
+
+          if [[ "$release_tag_from_api" != "$RELEASE_TAG" ]]; then
+            echo "Release id ${RELEASE_ID} points to ${release_tag_from_api} instead of ${RELEASE_TAG}"
+            exit 1
+          fi
+          if [[ "$release_draft_from_api" == "true" ]]; then
+            echo "Release publish does not accept draft releases"
+            exit 1
+          fi
+          if [[ "$release_prerelease_from_api" != "$PRERELEASE" ]]; then
+            echo "Release prerelease state ${release_prerelease_from_api} does not match expected ${PRERELEASE}"
+            exit 1
+          fi
+
+          node scripts/resolve-release-context.mjs > "$RELEASE_CONTEXT_OUTPUT"
+
+          python3 <<'PY'
           import json
           import os
           import pathlib
-          import re
-          import sys
 
-          release = json.loads(os.environ["RELEASE_JSON"])
-          expected_tag = os.environ["RELEASE_TAG"]
-          is_prerelease = os.environ["PRERELEASE"].lower() == "true"
-          channel = "beta" if is_prerelease else "stable"
-          tag_pattern = r"^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$" if is_prerelease else r"^v[0-9]+\.[0-9]+\.[0-9]+$"
+          payload = json.loads(pathlib.Path(os.environ["RELEASE_CONTEXT_OUTPUT"]).read_text(encoding="utf-8"))
+          output_keys = [
+              "release_tag",
+              "release_version",
+              "release_id",
+              "release_channel",
+              "release_major_minor",
+              "release_major",
+              "npm_dist_tag",
+          ]
 
-          if not re.match(tag_pattern, expected_tag):
-              print(f"Invalid {channel} release tag: {expected_tag}", file=sys.stderr)
-              raise SystemExit(1)
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              for key in output_keys:
+                  output.write(f"{key}={payload[key]}\n")
 
-          if release.get("tag_name") != expected_tag:
-              print(
-                  f"Release id {release.get('id')} points to {release.get('tag_name')} instead of {expected_tag}",
-                  file=sys.stderr,
-              )
-              raise SystemExit(1)
-          if release.get("draft"):
-              print(f"{channel.title()} publish does not accept draft releases", file=sys.stderr)
-              raise SystemExit(1)
-          if bool(release.get("prerelease")) != is_prerelease:
-              expected_state = "a prerelease" if is_prerelease else "a stable release"
-              print(f"{channel.title()} publish requires {expected_state}", file=sys.stderr)
-              raise SystemExit(1)
-
-          version = expected_tag.removeprefix("v")
-          base_version = version.split("-", 1)[0]
-          major, minor, _patch = base_version.split(".")
-          npm_dist_tag = "beta" if is_prerelease else "latest"
-
-          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
-          with output.open("a", encoding="utf-8") as handle:
-              handle.write(f"release_tag={expected_tag}\n")
-              handle.write(f"release_version={version}\n")
-              handle.write(f"release_id={release['id']}\n")
-              handle.write(f"release_channel={channel}\n")
-              handle.write(f"release_major_minor={major}.{minor}\n")
-              handle.write(f"release_major={major}\n")
-              handle.write(f"npm_dist_tag={npm_dist_tag}\n")
+          with pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write("### Release context\n\n")
+              summary.write(f"- Component: `{payload['release_component']}`\n")
+              summary.write(f"- Version: `{payload['release_version']}`\n")
+              summary.write(f"- Channel: `{payload['release_channel']}`\n")
+              summary.write(f"- npm dist-tag: `{payload['npm_dist_tag']}`\n")
+              summary.write(f"- Affected components: `{', '.join(payload['affected_components'])}`\n")
           PY
 
       - name: 🔎 Validate release version consistency

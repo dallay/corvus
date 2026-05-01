@@ -474,17 +474,19 @@ test("release component graph stays aligned with release-please managed packages
   const betaReleasePleaseComponents = sortStrings(
     Object.values(betaConfig.packages).map((pkg) => pkg.component),
   );
-  const stableManifestComponents = sortStrings(Object.keys(stableManifest));
-  const betaManifestComponents = sortStrings(Object.keys(betaManifest));
+  const stableManifestPackagePaths = sortStrings(Object.keys(stableManifest));
+  const betaManifestPackagePaths = sortStrings(Object.keys(betaManifest));
+  const stableReleasePleasePackagePaths = sortStrings(Object.keys(stableConfig.packages));
+  const betaReleasePleasePackagePaths = sortStrings(Object.keys(betaConfig.packages));
 
   assert.deepEqual(graphPublishableComponents, ["cerebro", "corvus-runtime", "rook"]);
   assert.deepEqual(stableReleasePleaseComponents, graphPublishableComponents);
   assert.deepEqual(betaReleasePleaseComponents, graphPublishableComponents);
-  assert.deepEqual(stableManifestComponents, graphPublishableComponents);
-  assert.deepEqual(betaManifestComponents, graphPublishableComponents);
+  assert.deepEqual(stableManifestPackagePaths, stableReleasePleasePackagePaths);
+  assert.deepEqual(betaManifestPackagePaths, betaReleasePleasePackagePaths);
   assert.equal(graph.components["gradle-kmp"]?.publishPolicy, "validate-only");
-  assert.ok(!stableManifestComponents.includes("gradle-kmp"));
-  assert.ok(!betaManifestComponents.includes("gradle-kmp"));
+  assert.ok(!stableManifestPackagePaths.includes("gradle-kmp"));
+  assert.ok(!betaManifestPackagePaths.includes("gradle-kmp"));
 });
 
 test("release component resolver marks rook-owned paths as direct rook scope", () => {
@@ -547,6 +549,96 @@ function runReleaseTagResolver(releaseTag, releaseBody = "", options = {}) {
 
   return JSON.parse(output);
 }
+
+function runReleaseContextResolver(releaseTag, extraEnv = {}, options = {}) {
+  const output = execFileSync("node", ["scripts/resolve-release-context.mjs"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      RELEASE_TAG: releaseTag,
+      RELEASE_ID: "316295405",
+      PRERELEASE: "false",
+      AFFECTED_COMPONENTS: "[]",
+      ...extraEnv,
+    },
+  });
+
+  return JSON.parse(output);
+}
+
+test("release context resolver maps stable component tag to one publish scope", () => {
+  const resolved = runReleaseContextResolver("cerebro-v0.2.0");
+
+  assert.equal(resolved.release_tag, "cerebro-v0.2.0");
+  assert.equal(resolved.release_id, "316295405");
+  assert.equal(resolved.release_component, "cerebro");
+  assert.equal(resolved.release_version, "0.2.0");
+  assert.equal(resolved.release_channel, "stable");
+  assert.equal(resolved.release_major_minor, "0.2");
+  assert.equal(resolved.release_major, "0");
+  assert.equal(resolved.npm_dist_tag, "latest");
+  assert.deepEqual(resolved.affected_components, ["cerebro"]);
+});
+
+test("release context resolver maps beta component tag to beta channel", () => {
+  const resolved = runReleaseContextResolver("cerebro-v0.2.0-beta.1", { PRERELEASE: "true" });
+
+  assert.equal(resolved.release_component, "cerebro");
+  assert.equal(resolved.release_version, "0.2.0-beta.1");
+  assert.equal(resolved.release_channel, "beta");
+  assert.equal(resolved.release_major_minor, "0.2");
+  assert.equal(resolved.release_major, "0");
+  assert.equal(resolved.npm_dist_tag, "beta");
+  assert.deepEqual(resolved.affected_components, ["cerebro"]);
+});
+
+test("release context resolver rejects global tags", () => {
+  assert.throws(
+    () => runReleaseContextResolver("v0.2.0", {}, { stdio: "pipe" }),
+    /Unsupported component-scoped release tag: v0\.2\.0/,
+  );
+});
+
+test("release context resolver rejects validate-only components", () => {
+  assert.throws(
+    () => runReleaseContextResolver("gradle-kmp-v0.2.0", {}, { stdio: "pipe" }),
+    /Unsupported component-scoped release tag: gradle-kmp-v0\.2\.0/,
+  );
+});
+
+test("release context resolver rejects beta tags published as stable releases", () => {
+  assert.throws(
+    () => runReleaseContextResolver("cerebro-v0.2.0-beta.1", { PRERELEASE: "false" }, { stdio: "pipe" }),
+    /Beta release tag cerebro-v0\.2\.0-beta\.1 requires a prerelease GitHub Release/,
+  );
+});
+
+test("release context resolver rejects stable tags published as prereleases", () => {
+  assert.throws(
+    () => runReleaseContextResolver("cerebro-v0.2.0", { PRERELEASE: "true" }, { stdio: "pipe" }),
+    /Stable release tag cerebro-v0\.2\.0 cannot be published from a prerelease GitHub Release/,
+  );
+});
+
+test("release context resolver allows exact same-component affected override", () => {
+  const resolved = runReleaseContextResolver("cerebro-v0.2.0", { AFFECTED_COMPONENTS: '["cerebro"]' });
+
+  assert.deepEqual(resolved.affected_components, ["cerebro"]);
+});
+
+test("release context resolver rejects multi-component affected overrides", () => {
+  assert.throws(
+    () =>
+      runReleaseContextResolver(
+        "cerebro-v0.2.0",
+        { AFFECTED_COMPONENTS: '["cerebro","corvus-runtime"]' },
+        { stdio: "pipe" },
+      ),
+    /AFFECTED_COMPONENTS must match release tag component exactly: expected cerebro, got cerebro, corvus-runtime/,
+  );
+});
 
 test("release tag resolver maps supported component tags", () => {
   const resolved = runReleaseTagResolver("rook-v1.2.3");
@@ -895,13 +987,19 @@ test("release workflows encode release-please-owned stable and beta governance",
       /npm platform publish summary/,
       /npm base publish summary/,
       /Resolved affected components:/,
+      /Release context/,
       /scripts\/validate-affected-components\.mjs/,
+      /scripts\/resolve-release-context\.mjs/,
+      /RELEASE_CONTEXT_OUTPUT: \$\{\{ runner\.temp \}\}\/release-context\.json/,
       /VALIDATION_OUTPUT: \$\{\{ runner\.temp \}\}\/affected-components\.json/,
     ],
     "publish workflow",
   );
   assert.doesNotMatch(publishWorkflow, /known_components = \{/);
   assert.doesNotMatch(publishWorkflow, /const stableStringCollator/);
+  assert.doesNotMatch(publishWorkflow, /Invalid \$\{channel\} release tag/);
+  assert.doesNotMatch(publishWorkflow, /expected_tag\.removeprefix\("v"\)/);
+  assert.doesNotMatch(publishWorkflow, /\^v\[0-9\]/);
 
   assert.doesNotMatch(publishWorkflow, /release-changelog-builder-action/);
   assert.doesNotMatch(publishWorkflow, /softprops\/action-gh-release/);
