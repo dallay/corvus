@@ -62,6 +62,25 @@ Recommended pattern:
 
 These probe endpoints are intentionally unauthenticated. Restrict access with network policy, ingress rules, or private service topology rather than exposing them broadly on the public Internet.
 
+## MCP HTTP transport semantics
+
+`POST /mcp` preserves JSON-RPC response bodies for MCP clients and also returns HTTP status codes that reflect operational failure categories for ingress, proxy, and observability consumers.
+
+Successful JSON-RPC responses return `200 OK`. Failed JSON-RPC responses keep the JSON-RPC error payload and use these HTTP statuses:
+
+| Scenario | HTTP status |
+| --- | --- |
+| Missing or invalid bearer token | `401 Unauthorized` |
+| Authenticated caller lacks permission | `403 Forbidden` |
+| Invalid JSON-RPC request, unsupported method, or invalid params | `400 Bad Request` |
+| Requested resource is missing | `404 Not Found` |
+| Request conflicts with current state | `409 Conflict` |
+| Requested MCP tool is deferred or unimplemented | `501 Not Implemented` |
+| Storage/backend dependency failure | `503 Service Unavailable` |
+| Unexpected internal failure | `500 Internal Server Error` |
+
+Operators should alert separately on repeated authorization failures, forbidden attempts, validation spikes, backend/storage failures, and internal errors.
+
 ## Request limits
 
 Cerebro enforces a 1 MiB (1,048,576 bytes) HTTP request body limit on the router to reduce abuse and accidental oversized payloads.
@@ -88,7 +107,7 @@ Cerebro also exposes Prometheus-compatible operational metrics at `GET /metrics`
 
 | Metric | Type | Labels | Description |
 | --- | --- | --- | --- |
-| `cerebro_requests_total` | counter | `method`, `status` | Total MCP JSON-RPC requests by canonical method (`tools.call`, `tools.list`, or `unknown`) and outcome (`ok` or `error`). |
+| `cerebro_requests_total` | counter | `method`, `status` | Total MCP JSON-RPC requests by canonical method (`tools.call`, `tools.list`, or `unknown`) and outcome (`ok`, `validation_error`, `unauthorized`, `forbidden`, `not_implemented`, `not_found`, `conflict`, `storage_error`, or `internal_error`). |
 | `cerebro_tool_latency_seconds` | histogram | `tool`, `status` | Tool execution latency by MCP tool name and outcome (`ok` or `error`). |
 | `cerebro_auth_failures_total` | counter | none | Authentication failures for MCP requests. |
 | `cerebro_readiness_failures_total` | counter | none | Readiness probe failures returned by `/readyz`. |
