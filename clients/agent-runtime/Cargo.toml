@@ -110,7 +110,7 @@ chrono-tz = "0.10"
 cron = "0.16"
 
 # Cerebro MCP service client
-cerebro = { version = "0.2.0", path = "../../clients/cerebro" }
+cerebro = { version = "0.2.1", path = "../../clients/cerebro" }
 
 # Interactive CLI prompts
 dialoguer = { version = "0.12", features = ["fuzzy-select"] }
