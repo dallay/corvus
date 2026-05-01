@@ -345,8 +345,9 @@ After restoring from backup, verify service health and data integrity:
    ```bash
    curl -s -X POST http://127.0.0.1:4040/mcp \
      -H "Content-Type: application/json" \
-     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mem_stats","arguments":{}}}' \
-     | jq '.result.content[0].text'
+     -H "Authorization: Bearer <YOUR_TOKEN>" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mem_stats","arguments":{"input":{}}}}' \
+     | jq '.result.output'
    ```
    
    Compare the memory count with your pre-backup count.
@@ -355,8 +356,9 @@ After restoring from backup, verify service health and data integrity:
    ```bash
    curl -s -X POST http://127.0.0.1:4040/mcp \
      -H "Content-Type: application/json" \
-     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mem_search","arguments":{"query":"test","limit":5}}}' \
-     | jq '.result'
+     -H "Authorization: Bearer <YOUR_TOKEN>" \
+     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mem_search","arguments":{"input":{"query":"test","limit":5}}}}' \
+     | jq '.result.output'
    ```
    
    Confirm that search returns expected results.
@@ -365,6 +367,7 @@ After restoring from backup, verify service health and data integrity:
    ```bash
    curl -s -X POST http://127.0.0.1:4040/mcp \
      -H "Content-Type: application/json" \
+     -H "Authorization: Bearer <YOUR_TOKEN>" \
      -d '{"jsonrpc":"2.0","id":3,"method":"tools/list"}' \
      | jq '.result'
    ```

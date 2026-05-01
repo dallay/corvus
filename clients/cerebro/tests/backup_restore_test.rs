@@ -39,9 +39,10 @@ async fn backup_restore_preserves_data() {
     };
 
     // Start Cerebro server
-    let (service, shutdown_tx, base_url) = helpers::start_cerebro_server(config.clone())
-        .await
-        .expect("failed to start cerebro server");
+    let (service, shutdown_tx, base_url, _server_handle) =
+        helpers::start_cerebro_server(config.clone())
+            .await
+            .expect("failed to start cerebro server");
 
     // Wait for service to become ready
     helpers::wait_for_ready(&base_url, 10)
@@ -111,18 +112,30 @@ async fn backup_restore_preserves_data() {
         .expect("mem_search request failed");
 
     let search_body: serde_json::Value = search_resp.json().await.expect("failed to parse search");
+    let hits = search_body["result"]["output"]["results"]
+        .as_array()
+        .expect("mem_search should return results array");
     assert!(
-        search_body["result"].is_object(),
-        "mem_search should return results"
+        !hits.is_empty(),
+        "mem_search should return at least one result"
+    );
+    assert!(
+        hits.iter().any(|hit| {
+            hit["summary"]
+                .as_str()
+                .map(|s| s.contains("test content"))
+                .unwrap_or(false)
+        }),
+        "mem_search should return memories with expected content"
     );
 
     // ========== BACKUP PHASE ==========
     // Gracefully shutdown Cerebro
     let _ = shutdown_tx.send(true);
-    
+
     // Drop service to ensure all handles are released
     drop(service);
-    
+
     // Wait for RocksDB to release locks and flush buffers
     tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -172,7 +185,7 @@ async fn backup_restore_preserves_data() {
     );
 
     // Restart Cerebro with restored data
-    let (_service, _shutdown_tx, base_url) = helpers::start_cerebro_server(config)
+    let (_service, _shutdown_tx, base_url, _server_handle) = helpers::start_cerebro_server(config)
         .await
         .expect("failed to restart cerebro after restore");
 
@@ -212,9 +225,21 @@ async fn backup_restore_preserves_data() {
         .expect("mem_search request failed after restore");
 
     let search_body: serde_json::Value = search_resp.json().await.expect("failed to parse search");
+    let hits = search_body["result"]["output"]["results"]
+        .as_array()
+        .expect("mem_search should return results array after restore");
     assert!(
-        search_body["result"].is_object(),
-        "mem_search should return results after restore"
+        !hits.is_empty(),
+        "mem_search should return at least one result after restore"
+    );
+    assert!(
+        hits.iter().any(|hit| {
+            hit["summary"]
+                .as_str()
+                .map(|s| s.contains("test content"))
+                .unwrap_or(false)
+        }),
+        "mem_search should return memories with expected content after restore"
     );
 
     // Verify specific memory IDs are present
