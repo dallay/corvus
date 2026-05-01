@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1](https://github.com/dallay/corvus/compare/cerebro-v0.2.0...cerebro-v0.2.1) (2026-05-01)
+
+
+### Bug Fixes
+
+* **cerebro:** address code review findings ([fee7878](https://github.com/dallay/corvus/commit/fee7878d03308d4b4560faa1e9e853f438f2b49f))
+* **cerebro:** improve mcp http error semantics ([fcb2c41](https://github.com/dallay/corvus/commit/fcb2c411bd1dd1a33e211b7bdcecb7c1d082546e))
+* **cerebro:** improve mcp http error semantics ([e255182](https://github.com/dallay/corvus/commit/e255182ef90f6dc6bb386f74969676e80df66f3f))
+
 ## [0.2.0](https://github.com/dallay/corvus/compare/cerebro-v0.1.0...cerebro-v0.2.0) (2026-04-30)
 
 
