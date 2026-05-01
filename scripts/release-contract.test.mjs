@@ -995,6 +995,27 @@ test("release workflows encode release-please-owned stable and beta governance",
     ],
     "publish workflow",
   );
+  assert.doesNotMatch(
+    publishWorkflow,
+    /output\.write\(f"\{key\}=\{'true' if value else 'false'\}\\\\n"\)/,
+    "component flag outputs must use real newlines, not literal \\n text",
+  );
+
+  assertIncludesAll(
+    publishWorkflow,
+    [
+      /Validate component flag outputs/,
+      /COMPONENT_FLAG_OUTPUTS:/,
+      /has_corvus_runtime=\$\{\{ steps\.component-flags\.outputs\.has_corvus_runtime \}\}/,
+      /has_rook=\$\{\{ steps\.component-flags\.outputs\.has_rook \}\}/,
+      /has_cerebro=\$\{\{ steps\.component-flags\.outputs\.has_cerebro \}\}/,
+      /has_gradle_kmp=\$\{\{ steps\.component-flags\.outputs\.has_gradle_kmp \}\}/,
+      /value not in \{"true", "false"\}/,
+      /Invalid component flag output/,
+    ],
+    "publish workflow component flag output guardrail",
+  );
+
   assert.doesNotMatch(publishWorkflow, /known_components = \{/);
   assert.doesNotMatch(publishWorkflow, /const stableStringCollator/);
   assert.doesNotMatch(publishWorkflow, /Invalid \$\{channel\} release tag/);
