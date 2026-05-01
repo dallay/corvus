@@ -164,6 +164,34 @@ fn startup_validation_allows_loopback_without_auth_token_for_local_dev() {
 }
 
 #[test]
+fn startup_validation_rejects_zero_request_timeout() {
+    let mut config = base_config();
+    config.request_timeout_secs = 0;
+
+    let error = config
+        .validate_startup_requirements()
+        .expect_err("startup validation should fail");
+
+    assert!(error
+        .to_string()
+        .contains("request_timeout_secs must be greater than zero"));
+}
+
+#[test]
+fn startup_validation_rejects_zero_mcp_concurrency_limit() {
+    let mut config = base_config();
+    config.max_concurrent_mcp_requests = 0;
+
+    let error = config
+        .validate_startup_requirements()
+        .expect_err("startup validation should fail");
+
+    assert!(error
+        .to_string()
+        .contains("max_concurrent_mcp_requests must be greater than zero"));
+}
+
+#[test]
 fn startup_validation_allows_non_loopback_with_real_auth_token() {
     let mut config = base_config();
     config.host = "0.0.0.0".to_string();

@@ -111,6 +111,10 @@ pub struct CerebroConfig {
     /// http for loopback.
     #[serde(default)]
     pub scheme: Option<String>,
+    #[serde(default = "default_request_timeout_secs")]
+    pub request_timeout_secs: u64,
+    #[serde(default = "default_max_concurrent_mcp_requests")]
+    pub max_concurrent_mcp_requests: usize,
     #[serde(default)]
     pub storage_mode: StorageMode,
     #[serde(default)]
@@ -132,6 +136,14 @@ fn default_host() -> String {
 
 fn default_port() -> u16 {
     4040
+}
+
+fn default_request_timeout_secs() -> u64 {
+    30
+}
+
+fn default_max_concurrent_mcp_requests() -> usize {
+    32
 }
 
 fn default_surreal_namespace() -> String {
@@ -209,6 +221,8 @@ impl Default for CerebroConfig {
             auth_token: None,
             audit_token: None,
             scheme: None,
+            request_timeout_secs: default_request_timeout_secs(),
+            max_concurrent_mcp_requests: default_max_concurrent_mcp_requests(),
             storage_mode: StorageMode::default(),
             storage_fallback: StorageFallback::default(),
             storage_path: None,
@@ -312,6 +326,18 @@ impl CerebroConfig {
 
     pub fn validate_startup_requirements(&self) -> Result<(), crate::errors::CerebroError> {
         self.validate_storage()?;
+
+        if self.request_timeout_secs == 0 {
+            return Err(crate::errors::CerebroError::Validation(
+                "request_timeout_secs must be greater than zero".to_string(),
+            ));
+        }
+
+        if self.max_concurrent_mcp_requests == 0 {
+            return Err(crate::errors::CerebroError::Validation(
+                "max_concurrent_mcp_requests must be greater than zero".to_string(),
+            ));
+        }
 
         let auth_is_present = self.auth_token.is_some();
 
