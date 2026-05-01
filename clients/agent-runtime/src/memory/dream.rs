@@ -787,14 +787,7 @@ mod tests {
             record_session_completion(tmp.path(), &format!("sess-{index}")).unwrap();
         }
 
-        let mut report = run_if_triggered(tmp.path()).unwrap().unwrap();
-        for _ in 0..10 {
-            if report.lock_state != DreamLockState::Busy {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            report = run_if_triggered(tmp.path()).unwrap().unwrap_or(report);
-        }
+        let report = run_if_triggered_after_transient_busy(tmp.path());
         assert_eq!(report.trigger_reason, DreamTriggerReason::SessionCount);
         assert_eq!(report.lock_state, DreamLockState::Acquired);
         assert_eq!(report.status, DreamRunStatus::Completed);
