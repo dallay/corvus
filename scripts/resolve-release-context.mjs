@@ -32,23 +32,38 @@ function parseAffectedComponentsOverride(affectedComponentsRaw, graph) {
   return sortStrings([...new Set(parsed)]);
 }
 
+function parseVersionSuffix(versionSuffix) {
+  const match = /^([0-9]+)\.([0-9]+)\.([0-9]+)(?:-beta\.([0-9]+))?$/.exec(versionSuffix);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, major, minor, patch, betaNumber] = match;
+  return {
+    major,
+    minor,
+    patch,
+    betaNumber,
+    version: betaNumber ? `${major}.${minor}.${patch}-beta.${betaNumber}` : `${major}.${minor}.${patch}`,
+    channel: betaNumber ? "beta" : "stable",
+  };
+}
+
 function parseComponentReleaseTag(releaseTag, publishableComponents) {
   for (const componentId of publishableComponents) {
-    const escapedComponentId = componentId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = new RegExp(`^${escapedComponentId}-v([0-9]+)\\.([0-9]+)\\.([0-9]+)(?:-beta\\.([0-9]+))?$`).exec(
-      releaseTag,
-    );
+    const prefix = `${componentId}-v`;
 
-    if (match) {
-      const [, major, minor, patch, betaNumber] = match;
+    if (!releaseTag.startsWith(prefix)) {
+      continue;
+    }
+
+    const parsedVersion = parseVersionSuffix(releaseTag.slice(prefix.length));
+
+    if (parsedVersion) {
       return {
         componentId,
-        major,
-        minor,
-        patch,
-        betaNumber,
-        version: betaNumber ? `${major}.${minor}.${patch}-beta.${betaNumber}` : `${major}.${minor}.${patch}`,
-        channel: betaNumber ? "beta" : "stable",
+        ...parsedVersion,
       };
     }
   }

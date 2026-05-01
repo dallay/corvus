@@ -149,9 +149,12 @@ function extractFrontmatter(contents) {
 }
 
 function getField(frontmatter, fieldName) {
-  const regex = new RegExp(String.raw`^${fieldName}:\s*(.+)$`, "m");
-  const match = frontmatter.match(regex);
-  return match ? match[1].trim().replaceAll(/^['"]|['"]$/g, "") : "";
+  const prefix = `${fieldName}:`;
+  const line = frontmatter
+    .split("\n")
+    .find((candidate) => candidate.startsWith(prefix));
+
+  return line ? line.slice(prefix.length).trim().replaceAll(/^['"]|['"]$/g, "") : "";
 }
 
 function getMetadata(filePath) {
