@@ -1,7 +1,7 @@
 {
   "devDependencies": {
-    "@astrojs/check": "^0.9.8",
-    "typescript": "^5.9.3"
+    "@astrojs/check": "^0.9.9",
+    "typescript": "^6.0.3"
   },
   "pnpm": {
     "overrides": {
