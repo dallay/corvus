@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/dallay/corvus/compare/cerebro-v0.2.1...cerebro-v0.3.0) (2026-05-01)
+
+
+### Features
+
+* **cerebro:** add MCP abuse controls ([666522d](https://github.com/dallay/corvus/commit/666522d3545739bd393134e5058241804bfca478))
+
+
+### Bug Fixes
+
+* **cerebro:** address abuse control review ([5a3af28](https://github.com/dallay/corvus/commit/5a3af2827533e123c7995710ccc61fa5594f2a3c))
+
 ## [0.2.1](https://github.com/dallay/corvus/compare/cerebro-v0.2.0...cerebro-v0.2.1) (2026-05-01)
 
 
