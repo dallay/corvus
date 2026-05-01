@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/dallay/corvus/compare/corvus-runtime-v0.2.0...corvus-runtime-v0.2.1) (2026-04-30)
+
+
+### Bug Fixes
+
+* **security:** remediate semgrep findings for secrets and shell IFS tampering ([020db43](https://github.com/dallay/corvus/commit/020db43a7270a293c0321b2e420103e8cff16636))
+
 ## [0.2.0](https://github.com/dallay/corvus/compare/corvus-runtime-v0.1.0...corvus-runtime-v0.2.0) (2026-04-30)
 
 
