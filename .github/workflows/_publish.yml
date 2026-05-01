@@ -95,12 +95,33 @@ jobs:
 
           with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               for key, value in flags.items():
-                  output.write(f"{key}={'true' if value else 'false'}\\n")
+                  output.write(f"{key}={'true' if value else 'false'}\n")
 
           with pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
               summary.write("### Resolved affected components\n\n")
               summary.write(f"- Raw payload: `{payload['raw_payload']}`\n")
               summary.write(f"- Resolved affected components: `{', '.join(payload['affected_components'])}`\n")
+
+      - name: 🔎 Validate component flag outputs
+        shell: python
+        env:
+          COMPONENT_FLAG_OUTPUTS: |
+            has_corvus_runtime=${{ steps.component-flags.outputs.has_corvus_runtime }}
+            has_rook=${{ steps.component-flags.outputs.has_rook }}
+            has_cerebro=${{ steps.component-flags.outputs.has_cerebro }}
+            has_gradle_kmp=${{ steps.component-flags.outputs.has_gradle_kmp }}
+        run: |
+          import os
+
+          raw_outputs = os.environ["COMPONENT_FLAG_OUTPUTS"].splitlines()
+          for raw_output in raw_outputs:
+              key, separator, value = raw_output.partition("=")
+              if not separator:
+                  raise SystemExit(f"Invalid component flag output entry: {raw_output!r}")
+              if value not in {"true", "false"}:
+                  raise SystemExit(
+                      f"Invalid component flag output {key}: expected 'true' or 'false', got {value!r}",
+                  )
 
       - name: 🦀 Resolve Rust channel
         if: ${{ inputs.release }}
