@@ -634,6 +634,20 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn run_if_triggered_after_transient_busy(workspace_dir: &Path) -> MemoryConsolidationReport {
+        let mut last_report = None;
+        for _ in 0..10 {
+            if let Some(report) = run_if_triggered(workspace_dir).unwrap() {
+                if report.lock_state != DreamLockState::Busy {
+                    return report;
+                }
+                last_report = Some(report);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        last_report.expect("Dream run should produce a report")
+    }
+
     #[test]
     fn rejects_active_session_without_recorded_completion() {
         let tmp = TempDir::new().unwrap();
@@ -652,8 +666,9 @@ mod tests {
         let eligibility = dream_eligibility(tmp.path(), "sess-123").unwrap();
         assert_eq!(eligibility, DreamEligibility::Eligible);
 
-        let report = run_if_triggered(tmp.path()).unwrap().unwrap();
+        let report = run_if_triggered_after_transient_busy(tmp.path());
         assert_eq!(report.trigger_reason, DreamTriggerReason::TimeElapsed);
+        assert_eq!(report.lock_state, DreamLockState::Acquired);
         assert_eq!(report.sessions_processed, 1);
         assert_eq!(
             report.session_reports[0].artifact_refs,
