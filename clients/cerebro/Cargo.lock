@@ -596,6 +596,7 @@ dependencies = [
  "chrono",
  "clap",
  "crossterm",
+ "fs_extra",
  "hex",
  "once_cell",
  "predicates",

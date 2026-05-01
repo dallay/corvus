@@ -5,7 +5,7 @@ description: >-
   backup strategies, and the TUI dashboard.
 owner: team-platform
 status: canonical
-lastReviewed: 2026-04-02
+lastReviewed: 2026-05-01
 appliesTo: main
 docType: guide
 ---
@@ -189,37 +189,239 @@ Use this in container health checks or monitoring probes.
 
 ## Backup and Restore
 
-### Embedded SurrealDB
+### Prerequisites
 
-The embedded SurrealDB data lives in the working directory or
-the path specified by `surreal.storage_path`. To back up:
+:::caution[Shutdown Required]
+Embedded SurrealDB uses RocksDB as its storage engine, which requires a consistent snapshot for file-based backups. **You must stop Cerebro before performing a backup.** Hot backups (copying files while Cerebro is running) can result in corrupted or incomplete data due to concurrent writes and unflushed buffers.
+:::
+
+Always follow this sequence:
+1. Stop Cerebro gracefully
+2. Perform the backup
+3. Restart Cerebro
+
+### Data Path Resolution
+
+Cerebro resolves the storage path in this order:
+
+1. **`surreal.storage_path`** (if configured) — Highest priority
+2. **`storage_path`** (if configured and `surreal.storage_path` is not set)
+3. **`./cerebro.db`** (default if neither is configured)
+
+**Examples:**
+
+```toml
+# Option 1: Explicit SurrealDB storage path (recommended)
+[surreal]
+storage_path = "/var/lib/cerebro/data"
+```
+
+```toml
+# Option 2: Fallback to general storage_path
+storage_path = "/data/cerebro"
+```
+
+```toml
+# Option 3: Default (working directory)
+# No configuration needed - uses ./cerebro.db
+```
+
+### Cold Backup Procedure
+
+#### Bare Metal Deployment
 
 ```bash
-# Stop Cerebro first for consistency
+# 1. Stop Cerebro gracefully
+sudo systemctl stop cerebro
+
+# 2. Copy the storage directory
+sudo cp -r /var/lib/cerebro/data /backup/cerebro-$(date +%Y%m%d-%H%M%S)
+
+# 3. Verify backup exists
+ls -lh /backup/cerebro-*
+
+# 4. Restart Cerebro
+sudo systemctl start cerebro
+```
+
+#### Docker Container with Named Volume
+
+```bash
+# 1. Stop the container
 docker stop cerebro
 
-# Copy the data directory
-cp -r /path/to/cerebro-data /path/to/backup/
+# 2. Backup the volume
+docker run --rm \
+  -v cerebro-data:/data \
+  -v $(pwd):/backup \
+  busybox tar czf /backup/cerebro-backup-$(date +%Y%m%d-%H%M%S).tar.gz -C /data .
 
-# Restart
+# 3. Verify backup
+ls -lh cerebro-backup-*.tar.gz
+
+# 4. Restart the container
 docker start cerebro
 ```
 
-### Docker Volumes
+#### Docker Compose Setup
 
 ```bash
-# Backup a Docker volume
-docker run --rm \
-  -v cerebro-data:/data \
-  -v $(pwd):/backup \
-  busybox tar czf /backup/cerebro-backup.tar.gz -C /data .
+# 1. Stop services
+docker compose stop cerebro
 
-# Restore
+# 2. Backup the volume
+docker compose run --rm \
+  -v cerebro-data:/data \
+  -v $(pwd):/backup \
+  busybox tar czf /backup/cerebro-backup-$(date +%Y%m%d-%H%M%S).tar.gz -C /data .
+
+# 3. Restart services
+docker compose start cerebro
+```
+
+### Restore Procedure
+
+#### Bare Metal Deployment
+
+```bash
+# 1. Stop Cerebro
+sudo systemctl stop cerebro
+
+# 2. Clear current storage (optional, for clean restore)
+sudo rm -rf /var/lib/cerebro/data
+
+# 3. Restore from backup
+sudo cp -r /backup/cerebro-20260501-120000 /var/lib/cerebro/data
+
+# 4. Fix permissions if needed
+sudo chown -R cerebro:cerebro /var/lib/cerebro/data
+
+# 5. Restart Cerebro
+sudo systemctl start cerebro
+```
+
+#### Docker Container with Named Volume
+
+```bash
+# 1. Stop the container
+docker stop cerebro
+
+# 2. Clear the volume (optional)
+docker run --rm -v cerebro-data:/data busybox rm -rf /data/*
+
+# 3. Restore from backup
 docker run --rm \
   -v cerebro-data:/data \
   -v $(pwd):/backup \
-  busybox tar xzf /backup/cerebro-backup.tar.gz -C /data
+  busybox tar xzf /backup/cerebro-backup-20260501-120000.tar.gz -C /data
+
+# 4. Restart the container
+docker start cerebro
 ```
+
+#### Restore to Different Storage Path
+
+If you need to restore to a different location, update your configuration first:
+
+```toml
+# Update cerebro.toml before restore
+[surreal]
+storage_path = "/new/path/cerebro/data"
+```
+
+Then follow the standard restore procedure for your deployment type.
+
+### Post-Restore Verification
+
+After restoring from backup, verify service health and data integrity:
+
+1. **Check readiness endpoint:**
+   ```bash
+   curl -f http://127.0.0.1:4040/readyz
+   # Should return HTTP 200
+   ```
+
+2. **Verify memory counts:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:4040/mcp \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mem_stats","arguments":{}}}' \
+     | jq '.result.content[0].text'
+   ```
+   
+   Compare the memory count with your pre-backup count.
+
+3. **Verify data accessibility:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:4040/mcp \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mem_search","arguments":{"query":"test","limit":5}}}' \
+     | jq '.result'
+   ```
+   
+   Confirm that search returns expected results.
+
+4. **Test a basic MCP tool call:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:4040/mcp \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":3,"method":"tools/list"}' \
+     | jq '.result'
+   ```
+
+See the [Health Check](#health-check) section for more details on monitoring endpoints.
+
+### RPO/RTO Expectations
+
+| Metric | Cold Backup | Export/Import |
+|--------|-------------|---------------|
+| **RPO** (Recovery Point Objective) | Time since last backup (operator-controlled) | Time since last export |
+| **RTO** (Recovery Time Objective) | Minutes (depends on data size) | Varies by dataset size |
+| **Downtime** | Required during backup and restore | Required during restore only |
+| **Use Case** | Production disaster recovery | Data migration between storage backends |
+
+**RPO is determined by your backup frequency.** For example:
+- Hourly backups → 1-hour maximum data loss
+- Daily backups → 24-hour maximum data loss
+
+Schedule backups according to your data loss tolerance.
+
+### Export/Import Alternative
+
+For data migration scenarios (e.g., moving between storage backends), use the export/import approach instead of file-based backup:
+
+**When to use export/import:**
+- Migrating from embedded SurrealDB to disk storage
+- Transferring data between environments
+- Creating portable data snapshots
+- Cross-platform data migration
+
+**Advantages:**
+- Works across different storage backends
+- No shutdown required during export
+- Portable JSON format
+
+**Disadvantages:**
+- Slower than file-based backup for large datasets
+- Requires more disk space (JSON vs binary)
+
+**Export procedure:**
+
+The storage layer provides `export_collections()` functionality. This is currently available programmatically but not exposed as an MCP tool. For production use, implement a custom export script or use file-based backup.
+
+### Troubleshooting
+
+| Symptom | Likely Cause | Recommended Fix |
+|---------|--------------|-----------------|
+| Backup directory is empty or incomplete | Wrong path configured, insufficient permissions, or Cerebro still running | Verify storage path with `surreal.storage_path` config, check permissions, ensure Cerebro is stopped |
+| Restore fails with "database locked" error | Cerebro is still running | Stop Cerebro completely before restore: `docker stop cerebro` or `systemctl stop cerebro` |
+| Post-restore verification shows zero memories | Backup was incomplete or restore copied to wrong location | Verify backup directory contains RocksDB files (not empty), check storage path configuration matches restore location |
+| Permission denied during backup or restore | Insufficient filesystem permissions | Run backup/restore with appropriate user (e.g., `sudo` for system paths) or fix directory ownership |
+| Backup succeeds but some files are missing | Partial backup failure or disk space issue | Verify backup directory structure, check disk space, test restore in non-production environment before relying on backup |
+
+**Automated validation:**
+
+The Cerebro test suite includes an integration test that validates the complete backup/restore cycle. See `clients/cerebro/tests/backup_restore_test.rs` for the reference implementation.
 
 ## Troubleshooting
 
