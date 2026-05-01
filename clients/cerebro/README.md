@@ -113,4 +113,14 @@ Cerebro also exposes Prometheus-compatible operational metrics at `GET /metrics`
 | `cerebro_readiness_failures_total` | counter | none | Readiness probe failures returned by `/readyz`. |
 | `cerebro_storage_errors_total` | counter | `operation` | Storage-layer errors by operation (`save`, `get`, `search`, `delete`, `timeline`, `count`, or `unknown`). |
 
-Production deployments should forward tracing logs and scrape `/metrics`; alert on repeated readiness failures, authorization failures, storage errors, and elevated tool latency.
+Production deployments should forward tracing logs and scrape `/metrics`; alert on repeated readiness failures, authorization failures, storage errors, elevated server-side error rates, and elevated tool latency. For internal production deployments, use these starting thresholds and tune them against the observed baseline:
+
+| Alert | Metric/log signal | Example threshold |
+| --- | --- | --- |
+| Repeated readiness failures | `cerebro_readiness_failures_total` plus failed `/readyz` probes | `>= 3` failures in 5 minutes or readiness success rate `< 95%` for 5 minutes |
+| Unusual auth failures | `cerebro_auth_failures_total` and `cerebro_requests_total{status="unauthorized"}`; enrich with ingress logs | `> 20` failures in 10 minutes or `> 5x` the 24-hour baseline |
+| Elevated server-side error rate | `cerebro_requests_total` with `status` matching storage or internal errors, divided by all MCP requests | warn above `2%` for 10 minutes; page above `5%` for 5 minutes |
+| Storage error spike | `cerebro_storage_errors_total` by `operation` | `>= 5` errors for one operation in 5 minutes |
+| Latency spike | `histogram_quantile(0.95, rate(cerebro_tool_latency_seconds_bucket{status="ok"}[10m]))` by `tool` | warn above p95 `1s`; page above p95 `2s` for 10 minutes |
+
+Keep auth/validation alerts separate from server-side error-rate alerts so broken or abusive clients do not hide storage or internal failures.
