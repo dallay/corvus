@@ -1655,6 +1655,21 @@ pub struct WebhookBody {
 type WebhookResponse = (StatusCode, Json<serde_json::Value>);
 type WebhookJsonBody = Result<Json<WebhookBody>, axum::extract::rejection::JsonRejection>;
 
+fn json_body(
+    entries: impl IntoIterator<Item = (&'static str, serde_json::Value)>,
+) -> serde_json::Value {
+    serde_json::Value::Object(
+        entries
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect(),
+    )
+}
+
+fn json_error_body(message: impl Into<String>) -> serde_json::Value {
+    json_body([("error", serde_json::Value::String(message.into()))])
+}
+
 fn webhook_idempotency_key(headers: &HeaderMap) -> Option<&str> {
     headers
         .get("X-Idempotency-Key")
@@ -2894,7 +2909,7 @@ async fn handle_chat_audio(
             Err(_) => {
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({"error": "multipart_parse_error"})),
+                    Json(json_error_body("multipart_parse_error")),
                 ));
             }
         };
@@ -2920,7 +2935,7 @@ async fn handle_chat_audio(
                 let bytes = field.bytes().await.map_err(|_| {
                     (
                         StatusCode::BAD_REQUEST,
-                        Json(serde_json::json!({"error": "multipart_read_error"})),
+                        Json(json_error_body("multipart_read_error")),
                     )
                 })?;
                 audio_bytes_opt = Some(bytes.to_vec());
@@ -2937,7 +2952,7 @@ async fn handle_chat_audio(
         None => {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "missing_audio_field"})),
+                Json(json_error_body("missing_audio_field")),
             ));
         }
     };
@@ -3004,7 +3019,7 @@ async fn handle_chat_audio(
                 staged.cleanup();
                 return Err((
                     StatusCode::GATEWAY_TIMEOUT,
-                    Json(serde_json::json!({"error": "transcription_timeout"})),
+                    Json(json_error_body("transcription_timeout")),
                 ));
             }
         };
@@ -3033,7 +3048,16 @@ async fn handle_chat_audio(
     };
     let transcription_data = serde_json::to_string(&event_payload).unwrap_or_else(|e| {
         tracing::error!("Failed to serialize AudioTranscriptionEvent: {e}");
-        serde_json::json!({"text": "", "language": null, "duration_secs": null}).to_string()
+        serde_json::Value::Object(
+            [
+                ("text".to_string(), serde_json::Value::String(String::new())),
+                ("language".to_string(), serde_json::Value::Null),
+                ("duration_secs".to_string(), serde_json::Value::Null),
+            ]
+            .into_iter()
+            .collect(),
+        )
+        .to_string()
     });
     let message_id = Uuid::new_v4().to_string();
 
@@ -3043,7 +3067,7 @@ async fn handle_chat_audio(
             .data(transcription_data)),
         Ok(Event::default()
             .event("done")
-            .data(serde_json::json!({"message_id": message_id}).to_string())),
+            .data(json_body([("message_id", serde_json::Value::String(message_id))]).to_string())),
     ];
 
     Ok(Sse::new(futures::stream::iter(events)))
@@ -3095,11 +3119,14 @@ async fn legacy_simple_chat(
             record_llm_success(&state.observer, &provider_label, &model_label, duration);
             let sanitized_response = scrub_sensitive_boundary_text(&response);
             log_webhook_terminal_outcome(session_id, "legacy_simple_chat", "completed");
-            let body = serde_json::json!({
-                "response": sanitized_response,
-                "model": state.model,
-                "session_id": session_id,
-            });
+            let body = json_body([
+                ("response", serde_json::Value::String(sanitized_response)),
+                ("model", serde_json::Value::String(state.model.clone())),
+                (
+                    "session_id",
+                    serde_json::Value::String(session_id.to_string()),
+                ),
+            ]);
             ((StatusCode::OK, Json(body)), true)
         }
         Err(e) => {
@@ -3114,7 +3141,7 @@ async fn legacy_simple_chat(
             );
             tracing::error!("Webhook provider error: {}", sanitized);
             log_webhook_terminal_outcome(session_id, "legacy_simple_chat", "error");
-            let err = serde_json::json!({"error": "LLM request failed"});
+            let err = json_error_body("LLM request failed");
             ((StatusCode::INTERNAL_SERVER_ERROR, Json(err)), false)
         }
     }
