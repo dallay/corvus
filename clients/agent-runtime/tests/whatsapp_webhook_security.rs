@@ -85,8 +85,8 @@ fn whatsapp_signature_rejects_tampered_body() {
 
 #[test]
 fn whatsapp_signature_rejects_wrong_secret() {
-    let correct_secret = "correct_secret";
-    let wrong_secret = "wrong_secret";
+    let correct_secret = TEST_APP_SECRET;
+    let wrong_secret = FIRST_TEST_SECRET;
     let body = TEST_PAYLOAD;
 
     // Compute signature with correct secret
@@ -114,7 +114,7 @@ fn whatsapp_signature_rejects_empty_signature() {
 fn whatsapp_signature_different_secrets_produce_different_sigs() {
     let secret1 = FIRST_TEST_SECRET;
     let secret2 = SECOND_TEST_SECRET;
-    let body = b"same payload";
+    let body = TEST_PAYLOAD;
 
     let sig1 = compute_signature(secret1, body);
     let sig2 = compute_signature(secret2, body);
