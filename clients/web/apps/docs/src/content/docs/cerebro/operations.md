@@ -182,6 +182,57 @@ RUST_LOG=cerebro=debug,surrealdb=warn cerebro serve
 RUST_LOG=cerebro=trace cerebro serve
 ```
 
+### Metrics
+
+Cerebro exposes Prometheus-compatible metrics at `GET /metrics`. Scrape this endpoint from private monitoring networks only; it is intentionally unauthenticated like `/healthz` and `/readyz`.
+
+| Metric | Type | Labels | Use for alerting |
+|--------|------|--------|------------------|
+| `cerebro_requests_total` | counter | `method`, `status` | MCP traffic volume and error rates by outcome. |
+| `cerebro_tool_latency_seconds` | histogram | `tool`, `status` | Tool latency percentiles and slow backend behavior. |
+| `cerebro_auth_failures_total` | counter | none | Missing or invalid bearer tokens on MCP requests. |
+| `cerebro_readiness_failures_total` | counter | none | `/readyz` failures, including storage connectivity failures. |
+| `cerebro_storage_errors_total` | counter | `operation` | Storage-layer failures by operation. |
+
+Structured logs include service startup/shutdown, MCP request lifecycle, tool execution outcome and latency, storage fallback warnings, and readiness/auth failure context. Use logs to enrich metric alerts with request paths, HTTP statuses, storage operation names, and deployment metadata.
+
+### Recommended Production Alerts
+
+Tune thresholds to each deployment's normal traffic, but internal production deployments should start with these alerts:
+
+| Alert | Signal | Example threshold | Page when | Notes |
+|-------|--------|-------------------|-----------|-------|
+| Repeated readiness failures | `increase(cerebro_readiness_failures_total[5m])` and failed `GET /readyz` probes | `>= 3` failures in 5 minutes or readiness probe success rate `< 95%` for 5 minutes | A production instance remains unready for 5 minutes, or two consecutive probe windows fail | Indicates storage connectivity or service dependency degradation. Correlate with storage fallback warnings and `cerebro_storage_errors_total`. |
+| Unusual auth failures | `increase(cerebro_auth_failures_total[10m])` or `cerebro_requests_total{status="unauthorized"}` | `> 20` failures in 10 minutes, or `> 5x` the 24-hour baseline | Sustained for 10 minutes, or any sudden spike on a private deployment | Detects broken clients, leaked endpoints, bad token rollout, or scanning. Pair with ingress logs keyed by trusted client identity. |
+| Elevated MCP error rate | <code>(sum(rate(cerebro_requests_total{status=~"storage_error&#124;internal_error"}[5m])) / sum(rate(cerebro_requests_total[5m])))</code> | `> 2%` for 10 minutes; page at `> 5%` for 5 minutes | User-facing requests are likely failing or storage is degraded | Keep validation/auth errors separate from server-side error-rate alerts so noisy clients do not mask service regressions. |
+| Storage operation error spike | `increase(cerebro_storage_errors_total[5m])` | `>= 5` errors in 5 minutes for one operation | Any write/read path repeatedly fails | Break down by `operation` (`save`, `get`, `search`, `delete`, `timeline`, `count`, or `unknown`) to identify affected tools. |
+| Latency spike | `histogram_quantile(0.95, sum by (le, tool) (rate(cerebro_tool_latency_seconds_bucket{status="ok"}[10m])))` | p95 `> 2s` for 10 minutes; warn at p95 `> 1s` | Slow tools persist after expected workload spikes | Compare by `tool` label. For internal deployments with strict SLOs, use the tool's normal p95 plus 2x as the warning threshold. |
+
+Example Prometheus expressions:
+
+```text
+# Readiness degradation
+increase(cerebro_readiness_failures_total[5m]) >= 3
+
+# Auth anomaly
+increase(cerebro_auth_failures_total[10m]) > 20
+
+# Server-side MCP error ratio
+(
+  sum(rate(cerebro_requests_total{status=~"storage_error|internal_error"}[5m]))
+  /
+  sum(rate(cerebro_requests_total[5m]))
+) > 0.02
+
+# p95 successful tool latency
+histogram_quantile(
+  0.95,
+  sum by (le, tool) (rate(cerebro_tool_latency_seconds_bucket{status="ok"}[10m]))
+) > 2
+```
+
+Route readiness and server-side error alerts to the on-call operator for the deployment. Route auth anomalies to both service owners and the team that owns ingress or token distribution. Use warning-only notifications for validation errors and forbidden attempts unless they correlate with elevated server-side errors or known abuse.
+
 ### Health Check
 
 Send a `mem_stats` call to verify the service is responsive:
