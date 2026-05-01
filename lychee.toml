@@ -20,6 +20,8 @@ exclude = [
     'https://central\.sonatype\.com/repository/maven-snapshots/.*',
     # Mend.io returns 403 Forbidden to bots
     'https://www\.mend\.io/.*',
+    # npmjs.com returns 403 Forbidden to bots/crawlers
+    '^https://www\.npmjs\.com(/.*)?$',
     # Avoid local development URLs
     '^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)',
     # Flaky upstream docs and mirrors
