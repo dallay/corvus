@@ -710,6 +710,155 @@ jobs:
             type=raw,value=latest,enable=${{ needs.publish.outputs.release_channel == 'stable' }}
             type=raw,value=beta,enable=${{ needs.publish.outputs.release_channel == 'beta' }}
 
+      - name: 🧪 Build Cerebro Docker image for smoke test
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: clients/cerebro/Dockerfile.release-prebuilt
+          target: release
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: cerebro:smoke-${{ github.run_id }}
+          labels: ${{ steps.docker-meta.outputs.labels }}
+
+      - name: 🧪 Smoke test Cerebro Docker image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image="cerebro:smoke-${{ github.run_id }}"
+          container="cerebro-smoke-${{ github.run_id }}"
+          host_port="4040"
+          smoke_dir="$RUNNER_TEMP/cerebro-smoke"
+          token="cerebro-smoke-token-${{ github.run_id }}"
+
+          rm -rf "$smoke_dir"
+          mkdir -p "$smoke_dir/data"
+
+          cat > "$smoke_dir/config.toml" <<'EOF'
+          host = "0.0.0.0"
+          port = 4040
+          storage_mode = "embedded_surreal"
+
+          [surreal]
+          namespace = "cerebro_smoke"
+          database = "cerebro_smoke"
+          username = "root"
+          password = "local-smoke-only"
+          EOF
+
+          cleanup() {
+            status=$?
+            echo "--- Cerebro smoke container logs ---"
+            docker logs "$container" 2>/dev/null || true
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          docker rm -f "$container" >/dev/null 2>&1 || true
+          docker run \
+            --detach \
+            --name "$container" \
+            --env CEREBRO_AUTH_TOKEN="$token" \
+            --publish "127.0.0.1:${host_port}:4040" \
+            --mount "type=bind,source=${smoke_dir}/config.toml,target=/etc/cerebro/config.toml,readonly" \
+            --mount "type=bind,source=${smoke_dir}/data,target=/cerebro-data" \
+            "$image"
+
+          assert_container_running() {
+            if ! docker inspect -f '{{.State.Running}}' "$container" | grep -q '^true$'; then
+              echo "Cerebro smoke container exited unexpectedly"
+              exit 1
+            fi
+          }
+
+          wait_for_json_status() {
+            local path="$1"
+            local expected_status="$2"
+            local response_file="$smoke_dir/response.json"
+            local code
+
+            for attempt in $(seq 1 30); do
+              assert_container_running
+              code=$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' "http://127.0.0.1:${host_port}${path}" || true)
+              if [[ "$code" == "200" ]] && python3 - "$response_file" "$expected_status" <<'PY'
+          import json
+          import sys
+
+          path, expected = sys.argv[1], sys.argv[2]
+          with open(path, "r", encoding="utf-8") as handle:
+              payload = json.load(handle)
+          if payload.get("status") != expected:
+              raise SystemExit(1)
+          PY
+              then
+                return 0
+              fi
+              echo "Waiting for ${path} to report ${expected_status}; attempt ${attempt}/30 returned HTTP ${code}"
+              sleep 1
+            done
+
+            echo "Timed out waiting for ${path} to report ${expected_status}"
+            echo "Last response body:"
+            cat "$response_file" || true
+            exit 1
+          }
+
+          post_mcp() {
+            local response_file="$1"
+            shift
+            curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
+              --request POST \
+              --header 'Content-Type: application/json' \
+              "$@" \
+              --data '{"jsonrpc":"2.0","id":"smoke-tools-list","method":"tools/list"}' \
+              "http://127.0.0.1:${host_port}/mcp"
+          }
+
+          wait_for_json_status "/healthz" "ok"
+          wait_for_json_status "/readyz" "ready"
+
+          unauth_response="$smoke_dir/mcp-unauth.json"
+          unauth_code=$(post_mcp "$unauth_response")
+          if [[ "$unauth_code" != "401" ]]; then
+            echo "Expected unauthenticated MCP request to return HTTP 401, got ${unauth_code}"
+            cat "$unauth_response" || true
+            exit 1
+          fi
+          python3 - "$unauth_response" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], "r", encoding="utf-8") as handle:
+              payload = json.load(handle)
+          error = payload.get("error") or {}
+          if error.get("code") != -32001:
+              raise SystemExit(f"expected auth error code -32001, got {error!r}")
+          PY
+
+          auth_response="$smoke_dir/mcp-auth.json"
+          auth_code=$(post_mcp "$auth_response" --header "Authorization: Bearer ${token}")
+          if [[ "$auth_code" != "200" ]]; then
+            echo "Expected authenticated MCP request to return HTTP 200, got ${auth_code}"
+            cat "$auth_response" || true
+            exit 1
+          fi
+          python3 - "$auth_response" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], "r", encoding="utf-8") as handle:
+              payload = json.load(handle)
+          if payload.get("error") is not None:
+              raise SystemExit(f"expected no MCP error, got {payload['error']!r}")
+          if "result" not in payload:
+              raise SystemExit(f"expected MCP result in payload, got {payload!r}")
+          PY
+
+          echo "Cerebro Docker image smoke test passed"
+
       - name: 🐳 Build and push Cerebro Docker image
         continue-on-error: true
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
