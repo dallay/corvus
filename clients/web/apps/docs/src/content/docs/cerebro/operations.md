@@ -16,6 +16,25 @@ This page covers day-2 operations for running Cerebro in
 production: storage management, monitoring, backup, and
 troubleshooting.
 
+## Production Abuse Controls
+
+:::note[Translation pending]
+The Spanish counterpart for **Production Abuse Controls** is not yet available. Keep this section reconciled when ES documentation parity is restored.
+:::
+
+Cerebro uses layered abuse controls. The service self-protects the MCP path, while production ingress owns request-frequency rate limiting.
+
+Recommended starting defaults:
+
+| Control | Recommended default | Owner | Notes |
+|---------|---------------------|-------|-------|
+| MCP body size | `1 MiB` | Cerebro | Built in; oversized requests return `413 Payload Too Large`. |
+| MCP timeout | `request_timeout_secs = 30` | Cerebro | Tune upward only for known slow storage or long-running tools. |
+| MCP concurrency | `max_concurrent_mcp_requests = 32` | Cerebro | Tune based on CPU, memory, and storage saturation. |
+| Rate limiting | `60 requests/minute` per trusted client with burst controls | Ingress | Use source IP, mTLS identity, or authenticated gateway principal. |
+
+Do not expose Cerebro directly to the internet. For non-loopback deployments, put Cerebro behind TLS-capable ingress, set `CEREBRO_AUTH_TOKEN`, keep request body limits enabled, and configure ingress rate limiting. Cerebro does not implement in-process per-IP or per-token rate limiting because trustworthy client identity is established at ingress, not inside the service.
+
 ## Storage Modes
 
 Cerebro's supported durable production posture in this build is single-node and local-first.

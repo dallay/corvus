@@ -1,10 +1,11 @@
 use crate::config::CerebroConfig;
-use crate::errors::{CerebroError, CerebroErrorResponse};
+use crate::errors::{CerebroError, CerebroErrorCode, CerebroErrorResponse};
 use crate::metrics;
 use crate::storage::{storage_from_config, Storage};
 use crate::tools::{CerebroTools, DEFERRED_TOOL_NAMES, IMPLEMENTED_TOOL_NAMES};
 use crate::tui::event_bus::{EventBus, ToolCallEvent, ToolCallEventKind};
 use crate::tui::redaction::RedactionPolicy;
+use axum::error_handling::HandleErrorLayer;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::header::CONTENT_TYPE;
 use axum::http::HeaderMap;
@@ -18,8 +19,11 @@ use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use subtle::ConstantTimeEq;
+use tokio::sync::Semaphore;
+use tower::timeout::TimeoutLayer;
+use tower::ServiceBuilder;
 use tracing::Instrument;
 
 #[derive(Debug, Deserialize)]
@@ -95,6 +99,7 @@ pub struct CerebroService {
     tools: CerebroTools,
     event_bus: EventBus,
     redaction: RedactionPolicy,
+    mcp_concurrency: Arc<Semaphore>,
 }
 
 impl CerebroService {
@@ -103,12 +108,14 @@ impl CerebroService {
         let event_bus = EventBus::new(config.tui.event_buffer);
         let redaction = RedactionPolicy::from_config(&config.tui);
         let tools = CerebroTools::new(storage.clone());
+        let mcp_concurrency = Arc::new(Semaphore::new(config.max_concurrent_mcp_requests));
         Self {
             config,
             storage,
             tools,
             event_bus,
             redaction,
+            mcp_concurrency,
         }
     }
 
@@ -118,12 +125,22 @@ impl CerebroService {
     }
 
     pub fn router(self: Arc<Self>) -> Router {
+        let mcp_layers = ServiceBuilder::new()
+            .layer(HandleErrorLayer::new(handle_mcp_layer_error))
+            .layer(TimeoutLayer::new(Duration::from_secs(
+                self.config.request_timeout_secs,
+            )))
+            .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_BYTES));
+
+        let mcp_router = Router::new()
+            .route("/mcp", post(handle_mcp))
+            .layer(mcp_layers);
+
         Router::new()
             .route("/healthz", get(handle_health))
             .route("/readyz", get(handle_ready))
             .route("/metrics", get(handle_metrics))
-            .route("/mcp", post(handle_mcp))
-            .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_BYTES))
+            .merge(mcp_router)
             .with_state(self)
     }
 
@@ -503,6 +520,15 @@ async fn handle_ready(State(service): State<Arc<CerebroService>>) -> (StatusCode
     }
 }
 
+async fn handle_mcp_layer_error(error: Box<dyn std::error::Error + Send + Sync>) -> Response {
+    if error.is::<tower::timeout::error::Elapsed>() {
+        return (StatusCode::REQUEST_TIMEOUT, "request timed out").into_response();
+    }
+
+    tracing::warn!(error = %error, "mcp middleware rejected request");
+    (StatusCode::SERVICE_UNAVAILABLE, "service unavailable").into_response()
+}
+
 async fn handle_metrics() -> Response {
     let encoder = TextEncoder::new();
     let metric_families = prometheus::gather();
@@ -530,11 +556,45 @@ async fn handle_metrics() -> Response {
     }
 }
 
+#[cfg(debug_assertions)]
+async fn maybe_apply_test_delay(headers: &HeaderMap) {
+    let Some(delay_ms) = headers
+        .get("x-cerebro-test-delay-ms")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+    else {
+        return;
+    };
+
+    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+}
+
+#[cfg(not(debug_assertions))]
+async fn maybe_apply_test_delay(_headers: &HeaderMap) {}
+
 async fn handle_mcp(
     State(service): State<Arc<CerebroService>>,
     headers: HeaderMap,
     Json(request): Json<JsonRpcRequest>,
 ) -> (StatusCode, Json<JsonRpcResponse>) {
+    let Ok(_permit) = service.mcp_concurrency.clone().try_acquire_owned() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: request.id,
+                result: None,
+                error: Some(JsonRpcError {
+                    code: CerebroErrorCode::Internal.as_i64(),
+                    message: "mcp concurrency limit exceeded".to_string(),
+                    data: None,
+                }),
+            }),
+        );
+    };
+
+    maybe_apply_test_delay(&headers).await;
+
     let auth_header = headers
         .get("authorization")
         .and_then(|value| value.to_str().ok());

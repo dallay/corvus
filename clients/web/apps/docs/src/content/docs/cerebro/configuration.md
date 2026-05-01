@@ -31,6 +31,8 @@ Supported formats: `.toml` and `.json`.
 host = "127.0.0.1"       # Bind address (default: 127.0.0.1)
 port = 4040               # Bind port (default: 4040)
 scheme = "http"            # URL scheme override (auto-detected)
+request_timeout_secs = 30  # MCP request timeout (default: 30)
+max_concurrent_mcp_requests = 32  # MCP concurrency cap (default: 32)
 
 # Authentication
 # auth_token = "..."      # Set via CEREBRO_AUTH_TOKEN env var
@@ -71,14 +73,18 @@ redact_fields = [
 
 ## Server Settings
 
-| Field    | Type   | Default       | Description                      |
-|----------|--------|---------------|----------------------------------|
-| `host`   | String | `127.0.0.1`   | Bind address                     |
-| `port`   | u16    | `4040`        | Bind port                        |
-| `scheme` | String | auto-detected | `http` for loopback, else `https`|
+| Field                         | Type   | Default       | Description                                      |
+|-------------------------------|--------|---------------|--------------------------------------------------|
+| `host`                        | String | `127.0.0.1`   | Bind address                                     |
+| `port`                        | u16    | `4040`        | Bind port                                        |
+| `scheme`                      | String | auto-detected | `http` for loopback, else `https`                |
+| `request_timeout_secs`        | u64    | `30`          | Timeout for `POST /mcp` request processing       |
+| `max_concurrent_mcp_requests` | usize  | `32`          | Maximum concurrent in-flight `POST /mcp` calls   |
 
 The MCP endpoint is available at
 `{scheme}://{host}:{port}/mcp`.
+
+The timeout and concurrency settings apply only to `POST /mcp`. Health, readiness, and metrics endpoints remain available during MCP saturation so operators can inspect process health.
 
 ## Storage Modes
 
