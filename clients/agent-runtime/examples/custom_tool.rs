@@ -6,6 +6,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use url::Url;
 
 /// Mirrors src/tools/traits.rs
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -22,6 +23,8 @@ pub trait Tool: Send + Sync {
     fn parameters_schema(&self) -> Value;
     async fn execute(&self, args: Value) -> Result<ToolResult>;
 }
+
+const ALLOWED_HOSTS: &[&str] = &["api.github.com", "example.com"];
 
 /// Example: A tool that fetches a URL and returns the status code
 pub struct HttpGetTool;
@@ -50,8 +53,34 @@ impl Tool for HttpGetTool {
         let url = args["url"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'url' parameter"))?;
+        let parsed_url = Url::parse(url).map_err(|_| anyhow::anyhow!("Invalid URL"))?;
 
-        match reqwest::get(url).await {
+        if !matches!(parsed_url.scheme(), "http" | "https") {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("Only HTTP and HTTPS URLs are supported".to_string()),
+            });
+        }
+
+        let Some(host) = parsed_url.host_str() else {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("URL must include a host".to_string()),
+            });
+        };
+
+        if !ALLOWED_HOSTS.contains(&host) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Host {host} is not in the example allowlist")),
+            });
+        }
+
+        // Host is restricted to ALLOWED_HOSTS above; Semgrep does not model that allowlist guard.
+        match reqwest::get(parsed_url).await { // nosemgrep: rust.actix.ssrf.reqwest-taint.reqwest-taint
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 let len = resp.content_length().unwrap_or(0);
