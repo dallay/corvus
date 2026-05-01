@@ -210,7 +210,7 @@ Tune thresholds to each deployment's normal traffic, but internal production dep
 
 Example Prometheus expressions:
 
-```promql
+```text
 # Readiness degradation
 increase(cerebro_readiness_failures_total[5m]) >= 3
 
