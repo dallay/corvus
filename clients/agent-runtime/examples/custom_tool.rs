@@ -80,7 +80,8 @@ impl Tool for HttpGetTool {
         }
 
         // Host is restricted to ALLOWED_HOSTS above; Semgrep does not model that allowlist guard.
-        match reqwest::get(parsed_url).await { // nosemgrep: rust.actix.ssrf.reqwest-taint.reqwest-taint
+        match reqwest::get(parsed_url).await {
+            // nosemgrep: rust.actix.ssrf.reqwest-taint.reqwest-taint
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 let len = resp.content_length().unwrap_or(0);

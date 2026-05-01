@@ -19,5 +19,5 @@ clients/androidApp/src/main/AndroidManifest.xml
 # Pinning is not always appropriate and can break certificate rotation
 clients/iosApp/iosApp/Info.plist
 
-# False positive: Insecure WebSocket in test validating rejection of ws://
+# False positive: Insecure WebSocket in test validating rejection of insecure protocol
 clients/agent-runtime/tests/mcp_config_validation.rs
