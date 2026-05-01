@@ -55,11 +55,21 @@ pub fn init() {
     Lazy::force(&CEREBRO_READINESS_FAILURES_TOTAL);
     Lazy::force(&CEREBRO_STORAGE_ERRORS_TOTAL);
 
-    CEREBRO_REQUESTS_TOTAL.with_label_values(&["tools.call", "ok"]);
-    CEREBRO_REQUESTS_TOTAL.with_label_values(&["tools.call", "error"]);
-    CEREBRO_REQUESTS_TOTAL.with_label_values(&["tools.list", "ok"]);
-    CEREBRO_REQUESTS_TOTAL.with_label_values(&["tools.list", "error"]);
-    CEREBRO_REQUESTS_TOTAL.with_label_values(&["unknown", "error"]);
+    for method in ["tools.call", "tools.list", "unknown"] {
+        for status in [
+            "ok",
+            "validation_error",
+            "unauthorized",
+            "forbidden",
+            "not_implemented",
+            "not_found",
+            "conflict",
+            "storage_error",
+            "internal_error",
+        ] {
+            CEREBRO_REQUESTS_TOTAL.with_label_values(&[method, status]);
+        }
+    }
     CEREBRO_TOOL_LATENCY_SECONDS.with_label_values(&["unknown", "ok"]);
     CEREBRO_TOOL_LATENCY_SECONDS.with_label_values(&["unknown", "error"]);
     CEREBRO_STORAGE_ERRORS_TOTAL.with_label_values(&["unknown"]);
