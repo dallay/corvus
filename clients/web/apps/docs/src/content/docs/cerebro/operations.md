@@ -204,9 +204,9 @@ Tune thresholds to each deployment's normal traffic, but internal production dep
 |-------|--------|-------------------|-----------|-------|
 | Repeated readiness failures | `increase(cerebro_readiness_failures_total[5m])` and failed `GET /readyz` probes | `>= 3` failures in 5 minutes or readiness probe success rate `< 95%` for 5 minutes | A production instance remains unready for 5 minutes, or two consecutive probe windows fail | Indicates storage connectivity or service dependency degradation. Correlate with storage fallback warnings and `cerebro_storage_errors_total`. |
 | Unusual auth failures | `increase(cerebro_auth_failures_total[10m])` or `cerebro_requests_total{status="unauthorized"}` | `> 20` failures in 10 minutes, or `> 5x` the 24-hour baseline | Sustained for 10 minutes, or any sudden spike on a private deployment | Detects broken clients, leaked endpoints, bad token rollout, or scanning. Pair with ingress logs keyed by trusted client identity. |
-| Elevated MCP error rate | `sum(rate(cerebro_requests_total{status=~"storage_error/internal_error"}[5m])) / sum(rate(cerebro_requests_total[5m]))` after replacing `/` with the regex alternation character in the status matcher | `> 2%` for 10 minutes; page at `> 5%` for 5 minutes | User-facing requests are likely failing or storage is degraded | Keep validation/auth errors separate from server-side error-rate alerts so noisy clients do not mask service regressions. |
+| Elevated MCP error rate | <code>(sum(rate(cerebro_requests_total{status=~"storage_error&#124;internal_error"}[5m])) / sum(rate(cerebro_requests_total[5m])))</code> | `> 2%` for 10 minutes; page at `> 5%` for 5 minutes | User-facing requests are likely failing or storage is degraded | Keep validation/auth errors separate from server-side error-rate alerts so noisy clients do not mask service regressions. |
 | Storage operation error spike | `increase(cerebro_storage_errors_total[5m])` | `>= 5` errors in 5 minutes for one operation | Any write/read path repeatedly fails | Break down by `operation` (`save`, `get`, `search`, `delete`, `timeline`, `count`, or `unknown`) to identify affected tools. |
-| Latency spike | `histogram_quantile(0.95, rate(cerebro_tool_latency_seconds_bucket{status="ok"}[10m]))` | p95 `> 2s` for 10 minutes; warn at p95 `> 1s` | Slow tools persist after expected workload spikes | Compare by `tool` label. For internal deployments with strict SLOs, use the tool's normal p95 plus 2x as the warning threshold. |
+| Latency spike | `histogram_quantile(0.95, sum by (le, tool) (rate(cerebro_tool_latency_seconds_bucket{status="ok"}[10m])))` | p95 `> 2s` for 10 minutes; warn at p95 `> 1s` | Slow tools persist after expected workload spikes | Compare by `tool` label. For internal deployments with strict SLOs, use the tool's normal p95 plus 2x as the warning threshold. |
 
 Example Prometheus expressions:
 
@@ -218,9 +218,11 @@ increase(cerebro_readiness_failures_total[5m]) >= 3
 increase(cerebro_auth_failures_total[10m]) > 20
 
 # Server-side MCP error ratio
-sum(rate(cerebro_requests_total{status=~"storage_error|internal_error"}[5m]))
+(
+  sum(rate(cerebro_requests_total{status=~"storage_error|internal_error"}[5m]))
   /
-sum(rate(cerebro_requests_total[5m])) > 0.02
+  sum(rate(cerebro_requests_total[5m]))
+) > 0.02
 
 # p95 successful tool latency
 histogram_quantile(

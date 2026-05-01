@@ -121,6 +121,6 @@ Production deployments should forward tracing logs and scrape `/metrics`; alert 
 | Unusual auth failures | `cerebro_auth_failures_total` and `cerebro_requests_total{status="unauthorized"}`; enrich with ingress logs | `> 20` failures in 10 minutes or `> 5x` the 24-hour baseline |
 | Elevated server-side error rate | `cerebro_requests_total` with `status` matching storage or internal errors, divided by all MCP requests | warn above `2%` for 10 minutes; page above `5%` for 5 minutes |
 | Storage error spike | `cerebro_storage_errors_total` by `operation` | `>= 5` errors for one operation in 5 minutes |
-| Latency spike | `histogram_quantile(0.95, rate(cerebro_tool_latency_seconds_bucket{status="ok"}[10m]))` by `tool` | warn above p95 `1s`; page above p95 `2s` for 10 minutes |
+| Latency spike | `histogram_quantile(0.95, sum by (le, tool) (rate(cerebro_tool_latency_seconds_bucket{status="ok"}[10m])))` | warn above p95 `1s`; page above p95 `2s` for 10 minutes |
 
 Keep auth/validation alerts separate from server-side error-rate alerts so broken or abusive clients do not hide storage or internal failures.
