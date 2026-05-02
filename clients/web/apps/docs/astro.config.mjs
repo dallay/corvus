@@ -301,6 +301,13 @@ export default defineConfig({
                 es: "Operaciones",
               },
             },
+            {
+              label: "Deployment Runbook",
+              slug: "cerebro/deployment-runbook",
+              translations: {
+                es: "Runbook de despliegue",
+              },
+            },
           ],
         },
       ],
