@@ -813,7 +813,13 @@ fn expand_tilde(path: &str) -> String {
 }
 
 fn strip_all_quotes(token: &str) -> String {
-    token.replace('"', "").replace('\'', "")
+    let mut stripped = String::with_capacity(token.len());
+    for ch in token.chars() {
+        if ch != '"' && ch != '\'' {
+            stripped.push(ch);
+        }
+    }
+    stripped
 }
 
 fn normalize_arg_for_path_checks(token: &str) -> Option<String> {
