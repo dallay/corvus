@@ -152,6 +152,14 @@ Durante el rollout:
 7. Habilitar tráfico cuando readiness y smoke checks pasen.
 8. Observar `cerebro_requests_total`, `cerebro_tool_latency_seconds`, `cerebro_storage_errors_total` y logs durante una ventana normal de tráfico.
 
+Triggers de rollback:
+
+- `/readyz` permanece fallido después de verificar mount y permisos de storage;
+- errores de inicialización de storage o warnings de fallback aparecen inesperadamente;
+- el ratio de error MCP server-side supera el umbral de page del despliegue;
+- la latencia p95 de herramientas exitosas permanece sobre el umbral de page después de reducción de tráfico segura para rollback;
+- los fallos de auth se disparan porque los callers no fueron actualizados con el token esperado.
+
 ## Rotación de token
 
 Cerebro acepta un `CEREBRO_AUTH_TOKEN` a la vez. Usa compatibilidad en clientes o ingress para evitar downtime.
@@ -165,6 +173,12 @@ Rotación planificada:
 5. Confirmar que llamadas con el token viejo fallen con `401 Unauthorized` al cerrar la ventana de compatibilidad.
 6. Eliminar el token viejo de clientes, gateway, secretos y notas de incidente.
 7. Vigilar `cerebro_auth_failures_total` e ingress logs por clientes obsoletos.
+
+Síntomas esperados post-rotación:
+
+- Tokens faltantes u obsoletos retornan `401 Unauthorized`.
+- Los fallos de auth pueden subir temporalmente mientras los clientes refrescan secretos.
+- Readiness debe permanecer saludable; la rotación de token no debe afectar readiness de storage.
 
 Rotación de emergencia por posible filtración:
 
@@ -246,6 +260,7 @@ Fallback de emergencia:
 | Pico de `401` | Revisar rollout de token, clientes viejos, ingress logs y posible scanning. | Auth o endpoint filtrado. | Token nuevo funciona; token viejo falla; auth vuelve a baseline. |
 | Error ratio MCP server-side sube | Revisar errores de storage, logs internos y deploys recientes. | Storage o regresión de servicio. | Ratio vuelve bajo umbral de warning. |
 | p95 de herramienta sube | Revisar saturación de storage, CPU, memoria, concurrencia y tool labels. | Capacidad o performance backend. | p95 vuelve a baseline. |
+| Pico de errores de storage por operación | Identificar operación afectada e inspeccionar ruta durable. | Fallo parcial de storage o problema en data path. | `cerebro_storage_errors_total` deja de incrementar y smoke checks pasan. |
 
 ## Alertas iniciales
 
