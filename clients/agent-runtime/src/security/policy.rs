@@ -604,6 +604,15 @@ impl SecurityPolicy {
             return false;
         }
 
+        // Reject quoted direct path inputs before validation so quotes cannot hide
+        // absolute paths or traversal components from `Path::components`.
+        if path.len() >= 2
+            && ((path.starts_with('"') && path.ends_with('"'))
+                || (path.starts_with('\'') && path.ends_with('\'')))
+        {
+            return false;
+        }
+
         // Block percent signs rather than decoding direct path inputs here.
         if path.contains('%') {
             return false;
@@ -2213,8 +2222,9 @@ mod tests {
             ..SecurityPolicy::default()
         };
 
-        assert!(p.is_path_allowed("\"relative/file.txt\""));
-        assert!(p.is_path_allowed("\"/etc/passwd\""));
+        assert!(!p.is_path_allowed("\"relative/file.txt\""));
+        assert!(!p.is_path_allowed("\"/etc/passwd\""));
+        assert!(!p.is_path_allowed("'../secret'"));
         assert!(!p.is_path_allowed("%2e%2e/etc/passwd"));
         assert!(!p.is_path_allowed(".."));
         assert!(!p.is_path_allowed("../etc/passwd"));

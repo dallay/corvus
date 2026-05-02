@@ -167,9 +167,6 @@ impl HealthService for InMemoryHealthService {
 
     async fn is_available(&self, account_id: AccountId) -> bool {
         let health = self.get(account_id).await;
-        if health.status == HealthStatus::Unhealthy {
-            return false;
-        }
         if let Some(until) = health.cooldown_until {
             if Utc::now() < until {
                 return false;
@@ -413,6 +410,16 @@ mod tests {
         let id = AccountId::generate();
         db.insert_account(&make_account(id)).await.unwrap();
         let svc = SqliteHealthService::new(db);
+
+        svc.mark_failure(id, 0).await;
+
+        assert!(svc.is_available(id).await);
+    }
+
+    #[tokio::test]
+    async fn in_memory_health_expired_cooldown_is_available() {
+        let svc = InMemoryHealthService::new();
+        let id = AccountId::generate();
 
         svc.mark_failure(id, 0).await;
 
