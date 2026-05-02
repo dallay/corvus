@@ -598,29 +598,29 @@ impl SecurityPolicy {
         let dequoted = strip_all_quotes(&decoded);
 
         // Block null bytes (can truncate paths in C-backed syscalls)
-        if decoded.contains('\0') {
+        if dequoted.contains('\0') {
             return false;
         }
 
         // Block backslashes (Windows-style separators or escaping)
-        if decoded.contains('\\') {
+        if dequoted.contains('\\') {
             return false;
         }
 
         // Block residual percent signs after decoding (incomplete or malicious encoding)
-        if decoded.contains('%') {
+        if dequoted.contains('%') {
             return false;
         }
 
         // Block path traversal: check for ".." as a path component
-        if Path::new(&decoded)
+        if Path::new(&dequoted)
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
         {
             return false;
         }
 
-        let expanded = expand_tilde(&decoded);
+        let expanded = expand_tilde(&dequoted);
 
         // Block absolute paths when workspace_only is set
         if self.workspace_only && Path::new(&expanded).is_absolute() {
