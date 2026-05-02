@@ -595,31 +595,32 @@ impl SecurityPolicy {
     /// Check if a file path is allowed (no path traversal, within workspace)
     pub fn is_path_allowed(&self, path: &str) -> bool {
         let decoded = iterative_url_decode(path);
+        let dequoted = strip_all_quotes(&decoded);
 
         // Block null bytes (can truncate paths in C-backed syscalls)
-        if decoded.contains('\0') {
+        if dequoted.contains('\0') {
             return false;
         }
 
         // Block backslashes (Windows-style separators or escaping)
-        if decoded.contains('\\') {
+        if dequoted.contains('\\') {
             return false;
         }
 
         // Block residual percent signs after decoding (incomplete or malicious encoding)
-        if decoded.contains('%') {
+        if dequoted.contains('%') {
             return false;
         }
 
         // Block path traversal: check for ".." as a path component
-        if Path::new(&decoded)
+        if Path::new(&dequoted)
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
         {
             return false;
         }
 
-        let expanded = expand_tilde(&decoded);
+        let expanded = expand_tilde(&dequoted);
 
         // Block absolute paths when workspace_only is set
         if self.workspace_only && Path::new(&expanded).is_absolute() {
@@ -811,29 +812,28 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
-fn strip_matching_quotes(token: &str) -> &str {
-    if token.len() >= 2 {
-        let first = token.as_bytes()[0];
-        let last = token.as_bytes()[token.len() - 1];
-        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
-            return &token[1..token.len() - 1];
+fn strip_all_quotes(token: &str) -> String {
+    let mut stripped = String::with_capacity(token.len());
+    for ch in token.chars() {
+        if ch != '"' && ch != '\'' {
+            stripped.push(ch);
         }
     }
-    token
+    stripped
 }
 
 fn normalize_arg_for_path_checks(token: &str) -> Option<String> {
-    let dequoted = strip_matching_quotes(token);
+    let dequoted = strip_all_quotes(token);
     if dequoted == "$HOME" || dequoted == "${HOME}" || dequoted == "$PATH" || dequoted == "${PATH}"
     {
-        return Some(dequoted.to_string());
+        return Some(dequoted);
     }
     if dequoted.contains('$') || dequoted.starts_with('~') {
-        return shellexpand::full(dequoted)
+        return shellexpand::full(&dequoted)
             .ok()
             .map(|value| value.into_owned());
     }
-    Some(dequoted.to_string())
+    Some(dequoted)
 }
 
 /// Check whether `expanded` path starts with any of the forbidden paths.
@@ -2158,28 +2158,61 @@ mod tests {
             "Read must always be allowed regardless of autonomy level"
         );
     }
-}
 
-#[test]
-fn is_command_allowed_blocks_path_in_flags() {
-    let mut p = SecurityPolicy::default();
-    p.workspace_only = true;
-    p.allowed_commands = vec!["grep".into()];
-    p.forbidden_paths = vec!["/etc".into()];
+    #[test]
+    fn is_command_allowed_blocks_path_in_flags() {
+        let mut p = SecurityPolicy::default();
+        p.workspace_only = true;
+        p.allowed_commands = vec!["grep".into()];
+        p.forbidden_paths = vec!["/etc".into()];
 
-    // Case 1: Standalone absolute path - Should be BLOCKED (currently passes test)
-    assert!(!p.is_command_allowed("grep pattern /etc/passwd"));
+        // Case 1: Standalone absolute path
+        assert!(!p.is_command_allowed("grep pattern /etc/passwd"));
 
-    // Case 2: Path in flag - CURRENTLY BYPASSES (this test should fail if my hypothesis is correct)
-    assert!(
-        !p.is_command_allowed("grep --file=/etc/passwd pattern"),
-        "Should block absolute path in flag"
-    );
+        // Case 2: Path in flag
+        assert!(
+            !p.is_command_allowed("grep --file=/etc/passwd pattern"),
+            "Should block absolute path in flag"
+        );
 
-    // Case 3: git -C/etc status - CURRENTLY BYPASSES
-    p.allowed_commands.push("git".into());
-    assert!(
-        !p.is_command_allowed("git -C/etc status"),
-        "Should block absolute path in short flag"
-    );
+        // Case 3: git -C/etc status
+        p.allowed_commands.push("git".into());
+        assert!(
+            !p.is_command_allowed("git -C/etc status"),
+            "Should block absolute path in short flag"
+        );
+    }
+
+    #[test]
+    fn is_command_allowed_blocks_quote_bypasses() {
+        let mut p = SecurityPolicy::default();
+        p.workspace_only = true;
+        p.allowed_commands = vec!["cat".into(), "git".into()];
+        p.forbidden_paths = vec!["/etc".into()];
+
+        // Nested quotes
+        assert!(!p.is_command_allowed("cat '\"/etc/passwd\"'"));
+        assert!(!p.is_command_allowed("cat \"'/etc/passwd'\""));
+        assert!(!p.is_command_allowed("cat \"\"/etc/passwd\"\""));
+
+        // Partial quotes
+        assert!(!p.is_command_allowed("cat \"/etc\"/passwd"));
+        assert!(!p.is_command_allowed("cat /\"etc\"/passwd"));
+
+        // Quoted flags
+        assert!(!p.is_command_allowed("git -C\"/etc\" status"));
+        assert!(!p.is_command_allowed("git \"-C/etc\" status"));
+    }
+
+    #[test]
+    fn is_path_allowed_blocks_quoted_paths() {
+        let p = SecurityPolicy {
+            workspace_only: true,
+            ..SecurityPolicy::default()
+        };
+
+        assert!(!p.is_path_allowed("\"/etc/passwd\""));
+        assert!(!p.is_path_allowed("'/etc/passwd'"));
+        assert!(!p.is_path_allowed("\"../etc/passwd\""));
+    }
 }
