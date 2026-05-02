@@ -54,3 +54,40 @@ Recommended internal production starting thresholds:
 - When readiness failures, auth failures, server-side errors, storage errors, or tool latency exceed the documented thresholds
 - Then the deployment's monitoring stack raises the corresponding alert
 - And the alert identifies the metric signal and relevant structured logs to inspect
+
+### Requirement: Cerebro restart and storage recovery behavior is explicit
+
+Production deployments of Cerebro MUST validate restart and storage recovery behavior for the supported single-node, local-first storage posture. The supported durable posture is embedded or disk-backed node-local storage; `remote_surreal`, shared remote persistence, and HA multi-node durability remain unsupported in this build.
+
+#### Scenario: Clean restart preserves embedded storage records
+
+- Given Cerebro is running with `storage_mode = "embedded_surreal"` and a durable `surreal.storage_path` or `storage_path`
+- And a memory write has completed successfully
+- When Cerebro is stopped cleanly and started again with the same storage path
+- Then `/readyz` returns success after startup
+- And the committed memory remains available through storage-backed MCP tools
+
+#### Scenario: Crash-equivalent restart preserves committed embedded storage records
+
+- Given Cerebro has completed memory writes in embedded storage
+- When the process exits unexpectedly after those writes have completed
+- And Cerebro starts again with the same storage path
+- Then committed records remain available
+- And writes that had not completed before the crash are not guaranteed to persist
+
+#### Scenario: Storage readiness degradation removes the instance from service
+
+- Given Cerebro is running but the storage readiness check fails
+- When an operator or orchestrator probes `/readyz`
+- Then Cerebro returns `503 Service Unavailable` with a storage-unavailable response
+- And `/healthz` remains available for process liveness checks
+- And operators remove the instance from traffic until storage readiness recovers
+
+#### Scenario: Storage initialization fallback is treated as degraded durability
+
+- Given embedded storage cannot initialize
+- When no storage fallback is configured
+- Then Cerebro startup fails clearly rather than serving with an unknown storage state
+- When `storage_fallback = "in_memory"` is configured
+- Then Cerebro may start on the fallback backend
+- But operators MUST treat the instance as durability-degraded and recover or restore the durable storage path before returning it to normal production service
