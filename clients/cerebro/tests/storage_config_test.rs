@@ -97,7 +97,9 @@ async fn embedded_storage_init_failure_without_fallback_returns_error() {
         Err(error) => error,
     };
     assert!(
-        error.to_string().contains("forced storage failure for test"),
+        error
+            .to_string()
+            .contains("forced storage failure for test"),
         "unexpected error: {error}"
     );
 }

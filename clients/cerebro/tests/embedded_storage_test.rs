@@ -109,7 +109,10 @@ async fn embedded_storage_persists_committed_record_across_clean_restart() {
 
     {
         let storage = storage_from_config(&config).await.expect("storage init");
-        storage.save(record.clone()).await.expect("save before restart");
+        storage
+            .save(record.clone())
+            .await
+            .expect("save before restart");
         assert!(storage
             .get("restart-memory-1")
             .await
