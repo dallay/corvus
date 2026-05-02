@@ -20,7 +20,7 @@
 ## 2025-05-28 - Hardening SecurityPolicy against Quote-based Bypasses
 
 **Learning:** `SecurityPolicy` was vulnerable to path validation bypass using nested or partial quotes (e.g., `"/etc"/passwd`, `""/etc/passwd""`). The previous `strip_matching_quotes` only removed outer quotes, leaving internal quotes to disrupt prefix-based forbidden path and absolute path checks.
-**Action:** Implemented `strip_all_quotes` to remove all single and double quotes from command arguments and paths before security validation. In `is_path_allowed`, ensuring `iterative_url_decode` is called before `strip_all_quotes` to catch encoded quotes.
+**Action:** Implemented `strip_all_quotes` to normalize command arguments and paths by removing all single and double quotes. In `is_path_allowed`, `iterative_url_decode` is still applied before quote stripping so encoded quotes are exposed before later processing.
 
 ## 2025-05-20 - Flag-based Path Validation Hardening
 
