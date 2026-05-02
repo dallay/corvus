@@ -3,6 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      connect-src allows https:/wss:/ws: broadly because the AI gateway URL is
+      user-configured at runtime and can point to any host. Scheme restriction
+      (https/wss/ws only) still prevents connections over insecure plain HTTP or
+      non-network protocols.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https: wss: ws:; font-src 'self' data:; worker-src blob:;"
