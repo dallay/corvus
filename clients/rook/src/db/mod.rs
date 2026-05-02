@@ -7,6 +7,7 @@
 
 pub mod account;
 pub mod audit;
+pub mod health;
 pub mod idempotency;
 pub mod pool;
 pub mod route;
@@ -43,6 +44,11 @@ const MIGRATION_SQL_0004: &str = include_str!(concat!(
 const MIGRATION_SQL_0005: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/0005_admin_audit_events.sql"
+));
+
+const MIGRATION_SQL_0006: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/0006_health_persistence.sql"
 ));
 
 /// A handle to the Rook SQLite database.
@@ -240,6 +246,21 @@ impl SqliteDb {
 
         if row_0005.is_none() {
             apply_migration(pool, version_0005, MIGRATION_SQL_0005).await?;
+        }
+
+        // ── Migration 0006: provider account health persistence ───────────────
+        let version_0006 = "0006_health_persistence";
+        let row_0006: Option<(String,)> =
+            sqlx::query_as("SELECT version FROM schema_migrations WHERE version = ?")
+                .bind(version_0006)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| {
+                    RookError::Registry(format!("failed to check migration 0006 status: {e}"))
+                })?;
+
+        if row_0006.is_none() {
+            apply_migration(pool, version_0006, MIGRATION_SQL_0006).await?;
         }
 
         Ok(())
@@ -482,6 +503,45 @@ mod tests {
         assert_eq!(
             row.map(|(version,)| version),
             Some("0005_admin_audit_events".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn open_in_memory_applies_health_persistence_migration() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+
+        let columns = sqlx::query("PRAGMA table_info(provider_account_health)")
+            .fetch_all(db.pool())
+            .await
+            .unwrap();
+
+        let column_names: Vec<String> = columns
+            .iter()
+            .filter_map(|row| row.try_get::<String, _>("name").ok())
+            .collect();
+
+        assert!(column_names.contains(&"account_id".to_string()));
+        assert!(column_names.contains(&"status".to_string()));
+        assert!(column_names.contains(&"last_checked".to_string()));
+        assert!(column_names.contains(&"consecutive_failures".to_string()));
+        assert!(column_names.contains(&"cooldown_until".to_string()));
+        assert!(column_names.contains(&"updated_at".to_string()));
+    }
+
+    #[tokio::test]
+    async fn open_in_memory_records_health_persistence_migration_version() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT version FROM schema_migrations WHERE version = ?")
+                .bind("0006_health_persistence")
+                .fetch_optional(db.pool())
+                .await
+                .unwrap();
+
+        assert_eq!(
+            row.map(|(version,)| version),
+            Some("0006_health_persistence".to_string())
         );
     }
 }

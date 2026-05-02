@@ -594,33 +594,30 @@ impl SecurityPolicy {
 
     /// Check if a file path is allowed (no path traversal, within workspace)
     pub fn is_path_allowed(&self, path: &str) -> bool {
-        let decoded = iterative_url_decode(path);
-        let dequoted = strip_all_quotes(&decoded);
-
         // Block null bytes (can truncate paths in C-backed syscalls)
-        if dequoted.contains('\0') {
+        if path.contains('\0') {
             return false;
         }
 
         // Block backslashes (Windows-style separators or escaping)
-        if dequoted.contains('\\') {
+        if path.contains('\\') {
             return false;
         }
 
-        // Block residual percent signs after decoding (incomplete or malicious encoding)
-        if dequoted.contains('%') {
+        // Block percent signs rather than decoding direct path inputs here.
+        if path.contains('%') {
             return false;
         }
 
         // Block path traversal: check for ".." as a path component
-        if Path::new(&dequoted)
+        if Path::new(path)
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
         {
             return false;
         }
 
-        let expanded = expand_tilde(&dequoted);
+        let expanded = expand_tilde(path);
 
         // Block absolute paths when workspace_only is set
         if self.workspace_only && Path::new(&expanded).is_absolute() {
@@ -823,7 +820,12 @@ fn strip_all_quotes(token: &str) -> String {
 }
 
 fn normalize_arg_for_path_checks(token: &str) -> Option<String> {
-    let dequoted = strip_all_quotes(token);
+    let decoded = iterative_url_decode(token);
+    if decoded.contains('%') {
+        return None;
+    }
+
+    let dequoted = strip_all_quotes(&decoded);
     if dequoted == "$HOME" || dequoted == "${HOME}" || dequoted == "$PATH" || dequoted == "${PATH}"
     {
         return Some(dequoted);
@@ -2205,14 +2207,28 @@ mod tests {
     }
 
     #[test]
-    fn is_path_allowed_blocks_quoted_paths() {
+    fn is_path_allowed_validates_raw_paths_without_dequoting() {
         let p = SecurityPolicy {
             workspace_only: true,
             ..SecurityPolicy::default()
         };
 
-        assert!(!p.is_path_allowed("\"/etc/passwd\""));
-        assert!(!p.is_path_allowed("'/etc/passwd'"));
-        assert!(!p.is_path_allowed("\"../etc/passwd\""));
+        assert!(p.is_path_allowed("\"relative/file.txt\""));
+        assert!(p.is_path_allowed("\"/etc/passwd\""));
+        assert!(!p.is_path_allowed("%2e%2e/etc/passwd"));
+        assert!(!p.is_path_allowed(".."));
+        assert!(!p.is_path_allowed("../etc/passwd"));
+    }
+
+    #[test]
+    fn command_path_checks_decode_and_dequote_shell_arguments() {
+        let mut p = SecurityPolicy::default();
+        p.workspace_only = true;
+        p.allowed_commands = vec!["cat".into()];
+        p.forbidden_paths = vec!["/etc".into()];
+
+        assert!(!p.is_command_allowed("cat %2fetc%2fpasswd"));
+        assert!(!p.is_command_allowed("cat '\"/etc/passwd\"'"));
+        assert!(!p.is_command_allowed("cat %252e%252e%252fetc%252fpasswd"));
     }
 }
