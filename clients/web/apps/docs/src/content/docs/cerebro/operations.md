@@ -114,6 +114,51 @@ unavailable. Persistence is lost only if the fallback backend
 does not offer persistence (e.g., `in_memory`). `remote_surreal`
 is unsupported in this build and is not a production recovery path.
 
+## Restart and Recovery Expectations
+
+Cerebro's durable production posture is single-node and local-first. Clean restarts preserve committed data when the restarted instance uses the same durable storage path.
+
+For embedded SurrealDB, keep `surreal.storage_path` on persistent node-local storage:
+
+```toml
+storage_mode = "embedded_surreal"
+
+[surreal]
+storage_path = "/var/lib/cerebro/data"
+```
+
+For clean restarts, stop Cerebro, keep the storage directory attached to the same replacement instance, then start Cerebro with the same configuration. After startup, verify `GET /readyz` succeeds and run a storage-backed MCP smoke check such as `mem_stats` or a known `mem_search` query.
+
+Crash recovery is limited to writes that completed before the process exited. In-flight writes are not guaranteed. After an unexpected restart, check `/readyz`, inspect structured logs for storage errors, and compare expected record counts or known memory queries before returning the instance to full traffic.
+
+`/healthz` and `/readyz` intentionally answer different questions:
+
+| Endpoint | Meaning | Operator action |
+|----------|---------|-----------------|
+| `/healthz` | Process is alive and can serve basic HTTP responses. | Keep the process observable; do not use this alone for traffic routing. |
+| `/readyz` | Storage-backed readiness checks are passing. | Route traffic only when this succeeds. |
+
+If `/readyz` fails while `/healthz` succeeds, remove the instance from traffic and investigate storage before restarting repeatedly. Check:
+
+- storage path exists and is mounted at the expected location;
+- directory ownership and permissions allow the Cerebro process to read and write;
+- disk capacity and inode availability;
+- recent structured logs for storage initialization, readiness, or fallback warnings;
+- `cerebro_readiness_failures_total` and `cerebro_storage_errors_total` for repeated failures.
+
+Manual recovery steps:
+
+1. Stop routing MCP traffic to the instance.
+2. Preserve the failing storage directory for analysis before deleting or replacing it.
+3. Fix mount, disk, or permission issues if the data path is intact.
+4. If the durable path is damaged, restore the latest known-good backup to the configured storage path.
+5. Start Cerebro with the durable backend configuration.
+6. Confirm `GET /readyz` succeeds.
+7. Run a storage-backed MCP smoke check.
+8. Return traffic only after readiness and smoke checks pass.
+
+`storage_fallback = "in_memory"` is an emergency availability option, not normal production recovery. When this fallback is active, new writes are not durable across restart. Treat the instance as durability-degraded, restore the embedded or disk-backed storage path, restart onto the durable backend, and verify readiness before returning to normal service.
+
 ## TUI Dashboard
 
 Cerebro includes an optional terminal dashboard for real-time

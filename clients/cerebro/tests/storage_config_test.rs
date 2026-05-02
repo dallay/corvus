@@ -1,4 +1,4 @@
-use cerebro::{storage_from_config, CerebroConfig, InMemoryStorage, StorageMode};
+use cerebro::{storage_from_config, CerebroConfig, InMemoryStorage, StorageFallback, StorageMode};
 use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 use tracing_subscriber::fmt::MakeWriter;
@@ -61,32 +61,47 @@ async fn explicit_storage_override_bypasses_embedded_default() {
 
 #[tokio::test]
 #[allow(clippy::await_holding_lock)]
-async fn fallback_policy_is_used_on_primary_init_failure() {
+async fn embedded_storage_init_failure_uses_in_memory_fallback_when_configured() {
     let _env_guard = ENV_LOCK.lock().expect("env lock");
     let _env = EnvVarGuard::set("CEREBRO_TEST_FAIL_STORAGE", "1");
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let config = CerebroConfig {
         storage_mode: StorageMode::EmbeddedSurreal,
-        storage_fallback: cerebro::StorageFallback::InMemory,
+        storage_path: Some(temp_dir.path().join("cerebro.db").display().to_string()),
+        storage_fallback: StorageFallback::InMemory,
         ..base_config()
     };
     let storage = storage_from_config(&config)
         .await
-        .expect("fallback storage should initialize");
-    assert!(storage.as_any().is::<InMemoryStorage>());
+        .expect("in-memory fallback should initialize");
+    assert!(
+        storage.as_any().is::<InMemoryStorage>(),
+        "expected in-memory fallback storage"
+    );
 }
 
 #[tokio::test]
 #[allow(clippy::await_holding_lock)]
-async fn no_fallback_configured_fails_fast() {
+async fn embedded_storage_init_failure_without_fallback_returns_error() {
     let _guard = ENV_LOCK.lock().expect("env lock");
     let _env = EnvVarGuard::set("CEREBRO_TEST_FAIL_STORAGE", "1");
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let config = CerebroConfig {
         storage_mode: StorageMode::EmbeddedSurreal,
-        storage_fallback: cerebro::StorageFallback::None,
+        storage_path: Some(temp_dir.path().join("cerebro.db").display().to_string()),
+        storage_fallback: StorageFallback::None,
         ..base_config()
     };
-    let result = storage_from_config(&config).await;
-    assert!(result.is_err());
+    let error = match storage_from_config(&config).await {
+        Ok(_) => panic!("storage init should fail without fallback"),
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("forced storage failure for test"),
+        "unexpected error: {error}"
+    );
 }
 
 #[test]
@@ -104,7 +119,7 @@ fn validation_rejects_remote_surreal_mode() {
 #[test]
 fn validation_rejects_remote_surreal_fallback() {
     let config = CerebroConfig {
-        storage_fallback: cerebro::StorageFallback::RemoteSurreal,
+        storage_fallback: StorageFallback::RemoteSurreal,
         ..base_config()
     };
     let error = config
@@ -263,7 +278,7 @@ async fn fallback_reports_active_mode() {
     let _env = EnvVarGuard::set("CEREBRO_TEST_FAIL_STORAGE", "1");
     let config = CerebroConfig {
         storage_mode: StorageMode::EmbeddedSurreal,
-        storage_fallback: cerebro::StorageFallback::InMemory,
+        storage_fallback: StorageFallback::InMemory,
         ..base_config()
     };
     let _ = storage_from_config(&config)

@@ -501,7 +501,6 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "which",
- "xmas-elf",
 ]
 
 [[package]]
@@ -1836,27 +1835,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmas-elf"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42c49817e78342f7f30a181573d82ff55b88a35f86ccaf07fc64b3008f56d1c6"
-dependencies = [
- "zero",
-]
-
-[[package]]
-name = "zero"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fe21bcc34ca7fe6dd56cc2cb1261ea59d6b93620215aefb5ea6032265527784"
-
-[[package]]
 name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
-
-[[patch.unused]]
-name = "xmas-elf"
-version = "0.10.0"
-source = "git+https://github.com/nrc/xmas-elf?tag=0.10.0#6862181d66683f7564419688c94385cb96f167fa"

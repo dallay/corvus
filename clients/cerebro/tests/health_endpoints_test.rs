@@ -207,13 +207,26 @@ async fn readyz_returns_ok_for_initialized_service() {
 }
 
 #[tokio::test]
-async fn readyz_returns_service_unavailable_when_storage_readiness_fails() {
+async fn readyz_returns_service_unavailable_and_healthz_stays_ok_when_storage_readiness_fails() {
     let config = CerebroConfig {
         storage_mode: StorageMode::InMemory,
         ..Default::default()
     };
     let service = Arc::new(CerebroService::new(config, Arc::new(FailingReadyStorage)));
     let app = service.router();
+
+    let health_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(health_response.status(), StatusCode::OK);
 
     let response = app
         .oneshot(
