@@ -169,11 +169,17 @@ async fn build_app_with_registry_and_startup_state(
         .map_err(|e| RookError::Gateway(format!("failed to build HTTP client: {e}")))?;
 
     let observability = Arc::new(Observability::bootstrap());
+    let resilience_policy = crate::gateway::UpstreamResiliencePolicy::default();
+    let upstream_concurrency = crate::gateway::UpstreamConcurrency::new(
+        resilience_policy.max_concurrent_upstream_requests,
+    );
     let gateway_state = GatewayState {
         registry: registry.clone(),
         engine,
         client,
         observability: observability.clone(),
+        resilience_policy,
+        upstream_concurrency,
     };
     let inbound_auth = config.inbound_auth.clone();
     let transport_config = Arc::new(config.transport.clone());
@@ -221,12 +227,12 @@ async fn build_app_with_registry_and_startup_state(
         .merge(
             admin::management_router(admin_state)
                 .layer(middleware::from_fn_with_state(
-                    inbound_auth.clone(),
-                    admin_inbound_auth,
-                ))
-                .layer(middleware::from_fn_with_state(
                     admin_rate_limit,
                     apply_rate_limit,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inbound_auth.clone(),
+                    admin_inbound_auth,
                 )),
         )
         .layer(middleware::from_fn_with_state(
@@ -237,12 +243,12 @@ async fn build_app_with_registry_and_startup_state(
         .merge(
             gateway::build_models_router(gateway_state.clone())
                 .layer(middleware::from_fn_with_state(
-                    inbound_auth.clone(),
-                    gateway_inbound_auth,
-                ))
-                .layer(middleware::from_fn_with_state(
                     models_rate_limit,
                     apply_rate_limit,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inbound_auth.clone(),
+                    gateway_inbound_auth,
                 ))
                 .layer(middleware::from_fn_with_state(
                     gateway_transport.clone(),
@@ -256,12 +262,12 @@ async fn build_app_with_registry_and_startup_state(
                     apply_chat_idempotency,
                 ))
                 .layer(middleware::from_fn_with_state(
-                    inbound_auth,
-                    gateway_inbound_auth,
-                ))
-                .layer(middleware::from_fn_with_state(
                     chat_rate_limit,
                     apply_rate_limit,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inbound_auth,
+                    gateway_inbound_auth,
                 ))
                 .layer(middleware::from_fn_with_state(
                     gateway_transport,
@@ -927,6 +933,31 @@ mod tests {
         assert_eq!(ready_json["checks"]["config"]["ready"], json!(true));
         assert_eq!(ready_json["checks"]["database"]["ready"], json!(true));
         assert_eq!(ready_json["checks"]["router"]["ready"], json!(true));
+        assert_eq!(ready_json["checks"]["assets"]["ready"], json!(true));
+    }
+
+    #[tokio::test]
+    async fn live_route_stays_ok_when_startup_dependencies_are_not_ready() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
+        let app = build_app_with_registry_and_startup_state(
+            ServerConfig::default(),
+            registry,
+            idempotency_service,
+            Arc::new(StartupDependencyState {
+                config_ready: false,
+                database_ready: false,
+                router_ready: false,
+                assets_ready: false,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let (live_status, live_json) = request_json(app, "/api/health/live").await;
+
+        assert_eq!(live_status, StatusCode::OK);
+        assert_eq!(live_json, json!({ "status": "ok" }));
     }
 
     #[tokio::test]
@@ -951,6 +982,68 @@ mod tests {
         assert_eq!(ready_status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(ready_json["status"], json!("fail"));
         assert_eq!(ready_json["checks"]["database"]["ready"], json!(false));
+        assert_eq!(
+            ready_json["checks"]["database"]["reason"],
+            json!("database connectivity unavailable")
+        );
+    }
+
+    #[tokio::test]
+    async fn ready_route_returns_service_unavailable_for_config_failure() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
+        let app = build_app_with_registry_and_startup_state(
+            ServerConfig::default(),
+            registry,
+            idempotency_service,
+            Arc::new(StartupDependencyState {
+                config_ready: false,
+                database_ready: true,
+                router_ready: true,
+                assets_ready: true,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let (ready_status, ready_json) = request_json(app, "/api/health/ready").await;
+
+        assert_eq!(ready_status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(ready_json["status"], json!("fail"));
+        assert_eq!(ready_json["checks"]["config"]["ready"], json!(false));
+        assert_eq!(
+            ready_json["checks"]["config"]["reason"],
+            json!("configuration validation failed")
+        );
+    }
+
+    #[tokio::test]
+    async fn ready_route_returns_service_unavailable_for_router_failure() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
+        let app = build_app_with_registry_and_startup_state(
+            ServerConfig::default(),
+            registry,
+            idempotency_service,
+            Arc::new(StartupDependencyState {
+                config_ready: true,
+                database_ready: true,
+                router_ready: false,
+                assets_ready: true,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let (ready_status, ready_json) = request_json(app, "/api/health/ready").await;
+
+        assert_eq!(ready_status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(ready_json["status"], json!("fail"));
+        assert_eq!(ready_json["checks"]["router"]["ready"], json!(false));
+        assert_eq!(
+            ready_json["checks"]["router"]["reason"],
+            json!("routing engine unavailable")
+        );
     }
 
     #[tokio::test]
@@ -975,6 +1068,10 @@ mod tests {
         assert_eq!(ready_status, StatusCode::OK);
         assert_eq!(ready_json["status"], json!("degraded"));
         assert_eq!(ready_json["checks"]["assets"]["ready"], json!(false));
+        assert_eq!(
+            ready_json["checks"]["assets"]["reason"],
+            json!("embedded dashboard assets are missing")
+        );
     }
 
     #[tokio::test]
@@ -1288,7 +1385,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rate_limit_rejections_happen_before_auth_and_dashboard_routes_stay_out_of_scope() {
+    async fn rate_limit_rejections_happen_after_auth_and_dashboard_routes_stay_out_of_scope() {
         let app = build_app_with_registry(
             ServerConfig {
                 inbound_auth: InboundAuthConfig {
@@ -1316,13 +1413,26 @@ mod tests {
             app.clone(),
             axum::http::Method::GET,
             "/v1/models",
-            None,
+            Some("rook-inbound-secret"),
             None,
         )
         .await;
         assert_eq!(limited_models, StatusCode::TOO_MANY_REQUESTS);
         let limited_json: serde_json::Value = serde_json::from_slice(&limited_body).unwrap();
         assert_eq!(limited_json["error"]["code"], json!("rate_limited"));
+
+        let (unauthorized_models, _, unauthorized_body) = request_with_bearer(
+            app.clone(),
+            axum::http::Method::GET,
+            "/v1/models",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(unauthorized_models, StatusCode::UNAUTHORIZED);
+        let unauthorized_json: serde_json::Value =
+            serde_json::from_slice(&unauthorized_body).unwrap();
+        assert_eq!(unauthorized_json["error"]["code"], json!("unauthorized"));
 
         let (dashboard_first, dashboard_body_first) = request_text(app.clone(), "/").await;
         let (dashboard_second, dashboard_body_second) = request_text(app, "/").await;
@@ -2375,13 +2485,9 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json_body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(
-            json_body,
-            json!({
-                "available": false,
-                "reason": "usage accounting is not implemented in M1"
-            })
-        );
+        assert_eq!(json_body["available"], true);
+        assert_eq!(json_body["totals"]["requests"], 0);
+        assert_eq!(json_body["totals"]["total_tokens"], 0);
     }
 
     #[tokio::test]

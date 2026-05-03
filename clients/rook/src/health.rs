@@ -145,6 +145,48 @@ mod tests {
     }
 
     #[test]
+    fn readiness_fails_when_config_is_not_ready() {
+        let response = StartupDependencyState {
+            config_ready: false,
+            database_ready: true,
+            router_ready: true,
+            assets_ready: true,
+        }
+        .readiness();
+
+        assert_eq!(response.status, HealthStatus::Fail);
+        assert!(!response.checks.config.ready);
+        assert_eq!(
+            response.checks.config.reason.as_deref(),
+            Some("configuration validation failed")
+        );
+        assert!(response.checks.database.ready);
+        assert!(response.checks.router.ready);
+        assert!(response.checks.assets.ready);
+    }
+
+    #[test]
+    fn readiness_fails_when_router_is_not_ready() {
+        let response = StartupDependencyState {
+            config_ready: true,
+            database_ready: true,
+            router_ready: false,
+            assets_ready: true,
+        }
+        .readiness();
+
+        assert_eq!(response.status, HealthStatus::Fail);
+        assert!(response.checks.config.ready);
+        assert!(response.checks.database.ready);
+        assert!(!response.checks.router.ready);
+        assert_eq!(
+            response.checks.router.reason.as_deref(),
+            Some("routing engine unavailable")
+        );
+        assert!(response.checks.assets.ready);
+    }
+
+    #[test]
     fn readiness_is_degraded_when_only_assets_are_missing() {
         let response = StartupDependencyState {
             config_ready: true,

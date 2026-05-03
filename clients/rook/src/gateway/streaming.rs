@@ -3,6 +3,7 @@ use futures_util::stream;
 use futures_util::{Stream, StreamExt};
 use std::collections::VecDeque;
 use std::convert::Infallible;
+use std::future::Future;
 
 use crate::gateway::types::STREAM_DONE_SENTINEL;
 
@@ -120,15 +121,31 @@ pub fn upstream_event_stream<S, E>(
 where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
 {
+    upstream_event_stream_with_completion(upstream, || async {})
+}
+
+pub fn upstream_event_stream_with_completion<S, E, F, Fut>(
+    upstream: S,
+    on_complete: F,
+) -> impl Stream<Item = Result<axum::response::sse::Event, Infallible>>
+where
+    S: Stream<Item = Result<Bytes, E>> + Unpin,
+    F: FnOnce() -> Fut + Unpin,
+    Fut: Future<Output = ()>,
+{
     stream::unfold(
         (
             OpenAiSseParser::default(),
             upstream,
             VecDeque::<String>::new(),
             false,
+            Some(on_complete),
         ),
-        |(mut parser, mut upstream, mut pending, terminated)| async move {
+        |(mut parser, mut upstream, mut pending, terminated, mut on_complete)| async move {
             if terminated {
+                if let Some(on_complete) = on_complete.take() {
+                    on_complete().await;
+                }
                 return None;
             }
 
@@ -136,7 +153,7 @@ where
                 if let Some(payload) = pending.pop_front() {
                     let is_done = payload == STREAM_DONE_SENTINEL;
                     let event = axum::response::sse::Event::default().data(payload);
-                    return Some((Ok(event), (parser, upstream, pending, is_done)));
+                    return Some((Ok(event), (parser, upstream, pending, is_done, on_complete)));
                 }
 
                 match upstream.next().await {

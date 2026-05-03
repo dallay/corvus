@@ -1,12 +1,16 @@
 use std::borrow::Cow;
+use std::time::Instant;
 
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response, Sse};
 use axum::Json;
+use chrono::Utc;
+use uuid::Uuid;
 
-use crate::gateway::streaming::upstream_event_stream;
+use crate::db::usage::StoredUsageEvent;
+use crate::gateway::streaming::upstream_event_stream_with_completion;
 use crate::gateway::types::{
     ChatCompletionRequest, GatewayErrorBody, GatewayErrorResponse, ModelListResponse, ModelObject,
     STREAM_CONTENT_TYPE,
@@ -16,9 +20,10 @@ use crate::gateway::GatewayState;
 use crate::observability::{
     normalize_account_label, normalize_model_label, normalize_vendor_label,
 };
-use crate::services::{health::HealthService as _, route::RouteService as _};
-
-const FAILURE_COOLDOWN_SECS: u64 = 60;
+use crate::routing::RoutingDecision;
+use crate::services::{
+    health::HealthService as _, route::RouteService as _, usage::UsageService as _,
+};
 
 #[derive(Debug, Clone)]
 struct UpstreamMetricContext {
@@ -28,6 +33,14 @@ struct UpstreamMetricContext {
 }
 
 impl UpstreamMetricContext {
+    fn clone_static(&self) -> UpstreamMetricContext {
+        UpstreamMetricContext {
+            vendor: Cow::Owned(self.vendor.clone().into_owned()),
+            account: Cow::Owned(self.account.clone().into_owned()),
+            model: Cow::Owned(self.model.clone().into_owned()),
+        }
+    }
+
     fn unrouted() -> Self {
         Self {
             vendor: Cow::Borrowed("unrouted"),
@@ -69,10 +82,121 @@ fn classify_upstream_error(error: &UpstreamError) -> &'static str {
     }
 }
 
+fn should_retry_buffered_upstream_error(error: &UpstreamError) -> bool {
+    match error {
+        UpstreamError::UpstreamStatus { status, .. } => {
+            status.is_server_error() || *status == StatusCode::TOO_MANY_REQUESTS
+        }
+        UpstreamError::Timeout { .. }
+        | UpstreamError::Transport { .. }
+        | UpstreamError::ReadBody { .. } => true,
+        UpstreamError::MissingBaseUrl { .. } | UpstreamError::MissingAuthHeader { .. } => false,
+    }
+}
+
+async fn mark_account_failure(state: &GatewayState, account_id: crate::domain::AccountId) {
+    let cooldown_secs = state.resilience_policy.failure_cooldown.as_secs();
+    state
+        .registry
+        .health()
+        .mark_failure(account_id, cooldown_secs)
+        .await;
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TokenUsageParts {
+    prompt_tokens: Option<u64>,
+    completion_tokens: Option<u64>,
+    total_tokens: Option<u64>,
+}
+
+impl TokenUsageParts {
+    fn none() -> Self {
+        Self {
+            prompt_tokens: None,
+            completion_tokens: None,
+            total_tokens: None,
+        }
+    }
+}
+
+fn extract_token_usage(body: &Bytes) -> TokenUsageParts {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return TokenUsageParts::none();
+    };
+    let Some(usage) = value.get("usage") else {
+        return TokenUsageParts::none();
+    };
+
+    TokenUsageParts {
+        prompt_tokens: usage
+            .get("prompt_tokens")
+            .and_then(serde_json::Value::as_u64),
+        completion_tokens: usage
+            .get("completion_tokens")
+            .and_then(serde_json::Value::as_u64),
+        total_tokens: usage
+            .get("total_tokens")
+            .and_then(serde_json::Value::as_u64),
+    }
+}
+
+struct UsageRecordInput {
+    started_at: Instant,
+    logical_model: String,
+    context: UpstreamMetricContext,
+    account_id: Option<String>,
+    stream: bool,
+    outcome: &'static str,
+    status: StatusCode,
+    tokens: TokenUsageParts,
+}
+
+async fn record_usage(state: &GatewayState, input: UsageRecordInput) {
+    let event = StoredUsageEvent {
+        id: Uuid::new_v4().to_string(),
+        occurred_at: Utc::now(),
+        request_id: None,
+        logical_model: input.logical_model,
+        vendor: input.context.vendor.into_owned(),
+        account_id: input.account_id,
+        account_label: input.context.account.into_owned(),
+        stream: input.stream,
+        outcome: input.outcome.to_string(),
+        status_code: input.status.as_u16(),
+        latency_ms: u64::try_from(input.started_at.elapsed().as_millis()).unwrap_or(u64::MAX),
+        prompt_tokens: input.tokens.prompt_tokens,
+        completion_tokens: input.tokens.completion_tokens,
+        total_tokens: input.tokens.total_tokens,
+        cost_usd: None,
+        currency: None,
+        provider_request_id: None,
+    };
+
+    if let Err(error) = state.registry.usage().record(event).await {
+        tracing::error!(error = %error, "failed to record gateway usage event");
+    }
+}
+
 pub async fn handle_chat_completions(State(state): State<GatewayState>, body: Bytes) -> Response {
+    let started_at = Instant::now();
     let request: ChatCompletionRequest = match serde_json::from_slice(&body) {
         Ok(request) => request,
         Err(_) => {
+            record_usage(
+                &state,
+                UsageRecordInput {
+                    started_at,
+                    logical_model: "unrouted".to_string(),
+                    context: UpstreamMetricContext::unrouted(),
+                    account_id: None,
+                    stream: false,
+                    outcome: "invalid_request",
+                    status: StatusCode::BAD_REQUEST,
+                    tokens: TokenUsageParts::none(),
+                },
+            )
+            .await;
             return error_response(
                 StatusCode::BAD_REQUEST,
                 "invalid request body",
@@ -83,81 +207,213 @@ pub async fn handle_chat_completions(State(state): State<GatewayState>, body: By
     };
 
     if request.stream == Some(true) {
-        return handle_streaming_chat_completions(&state, request, body).await;
+        return handle_streaming_chat_completions(&state, request, body, started_at).await;
     }
 
-    handle_buffered_chat_completions(&state, request, body).await
+    handle_buffered_chat_completions(&state, request, body, started_at).await
 }
 
 async fn handle_buffered_chat_completions(
     state: &GatewayState,
     request: ChatCompletionRequest,
     body: Bytes,
+    started_at: Instant,
 ) -> Response {
-    let decision = match state.engine.resolve(&request.model).await {
-        Ok(decision) => decision,
-        Err(error) => {
-            record_upstream_failure(state, &UpstreamMetricContext::unrouted(), "route_rejected");
-            tracing::warn!(model = %request.model, error = %error, "routing failed");
-            return error_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                &error.to_string(),
-                "server_error",
-                Some("model_not_found"),
-            );
+    let mut attempts = 0usize;
+    let max_attempts = state.resilience_policy.max_buffered_attempts.max(1);
+    let mut last_error: Option<(
+        UpstreamError,
+        UpstreamMetricContext,
+        crate::domain::AccountId,
+    )> = None;
+
+    loop {
+        attempts = attempts.saturating_add(1);
+        let decision = match state.engine.resolve(&request.model).await {
+            Ok(decision) => decision,
+            Err(error) => {
+                if let Some((error, metric_context, account_id)) = last_error.take() {
+                    let outcome = classify_upstream_error(&error);
+                    let response = map_upstream_error(error);
+                    record_usage(
+                        state,
+                        UsageRecordInput {
+                            started_at,
+                            logical_model: request.model.clone(),
+                            context: metric_context,
+                            account_id: Some(account_id.to_string()),
+                            stream: false,
+                            outcome,
+                            status: response.status(),
+                            tokens: TokenUsageParts::none(),
+                        },
+                    )
+                    .await;
+                    return response;
+                }
+
+                record_upstream_failure(
+                    state,
+                    &UpstreamMetricContext::unrouted(),
+                    "route_rejected",
+                );
+                tracing::warn!(model = %request.model, error = %error, "routing failed");
+                record_usage(
+                    state,
+                    UsageRecordInput {
+                        started_at,
+                        logical_model: request.model.clone(),
+                        context: UpstreamMetricContext::unrouted(),
+                        account_id: None,
+                        stream: request.stream.unwrap_or(false),
+                        outcome: "route_rejected",
+                        status: StatusCode::SERVICE_UNAVAILABLE,
+                        tokens: TokenUsageParts::none(),
+                    },
+                )
+                .await;
+                return error_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    &error.to_string(),
+                    "server_error",
+                    Some("model_not_found"),
+                );
+            }
+        };
+
+        match proxy_buffered_attempt(state, &request, &body, &decision).await {
+            Ok((upstream_response, metric_context, account_id)) => {
+                state.registry.health().mark_success(account_id).await;
+                let tokens = extract_token_usage(&upstream_response.body);
+                record_usage(
+                    state,
+                    UsageRecordInput {
+                        started_at,
+                        logical_model: request.model.clone(),
+                        context: metric_context.clone_static(),
+                        account_id: Some(account_id.to_string()),
+                        stream: false,
+                        outcome: "success",
+                        status: upstream_response.status,
+                        tokens,
+                    },
+                )
+                .await;
+
+                let mut response = Response::new(axum::body::Body::from(upstream_response.body));
+                *response.status_mut() = upstream_response.status;
+                response.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_str(
+                        upstream_response
+                            .content_type
+                            .as_deref()
+                            .unwrap_or("application/json"),
+                    )
+                    .unwrap_or(HeaderValue::from_static("application/json")),
+                );
+                return response;
+            }
+            Err((error, metric_context, account_id)) => {
+                let outcome = classify_upstream_error(&error);
+                record_upstream_failure(state, &metric_context, outcome);
+                mark_account_failure(state, account_id).await;
+
+                let retryable = should_retry_buffered_upstream_error(&error);
+                last_error = Some((error, metric_context, account_id));
+                if !retryable || attempts >= max_attempts {
+                    let (error, metric_context, account_id) = last_error.take().unwrap();
+                    let response = map_upstream_error(error);
+                    record_usage(
+                        state,
+                        UsageRecordInput {
+                            started_at,
+                            logical_model: request.model.clone(),
+                            context: metric_context,
+                            account_id: Some(account_id.to_string()),
+                            stream: false,
+                            outcome,
+                            status: response.status(),
+                            tokens: TokenUsageParts::none(),
+                        },
+                    )
+                    .await;
+                    return response;
+                }
+
+                tokio::time::sleep(state.resilience_policy.retry_backoff).await;
+            }
+        }
+    }
+}
+
+async fn proxy_buffered_attempt(
+    state: &GatewayState,
+    request: &ChatCompletionRequest,
+    body: &Bytes,
+    decision: &RoutingDecision,
+) -> Result<
+    (
+        upstream::UpstreamResponse,
+        UpstreamMetricContext,
+        crate::domain::AccountId,
+    ),
+    (
+        UpstreamError,
+        UpstreamMetricContext,
+        crate::domain::AccountId,
+    ),
+> {
+    let metric_context = UpstreamMetricContext::from_decision(decision);
+    tracing::info!(model = %request.model, account_id = %decision.account.id, "proxying chat completion");
+
+    let permit = match state.upstream_concurrency.semaphore().acquire_owned().await {
+        Ok(permit) => permit,
+        Err(_) => {
+            return Err((
+                UpstreamError::Transport {
+                    message: "upstream concurrency limiter is closed".to_string(),
+                },
+                metric_context,
+                decision.account.id,
+            ));
         }
     };
 
-    let metric_context = UpstreamMetricContext::from_decision(&decision);
-    tracing::info!(model = %request.model, account_id = %decision.account.id, "proxying chat completion");
+    let result =
+        upstream::proxy_chat_completion(&state.client, &decision.account, body.clone()).await;
+    drop(permit);
 
-    match upstream::proxy_chat_completion(&state.client, &decision.account, body).await {
-        Ok(upstream_response) => {
-            let registry = state.registry.clone();
-            let account_id = decision.account.id;
-            tokio::spawn(async move {
-                registry.health().mark_success(account_id).await;
-            });
-
-            let mut response = Response::new(axum::body::Body::from(upstream_response.body));
-            *response.status_mut() = upstream_response.status;
-            response.headers_mut().insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_str(
-                    upstream_response
-                        .content_type
-                        .as_deref()
-                        .unwrap_or("application/json"),
-                )
-                .unwrap_or(HeaderValue::from_static("application/json")),
-            );
-            response
-        }
-        Err(error) => {
-            record_upstream_failure(state, &metric_context, classify_upstream_error(&error));
-            let registry = state.registry.clone();
-            let account_id = decision.account.id;
-            tokio::spawn(async move {
-                registry
-                    .health()
-                    .mark_failure(account_id, FAILURE_COOLDOWN_SECS)
-                    .await;
-            });
-            map_upstream_error(error)
-        }
-    }
+    result
+        .map(|response| (response, metric_context.clone_static(), decision.account.id))
+        .map_err(|error| (error, metric_context, decision.account.id))
 }
 
 async fn handle_streaming_chat_completions(
     state: &GatewayState,
     request: ChatCompletionRequest,
     body: Bytes,
+    started_at: Instant,
 ) -> Response {
     let decision = match state.engine.resolve(&request.model).await {
         Ok(decision) => decision,
         Err(error) => {
             record_upstream_failure(state, &UpstreamMetricContext::unrouted(), "route_rejected");
             tracing::warn!(model = %request.model, error = %error, "routing failed");
+            record_usage(
+                state,
+                UsageRecordInput {
+                    started_at,
+                    logical_model: request.model.clone(),
+                    context: UpstreamMetricContext::unrouted(),
+                    account_id: None,
+                    stream: true,
+                    outcome: "route_rejected",
+                    status: StatusCode::SERVICE_UNAVAILABLE,
+                    tokens: TokenUsageParts::none(),
+                },
+            )
+            .await;
             return error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
                 &error.to_string(),
@@ -171,12 +427,24 @@ async fn handle_streaming_chat_completions(
     let account_id = decision.account.id;
     match upstream::open_chat_completion_stream(&state.client, &decision.account, body).await {
         Ok(upstream_response) => {
-            let registry = state.registry.clone();
-            tokio::spawn(async move {
-                registry.health().mark_success(account_id).await;
-            });
-
-            let stream = upstream_event_stream(upstream_response.response.bytes_stream());
+            state.registry.health().mark_success(account_id).await;
+            let completion_state = state.clone();
+            let completion_input = UsageRecordInput {
+                started_at,
+                logical_model: request.model.clone(),
+                context: metric_context.clone_static(),
+                account_id: Some(account_id.to_string()),
+                stream: true,
+                outcome: "success",
+                status: StatusCode::OK,
+                tokens: TokenUsageParts::none(),
+            };
+            let stream = upstream_event_stream_with_completion(
+                upstream_response.response.bytes_stream(),
+                move || async move {
+                    record_usage(&completion_state, completion_input).await;
+                },
+            );
             let mut response = Sse::new(stream).into_response();
             *response.status_mut() = StatusCode::OK;
             response.headers_mut().insert(
@@ -186,15 +454,25 @@ async fn handle_streaming_chat_completions(
             response
         }
         Err(error) => {
-            record_upstream_failure(state, &metric_context, classify_upstream_error(&error));
-            let registry = state.registry.clone();
-            tokio::spawn(async move {
-                registry
-                    .health()
-                    .mark_failure(account_id, FAILURE_COOLDOWN_SECS)
-                    .await;
-            });
-            map_upstream_error(error)
+            let outcome = classify_upstream_error(&error);
+            record_upstream_failure(state, &metric_context, outcome);
+            mark_account_failure(state, account_id).await;
+            let response = map_upstream_error(error);
+            record_usage(
+                state,
+                UsageRecordInput {
+                    started_at,
+                    logical_model: request.model.clone(),
+                    context: metric_context,
+                    account_id: Some(account_id.to_string()),
+                    stream: true,
+                    outcome,
+                    status: response.status(),
+                    tokens: TokenUsageParts::none(),
+                },
+            )
+            .await;
+            response
         }
     }
 }
@@ -295,7 +573,7 @@ mod tests {
     use crate::routing::RoutingEngine;
     use crate::services::{
         account::AccountService as _, health::HealthService as _, pool::PoolService as _,
-        route::RouteService as _,
+        route::RouteService as _, usage::UsageService as _,
     };
 
     fn make_account(vendor: ProviderVendor) -> ProviderAccount {
@@ -323,6 +601,16 @@ mod tests {
         }
     }
 
+    fn make_pool_with_members(account_ids: Vec<AccountId>) -> ProviderPool {
+        ProviderPool {
+            id: PoolId::generate(),
+            name: "test-pool".to_string(),
+            strategy: SelectionStrategy::Priority,
+            members: account_ids,
+            fallback_pool_id: None,
+        }
+    }
+
     fn make_route(logical_model: &str, pool_id: PoolId) -> ModelRoute {
         ModelRoute {
             id: RouteId::generate(),
@@ -340,11 +628,20 @@ mod tests {
             .timeout(std::time::Duration::from_secs(2))
             .build()
             .unwrap();
+        let resilience_policy = crate::gateway::UpstreamResiliencePolicy {
+            retry_backoff: std::time::Duration::from_millis(1),
+            ..Default::default()
+        };
+        let upstream_concurrency = crate::gateway::UpstreamConcurrency::new(
+            resilience_policy.max_concurrent_upstream_requests,
+        );
         let state = GatewayState {
             registry: registry.clone(),
             engine,
             client,
             observability: Arc::new(crate::observability::Observability::bootstrap()),
+            resilience_policy,
+            upstream_concurrency,
         };
         (build_router(state), registry)
     }
@@ -370,6 +667,60 @@ mod tests {
         registry.routes().create(route).await.unwrap();
 
         account_id
+    }
+
+    async fn seed_route_with_accounts(
+        registry: &RookRegistry,
+        logical_model: &str,
+        mut accounts: Vec<ProviderAccount>,
+    ) -> Vec<AccountId> {
+        let account_ids: Vec<AccountId> = accounts.iter().map(|account| account.id).collect();
+        for account in accounts.drain(..) {
+            registry.accounts().create(account).await.unwrap();
+        }
+
+        let pool = make_pool_with_members(account_ids.clone());
+        let pool_id = pool.id;
+        registry.pools().create(pool).await.unwrap();
+
+        let route = make_route(logical_model, pool_id);
+        registry.routes().create(route).await.unwrap();
+
+        account_ids
+    }
+
+    async fn wait_for_usage_requests(
+        registry: &RookRegistry,
+        expected: u64,
+    ) -> crate::db::usage::UsageSummary {
+        use crate::db::usage::UsageSummaryQuery;
+        use chrono::{Duration, Utc};
+
+        for _ in 0..50 {
+            let summary = registry
+                .usage()
+                .summary(UsageSummaryQuery {
+                    since: Utc::now() - Duration::minutes(5),
+                    until: Utc::now() + Duration::minutes(5),
+                    limit: 10,
+                })
+                .await
+                .unwrap();
+            if summary.totals.requests == expected {
+                return summary;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+
+        registry
+            .usage()
+            .summary(UsageSummaryQuery {
+                since: Utc::now() - Duration::minutes(5),
+                until: Utc::now() + Duration::minutes(5),
+                limit: 10,
+            })
+            .await
+            .unwrap()
     }
 
     async fn mock_upstream(
@@ -398,6 +749,48 @@ mod tests {
         });
 
         (handle, url)
+    }
+
+    async fn mock_counting_upstream(
+        statuses: Vec<StatusCode>,
+    ) -> (
+        tokio::task::JoinHandle<()>,
+        String,
+        Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        use axum::routing::post;
+        use axum::{Json, Router};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::net::TcpListener;
+
+        async fn handler(
+            axum::extract::State((statuses, calls)): axum::extract::State<(
+                Arc<Vec<StatusCode>>,
+                Arc<AtomicUsize>,
+            )>,
+        ) -> (StatusCode, Json<Value>) {
+            let call_index = calls.fetch_add(1, Ordering::SeqCst);
+            let status = statuses
+                .get(call_index)
+                .copied()
+                .or_else(|| statuses.last().copied())
+                .unwrap_or(StatusCode::OK);
+            (status, Json(json!({"call": call_index + 1})))
+        }
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let app = Router::new()
+            .route("/v1/chat/completions", post(handler))
+            .with_state((Arc::new(statuses), calls.clone()));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{addr}");
+
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        (handle, url, calls)
     }
 
     #[tokio::test]
@@ -447,11 +840,65 @@ mod tests {
             health.status,
             crate::services::health::HealthStatus::Healthy
         );
+        let summary = wait_for_usage_requests(&registry, 1).await;
+        assert_eq!(summary.totals.requests, 1);
+        assert_eq!(summary.totals.successful_requests, 1);
+    }
+
+    #[tokio::test]
+    async fn chat_completion_success_records_usage_tokens_without_storing_payload() {
+        let (_server, upstream) = mock_upstream(
+            StatusCode::OK,
+            json!({
+                "id": "chatcmpl-usage",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "gpt-4o",
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 20,
+                    "total_tokens": 30
+                }
+            }),
+        )
+        .await;
+        let (app, registry) = test_app().await;
+        seed_route(
+            &registry,
+            "gpt-4o",
+            ProviderVendor::OpenAi,
+            Some(upstream),
+            Some("sk-test".to_string()),
+        )
+        .await;
+
+        let response = app
+            .oneshot(
+                Request::post("/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o","messages":[{"role":"user","content":"secret prompt"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let summary = wait_for_usage_requests(&registry, 1).await;
+        assert_eq!(summary.totals.requests, 1);
+        assert_eq!(summary.totals.successful_requests, 1);
+        assert_eq!(summary.totals.total_tokens, 30);
+        assert_eq!(summary.totals.known_token_requests, 1);
+        assert_eq!(summary.by_model[0].key, "gpt-4o");
+        assert_eq!(summary.by_outcome[0].key, "success");
     }
 
     #[tokio::test]
     async fn chat_completions_unknown_model_returns_503_error() {
-        let (app, _) = test_app().await;
+        let (app, registry) = test_app().await;
         let response = app
             .oneshot(
                 Request::post("/chat/completions")
@@ -469,6 +916,10 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json = serde_json::from_slice::<Value>(&body).unwrap();
         assert_eq!(json["error"]["type"], json!("server_error"));
+        let summary = wait_for_usage_requests(&registry, 1).await;
+        assert_eq!(summary.totals.failed_requests, 1);
+        assert_eq!(summary.by_vendor[0].key, "unrouted");
+        assert_eq!(summary.by_outcome[0].key, "route_rejected");
     }
 
     #[tokio::test]
@@ -604,6 +1055,11 @@ mod tests {
         assert!(text.contains("data: {\"id\":\"chunk-1\"}"));
         assert!(text.contains("data: {\"id\":\"chunk-2\"}"));
         assert_eq!(text.matches("data: [DONE]").count(), 1);
+        let summary = wait_for_usage_requests(&registry, 1).await;
+        assert_eq!(summary.totals.requests, 1);
+        assert_eq!(summary.totals.streaming_requests, 1);
+        assert_eq!(summary.totals.known_token_requests, 0);
+        assert_eq!(summary.totals.total_tokens, 0);
     }
 
     #[tokio::test]
@@ -700,6 +1156,167 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json = serde_json::from_slice::<Value>(&body).unwrap();
         assert_eq!(json["error"]["code"], json!("upstream_error"));
+        let summary = wait_for_usage_requests(&registry, 1).await;
+        assert_eq!(summary.totals.requests, 1);
+        assert_eq!(summary.totals.failed_requests, 1);
+        assert_eq!(summary.by_outcome[0].key, "http_error");
+    }
+
+    #[tokio::test]
+    async fn buffered_chat_retries_retryable_upstream_failure_on_next_account() {
+        use std::sync::atomic::Ordering;
+
+        let (_failing_server, failing_upstream, failing_calls) =
+            mock_counting_upstream(vec![StatusCode::INTERNAL_SERVER_ERROR]).await;
+        let (_success_server, success_upstream, success_calls) =
+            mock_counting_upstream(vec![StatusCode::OK]).await;
+        let (app, registry) = test_app().await;
+
+        let mut failing_account = make_account(ProviderVendor::OpenAi);
+        failing_account.api_base_override = Some(failing_upstream);
+        failing_account.api_key = Some("sk-test".to_string());
+        failing_account.priority = 0;
+        let failing_account_id = failing_account.id;
+
+        let mut success_account = make_account(ProviderVendor::OpenAi);
+        success_account.api_base_override = Some(success_upstream);
+        success_account.api_key = Some("sk-test".to_string());
+        success_account.priority = 1;
+        let success_account_id = success_account.id;
+
+        seed_route_with_accounts(&registry, "gpt-4o", vec![failing_account, success_account]).await;
+
+        let response = app
+            .oneshot(
+                Request::post("/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"call": 1})
+        );
+        assert_eq!(failing_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(success_calls.load(Ordering::SeqCst), 1);
+
+        let failing_health = registry.health().get(failing_account_id).await;
+        assert_eq!(
+            failing_health.status,
+            crate::services::health::HealthStatus::Unhealthy
+        );
+        assert!(failing_health.cooldown_until.is_some());
+        assert!(!registry.health().is_available(failing_account_id).await);
+        assert_eq!(
+            registry.health().get(success_account_id).await.status,
+            crate::services::health::HealthStatus::Healthy
+        );
+    }
+
+    #[tokio::test]
+    async fn buffered_chat_does_not_retry_non_retryable_client_error() {
+        use std::sync::atomic::Ordering;
+
+        let (_server, upstream, calls) =
+            mock_counting_upstream(vec![StatusCode::BAD_REQUEST]).await;
+        let (app, registry) = test_app().await;
+        seed_route(
+            &registry,
+            "gpt-4o",
+            ProviderVendor::OpenAi,
+            Some(upstream),
+            Some("sk-test".to_string()),
+        )
+        .await;
+
+        let response = app
+            .oneshot(
+                Request::post("/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn streaming_chat_does_not_retry_after_upstream_failure() {
+        use std::sync::atomic::Ordering;
+
+        let (_failing_server, failing_upstream, failing_calls) =
+            mock_counting_upstream(vec![StatusCode::INTERNAL_SERVER_ERROR]).await;
+        let (_success_server, success_upstream, success_calls) =
+            mock_counting_upstream(vec![StatusCode::OK]).await;
+        let (app, registry) = test_app().await;
+
+        let mut failing_account = make_account(ProviderVendor::OpenAi);
+        failing_account.api_base_override = Some(failing_upstream);
+        failing_account.api_key = Some("sk-test".to_string());
+        failing_account.priority = 0;
+
+        let mut success_account = make_account(ProviderVendor::OpenAi);
+        success_account.api_base_override = Some(success_upstream);
+        success_account.api_key = Some("sk-test".to_string());
+        success_account.priority = 1;
+
+        seed_route_with_accounts(&registry, "gpt-4o", vec![failing_account, success_account]).await;
+
+        let response = app
+            .oneshot(
+                Request::post("/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "model":"gpt-4o",
+                            "stream": true,
+                            "messages":[{"role":"user","content":"Hello"}]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(failing_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(success_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn chat_completion_invalid_json_records_invalid_request_usage() {
+        let (app, registry) = test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::post("/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from("not-json-secret"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let summary = wait_for_usage_requests(&registry, 1).await;
+        assert_eq!(summary.totals.requests, 1);
+        assert_eq!(summary.by_outcome[0].key, "invalid_request");
+        assert_eq!(summary.by_model[0].key, "unrouted");
     }
 
     #[tokio::test]
