@@ -18,8 +18,8 @@ OpenAI-shaped transport types, routing via `RoutingEngine`, upstream proxy behav
 header construction, and health feedback after upstream calls.
 
 The admin portion covers CRUD management for accounts, pools, pool membership, routes, health,
-settings, and the placeholder usage endpoint, including redacted response views and coexistence
-with the dashboard routes.
+settings, and `GET /api/usage` real persisted usage accounting per R25, including redacted response
+views and coexistence with the dashboard routes.
 
 ---
 
@@ -1134,34 +1134,50 @@ current settings service.
 
 ---
 
-### R25: Usage Placeholder Endpoint
+### R25: Usage Accounting Endpoint
 
 The system MUST expose `GET /api/usage`.
 
-Because no real usage or cost-accounting backend exists in M1, this endpoint MUST return a stable
-placeholder response using `UsageStatusView` with `available: false`.
+The endpoint MUST return real, persisted gateway request accounting derived from redacted usage
+ledger events. The endpoint MUST NOT invent fake usage totals, provider billing details, quota
+consumption, token estimates, or analytics summaries that are not backed by persisted events.
 
-The endpoint MUST NOT invent fake usage totals, provider billing details, quota consumption, token
-accounting, or analytics summaries.
+Each `/v1/chat/completions` request attempt MUST record one usage event with safe metadata:
+timestamp, request id when available, logical model, normalized vendor label, account id when routed,
+normalized account label, stream flag, outcome, status code, latency, and provider-reported token
+usage only when safely present in the upstream response.
 
-This audit slice MUST preserve that placeholder behavior unchanged unless a separate change adds a
-real usage ledger and corresponding specification updates.
+The usage ledger MUST NOT persist prompts, messages, raw request bodies, raw response bodies,
+authorization headers, API keys, provider secrets, or provider error payloads.
 
-#### Scenario: usage placeholder response
+Streaming requests MUST be counted as requests and outcomes, but token fields MUST remain unknown
+unless a future provider-specific implementation safely extracts explicit usage data.
 
-- GIVEN the M1 runtime with no backing usage subsystem
+#### Scenario: usage summary response
+
+- GIVEN gateway usage events exist in the persisted usage ledger
 - WHEN a client requests `GET /api/usage`
 - THEN the response status MUST be `200 OK`
-- AND the response body MUST equal the documented placeholder contract
-- AND `available` MUST be `false`
+- AND `available` MUST be `true`
+- AND the response MUST include `window`, `totals`, `by_model`, `by_vendor`, and `by_outcome`
+- AND totals MUST be derived from persisted usage events
 
-#### Scenario: usage endpoint remains placeholder after audit slice
+#### Scenario: usage accounting redacts sensitive payloads
 
-- GIVEN persisted admin audit events exist in the system
-- WHEN a client requests `GET /api/usage`
-- THEN the response MUST still equal the documented placeholder contract
-- AND `available` MUST be `false`
-- AND the response MUST NOT claim real usage analytics or accounting
+- GIVEN a gateway request includes prompt content, authorization credentials, or provider secrets
+- WHEN the request is recorded as a usage event
+- THEN the event MUST NOT persist prompt content, raw request bodies, raw response bodies,
+  authorization headers, API keys, provider secrets, or provider error payloads
+- AND summary responses MUST expose only aggregate metadata and token/cost fields backed by stored
+  safe values
+
+#### Scenario: unrouted requests are counted honestly
+
+- GIVEN a `/v1/chat/completions` request cannot be routed to a provider account
+- WHEN Rook returns the route rejection response
+- THEN one usage event MUST be persisted with outcome `route_rejected`
+- AND vendor/account/model labels that cannot be safely resolved MUST use the canonical `unrouted`
+  label
 
 ---
 
@@ -3034,19 +3050,43 @@ Rules:
 
 ---
 
-### UsageStatusView (placeholder)
+### UsageSummaryView
 
 ```json
 {
-  "available": false,
-  "reason": "usage accounting is not implemented in M1"
+  "available": true,
+  "window": {
+    "period": "day",
+    "since": "2026-05-03T00:00:00Z",
+    "until": "2026-05-03T12:34:56Z"
+  },
+  "totals": {
+    "requests": 12,
+    "successful_requests": 10,
+    "failed_requests": 2,
+    "streaming_requests": 4,
+    "prompt_tokens": 1000,
+    "completion_tokens": 500,
+    "total_tokens": 1500,
+    "known_token_requests": 8,
+    "estimated_cost_usd": null
+  },
+  "by_model": [],
+  "by_vendor": [],
+  "by_outcome": []
 }
 ```
 
 Rules:
 
-- `available` MUST be `false` in M1
-- `reason` MUST be a human-readable explanation that usage accounting does not yet exist
+- `available` MUST be `true` when the usage ledger is available.
+- `window.period` MUST be `hour`, `day`, or `month`.
+- Token totals MUST include only provider-reported token usage persisted in usage events.
+- `estimated_cost_usd` MUST be `null` unless a future cost implementation persists real cost data.
+- Group arrays MUST contain bounded aggregate rows with a `key` and the same aggregate fields as
+  `totals`.
+- The response MUST NOT include raw request payloads, raw response payloads, credentials, or provider
+  secrets.
 
 ---
 

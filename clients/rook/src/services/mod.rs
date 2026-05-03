@@ -10,3 +10,4 @@ pub mod idempotency;
 pub mod pool;
 pub mod route;
 pub mod settings;
+pub mod usage;

@@ -4,22 +4,25 @@ use crate::admin::{
         CreateAccountRequest, CreatePoolRequest, CreateRouteRequest, HealthAccountView,
         HealthSummaryView, ListAuditEventsQuery, PoolView, RouteView, SettingsView,
         UpdateAccountRequest, UpdatePoolRequest, UpdateRouteRequest, UpdateSettingsRequest,
-        UsageStatusView,
+        UsageAggregateView, UsageGroupView, UsageSummaryPeriod, UsageSummaryView,
+        UsageSummaryWindowView,
     },
     AdminState,
 };
 use crate::db::audit::{AdminAuditListQuery, StoredAdminAuditEvent};
+use crate::db::usage::{UsageAggregate, UsageGroupAggregate, UsageSummaryQuery};
 use crate::domain::{ProviderAccount, ProviderPool, RookError};
 use crate::health::{HealthResponse, ReadinessResponse};
 use crate::registry::RookRegistry;
 use crate::services::{
     account::AccountService as _, audit::AuditService as _, health::HealthService as _,
     pool::PoolService as _, route::RouteService as _, settings::SettingsService as _,
+    usage::UsageService as _,
 };
 use axum::{
     extract::Json as ExtractJson,
     extract::{
-        rejection::{JsonRejection, PathRejection},
+        rejection::{JsonRejection, PathRejection, QueryRejection},
         Path, Query, State,
     },
     http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
@@ -34,6 +37,14 @@ use uuid::Uuid;
 type AdminJson<T> = Result<Json<T>, (StatusCode, Json<AdminErrorResponse>)>;
 type AdminCreated<T> = Result<(StatusCode, Json<T>), (StatusCode, Json<AdminErrorResponse>)>;
 type AdminEmpty = Result<StatusCode, (StatusCode, Json<AdminErrorResponse>)>;
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GetUsageQuery {
+    #[serde(default)]
+    pub period: UsageSummaryPeriod,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
 
 fn bad_request(message: impl Into<String>) -> (StatusCode, Json<AdminErrorResponse>) {
     (
@@ -238,8 +249,75 @@ pub async fn handle_ready_health(
     (status, Json(readiness))
 }
 
-pub async fn handle_get_usage() -> Json<UsageStatusView> {
-    Json(UsageStatusView::placeholder())
+pub async fn handle_get_usage(
+    State(state): State<AdminState>,
+    query: Result<Query<GetUsageQuery>, QueryRejection>,
+) -> Result<Json<UsageSummaryView>, (StatusCode, Json<AdminErrorResponse>)> {
+    let Query(query) = query.map_err(|rejection| {
+        error!(error = %rejection, "admin usage query extraction failed");
+        bad_request("invalid usage query parameters")
+    })?;
+    let now = Utc::now();
+    let since = usage_window_start(query.period.clone(), now);
+    let limit = query.limit.unwrap_or(10).clamp(1, 100);
+    let summary = state
+        .registry
+        .usage()
+        .summary(UsageSummaryQuery {
+            since,
+            until: now,
+            limit,
+        })
+        .await
+        .map_err(classify_rook_error)?;
+
+    Ok(Json(UsageSummaryView {
+        available: true,
+        window: UsageSummaryWindowView {
+            period: query.period,
+            since,
+            until: now,
+        },
+        totals: aggregate_view(summary.totals),
+        by_model: group_views(summary.by_model),
+        by_vendor: group_views(summary.by_vendor),
+        by_outcome: group_views(summary.by_outcome),
+    }))
+}
+
+fn usage_window_start(
+    period: UsageSummaryPeriod,
+    now: chrono::DateTime<Utc>,
+) -> chrono::DateTime<Utc> {
+    match period {
+        UsageSummaryPeriod::Hour => now - chrono::Duration::hours(1),
+        UsageSummaryPeriod::Day => now - chrono::Duration::days(1),
+        UsageSummaryPeriod::Month => now - chrono::Duration::days(30),
+    }
+}
+
+fn aggregate_view(aggregate: UsageAggregate) -> UsageAggregateView {
+    UsageAggregateView {
+        requests: aggregate.requests,
+        successful_requests: aggregate.successful_requests,
+        failed_requests: aggregate.failed_requests,
+        streaming_requests: aggregate.streaming_requests,
+        prompt_tokens: aggregate.prompt_tokens,
+        completion_tokens: aggregate.completion_tokens,
+        total_tokens: aggregate.total_tokens,
+        known_token_requests: aggregate.known_token_requests,
+        estimated_cost_usd: aggregate.estimated_cost_usd,
+    }
+}
+
+fn group_views(groups: Vec<UsageGroupAggregate>) -> Vec<UsageGroupView> {
+    groups
+        .into_iter()
+        .map(|group| UsageGroupView {
+            key: group.key,
+            aggregate: aggregate_view(group.aggregate),
+        })
+        .collect()
 }
 
 pub async fn handle_get_metrics(State(state): State<AdminState>) -> Response {

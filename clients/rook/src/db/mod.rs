@@ -12,6 +12,7 @@ pub mod idempotency;
 pub mod pool;
 pub mod route;
 pub mod settings;
+pub mod usage;
 
 use crate::domain::RookError;
 use chrono::Utc;
@@ -49,6 +50,11 @@ const MIGRATION_SQL_0005: &str = include_str!(concat!(
 const MIGRATION_SQL_0006: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/0006_health_persistence.sql"
+));
+
+const MIGRATION_SQL_0007: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/0007_usage_events.sql"
 ));
 
 /// A handle to the Rook SQLite database.
@@ -261,6 +267,21 @@ impl SqliteDb {
 
         if row_0006.is_none() {
             apply_migration(pool, version_0006, MIGRATION_SQL_0006).await?;
+        }
+
+        // ── Migration 0007: gateway usage events ──────────────────────────────
+        let version_0007 = "0007_usage_events";
+        let row_0007: Option<(String,)> =
+            sqlx::query_as("SELECT version FROM schema_migrations WHERE version = ?")
+                .bind(version_0007)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| {
+                    RookError::Registry(format!("failed to check migration 0007 status: {e}"))
+                })?;
+
+        if row_0007.is_none() {
+            apply_migration(pool, version_0007, MIGRATION_SQL_0007).await?;
         }
 
         Ok(())
@@ -542,6 +563,50 @@ mod tests {
         assert_eq!(
             row.map(|(version,)| version),
             Some("0006_health_persistence".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn open_in_memory_applies_usage_events_migration() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+
+        let columns = sqlx::query("PRAGMA table_info(usage_events)")
+            .fetch_all(db.pool())
+            .await
+            .unwrap();
+
+        let has_total_tokens = columns.iter().any(|row| {
+            row.try_get::<String, _>("name")
+                .map(|name| name == "total_tokens")
+                .unwrap_or(false)
+        });
+        let has_cost_usd = columns.iter().any(|row| {
+            row.try_get::<String, _>("name")
+                .map(|name| name == "cost_usd")
+                .unwrap_or(false)
+        });
+
+        assert!(has_total_tokens, "usage_events should include total_tokens");
+        assert!(
+            has_cost_usd,
+            "usage_events should include cost_usd extension field"
+        );
+    }
+
+    #[tokio::test]
+    async fn open_in_memory_records_usage_events_migration_version() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT version FROM schema_migrations WHERE version = ?")
+                .bind("0007_usage_events")
+                .fetch_optional(db.pool())
+                .await
+                .unwrap();
+
+        assert_eq!(
+            row.map(|(version,)| version),
+            Some("0007_usage_events".to_string())
         );
     }
 }
