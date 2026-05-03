@@ -608,6 +608,12 @@ impl TelegramChannel {
         }
 
         let raw_path = Path::new(target);
+
+        // Reject absolute paths - all paths must be relative to attachment root
+        if raw_path.is_absolute() {
+            anyhow::bail!("Telegram attachment path must be relative: {target}");
+        }
+
         if raw_path
             .components()
             .any(|component| matches!(component, Component::ParentDir))
@@ -626,11 +632,7 @@ impl TelegramChannel {
             )
         })?;
 
-        let candidate = if raw_path.is_absolute() {
-            raw_path.to_path_buf()
-        } else {
-            canonical_root.join(raw_path)
-        };
+        let candidate = canonical_root.join(raw_path);
 
         let resolved = candidate.canonicalize().with_context(|| {
             format!(
