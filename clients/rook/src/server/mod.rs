@@ -927,6 +927,31 @@ mod tests {
         assert_eq!(ready_json["checks"]["config"]["ready"], json!(true));
         assert_eq!(ready_json["checks"]["database"]["ready"], json!(true));
         assert_eq!(ready_json["checks"]["router"]["ready"], json!(true));
+        assert_eq!(ready_json["checks"]["assets"]["ready"], json!(true));
+    }
+
+    #[tokio::test]
+    async fn live_route_stays_ok_when_startup_dependencies_are_not_ready() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
+        let app = build_app_with_registry_and_startup_state(
+            ServerConfig::default(),
+            registry,
+            idempotency_service,
+            Arc::new(StartupDependencyState {
+                config_ready: false,
+                database_ready: false,
+                router_ready: false,
+                assets_ready: false,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let (live_status, live_json) = request_json(app, "/api/health/live").await;
+
+        assert_eq!(live_status, StatusCode::OK);
+        assert_eq!(live_json, json!({ "status": "ok" }));
     }
 
     #[tokio::test]
@@ -951,6 +976,68 @@ mod tests {
         assert_eq!(ready_status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(ready_json["status"], json!("fail"));
         assert_eq!(ready_json["checks"]["database"]["ready"], json!(false));
+        assert_eq!(
+            ready_json["checks"]["database"]["reason"],
+            json!("database connectivity unavailable")
+        );
+    }
+
+    #[tokio::test]
+    async fn ready_route_returns_service_unavailable_for_config_failure() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
+        let app = build_app_with_registry_and_startup_state(
+            ServerConfig::default(),
+            registry,
+            idempotency_service,
+            Arc::new(StartupDependencyState {
+                config_ready: false,
+                database_ready: true,
+                router_ready: true,
+                assets_ready: true,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let (ready_status, ready_json) = request_json(app, "/api/health/ready").await;
+
+        assert_eq!(ready_status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(ready_json["status"], json!("fail"));
+        assert_eq!(ready_json["checks"]["config"]["ready"], json!(false));
+        assert_eq!(
+            ready_json["checks"]["config"]["reason"],
+            json!("configuration validation failed")
+        );
+    }
+
+    #[tokio::test]
+    async fn ready_route_returns_service_unavailable_for_router_failure() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
+        let app = build_app_with_registry_and_startup_state(
+            ServerConfig::default(),
+            registry,
+            idempotency_service,
+            Arc::new(StartupDependencyState {
+                config_ready: true,
+                database_ready: true,
+                router_ready: false,
+                assets_ready: true,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let (ready_status, ready_json) = request_json(app, "/api/health/ready").await;
+
+        assert_eq!(ready_status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(ready_json["status"], json!("fail"));
+        assert_eq!(ready_json["checks"]["router"]["ready"], json!(false));
+        assert_eq!(
+            ready_json["checks"]["router"]["reason"],
+            json!("routing engine unavailable")
+        );
     }
 
     #[tokio::test]
@@ -975,6 +1062,10 @@ mod tests {
         assert_eq!(ready_status, StatusCode::OK);
         assert_eq!(ready_json["status"], json!("degraded"));
         assert_eq!(ready_json["checks"]["assets"]["ready"], json!(false));
+        assert_eq!(
+            ready_json["checks"]["assets"]["reason"],
+            json!("embedded dashboard assets are missing")
+        );
     }
 
     #[tokio::test]
