@@ -221,12 +221,12 @@ async fn build_app_with_registry_and_startup_state(
         .merge(
             admin::management_router(admin_state)
                 .layer(middleware::from_fn_with_state(
-                    inbound_auth.clone(),
-                    admin_inbound_auth,
-                ))
-                .layer(middleware::from_fn_with_state(
                     admin_rate_limit,
                     apply_rate_limit,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inbound_auth.clone(),
+                    admin_inbound_auth,
                 )),
         )
         .layer(middleware::from_fn_with_state(
@@ -237,12 +237,12 @@ async fn build_app_with_registry_and_startup_state(
         .merge(
             gateway::build_models_router(gateway_state.clone())
                 .layer(middleware::from_fn_with_state(
-                    inbound_auth.clone(),
-                    gateway_inbound_auth,
-                ))
-                .layer(middleware::from_fn_with_state(
                     models_rate_limit,
                     apply_rate_limit,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inbound_auth.clone(),
+                    gateway_inbound_auth,
                 ))
                 .layer(middleware::from_fn_with_state(
                     gateway_transport.clone(),
@@ -256,12 +256,12 @@ async fn build_app_with_registry_and_startup_state(
                     apply_chat_idempotency,
                 ))
                 .layer(middleware::from_fn_with_state(
-                    inbound_auth,
-                    gateway_inbound_auth,
-                ))
-                .layer(middleware::from_fn_with_state(
                     chat_rate_limit,
                     apply_rate_limit,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inbound_auth,
+                    gateway_inbound_auth,
                 ))
                 .layer(middleware::from_fn_with_state(
                     gateway_transport,
@@ -1288,7 +1288,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rate_limit_rejections_happen_before_auth_and_dashboard_routes_stay_out_of_scope() {
+    async fn rate_limit_rejections_happen_after_auth_and_dashboard_routes_stay_out_of_scope() {
         let app = build_app_with_registry(
             ServerConfig {
                 inbound_auth: InboundAuthConfig {
@@ -1316,13 +1316,26 @@ mod tests {
             app.clone(),
             axum::http::Method::GET,
             "/v1/models",
-            None,
+            Some("rook-inbound-secret"),
             None,
         )
         .await;
         assert_eq!(limited_models, StatusCode::TOO_MANY_REQUESTS);
         let limited_json: serde_json::Value = serde_json::from_slice(&limited_body).unwrap();
         assert_eq!(limited_json["error"]["code"], json!("rate_limited"));
+
+        let (unauthorized_models, _, unauthorized_body) = request_with_bearer(
+            app.clone(),
+            axum::http::Method::GET,
+            "/v1/models",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(unauthorized_models, StatusCode::UNAUTHORIZED);
+        let unauthorized_json: serde_json::Value =
+            serde_json::from_slice(&unauthorized_body).unwrap();
+        assert_eq!(unauthorized_json["error"]["code"], json!("unauthorized"));
 
         let (dashboard_first, dashboard_body_first) = request_text(app.clone(), "/").await;
         let (dashboard_second, dashboard_body_second) = request_text(app, "/").await;
