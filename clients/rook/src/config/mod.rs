@@ -1421,13 +1421,31 @@ mod tests {
     }
 
     #[test]
+    fn from_toml_loads_upstream_resilience_config() {
+        let config = super::RookConfig::from_toml_str(
+            r#"
+            [upstream_resilience]
+            max_buffered_attempts = 5
+            failure_cooldown_seconds = 120
+            retry_backoff_milliseconds = 75
+            max_concurrent_upstream_requests = 12
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.upstream_resilience.max_buffered_attempts, 5);
+        assert_eq!(config.upstream_resilience.failure_cooldown_seconds, 120);
+        assert_eq!(config.upstream_resilience.retry_backoff_milliseconds, 75);
+        assert_eq!(config.upstream_resilience.max_concurrent_upstream_requests, 12);
+    }
+
+    #[test]
     fn rook_config_from_toml_overrides_default_values() {
         let config = super::RookConfig::from_toml_str(
             r#"
             host = "0.0.0.0"
             port = 5151
             enable_tui = true
-            db_path = "/tmp/rook-test.db"
             "#,
         )
         .expect("toml config should parse");

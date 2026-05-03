@@ -107,9 +107,7 @@ fun ResolutionStrategy.enforceSafeCommonsCompressVersion() {
         requested.version != safeCommonsCompressVersion
     ) {
       useVersion(safeCommonsCompressVersion)
-      because(
-        "Commons Compress $safeCommonsCompressVersion addresses the archive parsing vulnerabilities reported by Dependabot"
-      )
+      because("Commons Compress $safeCommonsCompressVersion addresses Dependabot vulnerabilities")
     }
   }
 }
