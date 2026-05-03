@@ -365,7 +365,8 @@ The gateway MUST expose a `POST /v1/chat/completions` endpoint that:
 7. Sets `Content-Type: application/json` on the upstream request.
 8. Forwards the **original raw JSON request body** to the upstream provider.
 9. Returns the upstream response body and status to the client.
-10. After the upstream call, reports health feedback (R10).
+10. Applies policy-driven upstream resilience controls (R10A) before surfacing terminal failures.
+11. After each upstream attempt, reports health feedback (R10).
 
 **Response mapping**:
 
@@ -475,6 +476,55 @@ upstream status code.
 - GIVEN a valid request with extra vendor-specific fields (e.g., `"logprobs": true`)
 - WHEN the gateway forwards to the upstream
 - THEN the upstream request body MUST contain all original fields, including unknown ones
+
+---
+
+### R8A: Upstream Resilience Policy
+
+The gateway MUST apply explicit resilience policy for upstream attempts instead of ad hoc failure handling.
+
+Buffered, non-streaming chat completion requests MUST retry only failure classes that are safe to replay:
+
+- Retryable: upstream HTTP 5xx, HTTP 429, connection/transport errors, response body read errors, and request timeouts.
+- Non-retryable: upstream HTTP 4xx other than 429, missing base URL, and auth-header construction failures.
+
+For buffered requests, the default policy MUST allow at most 3 upstream attempts total. After each failed
+retryable attempt, the gateway MUST mark the attempted account unhealthy with the configured cooldown,
+wait for the configured backoff, resolve routing again, and avoid immediately thrashing the same unhealthy
+account when another healthy account is available. If no account remains after a retryable failure, the
+gateway MUST return the terminal upstream error mapping rather than replacing it with a routing error.
+
+Streaming requests MUST NOT retry after an upstream attempt has been made, because replaying a stream can
+violate client-visible semantics. Streaming requests MAY fail before bytes are sent using the normal upstream
+error mapping and MUST still mark the attempted account unhealthy.
+
+The gateway MUST bound concurrent upstream attempts with a shared concurrency control. The default timeout
+remains the configured `reqwest::Client` timeout (30 seconds in server wiring).
+
+#### Scenario: Buffered retryable failure retries on next healthy account
+
+- GIVEN a route resolves first to account A and then to account B after health filtering
+- AND account A returns HTTP 500
+- AND account B returns HTTP 200
+- WHEN the client sends a non-streaming chat completion request
+- THEN account A MUST be marked unhealthy with cooldown
+- AND the request MUST be retried against account B
+- AND the client MUST receive account B's successful upstream response
+
+#### Scenario: Buffered non-retryable client error is not retried
+
+- GIVEN a route resolves to an account that returns HTTP 400
+- WHEN the client sends a non-streaming chat completion request
+- THEN the gateway MUST return the upstream error mapping
+- AND no second upstream attempt MUST be made for that client error
+
+#### Scenario: Streaming upstream failure is not retried
+
+- GIVEN a streaming request resolves to account A and another healthy account B exists
+- AND account A returns an upstream failure before a stream is opened
+- WHEN the client sends `stream: true`
+- THEN the gateway MUST return the upstream error mapping
+- AND account B MUST NOT be attempted for that streaming request
 
 ---
 

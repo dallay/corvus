@@ -169,11 +169,17 @@ async fn build_app_with_registry_and_startup_state(
         .map_err(|e| RookError::Gateway(format!("failed to build HTTP client: {e}")))?;
 
     let observability = Arc::new(Observability::bootstrap());
+    let resilience_policy = crate::gateway::UpstreamResiliencePolicy::default();
+    let upstream_concurrency = crate::gateway::UpstreamConcurrency::new(
+        resilience_policy.max_concurrent_upstream_requests,
+    );
     let gateway_state = GatewayState {
         registry: registry.clone(),
         engine,
         client,
         observability: observability.clone(),
+        resilience_policy,
+        upstream_concurrency,
     };
     let inbound_auth = config.inbound_auth.clone();
     let transport_config = Arc::new(config.transport.clone());
