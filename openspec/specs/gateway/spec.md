@@ -3883,60 +3883,106 @@ upstream provider probing.
 
 ### Requirement: Readiness and Liveness Health Endpoints
 
-The system MUST expose distinct liveness and readiness health semantics for the admin surface.
+The system MUST expose distinct operational liveness and readiness health semantics for the admin
+surface.
 
-The system MUST expose a liveness endpoint and a readiness endpoint under the `/api/health/*`
-namespace.
+The system MUST expose these endpoints under the admin health namespace:
 
-For Phase 1, the liveness endpoint MUST report whether the Rook process is running and capable of
-serving the event loop. Liveness MUST NOT depend on database reachability, provider reachability,
-or account-level routing state.
+- `GET /api/health/live`
+- `GET /api/health/ready`
 
-For Phase 1, the readiness endpoint MUST report whether critical local dependencies required to
+For Phase 1, `GET /api/health/live` MUST report whether the Rook process is running and capable of
+serving HTTP requests. Liveness MUST NOT depend on database reachability, provider reachability,
+embedded dashboard asset availability, or account-level routing state.
+
+The liveness response body MUST be structured JSON:
+
+```json
+{ "status": "ok" }
+```
+
+For Phase 1, `GET /api/health/ready` MUST report whether critical local dependencies required to
 serve traffic are available.
 
 Readiness MUST evaluate at minimum:
 
-- effective configuration validation success
-- database open or initialization success required for serving
-- router availability
-- embedded assets or other local runtime resources required by the process
+- `config`: effective configuration validation success
+- `database`: database open or initialization success required for serving
+- `router`: router availability
+- `assets`: embedded dashboard asset availability
 
-Readiness MUST NOT require all upstream AI providers to be reachable in Phase 1.
+`config`, `database`, and `router` MUST be treated as critical readiness dependencies. If any of
+these dependencies is unavailable, readiness MUST return `503 Service Unavailable` and aggregate
+status `"fail"`.
 
-Both health endpoints MUST return structured JSON responses with stable semantics suitable for
-orchestration.
+`assets` MUST be treated as non-critical for Phase 1. If assets are unavailable while all critical
+dependencies are available, readiness MUST return `200 OK` and aggregate status `"degraded"`.
+
+Readiness MUST NOT require all upstream AI providers to be reachable in Phase 1. Upstream/provider
+availability belongs to provider account health and routing state, not operational readiness.
+
+The readiness response body MUST be structured JSON with stable semantics suitable for orchestration:
+
+```json
+{
+  "status": "ok",
+  "checks": {
+    "config": { "ready": true },
+    "database": { "ready": true },
+    "router": { "ready": true },
+    "assets": { "ready": true }
+  }
+}
+```
+
+When a dependency is not ready, its check object MUST include `ready: false` and SHOULD include an
+operator-friendly `reason` string.
 
 #### Scenario: liveness is healthy while process is running
 
 - GIVEN the Rook process is running
-- WHEN a client requests the liveness endpoint
-- THEN the response status MUST be successful
-- AND the JSON body MUST indicate a live state
-- AND the result MUST NOT depend on database or upstream provider reachability
+- WHEN a client requests `GET /api/health/live`
+- THEN the response status MUST be `200 OK`
+- AND the JSON body MUST equal `{ "status": "ok" }`
+- AND the result MUST NOT depend on database, asset, account, or upstream provider reachability
 
 #### Scenario: readiness is healthy after valid startup
 
 - GIVEN the Rook process has completed startup with valid effective configuration
-- AND the required database and local runtime resources are available
-- WHEN a client requests the readiness endpoint
-- THEN the response status MUST be successful
-- AND the JSON body MUST indicate a ready state
+- AND the required database and router are available
+- AND embedded assets are available
+- WHEN a client requests `GET /api/health/ready`
+- THEN the response status MUST be `200 OK`
+- AND the JSON body MUST include `status: "ok"`
+- AND the JSON body MUST include `checks.config.ready: true`
+- AND the JSON body MUST include `checks.database.ready: true`
+- AND the JSON body MUST include `checks.router.ready: true`
+- AND the JSON body MUST include `checks.assets.ready: true`
 
 #### Scenario: readiness fails when a critical local dependency is unavailable
 
 - GIVEN the Rook process cannot satisfy a critical local serving dependency such as configuration
-  validation or database initialization
-- WHEN a client requests the readiness endpoint
-- THEN the response status MUST be non-success
-- AND the JSON body MUST indicate not-ready state
-- AND the response MUST identify at least one failing readiness dependency
+  validation, database initialization, or router availability
+- WHEN a client requests `GET /api/health/ready`
+- THEN the response status MUST be `503 Service Unavailable`
+- AND the JSON body MUST include `status: "fail"`
+- AND the response MUST identify at least one failing readiness dependency with `ready: false`
+
+#### Scenario: readiness is degraded when only embedded assets are unavailable
+
+- GIVEN valid effective configuration
+- AND the required database and router are available
+- AND embedded dashboard assets are unavailable
+- WHEN a client requests `GET /api/health/ready`
+- THEN the response status MUST be `200 OK`
+- AND the JSON body MUST include `status: "degraded"`
+- AND the JSON body MUST include `checks.assets.ready: false`
 
 #### Scenario: readiness does not fail solely because upstream providers are unreachable
 
 - GIVEN the Rook process has valid local startup state
 - AND one or more upstream AI providers are unreachable
-- WHEN a client requests the readiness endpoint
+- WHEN a client requests `GET /api/health/ready`
 - THEN readiness MUST continue to report ready for Phase 1
 - AND upstream provider reachability MUST NOT be required by this requirement
 
@@ -3946,16 +3992,19 @@ orchestration.
 
 The existing `GET /api/health` admin route MUST remain available for compatibility during Phase 1.
 
-If distinct readiness and liveness routes are added, `GET /api/health` MUST continue to return a
-successful lightweight health response or a documented compatibility view, and it MUST NOT be
-removed by this change.
+`GET /api/health` MUST continue to return `200 OK` with plain text body `ok` for a running process.
+It MUST NOT be redefined to aggregate dependency readiness or provider account health.
+
+Operators SHOULD use `GET /api/health/live` for liveness probes and `GET /api/health/ready` for
+readiness probes. `GET /api/health` is retained for legacy/simple smoke checks.
 
 #### Scenario: existing base health endpoint remains available after readiness/liveness are added
 
 - GIVEN Phase 1 readiness and liveness endpoints are implemented
 - WHEN a client requests `GET /api/health`
 - THEN the route MUST still exist
-- AND the response MUST remain successful for a healthy running process
+- AND the response status MUST be `200 OK`
+- AND the response body MUST equal `ok`
 
 ---
 

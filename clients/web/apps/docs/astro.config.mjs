@@ -240,6 +240,21 @@ export default defineConfig({
           ],
         },
         {
+          label: "Rook",
+          translations: {
+            es: "Rook",
+          },
+          items: [
+            {
+              label: "Operational Health",
+              slug: "rook/operational-health",
+              translations: {
+                es: "Salud operacional",
+              },
+            },
+          ],
+        },
+        {
           label: "Cerebro",
           translations: {
             es: "Cerebro",
