@@ -22,7 +22,7 @@ use crate::services::{
 use axum::{
     extract::Json as ExtractJson,
     extract::{
-        rejection::{JsonRejection, PathRejection},
+        rejection::{JsonRejection, PathRejection, QueryRejection},
         Path, Query, State,
     },
     http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
@@ -251,8 +251,12 @@ pub async fn handle_ready_health(
 
 pub async fn handle_get_usage(
     State(state): State<AdminState>,
-    Query(query): Query<GetUsageQuery>,
+    query: Result<Query<GetUsageQuery>, QueryRejection>,
 ) -> Result<Json<UsageSummaryView>, (StatusCode, Json<AdminErrorResponse>)> {
+    let Query(query) = query.map_err(|rejection| {
+        error!(error = %rejection, "admin usage query extraction failed");
+        bad_request("invalid usage query parameters")
+    })?;
     let now = Utc::now();
     let since = usage_window_start(query.period.clone(), now);
     let limit = query.limit.unwrap_or(10).clamp(1, 100);
@@ -271,8 +275,8 @@ pub async fn handle_get_usage(
         available: true,
         window: UsageSummaryWindowView {
             period: query.period,
-            since: since.to_rfc3339(),
-            until: now.to_rfc3339(),
+            since,
+            until: now,
         },
         totals: aggregate_view(summary.totals),
         by_model: group_views(summary.by_model),

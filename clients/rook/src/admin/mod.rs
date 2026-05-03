@@ -250,6 +250,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn admin_router_usage_query_errors_use_admin_error_shape() {
+        let registry = test_api_app().await;
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
+
+        let (status, json) = request_json(app, "/api/usage?period=century").await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json["error"]["code"], "bad_request");
+        assert_eq!(json["error"]["message"], "invalid usage query parameters");
+    }
+
+    #[tokio::test]
     async fn admin_router_live_health_reports_ok_json() {
         let registry = test_api_app().await;
         let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));

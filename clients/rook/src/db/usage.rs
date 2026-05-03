@@ -51,6 +51,23 @@ pub struct UsageGroupAggregate {
 
 type UsageGroupRow = (String, i64, i64, i64, i64, i64, i64, i64, i64, Option<f64>);
 
+#[derive(Debug, Clone, Copy)]
+enum UsageGroupColumn {
+    LogicalModel,
+    Vendor,
+    Outcome,
+}
+
+impl UsageGroupColumn {
+    fn sql_identifier(self) -> &'static str {
+        match self {
+            Self::LogicalModel => "logical_model",
+            Self::Vendor => "vendor",
+            Self::Outcome => "outcome",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsageSummary {
     pub totals: UsageAggregate,
@@ -60,6 +77,10 @@ pub struct UsageSummary {
 }
 
 pub async fn insert_usage_event(db: &SqliteDb, event: StoredUsageEvent) -> Result<(), RookError> {
+    let prompt_tokens = optional_u64_to_i64(event.prompt_tokens, "prompt_tokens")?;
+    let completion_tokens = optional_u64_to_i64(event.completion_tokens, "completion_tokens")?;
+    let total_tokens = optional_u64_to_i64(event.total_tokens, "total_tokens")?;
+
     sqlx::query(
         "INSERT INTO usage_events (
             id, occurred_at, request_id, logical_model, vendor, account_id, account_label,
@@ -78,21 +99,9 @@ pub async fn insert_usage_event(db: &SqliteDb, event: StoredUsageEvent) -> Resul
     .bind(event.outcome)
     .bind(i64::from(event.status_code))
     .bind(i64::try_from(event.latency_ms).unwrap_or(i64::MAX))
-    .bind(
-        event
-            .prompt_tokens
-            .and_then(|value| i64::try_from(value).ok()),
-    )
-    .bind(
-        event
-            .completion_tokens
-            .and_then(|value| i64::try_from(value).ok()),
-    )
-    .bind(
-        event
-            .total_tokens
-            .and_then(|value| i64::try_from(value).ok()),
-    )
+    .bind(prompt_tokens)
+    .bind(completion_tokens)
+    .bind(total_tokens)
     .bind(event.cost_usd)
     .bind(event.currency)
     .bind(event.provider_request_id)
@@ -101,6 +110,18 @@ pub async fn insert_usage_event(db: &SqliteDb, event: StoredUsageEvent) -> Resul
     .map_err(|e| RookError::Registry(format!("failed to insert usage event: {e}")))?;
 
     Ok(())
+}
+
+fn optional_u64_to_i64(value: Option<u64>, field: &str) -> Result<Option<i64>, RookError> {
+    value
+        .map(|tokens| {
+            i64::try_from(tokens).map_err(|error| {
+                RookError::Registry(format!(
+                    "usage event {field} exceeds SQLite integer range: {error}"
+                ))
+            })
+        })
+        .transpose()
 }
 
 pub async fn summarize_usage(
@@ -113,9 +134,10 @@ pub async fn summarize_usage(
 
     Ok(UsageSummary {
         totals: aggregate_totals(db, &since, &until).await?,
-        by_model: aggregate_group(db, "logical_model", &since, &until, limit).await?,
-        by_vendor: aggregate_group(db, "vendor", &since, &until, limit).await?,
-        by_outcome: aggregate_group(db, "outcome", &since, &until, limit).await?,
+        by_model: aggregate_group(db, UsageGroupColumn::LogicalModel, &since, &until, limit)
+            .await?,
+        by_vendor: aggregate_group(db, UsageGroupColumn::Vendor, &since, &until, limit).await?,
+        by_outcome: aggregate_group(db, UsageGroupColumn::Outcome, &since, &until, limit).await?,
     })
 }
 
@@ -149,11 +171,12 @@ async fn aggregate_totals(
 
 async fn aggregate_group(
     db: &SqliteDb,
-    column: &str,
+    column: UsageGroupColumn,
     since: &str,
     until: &str,
     limit: usize,
 ) -> Result<Vec<UsageGroupAggregate>, RookError> {
+    let column = column.sql_identifier();
     let sql = format!(
         "SELECT
             {column} AS key,
@@ -290,6 +313,23 @@ mod tests {
         assert_eq!(summary.by_model[0].aggregate.requests, 2);
         assert_eq!(summary.by_vendor[0].key, "openai");
         assert_eq!(summary.by_outcome.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn insert_usage_event_rejects_token_values_outside_sqlite_integer_range() {
+        let db = SqliteDb::open_in_memory().await.unwrap();
+        let mut usage = event(
+            "overflow",
+            "gpt-4o",
+            "openai",
+            "success",
+            Some(i64::MAX as u64 + 1),
+        );
+        usage.prompt_tokens = Some(i64::MAX as u64 + 1);
+
+        let error = insert_usage_event(&db, usage).await.unwrap_err();
+
+        assert!(error.to_string().contains("exceeds SQLite integer range"));
     }
 
     #[tokio::test]

@@ -120,7 +120,7 @@ fn should_prune() -> bool {
 /// Uses `ttl = max_window_seconds * 2` as a safe upper bound.
 fn pruning(windows: &mut HashMap<RateLimitBucketKey, SurfaceWindowState>, now: Instant) {
     let ttl = Duration::from_secs(MAX_TTL_SECONDS);
-    windows.retain(|_, state| now.duration_since(state.window_started_at) < ttl);
+    windows.retain(|_, state| now.saturating_duration_since(state.window_started_at) < ttl);
 }
 
 pub fn resolve_rate_limit_principal(request: &Request<Body>) -> RateLimitPrincipalKey {
@@ -166,7 +166,7 @@ pub fn evaluate_surface_limit(
 ) -> RateLimitDecision {
     let window_duration = Duration::from_secs(policy.window_seconds);
 
-    if now.duration_since(window.window_started_at) >= window_duration {
+    if now.saturating_duration_since(window.window_started_at) >= window_duration {
         window.window_started_at = now;
         window.request_count = 0;
     }
@@ -226,14 +226,15 @@ pub async fn apply_rate_limit(
 #[cfg(test)]
 mod tests {
     use super::{
-        evaluate_surface_limit, resolve_rate_limit_principal, RateLimitDecision,
-        RateLimitPrincipalKey, RateLimitState, SurfaceWindowState,
+        evaluate_surface_limit, pruning, resolve_rate_limit_principal, RateLimitBucketKey,
+        RateLimitDecision, RateLimitPrincipalKey, RateLimitState, SurfaceWindowState,
     };
     use crate::config::{RateLimitConfig, SurfaceRateLimitPolicy};
     use crate::transport::context::{
         ForwardedTrust, RateLimitedSurface, RouteSurface, SanitizedForwardedContext,
         SanitizedTransportContext,
     };
+    use std::collections::HashMap;
     use std::time::{Duration, Instant};
 
     fn policy(max_requests: u32, window_seconds: u64) -> SurfaceRateLimitPolicy {
@@ -308,6 +309,41 @@ mod tests {
             window.window_started_at,
             started_at + Duration::from_secs(60)
         );
+    }
+
+    #[test]
+    fn pruning_keeps_future_windows_without_panicking() {
+        let now = Instant::now();
+        let mut windows = HashMap::from([(
+            RateLimitBucketKey {
+                surface: RateLimitedSurface::AdminApi,
+                principal: RateLimitPrincipalKey::Unknown,
+            },
+            SurfaceWindowState {
+                window_started_at: now + Duration::from_secs(1),
+                request_count: 1,
+            },
+        )]);
+
+        pruning(&mut windows, now);
+
+        assert_eq!(windows.len(), 1);
+    }
+
+    #[test]
+    fn evaluate_surface_limit_handles_future_window_without_panicking() {
+        let now = Instant::now();
+        let policy = policy(2, 60);
+        let mut window = SurfaceWindowState {
+            window_started_at: now + Duration::from_secs(1),
+            request_count: 0,
+        };
+
+        assert_eq!(
+            evaluate_surface_limit(now, &policy, &mut window),
+            RateLimitDecision::Allow
+        );
+        assert_eq!(window.request_count, 1);
     }
 
     #[test]

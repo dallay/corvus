@@ -261,8 +261,8 @@ pub enum UsageSummaryPeriod {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct UsageSummaryWindowView {
     pub period: UsageSummaryPeriod,
-    pub since: String,
-    pub until: String,
+    pub since: DateTime<Utc>,
+    pub until: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -434,7 +434,7 @@ mod tests {
     use axum::body::to_bytes;
     use axum::http::{header::WWW_AUTHENTICATE, StatusCode};
     use axum::response::IntoResponse;
-    use chrono::Utc;
+    use chrono::{TimeZone, Utc};
     use serde_json::json;
 
     fn sample_account() -> ProviderAccount {
@@ -584,8 +584,8 @@ mod tests {
             available: true,
             window: UsageSummaryWindowView {
                 period: UsageSummaryPeriod::Day,
-                since: "2026-05-03T00:00:00Z".to_string(),
-                until: "2026-05-04T00:00:00Z".to_string(),
+                since: Utc.with_ymd_and_hms(2026, 5, 3, 0, 0, 0).unwrap(),
+                until: Utc.with_ymd_and_hms(2026, 5, 4, 0, 0, 0).unwrap(),
             },
             totals: UsageAggregateView {
                 requests: 1,
@@ -598,7 +598,20 @@ mod tests {
                 known_token_requests: 1,
                 estimated_cost_usd: None,
             },
-            by_model: vec![],
+            by_model: vec![UsageGroupView {
+                key: "gpt-4o".to_string(),
+                aggregate: UsageAggregateView {
+                    requests: 1,
+                    successful_requests: 1,
+                    failed_requests: 0,
+                    streaming_requests: 0,
+                    prompt_tokens: 10,
+                    completion_tokens: 20,
+                    total_tokens: 30,
+                    known_token_requests: 1,
+                    estimated_cost_usd: None,
+                },
+            }],
             by_vendor: vec![],
             by_outcome: vec![],
         })
@@ -606,7 +619,10 @@ mod tests {
 
         assert_eq!(json["available"], true);
         assert_eq!(json["window"]["period"], "day");
+        assert_eq!(json["window"]["since"], "2026-05-03T00:00:00Z");
         assert_eq!(json["totals"]["total_tokens"], 30);
+        assert_eq!(json["by_model"][0]["key"], "gpt-4o");
+        assert_eq!(json["by_model"][0]["requests"], 1);
     }
 
     #[test]

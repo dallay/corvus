@@ -18,8 +18,8 @@ OpenAI-shaped transport types, routing via `RoutingEngine`, upstream proxy behav
 header construction, and health feedback after upstream calls.
 
 The admin portion covers CRUD management for accounts, pools, pool membership, routes, health,
-settings, and the placeholder usage endpoint, including redacted response views and coexistence
-with the dashboard routes.
+settings, and `GET /api/usage` real persisted usage accounting per R25, including redacted response
+views and coexistence with the dashboard routes.
 
 ---
 

@@ -10,7 +10,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::db::usage::StoredUsageEvent;
-use crate::gateway::streaming::upstream_event_stream;
+use crate::gateway::streaming::upstream_event_stream_with_completion;
 use crate::gateway::types::{
     ChatCompletionRequest, GatewayErrorBody, GatewayErrorResponse, ModelListResponse, ModelObject,
     STREAM_CONTENT_TYPE,
@@ -132,8 +132,7 @@ struct UsageRecordInput {
     tokens: TokenUsageParts,
 }
 
-fn spawn_usage_record(state: &GatewayState, input: UsageRecordInput) {
-    let usage = state.registry.usage().clone();
+async fn record_usage(state: &GatewayState, input: UsageRecordInput) {
     let event = StoredUsageEvent {
         id: Uuid::new_v4().to_string(),
         occurred_at: Utc::now(),
@@ -154,11 +153,9 @@ fn spawn_usage_record(state: &GatewayState, input: UsageRecordInput) {
         provider_request_id: None,
     };
 
-    tokio::spawn(async move {
-        if let Err(error) = usage.record(event).await {
-            tracing::error!(error = %error, "failed to record gateway usage event");
-        }
-    });
+    if let Err(error) = state.registry.usage().record(event).await {
+        tracing::error!(error = %error, "failed to record gateway usage event");
+    }
 }
 
 pub async fn handle_chat_completions(State(state): State<GatewayState>, body: Bytes) -> Response {
@@ -166,7 +163,7 @@ pub async fn handle_chat_completions(State(state): State<GatewayState>, body: By
     let request: ChatCompletionRequest = match serde_json::from_slice(&body) {
         Ok(request) => request,
         Err(_) => {
-            spawn_usage_record(
+            record_usage(
                 &state,
                 UsageRecordInput {
                     started_at,
@@ -178,7 +175,8 @@ pub async fn handle_chat_completions(State(state): State<GatewayState>, body: By
                     status: StatusCode::BAD_REQUEST,
                     tokens: TokenUsageParts::none(),
                 },
-            );
+            )
+            .await;
             return error_response(
                 StatusCode::BAD_REQUEST,
                 "invalid request body",
@@ -206,7 +204,7 @@ async fn handle_buffered_chat_completions(
         Err(error) => {
             record_upstream_failure(state, &UpstreamMetricContext::unrouted(), "route_rejected");
             tracing::warn!(model = %request.model, error = %error, "routing failed");
-            spawn_usage_record(
+            record_usage(
                 state,
                 UsageRecordInput {
                     started_at,
@@ -218,7 +216,8 @@ async fn handle_buffered_chat_completions(
                     status: StatusCode::SERVICE_UNAVAILABLE,
                     tokens: TokenUsageParts::none(),
                 },
-            );
+            )
+            .await;
             return error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
                 &error.to_string(),
@@ -239,7 +238,7 @@ async fn handle_buffered_chat_completions(
                 registry.health().mark_success(account_id).await;
             });
             let tokens = extract_token_usage(&upstream_response.body);
-            spawn_usage_record(
+            record_usage(
                 state,
                 UsageRecordInput {
                     started_at,
@@ -251,7 +250,8 @@ async fn handle_buffered_chat_completions(
                     status: upstream_response.status,
                     tokens,
                 },
-            );
+            )
+            .await;
 
             let mut response = Response::new(axum::body::Body::from(upstream_response.body));
             *response.status_mut() = upstream_response.status;
@@ -279,7 +279,7 @@ async fn handle_buffered_chat_completions(
                     .await;
             });
             let response = map_upstream_error(error);
-            spawn_usage_record(
+            record_usage(
                 state,
                 UsageRecordInput {
                     started_at,
@@ -291,7 +291,8 @@ async fn handle_buffered_chat_completions(
                     status: response.status(),
                     tokens: TokenUsageParts::none(),
                 },
-            );
+            )
+            .await;
             response
         }
     }
@@ -308,7 +309,7 @@ async fn handle_streaming_chat_completions(
         Err(error) => {
             record_upstream_failure(state, &UpstreamMetricContext::unrouted(), "route_rejected");
             tracing::warn!(model = %request.model, error = %error, "routing failed");
-            spawn_usage_record(
+            record_usage(
                 state,
                 UsageRecordInput {
                     started_at,
@@ -320,7 +321,8 @@ async fn handle_streaming_chat_completions(
                     status: StatusCode::SERVICE_UNAVAILABLE,
                     tokens: TokenUsageParts::none(),
                 },
-            );
+            )
+            .await;
             return error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
                 &error.to_string(),
@@ -338,21 +340,23 @@ async fn handle_streaming_chat_completions(
             tokio::spawn(async move {
                 registry.health().mark_success(account_id).await;
             });
-            spawn_usage_record(
-                state,
-                UsageRecordInput {
-                    started_at,
-                    logical_model: request.model.clone(),
-                    context: metric_context.clone_static(),
-                    account_id: Some(account_id.to_string()),
-                    stream: true,
-                    outcome: "success",
-                    status: StatusCode::OK,
-                    tokens: TokenUsageParts::none(),
+            let completion_state = state.clone();
+            let completion_input = UsageRecordInput {
+                started_at,
+                logical_model: request.model.clone(),
+                context: metric_context.clone_static(),
+                account_id: Some(account_id.to_string()),
+                stream: true,
+                outcome: "success",
+                status: StatusCode::OK,
+                tokens: TokenUsageParts::none(),
+            };
+            let stream = upstream_event_stream_with_completion(
+                upstream_response.response.bytes_stream(),
+                move || async move {
+                    record_usage(&completion_state, completion_input).await;
                 },
             );
-
-            let stream = upstream_event_stream(upstream_response.response.bytes_stream());
             let mut response = Sse::new(stream).into_response();
             *response.status_mut() = StatusCode::OK;
             response.headers_mut().insert(
@@ -372,7 +376,7 @@ async fn handle_streaming_chat_completions(
                     .await;
             });
             let response = map_upstream_error(error);
-            spawn_usage_record(
+            record_usage(
                 state,
                 UsageRecordInput {
                     started_at,
@@ -384,7 +388,8 @@ async fn handle_streaming_chat_completions(
                     status: response.status(),
                     tokens: TokenUsageParts::none(),
                 },
-            );
+            )
+            .await;
             response
         }
     }

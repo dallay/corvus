@@ -19,7 +19,7 @@ CREATE TABLE usage_events (
 );
 
 CREATE INDEX idx_usage_events_occurred_at ON usage_events(occurred_at);
-CREATE INDEX idx_usage_events_logical_model ON usage_events(logical_model);
-CREATE INDEX idx_usage_events_vendor ON usage_events(vendor);
-CREATE INDEX idx_usage_events_account_id ON usage_events(account_id);
-CREATE INDEX idx_usage_events_outcome ON usage_events(outcome);
+CREATE INDEX idx_usage_events_logical_model_occurred_at ON usage_events(logical_model, occurred_at);
+CREATE INDEX idx_usage_events_vendor_occurred_at ON usage_events(vendor, occurred_at);
+CREATE INDEX idx_usage_events_account_id_occurred_at ON usage_events(account_id, occurred_at);
+CREATE INDEX idx_usage_events_outcome_occurred_at ON usage_events(outcome, occurred_at);
