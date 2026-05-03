@@ -1,5 +1,6 @@
 ---
 title: Rook Operational Health
+description: Liveness, readiness, and compatibility health endpoints for supervised and containerized Rook deployments.
 summary: Liveness, readiness, and compatibility health endpoints for supervised and containerized Rook deployments.
 owner: team-platform
 status: canonical
