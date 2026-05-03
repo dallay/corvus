@@ -7,6 +7,14 @@ const embeddedAssetsRoot = fileURLToPath(new URL("../../../rook/assets", import.
 
 export default defineConfig({
   plugins: [vue()],
+  server: {
+    headers: {
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+      "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    },
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
