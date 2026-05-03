@@ -2388,13 +2388,9 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json_body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(
-            json_body,
-            json!({
-                "available": false,
-                "reason": "usage accounting is not implemented in M1"
-            })
-        );
+        assert_eq!(json_body["available"], true);
+        assert_eq!(json_body["totals"]["requests"], 0);
+        assert_eq!(json_body["totals"]["total_tokens"], 0);
     }
 
     #[tokio::test]

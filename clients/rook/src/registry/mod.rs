@@ -26,7 +26,7 @@ use crate::domain::RookError;
 use crate::services::{
     account::SqliteAccountService, audit::SqliteAuditService, health::SqliteHealthService,
     idempotency::SqliteIdempotencyService, pool::SqlitePoolService, route::SqliteRouteService,
-    settings::SqliteSettingsService,
+    settings::SqliteSettingsService, usage::SqliteUsageService,
 };
 
 /// Composition root — holds all service singletons for a Rook instance.
@@ -41,6 +41,7 @@ pub struct RookRegistry {
     settings: SqliteSettingsService,
     idempotency: SqliteIdempotencyService,
     health: SqliteHealthService,
+    usage: SqliteUsageService,
     #[cfg(test)]
     db: SqliteDb,
 }
@@ -80,6 +81,7 @@ impl RookRegistry {
             settings: SqliteSettingsService::new(db.clone()),
             idempotency: SqliteIdempotencyService::new(db.clone()),
             health: SqliteHealthService::new(db.clone()),
+            usage: SqliteUsageService::new(db.clone()),
             #[cfg(test)]
             db,
         }
@@ -127,6 +129,11 @@ impl RookRegistry {
     pub fn health(&self) -> &SqliteHealthService {
         &self.health
     }
+
+    /// Usage service — record and summarize gateway request usage.
+    pub fn usage(&self) -> &SqliteUsageService {
+        &self.usage
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -137,7 +144,7 @@ mod tests {
     use crate::domain::RookSettings;
     use crate::services::{
         account::AccountService as _, health::HealthService as _, pool::PoolService as _,
-        route::RouteService as _, settings::SettingsService as _,
+        route::RouteService as _, settings::SettingsService as _, usage::UsageService as _,
     };
 
     async fn registry() -> RookRegistry {
@@ -181,6 +188,49 @@ mod tests {
         };
         r.settings().save(s).await.unwrap();
         assert_eq!(r.settings().load().await.gateway_port, 7777);
+    }
+
+    #[tokio::test]
+    async fn registry_usage_append_and_summary_round_trip() {
+        use crate::db::usage::{StoredUsageEvent, UsageSummaryQuery};
+        use chrono::{TimeZone, Utc};
+
+        let r = registry().await;
+        r.usage()
+            .record(StoredUsageEvent {
+                id: "usage-1".to_string(),
+                occurred_at: Utc.with_ymd_and_hms(2026, 5, 3, 12, 0, 0).unwrap(),
+                request_id: Some("req-1".to_string()),
+                logical_model: "gpt-4o".to_string(),
+                vendor: "openai".to_string(),
+                account_id: Some("acct-1".to_string()),
+                account_label: "primary".to_string(),
+                stream: false,
+                outcome: "success".to_string(),
+                status_code: 200,
+                latency_ms: 15,
+                prompt_tokens: Some(10),
+                completion_tokens: Some(20),
+                total_tokens: Some(30),
+                cost_usd: None,
+                currency: None,
+                provider_request_id: None,
+            })
+            .await
+            .unwrap();
+
+        let summary = r
+            .usage()
+            .summary(UsageSummaryQuery {
+                since: Utc.with_ymd_and_hms(2026, 5, 3, 0, 0, 0).unwrap(),
+                until: Utc.with_ymd_and_hms(2026, 5, 4, 0, 0, 0).unwrap(),
+                limit: 10,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(summary.totals.requests, 1);
+        assert_eq!(summary.totals.total_tokens, 30);
     }
 
     #[tokio::test]

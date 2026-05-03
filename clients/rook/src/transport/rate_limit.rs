@@ -120,9 +120,7 @@ fn should_prune() -> bool {
 /// Uses `ttl = max_window_seconds * 2` as a safe upper bound.
 fn pruning(windows: &mut HashMap<RateLimitBucketKey, SurfaceWindowState>, now: Instant) {
     let ttl = Duration::from_secs(MAX_TTL_SECONDS);
-    windows.retain(|_, state| {
-        now.duration_since(state.window_started_at) < ttl
-    });
+    windows.retain(|_, state| now.duration_since(state.window_started_at) < ttl);
 }
 
 pub fn resolve_rate_limit_principal(request: &Request<Body>) -> RateLimitPrincipalKey {

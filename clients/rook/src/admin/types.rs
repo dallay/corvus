@@ -249,19 +249,50 @@ impl From<SettingsView> for RookSettings {
 
 pub type UpdateSettingsRequest = SettingsView;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct UsageStatusView {
-    pub available: bool,
-    pub reason: &'static str,
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageSummaryPeriod {
+    Hour,
+    #[default]
+    Day,
+    Month,
 }
 
-impl UsageStatusView {
-    pub fn placeholder() -> Self {
-        Self {
-            available: false,
-            reason: "usage accounting is not implemented in M1",
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct UsageSummaryWindowView {
+    pub period: UsageSummaryPeriod,
+    pub since: String,
+    pub until: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct UsageAggregateView {
+    pub requests: u64,
+    pub successful_requests: u64,
+    pub failed_requests: u64,
+    pub streaming_requests: u64,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
+    pub known_token_requests: u64,
+    pub estimated_cost_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct UsageGroupView {
+    pub key: String,
+    #[serde(flatten)]
+    pub aggregate: UsageAggregateView,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct UsageSummaryView {
+    pub available: bool,
+    pub window: UsageSummaryWindowView,
+    pub totals: UsageAggregateView,
+    pub by_model: Vec<UsageGroupView>,
+    pub by_vendor: Vec<UsageGroupView>,
+    pub by_outcome: Vec<UsageGroupView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -548,16 +579,34 @@ mod tests {
     }
 
     #[test]
-    fn usage_status_placeholder_matches_spec() {
-        let json = serde_json::to_value(UsageStatusView::placeholder()).unwrap();
+    fn usage_summary_view_serializes_real_contract() {
+        let json = serde_json::to_value(UsageSummaryView {
+            available: true,
+            window: UsageSummaryWindowView {
+                period: UsageSummaryPeriod::Day,
+                since: "2026-05-03T00:00:00Z".to_string(),
+                until: "2026-05-04T00:00:00Z".to_string(),
+            },
+            totals: UsageAggregateView {
+                requests: 1,
+                successful_requests: 1,
+                failed_requests: 0,
+                streaming_requests: 0,
+                prompt_tokens: 10,
+                completion_tokens: 20,
+                total_tokens: 30,
+                known_token_requests: 1,
+                estimated_cost_usd: None,
+            },
+            by_model: vec![],
+            by_vendor: vec![],
+            by_outcome: vec![],
+        })
+        .unwrap();
 
-        assert_eq!(
-            json,
-            json!({
-                "available": false,
-                "reason": "usage accounting is not implemented in M1"
-            })
-        );
+        assert_eq!(json["available"], true);
+        assert_eq!(json["window"]["period"], "day");
+        assert_eq!(json["totals"]["total_tokens"], 30);
     }
 
     #[test]
