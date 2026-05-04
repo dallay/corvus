@@ -145,6 +145,20 @@ pub struct HealthSummaryView {
     pub unknown: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OperatorStatusView {
+    pub status: String,
+    pub startup: crate::health::ReadinessResponse,
+    pub provider_health: HealthSummaryView,
+    pub runtime: OperatorRuntimeView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OperatorRuntimeView {
+    pub metrics_enabled: bool,
+    pub usage_accounting_enabled: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoutingPolicyView {

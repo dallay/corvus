@@ -52,6 +52,7 @@ pub struct RookConfig {
     pub transport: TransportConfig,
     pub rate_limits: RateLimitConfig,
     pub idempotency: IdempotencyConfig,
+    pub upstream_resilience: UpstreamResilienceConfig,
 }
 
 impl Default for RookConfig {
@@ -65,6 +66,7 @@ impl Default for RookConfig {
             transport: TransportConfig::default(),
             rate_limits: RateLimitConfig::default(),
             idempotency: IdempotencyConfig::default(),
+            upstream_resilience: UpstreamResilienceConfig::default(),
         }
     }
 }
@@ -80,6 +82,7 @@ pub struct PartialRookConfig {
     pub transport: Option<PartialTransportConfig>,
     pub rate_limits: Option<PartialRateLimitConfig>,
     pub idempotency: Option<PartialIdempotencyConfig>,
+    pub upstream_resilience: Option<PartialUpstreamResilienceConfig>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -144,6 +147,61 @@ pub struct PartialIdempotencyConfig {
     pub chat_completions: Option<PartialChatCompletionsIdempotencyConfig>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpstreamResilienceConfig {
+    pub max_buffered_attempts: usize,
+    pub failure_cooldown_seconds: u64,
+    pub retry_backoff_milliseconds: u64,
+    pub max_concurrent_upstream_requests: usize,
+}
+
+impl Default for UpstreamResilienceConfig {
+    fn default() -> Self {
+        Self {
+            max_buffered_attempts: 3,
+            failure_cooldown_seconds: 60,
+            retry_backoff_milliseconds: 25,
+            max_concurrent_upstream_requests: 64,
+        }
+    }
+}
+
+impl UpstreamResilienceConfig {
+    pub fn validate(&self) -> Result<(), RookError> {
+        if self.max_buffered_attempts == 0 {
+            return Err(RookError::Config(
+                "upstream_resilience.max_buffered_attempts must be at least 1".to_string(),
+            ));
+        }
+        if self.failure_cooldown_seconds == 0 {
+            return Err(RookError::Config(
+                "upstream_resilience.failure_cooldown_seconds must be at least 1".to_string(),
+            ));
+        }
+        if self.retry_backoff_milliseconds == 0 {
+            return Err(RookError::Config(
+                "upstream_resilience.retry_backoff_milliseconds must be at least 1".to_string(),
+            ));
+        }
+        if self.max_concurrent_upstream_requests == 0 {
+            return Err(RookError::Config(
+                "upstream_resilience.max_concurrent_upstream_requests must be at least 1"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PartialUpstreamResilienceConfig {
+    pub max_buffered_attempts: Option<usize>,
+    pub failure_cooldown_seconds: Option<u64>,
+    pub retry_backoff_milliseconds: Option<u64>,
+    pub max_concurrent_upstream_requests: Option<usize>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PartialChatCompletionsIdempotencyConfig {
@@ -161,6 +219,7 @@ pub struct CliRookConfigOverlay {
     pub transport: Option<PartialTransportConfig>,
     pub rate_limits: Option<PartialRateLimitConfig>,
     pub idempotency: Option<PartialIdempotencyConfig>,
+    pub upstream_resilience: Option<PartialUpstreamResilienceConfig>,
 }
 
 pub struct LoadRookConfigInput<'a> {
@@ -248,6 +307,7 @@ impl RookConfig {
         self.transport.validate()?;
         self.rate_limits.validate()?;
         self.idempotency.validate()?;
+        self.upstream_resilience.validate()?;
         Ok(())
     }
 
@@ -267,6 +327,20 @@ impl RookConfig {
             transport: self.transport.clone(),
             rate_limits: self.rate_limits.clone(),
             idempotency: self.idempotency.clone(),
+            upstream_resilience: crate::gateway::UpstreamResiliencePolicy::from(
+                &self.upstream_resilience,
+            ),
+        }
+    }
+}
+
+impl From<&UpstreamResilienceConfig> for crate::gateway::UpstreamResiliencePolicy {
+    fn from(config: &UpstreamResilienceConfig) -> Self {
+        Self {
+            max_buffered_attempts: config.max_buffered_attempts,
+            failure_cooldown: std::time::Duration::from_secs(config.failure_cooldown_seconds),
+            retry_backoff: std::time::Duration::from_millis(config.retry_backoff_milliseconds),
+            max_concurrent_upstream_requests: config.max_concurrent_upstream_requests,
         }
     }
 }
@@ -296,6 +370,9 @@ impl PartialRookConfig {
         }
         if let Some(idempotency) = self.idempotency {
             idempotency.apply_to(&mut target.idempotency);
+        }
+        if let Some(upstream_resilience) = self.upstream_resilience {
+            upstream_resilience.apply_to(&mut target.upstream_resilience);
         }
     }
 }
@@ -406,6 +483,23 @@ impl PartialIdempotencyConfig {
     }
 }
 
+impl PartialUpstreamResilienceConfig {
+    fn apply_to(self, target: &mut UpstreamResilienceConfig) {
+        if let Some(max_buffered_attempts) = self.max_buffered_attempts {
+            target.max_buffered_attempts = max_buffered_attempts;
+        }
+        if let Some(failure_cooldown_seconds) = self.failure_cooldown_seconds {
+            target.failure_cooldown_seconds = failure_cooldown_seconds;
+        }
+        if let Some(retry_backoff_milliseconds) = self.retry_backoff_milliseconds {
+            target.retry_backoff_milliseconds = retry_backoff_milliseconds;
+        }
+        if let Some(max_concurrent_upstream_requests) = self.max_concurrent_upstream_requests {
+            target.max_concurrent_upstream_requests = max_concurrent_upstream_requests;
+        }
+    }
+}
+
 impl PartialChatCompletionsIdempotencyConfig {
     fn apply_to(self, target: &mut ChatCompletionsIdempotencyConfig) {
         if let Some(enabled) = self.enabled {
@@ -428,6 +522,7 @@ impl CliRookConfigOverlay {
             transport: self.transport,
             rate_limits: self.rate_limits,
             idempotency: self.idempotency,
+            upstream_resilience: self.upstream_resilience,
         }
         .apply_to(target);
     }
@@ -581,6 +676,24 @@ fn parse_env_overlay(env: &HashMap<String, String>) -> Result<PartialRookConfig,
                 )?,
             }),
         }),
+        upstream_resilience: partial_if_any(PartialUpstreamResilienceConfig {
+            max_buffered_attempts: override_from_env::<usize>(
+                env,
+                "ROOK_UPSTREAM_RESILIENCE_MAX_BUFFERED_ATTEMPTS",
+            )?,
+            failure_cooldown_seconds: override_from_env::<u64>(
+                env,
+                "ROOK_UPSTREAM_RESILIENCE_FAILURE_COOLDOWN_SECONDS",
+            )?,
+            retry_backoff_milliseconds: override_from_env::<u64>(
+                env,
+                "ROOK_UPSTREAM_RESILIENCE_RETRY_BACKOFF_MILLISECONDS",
+            )?,
+            max_concurrent_upstream_requests: override_from_env::<usize>(
+                env,
+                "ROOK_UPSTREAM_RESILIENCE_MAX_CONCURRENT_UPSTREAM_REQUESTS",
+            )?,
+        }),
     })
 }
 
@@ -665,6 +778,15 @@ impl PartialOverlay for PartialIdempotencyConfig {
     }
 }
 
+impl PartialOverlay for PartialUpstreamResilienceConfig {
+    fn is_empty(&self) -> bool {
+        self.max_buffered_attempts.is_none()
+            && self.failure_cooldown_seconds.is_none()
+            && self.retry_backoff_milliseconds.is_none()
+            && self.max_concurrent_upstream_requests.is_none()
+    }
+}
+
 fn partial_if_any<T: PartialOverlay>(partial: T) -> Option<T> {
     if partial.is_empty() {
         None
@@ -683,6 +805,7 @@ pub struct RookConfigExportView {
     pub transport: TransportExportView,
     pub rate_limits: RateLimitExportView,
     pub idempotency: IdempotencyExportView,
+    pub upstream_resilience: UpstreamResilienceConfigExportView,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -737,6 +860,25 @@ pub struct IdempotencyExportView {
 pub struct ChatCompletionsIdempotencyExportView {
     pub enabled: bool,
     pub replay_window_seconds: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UpstreamResilienceConfigExportView {
+    pub max_buffered_attempts: usize,
+    pub failure_cooldown_seconds: u64,
+    pub retry_backoff_milliseconds: u64,
+    pub max_concurrent_upstream_requests: usize,
+}
+
+impl From<&UpstreamResilienceConfig> for UpstreamResilienceConfigExportView {
+    fn from(config: &UpstreamResilienceConfig) -> Self {
+        Self {
+            max_buffered_attempts: config.max_buffered_attempts,
+            failure_cooldown_seconds: config.failure_cooldown_seconds,
+            retry_backoff_milliseconds: config.retry_backoff_milliseconds,
+            max_concurrent_upstream_requests: config.max_concurrent_upstream_requests,
+        }
+    }
 }
 
 fn parse_numeric_env<T: FromStr>(name: &str, value: &str) -> Result<T, RookError>
@@ -841,6 +983,9 @@ impl RookConfigExportView {
                         .replay_window_seconds,
                 },
             },
+            upstream_resilience: UpstreamResilienceConfigExportView::from(
+                &config.upstream_resilience,
+            ),
         }
     }
 }
@@ -1185,6 +1330,7 @@ mod tests {
                         replay_window_seconds: Some(3600),
                     }),
                 }),
+                upstream_resilience: None,
             }),
         })
         .expect("effective config should assemble");
@@ -1202,6 +1348,37 @@ mod tests {
         assert_eq!(
             config.idempotency.chat_completions.replay_window_seconds,
             3600
+        );
+    }
+
+    #[test]
+    fn from_sources_applies_upstream_resilience_env_overrides() {
+        let mut env = std::collections::HashMap::new();
+        env.insert(
+            "ROOK_UPSTREAM_RESILIENCE_MAX_BUFFERED_ATTEMPTS".to_string(),
+            "4".to_string(),
+        );
+        env.insert(
+            "ROOK_UPSTREAM_RESILIENCE_FAILURE_COOLDOWN_SECONDS".to_string(),
+            "90".to_string(),
+        );
+        env.insert(
+            "ROOK_UPSTREAM_RESILIENCE_RETRY_BACKOFF_MILLISECONDS".to_string(),
+            "50".to_string(),
+        );
+        env.insert(
+            "ROOK_UPSTREAM_RESILIENCE_MAX_CONCURRENT_UPSTREAM_REQUESTS".to_string(),
+            "9".to_string(),
+        );
+
+        let config = super::RookConfig::from_sources(None, &env).unwrap();
+
+        assert_eq!(config.upstream_resilience.max_buffered_attempts, 4);
+        assert_eq!(config.upstream_resilience.failure_cooldown_seconds, 90);
+        assert_eq!(config.upstream_resilience.retry_backoff_milliseconds, 50);
+        assert_eq!(
+            config.upstream_resilience.max_concurrent_upstream_requests,
+            9
         );
     }
 
@@ -1250,6 +1427,52 @@ mod tests {
                 .and_then(|idempotency| idempotency.chat_completions.as_ref())
                 .and_then(|chat| chat.replay_window_seconds),
             Some(1234)
+        );
+    }
+
+    #[test]
+    fn to_server_config_carries_upstream_resilience_policy() {
+        let mut config = super::RookConfig::default();
+        config.upstream_resilience.max_buffered_attempts = 6;
+        config.upstream_resilience.failure_cooldown_seconds = 180;
+        config.upstream_resilience.retry_backoff_milliseconds = 125;
+        config.upstream_resilience.max_concurrent_upstream_requests = 7;
+
+        let server = config.to_server_config();
+
+        assert_eq!(server.upstream_resilience.max_buffered_attempts, 6);
+        assert_eq!(server.upstream_resilience.failure_cooldown.as_secs(), 180);
+        assert_eq!(server.upstream_resilience.retry_backoff.as_millis(), 125);
+        assert_eq!(
+            server.upstream_resilience.max_concurrent_upstream_requests,
+            7
+        );
+    }
+
+    #[test]
+    fn config_export_view_includes_upstream_resilience() {
+        let mut config = super::RookConfig::default();
+        config.upstream_resilience.max_buffered_attempts = 4;
+        config.upstream_resilience.failure_cooldown_seconds = 90;
+        config.upstream_resilience.retry_backoff_milliseconds = 50;
+        config.upstream_resilience.max_concurrent_upstream_requests = 9;
+
+        let view = super::RookConfigExportView::from_config(&config);
+        let rendered = toml::to_string_pretty(&view).unwrap();
+
+        assert!(rendered.contains("[upstream_resilience]"), "{rendered}");
+        assert!(rendered.contains("max_buffered_attempts = 4"), "{rendered}");
+        assert!(
+            rendered.contains("failure_cooldown_seconds = 90"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("retry_backoff_milliseconds = 50"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("max_concurrent_upstream_requests = 9"),
+            "{rendered}"
         );
     }
 
@@ -1421,6 +1644,60 @@ mod tests {
     }
 
     #[test]
+    fn validate_rejects_zero_upstream_attempts() {
+        let mut config = super::RookConfig::default();
+        config.upstream_resilience.max_buffered_attempts = 0;
+
+        let error = config.validate().unwrap_err().to_string();
+
+        assert!(
+            error.contains("upstream_resilience.max_buffered_attempts must be at least 1"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_zero_upstream_failure_cooldown() {
+        let mut config = super::RookConfig::default();
+        config.upstream_resilience.failure_cooldown_seconds = 0;
+
+        let error = config.validate().unwrap_err().to_string();
+
+        assert!(
+            error.contains("upstream_resilience.failure_cooldown_seconds must be at least 1"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_zero_upstream_retry_backoff() {
+        let mut config = super::RookConfig::default();
+        config.upstream_resilience.retry_backoff_milliseconds = 0;
+
+        let error = config.validate().unwrap_err().to_string();
+
+        assert!(
+            error.contains("upstream_resilience.retry_backoff_milliseconds must be at least 1"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_zero_upstream_concurrency() {
+        let mut config = super::RookConfig::default();
+        config.upstream_resilience.max_concurrent_upstream_requests = 0;
+
+        let error = config.validate().unwrap_err().to_string();
+
+        assert!(
+            error.contains(
+                "upstream_resilience.max_concurrent_upstream_requests must be at least 1"
+            ),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
     fn from_toml_loads_upstream_resilience_config() {
         let config = super::RookConfig::from_toml_str(
             r#"
@@ -1436,7 +1713,10 @@ mod tests {
         assert_eq!(config.upstream_resilience.max_buffered_attempts, 5);
         assert_eq!(config.upstream_resilience.failure_cooldown_seconds, 120);
         assert_eq!(config.upstream_resilience.retry_backoff_milliseconds, 75);
-        assert_eq!(config.upstream_resilience.max_concurrent_upstream_requests, 12);
+        assert_eq!(
+            config.upstream_resilience.max_concurrent_upstream_requests,
+            12
+        );
     }
 
     #[test]
@@ -1446,6 +1726,7 @@ mod tests {
             host = "0.0.0.0"
             port = 5151
             enable_tui = true
+            db_path = "/tmp/rook-test.db"
             "#,
         )
         .expect("toml config should parse");
