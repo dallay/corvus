@@ -134,6 +134,9 @@ impl SlashCommandRegistry {
             Ok(invocation) => invocation,
             Err(error) => return Some(SessionCommandOutcome::Failure(error)),
         };
+        if let Err(error) = validate_requirements(&registration.descriptor, &context) {
+            return Some(SessionCommandOutcome::Failure(error));
+        }
 
         Some(
             registration
@@ -506,6 +509,28 @@ fn validate_name(name: &str) -> Result<(), SlashRegistryError> {
     }
 }
 
+fn validate_requirements(
+    descriptor: &SlashCommandDescriptor,
+    context: &CommandContext,
+) -> Result<(), SessionCommandFailure> {
+    for permission in descriptor.requirements.permissions {
+        match permission {
+            CommandPermission::RequiresCallerScope if !context.facts.has_caller_scope => {
+                return Err(SessionCommandFailure {
+                    command: descriptor.canonical_name,
+                    kind: SessionCommandFailureKind::MissingCallerScope,
+                    session_id: Some(context.session.session_id.clone()),
+                    message: "permission denied: caller scope unavailable".to_string(),
+                });
+            }
+            CommandPermission::RequiresCallerScope => {}
+            CommandPermission::RequiresResumableSessionVisibility => {}
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_invocation(
     descriptor: &SlashCommandDescriptor,
     raw: RawSlashInvocation,
@@ -851,6 +876,34 @@ mod tests {
                 .get("/compact")
                 .map(|descriptor| descriptor.argument_shape.clone()),
             Some(SlashCommandArgumentShape::OptionalText)
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_denies_command_when_declared_caller_scope_permission_is_missing() {
+        let service = SessionCommandService::new(&RegistryMemory);
+
+        let result = default_registry()
+            .dispatch(
+                &service,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                "/resume",
+            )
+            .await;
+
+        assert_eq!(
+            result,
+            Some(SessionCommandOutcome::Failure(SessionCommandFailure {
+                command: "/resume",
+                kind: SessionCommandFailureKind::MissingCallerScope,
+                session_id: Some("session-1".to_string()),
+                message: "permission denied: caller scope unavailable".to_string(),
+            }))
         );
     }
 

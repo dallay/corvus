@@ -271,6 +271,19 @@ mod tests {
                                 ..
                             })
                         ));
+                    } else if prompt == "/resume" {
+                        assert_eq!(
+                            outcome,
+                            SessionCommandOutcome::Failure(
+                                crate::session_commands::SessionCommandFailure {
+                                    command: "/resume",
+                                    kind: SessionCommandFailureKind::MissingCallerScope,
+                                    session_id: Some("session-1".to_string()),
+                                    message: "permission denied: caller scope unavailable"
+                                        .to_string(),
+                                }
+                            )
+                        );
                     } else {
                         assert_eq!(
                             outcome,
