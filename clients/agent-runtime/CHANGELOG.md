@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.3.0](https://github.com/dallay/corvus/compare/corvus-runtime-v0.2.2...corvus-runtime-v0.3.0) (2026-05-04)
+
+
+### Features
+
+* **ci:** enhance URL validation in HttpGetTool and improve version parsing ([41b69f1](https://github.com/dallay/corvus/commit/41b69f1e4258d474f3d30a8599faa65d39b2e20b))
+* Persist Rook provider account health state ([930700f](https://github.com/dallay/corvus/commit/930700f7752b4a78f6fb52cd12198080d7b67216))
+* **rook:** document operational health probes ([133d341](https://github.com/dallay/corvus/commit/133d341c6341b4270c33b3ccdf631bb29802e2f3))
+
+
+### Bug Fixes
+
+* **agent-runtime:** enforce slash command caller permissions ([d83d3ca](https://github.com/dallay/corvus/commit/d83d3caec28fdbf3c9c418f25a785ba4b6e51fcb))
+* **agent-runtime:** enforce slash command caller permissions ([01107fa](https://github.com/dallay/corvus/commit/01107fa9bf8029d2dbd4f9dff68a91afab5c8477))
+* **agent-runtime:** satisfy slash permission lint ([280ab35](https://github.com/dallay/corvus/commit/280ab350fa8dbdd38db88449c76af21d7d147b8c))
+* apply CodeRabbit auto-fixes ([360176f](https://github.com/dallay/corvus/commit/360176f590093b30b792d7b5cd42e9437451222d))
+* **firmware:** remove vulnerable xmas-elf dependency ([9d90878](https://github.com/dallay/corvus/commit/9d90878ed5d51c7860ce8657201acfe23ee7ee50))
+* reject absolute paths in Telegram attachment resolver to prevent path traversal ([fbc8026](https://github.com/dallay/corvus/commit/fbc802613440e58680a2cde30fbec53078907b1b))
+* reject absolute paths in Telegram attachment resolver to prevent path traversal ([8907055](https://github.com/dallay/corvus/commit/89070554e28794d9f83260b9bee8502f94cf404e))
+* **security:** add CSP headers, harden Vite dev server, and fix weak RNG fallback ([a3da395](https://github.com/dallay/corvus/commit/a3da395762290a648bccf2dbd688a07fec10786b))
+* **security:** harden package manager command and argument validation ([63bc62b](https://github.com/dallay/corvus/commit/63bc62b94e40aa07fdd8dc512ace2d8e93c76616))
+* **security:** harden package manager command and argument validation ([9bf7c89](https://github.com/dallay/corvus/commit/9bf7c8987b226a03a77432b2e3736fb15b6a03f7))
+* **security:** harden SecurityPolicy against quote-based bypasses ([46203fb](https://github.com/dallay/corvus/commit/46203fbef501ecf151e03b00a4fc997bd4193ff3))
+* **security:** harden SecurityPolicy against quote-based bypasses (SONAR:SEC-001) ([a70ec1e](https://github.com/dallay/corvus/commit/a70ec1e1b8cc3ef88f9e07eda85dd6d1576df69f))
+* **security:** reject quoted direct paths ([f497653](https://github.com/dallay/corvus/commit/f4976535087bcc04af096b67c1207018e6fc3c45))
+* **security:** validate raw paths before normalization ([f31a3b8](https://github.com/dallay/corvus/commit/f31a3b876e5ea74f1f9703533543b395bfb28d07))
+
 ## [0.2.2](https://github.com/dallay/corvus/compare/corvus-runtime-v0.2.1...corvus-runtime-v0.2.2) (2026-05-01)
 
 
