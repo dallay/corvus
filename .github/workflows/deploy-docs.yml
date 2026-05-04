@@ -1,18 +1,15 @@
 name: Deploy to GitHub Pages
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "clients/web/apps/docs/**"
-      - "clients/web/packages/shared/**"
-      - ".github/workflows/deploy-docs.yml"
-  release:
-    types: [published]
   workflow_dispatch:
+    inputs:
+      docs_ref:
+        description: "Tag, branch, or commit SHA to publish as the stable docs site"
+        required: true
+        default: "main"
 
 concurrency:
-  group: pages-${{ github.ref }}
+  group: pages-${{ inputs.docs_ref || github.ref }}
   cancel-in-progress: true
 
 # Default permissions for the workflow
@@ -30,6 +27,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.docs_ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4

@@ -1,0 +1,23 @@
+{
+  "name": "@dallay/rook-darwin-arm64",
+  "version": "3.6.2",
+  "description": "Rook CLI for macOS arm64",
+  "license": "Apache-2.0",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dallay/corvus.git",
+    "directory": "clients/rook/npm/rook-darwin-arm64"
+  },
+  "files": [
+    "rook-darwin-arm64"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

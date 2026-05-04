@@ -1,0 +1,845 @@
+use crate::config::{assemble_effective_config, InboundAuthOperatorState, LoadRookConfigInput};
+use crate::domain::RookError;
+use crate::server;
+use std::collections::HashMap;
+use std::path::Path;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DoctorStatus {
+    Pass,
+    Warn,
+    Fail,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct DoctorCheckResult {
+    pub name: &'static str,
+    pub status: DoctorStatus,
+    pub summary: String,
+    pub guidance: Option<String>,
+    pub details: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct DoctorReport {
+    pub checks: Vec<DoctorCheckResult>,
+    pub advisory_checks: Vec<DoctorCheckResult>,
+}
+
+impl DoctorReport {
+    pub fn overall_status(&self) -> DoctorStatus {
+        if self
+            .checks
+            .iter()
+            .any(|check| matches!(check.status, DoctorStatus::Fail))
+        {
+            DoctorStatus::Fail
+        } else if self
+            .checks
+            .iter()
+            .any(|check| matches!(check.status, DoctorStatus::Warn))
+        {
+            DoctorStatus::Warn
+        } else {
+            DoctorStatus::Pass
+        }
+    }
+}
+
+pub async fn run_with_config_path(
+    file_path: Option<&Path>,
+    env: &HashMap<String, String>,
+) -> DoctorReport {
+    match assemble_effective_config(LoadRookConfigInput {
+        file_path,
+        env,
+        cli: None,
+    }) {
+        Ok(config) => {
+            let mut checks = Vec::with_capacity(4);
+
+            let config_check = match config.validate_non_auth() {
+                Ok(()) => DoctorCheckResult {
+                    name: "config",
+                    status: DoctorStatus::Pass,
+                    summary: "effective configuration loaded and validated".to_string(),
+                    guidance: None,
+                    details: vec![
+                        format!("effective bind target: {}", config.effective_bind_target()),
+                        format!(
+                            "upstream resilience: max_buffered_attempts={}, failure_cooldown_seconds={}, retry_backoff_milliseconds={}, max_concurrent_upstream_requests={}",
+                            config.upstream_resilience.max_buffered_attempts,
+                            config.upstream_resilience.failure_cooldown_seconds,
+                            config.upstream_resilience.retry_backoff_milliseconds,
+                            config.upstream_resilience.max_concurrent_upstream_requests,
+                        ),
+                    ],
+                },
+                Err(error) => {
+                    return DoctorReport {
+                        checks: vec![DoctorCheckResult {
+                            name: "config",
+                            status: DoctorStatus::Fail,
+                            summary: format!(
+                                "effective configuration is invalid for startup: {error}"
+                            ),
+                            guidance: Some(
+                                "fix the reported configuration values and rerun `rook doctor` before starting `rook serve`"
+                                    .to_string(),
+                            ),
+                            details: vec![format!(
+                                "effective bind target: {}",
+                                config.effective_bind_target()
+                            )],
+                        }],
+                        advisory_checks: Vec::new(),
+                    }
+                }
+            };
+            checks.push(config_check);
+
+            let database_check = match server::diagnose_startup_readiness(&config).await {
+                Ok(snapshot) => DoctorCheckResult {
+                    name: "database",
+                    status: DoctorStatus::Pass,
+                    summary: "startup-equivalent database open and migrations succeeded"
+                        .to_string(),
+                    guidance: None,
+                    details: vec![
+                        format!("database path: {}", snapshot.db_path),
+                        format!("effective bind target: {}", snapshot.bind_target),
+                    ],
+                },
+                Err(error) => DoctorCheckResult {
+                    name: "database",
+                    status: DoctorStatus::Fail,
+                    summary: format!(
+                        "startup-equivalent database readiness failed at {}: {error}",
+                        config.db_path.display()
+                    ),
+                    guidance: Some(crate::db::SqliteDb::readiness_guidance(
+                        &config.db_path.to_string_lossy(),
+                        &error,
+                    )),
+                    details: vec![format!("database path: {}", config.db_path.display())],
+                },
+            };
+            checks.push(database_check);
+
+            let assets_check = if crate::dashboard::assets_ready() {
+                DoctorCheckResult {
+                    name: "assets",
+                    status: DoctorStatus::Pass,
+                    summary: "embedded dashboard assets are available".to_string(),
+                    guidance: None,
+                    details: vec!["required asset: index.html".to_string()],
+                }
+            } else {
+                DoctorCheckResult {
+                    name: "assets",
+                    status: DoctorStatus::Fail,
+                    summary: "embedded dashboard assets are missing required index.html"
+                        .to_string(),
+                    guidance: Some(
+                        "rebuild the production binary with embedded dashboard assets before relying on the local admin surface"
+                            .to_string(),
+                    ),
+                    details: vec!["required asset: index.html".to_string()],
+                }
+            };
+            checks.push(assets_check);
+
+            let auth_state = config.inbound_auth.operator_state();
+            let inbound_auth_check = inbound_auth_check_result(auth_state, config.inbound_auth.validate().err());
+            checks.push(inbound_auth_check);
+
+            let advisory_checks = production_posture_advisories(&config);
+
+            DoctorReport {
+                checks,
+                advisory_checks,
+            }
+        }
+        Err(error) => DoctorReport {
+            checks: vec![DoctorCheckResult {
+                name: "config",
+                status: DoctorStatus::Fail,
+                summary: format!("failed to load effective configuration: {error}"),
+                guidance: Some(
+                    "fix configuration file, environment, or CLI overrides so `rook serve` and `rook doctor` can resolve the same effective config"
+                        .to_string(),
+                ),
+                details: Vec::new(),
+            }],
+            advisory_checks: Vec::new(),
+        },
+    }
+}
+
+fn production_posture_advisories(config: &crate::config::RookConfig) -> Vec<DoctorCheckResult> {
+    let mut checks = Vec::new();
+
+    if is_externally_reachable_bind(&config.host) && !config.inbound_auth.enabled {
+        checks.push(DoctorCheckResult {
+            name: "production_bind_auth",
+            status: DoctorStatus::Warn,
+            summary: format!(
+                "externally reachable bind {} has inbound auth disabled",
+                config.effective_bind_target()
+            ),
+            guidance: Some(
+                "enable inbound auth before exposing Rook outside a trusted local process or private network boundary"
+                    .to_string(),
+            ),
+            details: vec![
+                format!("effective bind target: {}", config.effective_bind_target()),
+                "inbound auth state: disabled".to_string(),
+            ],
+        });
+    }
+
+    let mut resilience_details = Vec::new();
+    if config.upstream_resilience.max_buffered_attempts > 10 {
+        resilience_details.push(format!(
+            "max_buffered_attempts={}",
+            config.upstream_resilience.max_buffered_attempts
+        ));
+    }
+    if config.upstream_resilience.max_concurrent_upstream_requests > 1024 {
+        resilience_details.push(format!(
+            "max_concurrent_upstream_requests={}",
+            config.upstream_resilience.max_concurrent_upstream_requests
+        ));
+    }
+
+    if !resilience_details.is_empty() {
+        checks.push(DoctorCheckResult {
+            name: "upstream_resilience_posture",
+            status: DoctorStatus::Warn,
+            summary: "upstream resilience settings are unusually aggressive".to_string(),
+            guidance: Some(
+                "confirm upstream retry and concurrency settings match provider quotas and deployment capacity"
+                    .to_string(),
+            ),
+            details: resilience_details,
+        });
+    }
+
+    checks
+}
+
+fn is_externally_reachable_bind(host: &str) -> bool {
+    let host = host.trim().trim_matches(['[', ']']);
+    if matches!(host, "0.0.0.0" | "::" | "*") {
+        return true;
+    }
+    if host.eq_ignore_ascii_case("localhost") {
+        return false;
+    }
+
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => !ip.is_loopback(),
+        Err(_) => true,
+    }
+}
+
+fn inbound_auth_check_result(
+    auth_state: InboundAuthOperatorState,
+    validation_error: Option<RookError>,
+) -> DoctorCheckResult {
+    match (
+        auth_state.enabled,
+        auth_state.token_configured,
+        validation_error,
+    ) {
+        (false, _, _) => DoctorCheckResult {
+            name: "inbound_auth",
+            status: DoctorStatus::Pass,
+            summary: "inbound auth is disabled".to_string(),
+            guidance: None,
+            details: vec![format!("inbound auth state: {}", auth_state.summary())],
+        },
+        (true, true, _) => DoctorCheckResult {
+            name: "inbound_auth",
+            status: DoctorStatus::Pass,
+            summary: "inbound auth is enabled and token configuration is present".to_string(),
+            guidance: None,
+            details: vec![format!("inbound auth state: {}", auth_state.summary())],
+        },
+        (true, false, error) => DoctorCheckResult {
+            name: "inbound_auth",
+            status: DoctorStatus::Fail,
+            summary: format!(
+                "inbound auth is enabled but not correctly configured{}",
+                error
+                    .as_ref()
+                    .map(|err| format!(": {err}"))
+                    .unwrap_or_default()
+            ),
+            guidance: Some(
+                "set a non-blank inbound auth token or disable inbound auth before startup"
+                    .to_string(),
+            ),
+            details: vec![format!("inbound auth state: {}", auth_state.summary())],
+        },
+    }
+}
+
+#[derive(serde::Serialize)]
+struct DoctorJsonReport<'a> {
+    status: DoctorStatus,
+    checks: &'a [DoctorCheckResult],
+    advisory_checks: &'a [DoctorCheckResult],
+}
+
+pub fn render_json_report(report: &DoctorReport) -> Result<String, RookError> {
+    serde_json::to_string_pretty(&DoctorJsonReport {
+        status: report.overall_status(),
+        checks: &report.checks,
+        advisory_checks: &report.advisory_checks,
+    })
+    .map_err(|error| RookError::Config(format!("failed to render doctor JSON: {error}")))
+}
+
+pub fn render_report(report: &DoctorReport) -> String {
+    let overall_status = report.overall_status();
+    let total_checks = report.checks.len();
+    let pass_count = report
+        .checks
+        .iter()
+        .filter(|check| matches!(check.status, DoctorStatus::Pass))
+        .count();
+    let warn_count = report
+        .checks
+        .iter()
+        .filter(|check| matches!(check.status, DoctorStatus::Warn))
+        .count();
+    let fail_count = report
+        .checks
+        .iter()
+        .filter(|check| matches!(check.status, DoctorStatus::Fail))
+        .count();
+
+    let mut lines = vec![
+        format!("rook doctor: {}", render_status(overall_status)),
+        format!(
+            "summary: total={}, pass={}, warn={}, fail={}",
+            total_checks, pass_count, warn_count, fail_count
+        ),
+    ];
+
+    for check in &report.checks {
+        lines.push(format!(
+            "- {}: {} — {}",
+            check.name,
+            render_status(check.status),
+            check.summary
+        ));
+
+        for detail in &check.details {
+            lines.push(format!("  detail: {detail}"));
+        }
+
+        if let Some(guidance) = &check.guidance {
+            lines.push(format!("  guidance: {guidance}"));
+        }
+    }
+
+    if !report.advisory_checks.is_empty() {
+        lines.push("advisory: optional checks".to_string());
+        for check in &report.advisory_checks {
+            lines.push(format!(
+                "- {}: {} — {}",
+                check.name,
+                render_status(check.status),
+                check.summary
+            ));
+
+            for detail in &check.details {
+                lines.push(format!("  detail: {detail}"));
+            }
+
+            if let Some(guidance) = &check.guidance {
+                lines.push(format!("  guidance: {guidance}"));
+            }
+        }
+    }
+
+    lines.join("\n")
+}
+
+pub fn ensure_success(report: &DoctorReport) -> Result<(), RookError> {
+    match report.overall_status() {
+        DoctorStatus::Fail => {
+            let failure_messages = report
+                .checks
+                .iter()
+                .filter(|check| matches!(check.status, DoctorStatus::Fail))
+                .map(|check| {
+                    if let Some(guidance) = &check.guidance {
+                        format!("{}: {}; guidance: {}", check.name, check.summary, guidance)
+                    } else {
+                        format!("{}: {}", check.name, check.summary)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+
+            Err(RookError::Config(format!(
+                "rook doctor found required local startup failures: {failure_messages}"
+            )))
+        }
+        DoctorStatus::Pass | DoctorStatus::Warn => Ok(()),
+    }
+}
+
+fn render_status(status: DoctorStatus) -> &'static str {
+    match status {
+        DoctorStatus::Pass => "pass",
+        DoctorStatus::Warn => "warn",
+        DoctorStatus::Fail => "fail",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::OnceLock;
+    use tempfile::TempDir;
+    use tokio::sync::{Mutex, MutexGuard};
+
+    static DOCTOR_TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
+
+    async fn doctor_test_serial_guard() -> MutexGuard<'static, ()> {
+        DOCTOR_TEST_SERIAL
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .await
+    }
+
+    struct InitializedDbEnv {
+        _temp_dir: TempDir,
+        env: HashMap<String, String>,
+    }
+
+    async fn initialized_db_env() -> InitializedDbEnv {
+        let temp_dir = tempfile::tempdir().expect("temp dir should be created");
+        let db_path = temp_dir.path().join("rook-doctor.db");
+        crate::registry::RookRegistry::open(&db_path.to_string_lossy())
+            .await
+            .expect("test database should initialize");
+        InitializedDbEnv {
+            _temp_dir: temp_dir,
+            env: HashMap::from([(
+                "ROOK_DB_PATH".to_string(),
+                db_path.to_string_lossy().to_string(),
+            )]),
+        }
+    }
+
+    #[tokio::test]
+    async fn doctor_warns_when_external_bind_has_inbound_auth_disabled() {
+        let _serial = doctor_test_serial_guard().await;
+        let mut initialized = initialized_db_env().await;
+        initialized.env.extend(HashMap::from([
+            ("ROOK_HOST".to_string(), "0.0.0.0".to_string()),
+            ("ROOK_INBOUND_AUTH_ENABLED".to_string(), "false".to_string()),
+        ]));
+
+        let report = run_with_config_path(None, &initialized.env).await;
+
+        assert_eq!(report.overall_status(), DoctorStatus::Pass);
+        let warning = report
+            .advisory_checks
+            .iter()
+            .find(|check| check.name == "production_bind_auth")
+            .expect("external bind auth advisory should be present");
+        assert_eq!(warning.status, DoctorStatus::Warn);
+        assert!(warning.summary.contains("externally reachable bind"));
+        assert!(warning
+            .guidance
+            .as_deref()
+            .unwrap()
+            .contains("enable inbound auth"));
+    }
+
+    #[tokio::test]
+    async fn doctor_warns_when_concrete_non_loopback_bind_has_inbound_auth_disabled() {
+        let _serial = doctor_test_serial_guard().await;
+        let mut initialized = initialized_db_env().await;
+        initialized.env.extend(HashMap::from([
+            ("ROOK_HOST".to_string(), "203.0.113.10".to_string()),
+            ("ROOK_INBOUND_AUTH_ENABLED".to_string(), "false".to_string()),
+        ]));
+
+        let report = run_with_config_path(None, &initialized.env).await;
+
+        assert_eq!(report.overall_status(), DoctorStatus::Pass);
+        assert!(report
+            .advisory_checks
+            .iter()
+            .any(|check| check.name == "production_bind_auth"));
+    }
+
+    #[test]
+    fn externally_reachable_bind_detection_keeps_loopback_localhost_local() {
+        assert!(!is_externally_reachable_bind("127.0.0.1"));
+        assert!(!is_externally_reachable_bind("[::1]"));
+        assert!(!is_externally_reachable_bind("localhost"));
+        assert!(is_externally_reachable_bind("0.0.0.0"));
+        assert!(is_externally_reachable_bind("::"));
+        assert!(is_externally_reachable_bind("203.0.113.10"));
+        assert!(is_externally_reachable_bind("rook.internal"));
+    }
+
+    #[tokio::test]
+    async fn doctor_warns_when_upstream_resilience_policy_is_unusually_aggressive() {
+        let _serial = doctor_test_serial_guard().await;
+        let mut initialized = initialized_db_env().await;
+        initialized.env.extend(HashMap::from([(
+            "ROOK_UPSTREAM_RESILIENCE_MAX_BUFFERED_ATTEMPTS".to_string(),
+            "11".to_string(),
+        )]));
+
+        let report = run_with_config_path(None, &initialized.env).await;
+
+        assert_eq!(report.overall_status(), DoctorStatus::Pass);
+        let warning = report
+            .advisory_checks
+            .iter()
+            .find(|check| check.name == "upstream_resilience_posture")
+            .expect("upstream resilience advisory should be present");
+        assert_eq!(warning.status, DoctorStatus::Warn);
+        assert!(warning.summary.contains("unusually aggressive"));
+        assert!(warning
+            .details
+            .iter()
+            .any(|detail| detail.contains("max_buffered_attempts=11")));
+    }
+
+    #[tokio::test]
+    async fn doctor_config_check_reports_upstream_resilience_policy() {
+        let _serial = doctor_test_serial_guard().await;
+        let mut initialized = initialized_db_env().await;
+        initialized.env.extend(HashMap::from([
+            (
+                "ROOK_UPSTREAM_RESILIENCE_MAX_BUFFERED_ATTEMPTS".to_string(),
+                "4".to_string(),
+            ),
+            (
+                "ROOK_UPSTREAM_RESILIENCE_FAILURE_COOLDOWN_SECONDS".to_string(),
+                "90".to_string(),
+            ),
+            (
+                "ROOK_UPSTREAM_RESILIENCE_RETRY_BACKOFF_MILLISECONDS".to_string(),
+                "50".to_string(),
+            ),
+            (
+                "ROOK_UPSTREAM_RESILIENCE_MAX_CONCURRENT_UPSTREAM_REQUESTS".to_string(),
+                "9".to_string(),
+            ),
+        ]));
+
+        let report = run_with_config_path(None, &initialized.env).await;
+        let rendered = render_report(&report);
+
+        assert!(
+            rendered.contains("upstream resilience: max_buffered_attempts=4, failure_cooldown_seconds=90, retry_backoff_milliseconds=50, max_concurrent_upstream_requests=9"),
+            "{rendered}"
+        );
+    }
+
+    #[tokio::test]
+    async fn doctor_report_passes_when_effective_config_validates() {
+        let _serial = doctor_test_serial_guard().await;
+        let initialized = initialized_db_env().await;
+
+        let report = run_with_config_path(None, &initialized.env).await;
+
+        assert_eq!(report.overall_status(), DoctorStatus::Pass);
+        assert_eq!(report.checks.len(), 4);
+        assert_eq!(report.checks[0].name, "config");
+        assert_eq!(report.checks[0].status, DoctorStatus::Pass);
+        assert_eq!(report.checks[1].name, "database");
+        assert_eq!(report.checks[1].status, DoctorStatus::Pass);
+        assert_eq!(report.checks[2].name, "assets");
+        assert_eq!(report.checks[2].status, DoctorStatus::Pass);
+        assert_eq!(report.checks[3].name, "inbound_auth");
+        assert_eq!(report.checks[3].status, DoctorStatus::Pass);
+    }
+
+    #[tokio::test]
+    async fn doctor_report_fails_when_effective_config_is_invalid() {
+        let env = HashMap::from([("ROOK_PORT".to_string(), "not-a-port".to_string())]);
+
+        let report = run_with_config_path(None, &env).await;
+
+        assert_eq!(report.overall_status(), DoctorStatus::Fail);
+        assert_eq!(report.checks[0].status, DoctorStatus::Fail);
+        assert!(report.checks[0]
+            .summary
+            .contains("failed to load effective configuration"));
+    }
+
+    #[tokio::test]
+    async fn doctor_report_fails_when_database_cannot_be_opened() {
+        let env = HashMap::from([("ROOK_DB_PATH".to_string(), "/dev/null/rook.db".to_string())]);
+
+        let report = run_with_config_path(None, &env).await;
+
+        assert_eq!(report.overall_status(), DoctorStatus::Fail);
+        assert_eq!(report.checks.len(), 4);
+        assert_eq!(report.checks[0].status, DoctorStatus::Pass);
+        assert_eq!(report.checks[1].name, "database");
+        assert_eq!(report.checks[1].status, DoctorStatus::Fail);
+        assert!(report.checks[1]
+            .summary
+            .contains("startup-equivalent database readiness failed"));
+        assert!(report.checks[1].guidance.is_some());
+    }
+
+    #[tokio::test]
+    async fn doctor_report_fails_when_dashboard_assets_are_unavailable() {
+        let _serial = doctor_test_serial_guard().await;
+        let initialized = initialized_db_env().await;
+        let _assets_override = crate::dashboard::AssetsReadyOverrideGuard::new(false);
+
+        let report = run_with_config_path(None, &initialized.env).await;
+
+        assert_eq!(report.overall_status(), DoctorStatus::Fail);
+        let assets = report
+            .checks
+            .iter()
+            .find(|check| check.name == "assets")
+            .expect("assets check should be present");
+        assert_eq!(assets.status, DoctorStatus::Fail);
+        assert!(assets.summary.contains("missing required index.html"));
+        assert!(assets.guidance.is_some());
+    }
+
+    #[tokio::test]
+    async fn doctor_report_fails_when_inbound_auth_is_enabled_without_token() {
+        let _serial = doctor_test_serial_guard().await;
+        let mut initialized = initialized_db_env().await;
+        initialized
+            .env
+            .insert("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string());
+
+        let report = run_with_config_path(None, &initialized.env).await;
+
+        assert_eq!(report.overall_status(), DoctorStatus::Fail);
+        assert_eq!(report.checks.len(), 4);
+        let inbound_auth = report
+            .checks
+            .iter()
+            .find(|check| check.name == "inbound_auth")
+            .expect("inbound_auth check should be present");
+        assert_eq!(inbound_auth.status, DoctorStatus::Fail);
+        assert!(inbound_auth.summary.contains("not correctly configured"));
+    }
+
+    #[tokio::test]
+    async fn doctor_report_inbound_auth_check_does_not_leak_token_value() {
+        let _serial = doctor_test_serial_guard().await;
+        let mut initialized = initialized_db_env().await;
+        initialized.env.extend(HashMap::from([
+            ("ROOK_INBOUND_AUTH_ENABLED".to_string(), "true".to_string()),
+            (
+                "ROOK_INBOUND_AUTH_TOKEN".to_string(),
+                "super-secret-token".to_string(),
+            ),
+        ]));
+
+        let report = run_with_config_path(None, &initialized.env).await;
+
+        assert_eq!(report.overall_status(), DoctorStatus::Pass);
+        let inbound_auth_check = report
+            .checks
+            .iter()
+            .find(|check| check.name == "inbound_auth")
+            .expect("inbound auth check should be present");
+        assert_eq!(inbound_auth_check.status, DoctorStatus::Pass);
+        assert!(inbound_auth_check
+            .summary
+            .contains("token configuration is present"));
+        assert!(!inbound_auth_check.summary.contains("super-secret-token"));
+        assert!(inbound_auth_check
+            .details
+            .iter()
+            .all(|detail| !detail.contains("super-secret-token")));
+        assert!(inbound_auth_check
+            .guidance
+            .as_deref()
+            .is_none_or(|guidance| !guidance.contains("super-secret-token")));
+    }
+
+    #[test]
+    fn render_json_report_outputs_machine_readable_status_and_checks() {
+        let report = DoctorReport {
+            checks: vec![DoctorCheckResult {
+                name: "config",
+                status: DoctorStatus::Pass,
+                summary: "effective configuration loaded and validated".to_string(),
+                guidance: None,
+                details: vec!["effective bind target: 127.0.0.1:4141".to_string()],
+            }],
+            advisory_checks: vec![],
+        };
+
+        let rendered = render_json_report(&report).expect("doctor json should render");
+        let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+
+        assert_eq!(parsed["status"], "pass");
+        assert_eq!(parsed["checks"][0]["name"], "config");
+        assert_eq!(parsed["checks"][0]["status"], "pass");
+        assert_eq!(
+            parsed["checks"][0]["summary"],
+            "effective configuration loaded and validated"
+        );
+        assert_eq!(
+            parsed["checks"][0]["details"][0],
+            "effective bind target: 127.0.0.1:4141"
+        );
+        assert_eq!(parsed["advisory_checks"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn render_json_report_does_not_leak_inbound_auth_token() {
+        let report = DoctorReport {
+            checks: vec![DoctorCheckResult {
+                name: "inbound_auth",
+                status: DoctorStatus::Pass,
+                summary: "inbound auth is enabled and token configuration is present".to_string(),
+                guidance: None,
+                details: vec!["inbound auth state: enabled token_configured=true".to_string()],
+            }],
+            advisory_checks: vec![],
+        };
+
+        let rendered = render_json_report(&report).expect("doctor json should render");
+
+        assert!(!rendered.contains("super-secret-token"));
+        assert!(rendered.contains("token configuration is present"));
+    }
+
+    #[test]
+    fn render_report_outputs_stable_lines() {
+        let report = DoctorReport {
+            checks: vec![
+                DoctorCheckResult {
+                    name: "config",
+                    status: DoctorStatus::Pass,
+                    summary: "effective configuration loaded and validated".to_string(),
+                    guidance: None,
+                    details: vec!["effective bind target: 127.0.0.1:4141".to_string()],
+                },
+                DoctorCheckResult {
+                    name: "database",
+                    status: DoctorStatus::Pass,
+                    summary: "startup-equivalent database open and migrations succeeded"
+                        .to_string(),
+                    guidance: None,
+                    details: vec!["database path: ./rook.db".to_string()],
+                },
+                DoctorCheckResult {
+                    name: "assets",
+                    status: DoctorStatus::Pass,
+                    summary: "embedded dashboard assets are available".to_string(),
+                    guidance: None,
+                    details: vec![],
+                },
+            ],
+            advisory_checks: vec![],
+        };
+
+        let rendered = render_report(&report);
+
+        assert!(rendered.contains("rook doctor: pass"));
+        assert!(rendered.contains("summary: total=3, pass=3, warn=0, fail=0"));
+        assert!(rendered.contains("- config: pass — effective configuration loaded and validated"));
+        assert!(rendered.contains("detail: effective bind target: 127.0.0.1:4141"));
+        assert!(rendered.contains(
+            "- database: pass — startup-equivalent database open and migrations succeeded"
+        ));
+    }
+
+    #[test]
+    fn render_report_preserves_check_order_and_overall_fail_status() {
+        let report = DoctorReport {
+            checks: vec![
+                DoctorCheckResult {
+                    name: "config",
+                    status: DoctorStatus::Pass,
+                    summary: "ok".to_string(),
+                    guidance: None,
+                    details: vec![],
+                },
+                DoctorCheckResult {
+                    name: "database",
+                    status: DoctorStatus::Pass,
+                    summary: "ok".to_string(),
+                    guidance: None,
+                    details: vec![],
+                },
+                DoctorCheckResult {
+                    name: "assets",
+                    status: DoctorStatus::Pass,
+                    summary: "ok".to_string(),
+                    guidance: None,
+                    details: vec![],
+                },
+                DoctorCheckResult {
+                    name: "inbound_auth",
+                    status: DoctorStatus::Fail,
+                    summary: "broken".to_string(),
+                    guidance: Some("fix it".to_string()),
+                    details: vec![],
+                },
+            ],
+            advisory_checks: vec![],
+        };
+
+        let rendered = render_report(&report);
+        let config_index = rendered
+            .find("- config:")
+            .expect("config line should exist");
+        let database_index = rendered
+            .find("- database:")
+            .expect("database line should exist");
+        let assets_index = rendered
+            .find("- assets:")
+            .expect("assets line should exist");
+        let auth_index = rendered
+            .find("- inbound_auth:")
+            .expect("inbound auth line should exist");
+
+        assert!(rendered.contains("rook doctor: fail"));
+        assert!(rendered.contains("summary: total=4, pass=3, warn=0, fail=1"));
+        assert!(config_index < database_index);
+        assert!(database_index < assets_index);
+        assert!(assets_index < auth_index);
+    }
+
+    #[test]
+    fn ensure_success_returns_error_on_fail() {
+        let report = DoctorReport {
+            checks: vec![DoctorCheckResult {
+                name: "config",
+                status: DoctorStatus::Fail,
+                summary: "broken".to_string(),
+                guidance: Some("fix config".to_string()),
+                details: vec![],
+            }],
+            advisory_checks: vec![],
+        };
+
+        let result = ensure_success(&report);
+
+        assert!(result.is_err());
+        assert!(result
+            .expect_err("should fail")
+            .to_string()
+            .contains("guidance: fix config"));
+    }
+}

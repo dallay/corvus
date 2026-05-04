@@ -18,8 +18,8 @@ The tool system is built on a "deny-by-default" security model, ensuring that ev
 
 Built-in tools are organized into six primary categories:
 
-- [**Core Tools**](core.md) — System command execution (`shell`), native workspace search (`code_search`), and workspace filesystem access (`file_read`, `file_write`).
-- [**Web Tools**](web.md) — Web browsing (`browser`), search (`web_search_tool`), and structured API calls (`http_request`).
+- [**Core Tools**](core.md) — System command execution (`shell`), native workspace search (`code_search`, `Grep`), file discovery parity (`Glob`), and workspace filesystem access (`file_read`, `file_write`).
+- [**Web Tools**](web.md) — Web browsing (`browser`), search (`web_search_tool`), structured API calls (`http_request`), and read-only fetch parity (`WebFetch`).
 - [**Memory Tools**](memory.md) — Long-term persistence and retrieval of facts and preferences (`memory_store`, `memory_recall`).
 - [**Automation Tools**](automation.md) — Multi-agent delegation (`delegate`), managed app integrations (`composio`), Git repository management, scheduled tasks (Cron/Schedule), and notifications (`pushover`).
 - [**Media Tools**](media.md) — Vision-related capabilities including screen capture and image metadata extraction.
@@ -31,11 +31,28 @@ Every tool execution passes through the `SecurityPolicy` layer. Tools are classi
 
 ### Read-Only (Safe)
 These tools do not modify the system or external state. They are generally allowed even in low-autonomy modes.
-- *Examples:* `file_read`, `memory_recall`, `web_search_tool`, `image_info`, `hardware_board_info`.
+- *Examples:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `hardware_board_info`.
+
+## Claude-style parity mapping
+
+This slice adds first-class parity tools without removing existing Corvus-native names.
+
+| Parity name | Backing runtime piece | Slice status | Notes |
+| :--- | :--- | :--- | :--- |
+| `Glob` | Workspace discovery metadata helpers | Additive + canonical for parity-facing docs | New native tool for file-pattern discovery. |
+| `Grep` | Shared search backend aligned with `code_search` | Additive + canonical for parity-facing docs | `code_search` remains available for the native contract. |
+| `WebFetch` | Shared outbound HTTP policy derived from `http_request` | Additive + canonical for parity-facing docs | Read-only fetch-and-extract surface. |
+| `TaskCreate` / `TaskGet` / `TaskList` / `TaskUpdate` / `TaskStop` | Persistent runtime task lifecycle in `brain.db` | Additive + canonical for parity-facing docs | Supported only with the `sqlite` memory backend. `schedule` and `cron_*` remain separate scheduler semantics, not task-lifecycle replacements. |
+
+This slice does **not** require broad renames or removal of existing internal tool names.
+
+Persistent task parity stays intentionally narrow in this slice: global tasks with optional
+`session_id`, UUID IDs, statuses `pending | in_progress | completed | cancelled`, priorities
+`low | medium | high`, and no reopen semantics, subtasks, or dependencies.
 
 ### Action-Bearing (Risk-bearing)
 These tools can modify files, execute code, or interact with external services. They may require explicit user approval in supervised modes.
-- *Examples:* `shell`, `file_write`, `git_operations`, `cron_add`, `delegate`, `composio`, `gpio_write`.
+- *Examples:* `shell`, `file_write`, `git_operations`, `cron_add`, `delegate`, `composio`, `gpio_write`, `memory_forget`.
 
 ## MCP Integration
 

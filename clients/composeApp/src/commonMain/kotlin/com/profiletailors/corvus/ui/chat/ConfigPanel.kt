@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.profiletailors.corvus.runtime.RuntimeSession
 import com.profiletailors.corvus.ui.theme.CorvusTheme
 
+@Suppress("LongParameterList") // Composable parameters are not reducible without losing clarity
 @Composable
 internal fun ConfigPanel(
   bridgeState: MobileBridgeUiState,
@@ -42,13 +44,11 @@ internal fun ConfigPanel(
     shape = RoundedCornerShape(20.dp),
     color = corvusColors.glassSurface,
   ) {
-    Box(
-      modifier =
-        Modifier.background(
-          brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
-        )
-    ) {
-      ConfigSettingsList(
+    val backgroundBrush = remember {
+      Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
+    }
+    Box(modifier = Modifier.background(brush = backgroundBrush)) {
+      configSettingsList(
         bridgeState = bridgeState,
         resumableSessions = resumableSessions,
         activeSessionId = activeSessionId,
@@ -60,7 +60,7 @@ internal fun ConfigPanel(
 }
 
 @Composable
-internal fun ConfigSettingsList(
+internal fun configSettingsList(
   bridgeState: MobileBridgeUiState,
   resumableSessions: List<RuntimeSession>,
   activeSessionId: String?,
@@ -69,7 +69,7 @@ internal fun ConfigSettingsList(
 ) {
   val corvusColors = CorvusTheme.colors
   val onboardingState = bridgeState.onboardingState
-  val detailLines = buildDiagnosticsLines(bridgeState)
+  val detailLines = remember(bridgeState) { buildDiagnosticsLines(bridgeState) }
 
   LazyColumn(
     modifier = Modifier.fillMaxSize().padding(20.dp),
@@ -110,10 +110,12 @@ internal fun ConfigSettingsList(
     }
 
     item {
+      val safeDetails =
+        remember(bridgeState, targetLabel) { buildSafeDiagnosticLines(bridgeState, targetLabel) }
       diagnosticsCard(
         title = "Safe diagnostics",
         subtitle = "Parity-critical bridge details only",
-        details = buildSafeDiagnosticLines(bridgeState, targetLabel),
+        details = safeDetails,
       )
     }
 
@@ -183,24 +185,21 @@ internal fun ConfigSettingsList(
     }
 
     item {
-      Box(
-        modifier =
-          Modifier.fillMaxWidth()
-            .height(1.dp)
-            .background(
-              brush =
-                Brush.horizontalGradient(
-                  listOf(Color.Transparent, corvusColors.glassOverlay, Color.Transparent)
-                )
-            )
-      )
+      val dividerBrush =
+        remember(corvusColors.glassOverlay) {
+          Brush.horizontalGradient(
+            listOf(Color.Transparent, corvusColors.glassOverlay, Color.Transparent)
+          )
+        }
+      Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(brush = dividerBrush))
     }
 
     item {
+      val resetOptions = remember { buildResetOptionLines() }
       diagnosticsCard(
         title = "Reset options",
         subtitle = "Relink or disconnect without exposing unsafe controls",
-        details = buildResetOptionLines(),
+        details = resetOptions,
       )
     }
 

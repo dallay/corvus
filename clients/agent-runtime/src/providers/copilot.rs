@@ -247,7 +247,7 @@ impl CopilotProvider {
                 .map(String::from),
             refresh_lock: Arc::new(Mutex::new(None)),
             http: Client::builder()
-                .timeout(Duration::from_secs(120))
+                .timeout(Duration::from_mins(2))
                 .connect_timeout(Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
@@ -1018,7 +1018,7 @@ mod tests {
     #[test]
     fn oauth_poll_delay_applies_safety_margin() {
         let delay = oauth_poll_delay_secs(5);
-        assert_eq!(delay, Duration::from_millis(8000));
+        assert_eq!(delay, Duration::from_secs(8));
     }
 
     #[test]
@@ -1041,6 +1041,7 @@ mod tests {
                 "required": ["a", "b"]
             }),
             source: None,
+            aliases: vec![],
         }];
 
         let native = CopilotProvider::convert_tools(Some(&tools)).expect("tools must map");

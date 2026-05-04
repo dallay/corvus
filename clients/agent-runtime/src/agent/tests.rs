@@ -216,6 +216,11 @@ struct CountingTool {
     count: Arc<Mutex<usize>>,
 }
 
+/// A tool that exposes an alias and tracks alias execution.
+struct AliasCountingTool {
+    count: Arc<Mutex<usize>>,
+}
+
 #[derive(Default)]
 struct TrackingMemory {
     recall_sessions: ParkingLotMutex<Vec<Option<String>>>,
@@ -290,6 +295,18 @@ impl CountingTool {
     }
 }
 
+impl AliasCountingTool {
+    fn new() -> (Self, Arc<Mutex<usize>>) {
+        let count = Arc::new(Mutex::new(0));
+        (
+            Self {
+                count: count.clone(),
+            },
+            count,
+        )
+    }
+}
+
 #[async_trait]
 impl Tool for CountingTool {
     fn name(&self) -> &str {
@@ -310,6 +327,42 @@ impl Tool for CountingTool {
         Ok(ToolResult {
             success: true,
             output: format!("call #{}", *c),
+            error: None,
+            structured: None,
+        })
+    }
+}
+
+#[async_trait]
+impl Tool for AliasCountingTool {
+    fn name(&self) -> &str {
+        "Glob"
+    }
+
+    fn description(&self) -> &str {
+        "Counts parity alias calls"
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({"type": "object"})
+    }
+
+    fn spec(&self) -> crate::tools::ToolSpec {
+        crate::tools::ToolSpec {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+            parameters: self.parameters_schema(),
+            source: None,
+            aliases: vec!["glob".to_string()],
+        }
+    }
+
+    async fn execute(&self, _args: serde_json::Value) -> Result<ToolResult> {
+        let mut c = self.count.lock().unwrap();
+        *c += 1;
+        Ok(ToolResult {
+            success: true,
+            output: format!("alias call #{}", *c),
             error: None,
             structured: None,
         })
@@ -481,6 +534,36 @@ async fn turn_executes_single_tool_then_returns() {
     assert!(
         !response.is_empty(),
         "Expected non-empty response after tool execution"
+    );
+}
+
+#[tokio::test]
+async fn turn_executes_tool_via_alias_then_returns() {
+    let (tool, count) = AliasCountingTool::new();
+    let provider = Box::new(ScriptedProvider::new(vec![
+        tool_response(vec![ToolCall {
+            id: "tc1".into(),
+            name: "glob".into(),
+            arguments: "{}".into(),
+        }]),
+        text_response("I ran the aliased tool"),
+    ]));
+
+    let mut agent = build_agent_with(
+        provider,
+        vec![Box::new(tool)],
+        Box::new(NativeToolDispatcher),
+    );
+
+    let response = agent.turn("run alias").await.unwrap();
+    assert!(
+        !response.is_empty(),
+        "Expected non-empty response after aliased tool execution"
+    );
+    assert_eq!(
+        *count.lock().unwrap(),
+        1,
+        "Expected aliased tool to execute exactly once"
     );
 }
 

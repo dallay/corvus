@@ -5,11 +5,10 @@ on:
   pull_request:
     types: [closed]
 
-permissions:
-  actions: write
-  contents: read
-
 jobs:
   cleanup:
-    uses: dallay/common-actions/.github/workflows/cleanup-cache.yml@0f8de7c46309882e873a878e1fcc636bf56ad586 # v1.2.0
+    permissions:
+      actions: write
+      contents: read
+    uses: dallay/common-actions/.github/workflows/cleanup-cache.yml@6ecd716dcfb6a9e8a9c494d1eac210cc1d73d75f # v2.0.0
     secrets: inherit

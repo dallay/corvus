@@ -1,0 +1,75 @@
+[package]
+name = "rook"
+version = "0.1.0"
+edition = "2021"
+authors = ["theonlyhennygod"]
+license = "Apache-2.0"
+description = "Corvus Rook — standalone local-first AI provider gateway"
+repository = "https://github.com/dallay/corvus"
+
+[[bin]]
+name = "rook"
+path = "src/main.rs"
+
+[lib]
+name = "rook"
+path = "src/lib.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Async runtime
+tokio = { version = "1.42", default-features = false, features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal"] }
+
+# HTTP gateway
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "matched-path"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+bytes = "1.0"
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0", default-features = false, features = ["std"] }
+toml = "0.8"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Logging
+tracing = { version = "0.1", default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi", "env-filter"] }
+prometheus-client = "0.23"
+
+# IDs
+uuid = { version = "1.23", default-features = false, features = ["v4", "std", "serde"] }
+
+# Persistence
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite"] }
+
+# Time
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+sha2 = "0.10"
+
+# Asset embedding
+rust-embed = { version = "8.5", features = ["mime-guess"] }
+mime_guess = "2.0"
+
+# Static file serving
+tower-http = { version = "0.6", default-features = false, features = ["fs", "trace"] }
+
+# HTTP response helpers
+http = "1.0"
+ipnet = "2.10"
+
+# Terminal UI
+crossterm = { version = "0.29", default-features = false, features = ["events"] }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29"] }
+
+# Shared runtime contracts (no internal corvus binary dependency)
+corvus-traits = { version = "0.2.2", path = "../agent-runtime/crates/corvus-traits" }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+tempfile = "3.14"

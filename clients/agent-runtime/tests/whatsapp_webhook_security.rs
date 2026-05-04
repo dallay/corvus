@@ -6,8 +6,13 @@
 //! 3. Webhooks with missing signatures are rejected
 //! 4. Webhooks are rejected even if JSON is valid but signature is bad
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
+
+const TEST_APP_SECRET: &str = "test_app_secret";
+const TEST_PAYLOAD: &[u8] = b"test payload";
+const FIRST_TEST_SECRET: &str = "secret_one";
+const SECOND_TEST_SECRET: &str = "secret_two";
 
 /// Compute valid HMAC-SHA256 signature for a webhook payload
 fn compute_signature(app_secret: &str, body: &[u8]) -> String {
@@ -19,8 +24,8 @@ fn compute_signature(app_secret: &str, body: &[u8]) -> String {
 
 #[test]
 fn whatsapp_signature_rejects_missing_sha256_prefix() {
-    let secret = "test_app_secret";
-    let body = b"test payload";
+    let secret = TEST_APP_SECRET;
+    let body = TEST_PAYLOAD;
     let bad_sig = "abc123"; // Missing sha256= prefix
 
     assert!(!corvus::gateway::verify_whatsapp_signature(
@@ -30,8 +35,8 @@ fn whatsapp_signature_rejects_missing_sha256_prefix() {
 
 #[test]
 fn whatsapp_signature_rejects_invalid_hex() {
-    let secret = "test_app_secret";
-    let body = b"test payload";
+    let secret = TEST_APP_SECRET;
+    let body = TEST_PAYLOAD;
     let bad_sig = "sha256=not-valid-hex!!";
 
     assert!(!corvus::gateway::verify_whatsapp_signature(
@@ -41,8 +46,8 @@ fn whatsapp_signature_rejects_invalid_hex() {
 
 #[test]
 fn whatsapp_signature_rejects_wrong_signature() {
-    let secret = "test_app_secret";
-    let body = b"test payload";
+    let secret = TEST_APP_SECRET;
+    let body = TEST_PAYLOAD;
     let bad_sig = "sha256=00112233445566778899aabbccddeeff";
 
     assert!(!corvus::gateway::verify_whatsapp_signature(
@@ -52,8 +57,8 @@ fn whatsapp_signature_rejects_wrong_signature() {
 
 #[test]
 fn whatsapp_signature_accepts_valid_signature() {
-    let secret = "test_app_secret";
-    let body = b"test payload";
+    let secret = TEST_APP_SECRET;
+    let body = TEST_PAYLOAD;
     let valid_sig = compute_signature(secret, body);
 
     assert!(corvus::gateway::verify_whatsapp_signature(
@@ -63,7 +68,7 @@ fn whatsapp_signature_accepts_valid_signature() {
 
 #[test]
 fn whatsapp_signature_rejects_tampered_body() {
-    let secret = "test_app_secret";
+    let secret = TEST_APP_SECRET;
     let original_body = b"original message";
     let tampered_body = b"tampered message";
 
@@ -80,9 +85,9 @@ fn whatsapp_signature_rejects_tampered_body() {
 
 #[test]
 fn whatsapp_signature_rejects_wrong_secret() {
-    let correct_secret = "correct_secret";
-    let wrong_secret = "wrong_secret";
-    let body = b"test payload";
+    let correct_secret = TEST_APP_SECRET;
+    let wrong_secret = FIRST_TEST_SECRET;
+    let body = TEST_PAYLOAD;
 
     // Compute signature with correct secret
     let sig = compute_signature(correct_secret, body);
@@ -97,8 +102,8 @@ fn whatsapp_signature_rejects_wrong_secret() {
 
 #[test]
 fn whatsapp_signature_rejects_empty_signature() {
-    let secret = "test_app_secret";
-    let body = b"test payload";
+    let secret = TEST_APP_SECRET;
+    let body = TEST_PAYLOAD;
 
     assert!(!corvus::gateway::verify_whatsapp_signature(
         secret, body, ""
@@ -107,9 +112,9 @@ fn whatsapp_signature_rejects_empty_signature() {
 
 #[test]
 fn whatsapp_signature_different_secrets_produce_different_sigs() {
-    let secret1 = "secret_one";
-    let secret2 = "secret_two";
-    let body = b"same payload";
+    let secret1 = FIRST_TEST_SECRET;
+    let secret2 = SECOND_TEST_SECRET;
+    let body = TEST_PAYLOAD;
 
     let sig1 = compute_signature(secret1, body);
     let sig2 = compute_signature(secret2, body);

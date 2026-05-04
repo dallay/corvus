@@ -1,9 +1,10 @@
 use crate::config::MemoryCerebroConfig;
-use crate::memory::{Memory, MemoryEntry};
+use crate::memory::{is_slash_session_unsupported_error, Memory, MemoryEntry, SessionSnapshotKind};
 use crate::security::egress::enforce_cerebro_egress;
 use crate::security::policy::ToolOperation;
 use crate::tools::mcp::{cerebro, normalize};
 use crate::tools::traits::Tool;
+use anyhow::Context as _;
 use async_trait::async_trait;
 use serde_json::json;
 use std::fmt::Write;
@@ -65,10 +66,15 @@ impl MemoryLoader for DefaultMemoryLoader {
         user_message: &str,
         session_id: Option<&str>,
     ) -> anyhow::Result<String> {
+        // Call recall first - if it fails, don't consume the one-shot resume context
         let entries = memory.recall(user_message, self.limit, session_id).await?;
+
+        // Now try to append pending resume context (safe to call after recall succeeded)
         let mut context = String::new();
+        let added_resume = append_pending_resume_context(&mut context, memory, session_id).await?;
+
         let added = append_local_entries(&mut context, &entries, self.min_relevance_score);
-        if !added {
+        if !added && !added_resume {
             return Ok(String::new());
         }
 
@@ -85,9 +91,15 @@ impl MemoryLoader for CerebroMemoryLoader {
         user_message: &str,
         session_id: Option<&str>,
     ) -> anyhow::Result<String> {
+        // Call recall first - if it fails, don't consume the one-shot resume context
         let entries = memory.recall(user_message, self.limit, session_id).await?;
+
+        // Now append pending resume context after recall succeeded
         let mut context = String::new();
+        let added_resume = append_pending_resume_context(&mut context, memory, session_id).await?;
+
         let mut added = append_local_entries(&mut context, &entries, self.min_relevance_score);
+        added = added || added_resume;
 
         let endpoint = self
             .config
@@ -157,6 +169,51 @@ fn append_local_entries(
         added = true;
     }
     added
+}
+
+async fn append_pending_resume_context(
+    context: &mut String,
+    memory: &dyn Memory,
+    session_id: Option<&str>,
+) -> anyhow::Result<bool> {
+    let Some(session_id) = session_id else {
+        return Ok(false);
+    };
+    let pending = match memory.take_pending_resume_hydration(session_id).await {
+        Ok(snapshot) => snapshot,
+        Err(error) if is_slash_session_unsupported_error(&error) => return Ok(false),
+        Err(error) => {
+            return Err(error).context(format!(
+                "pending resume hydration failed for session {session_id}"
+            ))
+        }
+    };
+    let Some(snapshot) = pending else {
+        return Ok(false);
+    };
+    if snapshot.kind != SessionSnapshotKind::Compact {
+        anyhow::bail!("pending resume hydration must use a compact snapshot");
+    }
+    let summary = snapshot
+        .payload
+        .get("summary")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("No summary available.");
+    let resume_context = snapshot
+        .payload
+        .get("resume_context")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("compact snapshot missing resume_context"))?;
+    let _ = writeln!(context, "[Resumed session context]");
+    let _ = writeln!(context, "- Snapshot: compact");
+    let _ = writeln!(context, "- Session: {}", snapshot.session_id);
+    let _ = writeln!(context, "- Summary: {summary}");
+    let _ = writeln!(context, "- Resume context: {resume_context}");
+    Ok(true)
 }
 
 /// Finalize a context string: append newline if entries were added, else return empty.
@@ -242,6 +299,7 @@ mod tests {
     #[derive(Default)]
     struct SessionTrackingMemory {
         recall_sessions: std::sync::Mutex<Vec<Option<String>>>,
+        pending_snapshot: std::sync::Mutex<Option<crate::memory::SessionSnapshotRecord>>,
     }
 
     #[async_trait]
@@ -367,6 +425,13 @@ mod tests {
 
         fn name(&self) -> &str {
             "session-tracking"
+        }
+
+        async fn take_pending_resume_hydration(
+            &self,
+            _session_id: &str,
+        ) -> anyhow::Result<Option<crate::memory::SessionSnapshotRecord>> {
+            Ok(self.pending_snapshot.lock().unwrap().take())
         }
     }
 
@@ -501,5 +566,35 @@ mod tests {
             memory.recall_sessions.lock().unwrap().clone(),
             vec![Some("webhook-session-1".to_string())]
         );
+    }
+
+    #[tokio::test]
+    async fn default_loader_prepends_persisted_resume_context_once() {
+        let loader = DefaultMemoryLoader::default();
+        let memory = SessionTrackingMemory::default();
+        *memory.pending_snapshot.lock().unwrap() = Some(crate::memory::SessionSnapshotRecord {
+            id: "snapshot-1".into(),
+            session_id: "webhook-session-1".into(),
+            kind: SessionSnapshotKind::Compact,
+            created_at: "now".into(),
+            payload: serde_json::json!({
+                "summary": "Discuss release checklist",
+                "resume_context": "Pick up from the last checklist item",
+            }),
+            resume_capable: true,
+        });
+
+        let first = loader
+            .load_context(&memory, "hello", Some("webhook-session-1"))
+            .await
+            .unwrap();
+        let second = loader
+            .load_context(&memory, "hello", Some("webhook-session-1"))
+            .await
+            .unwrap();
+
+        assert!(first.contains("[Resumed session context]"));
+        assert!(first.contains("Pick up from the last checklist item"));
+        assert!(!second.contains("[Resumed session context]"));
     }
 }

@@ -16,6 +16,9 @@ on:
       release_id:
         type: string
         required: false
+      affected_components:
+        type: string
+        required: false
     secrets:
       SIGNING_IN_MEMORY_KEY:
         required: false
@@ -44,6 +47,10 @@ jobs:
       release_major_minor: ${{ steps.release-context.outputs.release_major_minor }}
       release_major: ${{ steps.release-context.outputs.release_major }}
       npm_dist_tag: ${{ steps.release-context.outputs.npm_dist_tag }}
+      has_corvus_runtime: ${{ steps.component-flags.outputs.has_corvus_runtime }}
+      has_rook: ${{ steps.component-flags.outputs.has_rook }}
+      has_cerebro: ${{ steps.component-flags.outputs.has_cerebro }}
+      has_gradle_kmp: ${{ steps.component-flags.outputs.has_gradle_kmp }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
@@ -55,6 +62,66 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+
+      - name: 🧭 Resolve component flags
+        id: component-flags
+        shell: python
+        env:
+          AFFECTED_COMPONENTS: ${{ inputs.affected_components || '[]' }}
+          VALIDATION_OUTPUT: ${{ runner.temp }}/affected-components.json
+        run: |
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          validation_output = pathlib.Path(os.environ["VALIDATION_OUTPUT"])
+          with validation_output.open("w", encoding="utf-8") as handle:
+              subprocess.run(
+                  ["node", "scripts/validate-affected-components.mjs"],
+                  check=True,
+                  text=True,
+                  stdout=handle,
+                  env=os.environ.copy(),
+              )
+
+          payload = json.loads(validation_output.read_text(encoding="utf-8"))
+          flags = {
+              "has_corvus_runtime": payload["has_corvus_runtime"],
+              "has_rook": payload["has_rook"],
+              "has_cerebro": payload["has_cerebro"],
+              "has_gradle_kmp": payload["has_gradle_kmp"],
+          }
+
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              for key, value in flags.items():
+                  output.write(f"{key}={'true' if value else 'false'}\n")
+
+          with pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write("### Resolved affected components\n\n")
+              summary.write(f"- Raw payload: `{payload['raw_payload']}`\n")
+              summary.write(f"- Resolved affected components: `{', '.join(payload['affected_components'])}`\n")
+
+      - name: 🔎 Validate component flag outputs
+        shell: python
+        env:
+          COMPONENT_FLAG_OUTPUTS: |
+            has_corvus_runtime=${{ steps.component-flags.outputs.has_corvus_runtime }}
+            has_rook=${{ steps.component-flags.outputs.has_rook }}
+            has_cerebro=${{ steps.component-flags.outputs.has_cerebro }}
+            has_gradle_kmp=${{ steps.component-flags.outputs.has_gradle_kmp }}
+        run: |
+          import os
+
+          raw_outputs = os.environ["COMPONENT_FLAG_OUTPUTS"].splitlines()
+          for raw_output in raw_outputs:
+              key, separator, value = raw_output.partition("=")
+              if not separator:
+                  raise SystemExit(f"Invalid component flag output entry: {raw_output!r}")
+              if value not in {"true", "false"}:
+                  raise SystemExit(
+                      f"Invalid component flag output {key}: expected 'true' or 'false', got {value!r}",
+                  )
 
       - name: 🦀 Resolve Rust channel
         if: ${{ inputs.release }}
@@ -110,6 +177,8 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_ID: ${{ inputs.release_id }}
           PRERELEASE: ${{ inputs.prerelease }}
+          AFFECTED_COMPONENTS: ${{ inputs.affected_components || '[]' }}
+          RELEASE_CONTEXT_OUTPUT: ${{ runner.temp }}/release-context.json
         run: |
           set -euo pipefail
 
@@ -119,51 +188,67 @@ jobs:
           fi
 
           release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
-          RELEASE_JSON="$release_json" RELEASE_TAG="$RELEASE_TAG" PRERELEASE="$PRERELEASE" python3 <<'PY'
+          release_tag_from_api="$(RELEASE_JSON="$release_json" python3 - <<'PY'
+          import json
+          import os
+          print(json.loads(os.environ["RELEASE_JSON"]).get("tag_name", ""))
+          PY
+          )"
+          release_draft_from_api="$(RELEASE_JSON="$release_json" python3 - <<'PY'
+          import json
+          import os
+          print("true" if json.loads(os.environ["RELEASE_JSON"]).get("draft") else "false")
+          PY
+          )"
+          release_prerelease_from_api="$(RELEASE_JSON="$release_json" python3 - <<'PY'
+          import json
+          import os
+          print("true" if json.loads(os.environ["RELEASE_JSON"]).get("prerelease") else "false")
+          PY
+          )"
+
+          if [[ "$release_tag_from_api" != "$RELEASE_TAG" ]]; then
+            echo "Release id ${RELEASE_ID} points to ${release_tag_from_api} instead of ${RELEASE_TAG}"
+            exit 1
+          fi
+          if [[ "$release_draft_from_api" == "true" ]]; then
+            echo "Release publish does not accept draft releases"
+            exit 1
+          fi
+          if [[ "$release_prerelease_from_api" != "$PRERELEASE" ]]; then
+            echo "Release prerelease state ${release_prerelease_from_api} does not match expected ${PRERELEASE}"
+            exit 1
+          fi
+
+          node scripts/resolve-release-context.mjs > "$RELEASE_CONTEXT_OUTPUT"
+
+          python3 <<'PY'
           import json
           import os
           import pathlib
-          import re
-          import sys
 
-          release = json.loads(os.environ["RELEASE_JSON"])
-          expected_tag = os.environ["RELEASE_TAG"]
-          is_prerelease = os.environ["PRERELEASE"].lower() == "true"
-          channel = "beta" if is_prerelease else "stable"
-          tag_pattern = r"^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$" if is_prerelease else r"^v[0-9]+\.[0-9]+\.[0-9]+$"
+          payload = json.loads(pathlib.Path(os.environ["RELEASE_CONTEXT_OUTPUT"]).read_text(encoding="utf-8"))
+          output_keys = [
+              "release_tag",
+              "release_version",
+              "release_id",
+              "release_channel",
+              "release_major_minor",
+              "release_major",
+              "npm_dist_tag",
+          ]
 
-          if not re.match(tag_pattern, expected_tag):
-              print(f"Invalid {channel} release tag: {expected_tag}", file=sys.stderr)
-              raise SystemExit(1)
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              for key in output_keys:
+                  output.write(f"{key}={payload[key]}\n")
 
-          if release.get("tag_name") != expected_tag:
-              print(
-                  f"Release id {release.get('id')} points to {release.get('tag_name')} instead of {expected_tag}",
-                  file=sys.stderr,
-              )
-              raise SystemExit(1)
-          if release.get("draft"):
-              print(f"{channel.title()} publish does not accept draft releases", file=sys.stderr)
-              raise SystemExit(1)
-          if bool(release.get("prerelease")) != is_prerelease:
-              expected_state = "a prerelease" if is_prerelease else "a stable release"
-              print(f"{channel.title()} publish requires {expected_state}", file=sys.stderr)
-              raise SystemExit(1)
-
-          version = expected_tag.removeprefix("v")
-          base_version = version.split("-", 1)[0]
-          major, minor, _patch = base_version.split(".")
-          npm_dist_tag = "beta" if is_prerelease else "latest"
-
-          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
-          with output.open("a", encoding="utf-8") as handle:
-              handle.write(f"release_tag={expected_tag}\n")
-              handle.write(f"release_version={version}\n")
-              handle.write(f"release_id={release['id']}\n")
-              handle.write(f"release_channel={channel}\n")
-              handle.write(f"release_major_minor={major}.{minor}\n")
-              handle.write(f"release_major={major}\n")
-              handle.write(f"npm_dist_tag={npm_dist_tag}\n")
+          with pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write("### Release context\n\n")
+              summary.write(f"- Component: `{payload['release_component']}`\n")
+              summary.write(f"- Version: `{payload['release_version']}`\n")
+              summary.write(f"- Channel: `{payload['release_channel']}`\n")
+              summary.write(f"- npm dist-tag: `{payload['npm_dist_tag']}`\n")
+              summary.write(f"- Affected components: `{', '.join(payload['affected_components'])}`\n")
           PY
 
       - name: 🔎 Validate release version consistency
@@ -172,7 +257,9 @@ jobs:
         env:
           EXPECTED_VERSION: ${{ steps.release-context.outputs.release_version }}
           RELEASE_CHANNEL: ${{ steps.release-context.outputs.release_channel }}
+          AFFECTED_COMPONENTS: ${{ inputs.affected_components || '[]' }}
         run: |
+
           set -euo pipefail
 
           python3 <<'PY'
@@ -184,6 +271,11 @@ jobs:
 
           expected = os.environ["EXPECTED_VERSION"]
           channel = os.environ["RELEASE_CHANNEL"].title()
+          affected_components_raw = os.environ.get("AFFECTED_COMPONENTS", '[]')
+          try:
+              affected_components = set(json.loads(affected_components_raw))
+          except json.JSONDecodeError as exc:
+              raise RuntimeError(f"Invalid AFFECTED_COMPONENTS payload: {affected_components_raw}") from exc
 
           def read_properties(path: str, key: str) -> str:
               for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
@@ -198,40 +290,81 @@ jobs:
           def read_json_version(path: str) -> str:
               return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["version"]
 
-          checks = [
-              ("version.txt", pathlib.Path("version.txt").read_text(encoding="utf-8").strip()),
-              ("gradle.properties", read_properties("gradle.properties", "VERSION")),
-              (
-                  "gradle/build-logic/gradle.properties",
-                  read_properties("gradle/build-logic/gradle.properties", "VERSION"),
-              ),
-              ("clients/agent-runtime/Cargo.toml", read_toml_version("clients/agent-runtime/Cargo.toml")),
-              ("modules/cerebro/Cargo.toml", read_toml_version("modules/cerebro/Cargo.toml")),
-              (
-                  "clients/agent-runtime/npm/corvus/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-darwin-x64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-darwin-x64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-darwin-arm64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-darwin-arm64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-linux-x64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-linux-x64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-linux-arm64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-linux-arm64/package.json"),
-              ),
-              (
-                  "clients/agent-runtime/npm/corvus-windows-x64/package.json",
-                  read_json_version("clients/agent-runtime/npm/corvus-windows-x64/package.json"),
-              ),
-          ]
+          checks = []
+          if "gradle-kmp" in affected_components:
+              checks.extend([
+                  ("gradle.properties", read_properties("gradle.properties", "VERSION")),
+                  (
+                      "gradle/build-logic/gradle.properties",
+                      read_properties("gradle/build-logic/gradle.properties", "VERSION"),
+                  ),
+              ])
+
+          if "corvus-runtime" in affected_components:
+              checks.extend([
+                  ("clients/agent-runtime/Cargo.toml", read_toml_version("clients/agent-runtime/Cargo.toml")),
+                  (
+                      "clients/agent-runtime/npm/corvus/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-darwin-x64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-darwin-x64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-darwin-arm64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-darwin-arm64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-linux-x64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-linux-x64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-linux-arm64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-linux-arm64/package.json"),
+                  ),
+                  (
+                      "clients/agent-runtime/npm/corvus-windows-x64/package.json",
+                      read_json_version("clients/agent-runtime/npm/corvus-windows-x64/package.json"),
+                  ),
+              ])
+
+          if "cerebro" in affected_components:
+              checks.extend([
+                  ("clients/cerebro/Cargo.toml", read_toml_version("clients/cerebro/Cargo.toml")),
+              ])
+
+          if "rook" in affected_components:
+              checks.extend([
+                  ("clients/rook/Cargo.toml", read_toml_version("clients/rook/Cargo.toml")),
+                  (
+                      "clients/rook/npm/rook/package.json",
+                      read_json_version("clients/rook/npm/rook/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-darwin-x64/package.json",
+                      read_json_version("clients/rook/npm/rook-darwin-x64/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-darwin-arm64/package.json",
+                      read_json_version("clients/rook/npm/rook-darwin-arm64/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-linux-x64/package.json",
+                      read_json_version("clients/rook/npm/rook-linux-x64/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-linux-arm64/package.json",
+                      read_json_version("clients/rook/npm/rook-linux-arm64/package.json"),
+                  ),
+                  (
+                      "clients/rook/npm/rook-windows-x64/package.json",
+                      read_json_version("clients/rook/npm/rook-windows-x64/package.json"),
+                  ),
+              ])
+
+          if not checks:
+              raise RuntimeError(f"No version checks configured for affected components: {sorted(affected_components)}")
 
           failures = [(surface, actual) for surface, actual in checks if actual != expected]
 
@@ -285,6 +418,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 👻 Publish Gradle/Maven artifacts
+        if: ${{ steps.component-flags.outputs.has_gradle_kmp == 'true' }}
         id: publish-maven
         continue-on-error: true
         env:
@@ -304,10 +438,22 @@ jobs:
           # publishAllPublicationsToMavenCentralRepository/publishToMavenCentral.
           ./gradlew -p gradle/build-logic publishToMavenCentral
 
+      - name: 📦 Publish corvus-traits crate to crates.io
+        if: ${{ inputs.release && steps.component-flags.outputs.has_corvus_runtime == 'true' }}
+        id: publish-cargo-corvus-traits
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "⚠️ Skipping crates.io publish - CARGO_REGISTRY_TOKEN not configured"
+            exit 0
+          fi
+          cd clients/agent-runtime/crates/corvus-traits
+          cargo publish --locked
+
       - name: 📦 Publish Rust crate to crates.io
-        if: ${{ inputs.release }}
+        if: ${{ inputs.release && steps.component-flags.outputs.has_corvus_runtime == 'true' }}
         id: publish-cargo
-        continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
@@ -316,6 +462,20 @@ jobs:
             exit 0
           fi
           cd clients/agent-runtime
+          cargo publish --locked
+
+      - name: 📦 Publish Rook crate to crates.io
+        if: ${{ inputs.release && steps.component-flags.outputs.has_rook == 'true' }}
+        id: publish-cargo-rook
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "⚠️ Skipping crates.io publish - CARGO_REGISTRY_TOKEN not configured"
+            exit 0
+          fi
+          echo "Assumes corvus-traits has already been published for this release line."
+          cd clients/rook
           cargo publish --locked
 
       - name: 📄 Release publish summary
@@ -327,6 +487,12 @@ jobs:
           CREDENTIALS_OUTCOME: ${{ steps.optional-release-credentials.outcome }}
           MAVEN_OUTCOME: ${{ steps.publish-maven.outcome }}
           CARGO_OUTCOME: ${{ steps.publish-cargo.outcome }}
+          CARGO_TRAITS_OUTCOME: ${{ steps.publish-cargo-corvus-traits.outcome }}
+          CARGO_ROOK_OUTCOME: ${{ steps.publish-cargo-rook.outcome }}
+          HAS_CORVUS_RUNTIME: ${{ steps.component-flags.outputs.has_corvus_runtime }}
+          HAS_ROOK: ${{ steps.component-flags.outputs.has_rook }}
+          HAS_CEREBRO: ${{ steps.component-flags.outputs.has_cerebro }}
+          HAS_GRADLE_KMP: ${{ steps.component-flags.outputs.has_gradle_kmp }}
         run: |
           {
              echo "## ${RELEASE_CHANNEL^} release publish summary"
@@ -337,30 +503,85 @@ jobs:
              echo "- ${RELEASE_CHANNEL^} version checks: ${VERSION_CHECK_OUTCOME}"
              echo "- Optional credential check: ${CREDENTIALS_OUTCOME}"
              echo "- Maven/Gradle publish step: ${MAVEN_OUTCOME}"
-             echo "- Rust publish step: ${CARGO_OUTCOME}"
+             echo "- Rust publish step (corvus): ${CARGO_OUTCOME}"
+             echo "- Rust publish step (corvus-traits): ${CARGO_TRAITS_OUTCOME}"
+             echo "- Rust publish step (rook): ${CARGO_ROOK_OUTCOME}"
              echo "- npm dist-tag: ${NPM_DIST_TAG}"
              echo "- npm stable contract: @dallay/corvus, corvus-darwin-x64, corvus-darwin-arm64, corvus-linux-x64, corvus-linux-arm64, corvus-windows-x64"
+             echo "- rook npm stable contract: @dallay/rook, rook-darwin-x64, rook-darwin-arm64, rook-linux-x64, rook-linux-arm64, rook-windows-x64"
              echo "- Excluded by policy: corvus-cli is internal/private; Windows ARM64 is intentionally unsupported for stable npm publication"
              echo "- Stable notes source: release-please owns canonical stable release notes"
              echo "- Beta notes source: release-please owns canonical beta release notes"
              echo "- GitHub Release ownership: release-please owns the canonical GitHub Release and canonical ${RELEASE_CHANNEL} release notes; _publish.yml only publishes artifacts/assets"
+             echo
+             echo "### Component status"
+             echo
+             if [ "${HAS_CORVUS_RUNTIME}" = "true" ]; then
+               echo "#### corvus-runtime"
+               echo "- Policy: publishable"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Cargo publish (corvus): ${CARGO_OUTCOME}"
+               echo "- Cargo publish (corvus-traits): ${CARGO_TRAITS_OUTCOME}"
+               echo "- npm publication: delegated to component-scoped downstream jobs"
+               echo "- Docker publication: delegated to component-scoped downstream jobs"
+               echo
+             fi
+             if [ "${HAS_CEREBRO}" = "true" ]; then
+               echo "#### cerebro"
+               echo "- Policy: publishable"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Cargo/release asset publication: delegated to component-scoped downstream jobs"
+               echo "- Docker publication: delegated to component-scoped downstream jobs"
+               echo
+             fi
+             if [ "${HAS_ROOK}" = "true" ]; then
+               echo "#### rook"
+               echo "- Policy: publishable"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Cargo publish (rook): ${CARGO_ROOK_OUTCOME}"
+               echo "- npm publication: delegated to component-scoped downstream jobs"
+               echo "- Docker publication: delegated to component-scoped downstream jobs"
+               echo
+             fi
+             if [ "${HAS_GRADLE_KMP}" = "true" ]; then
+               echo "#### gradle-kmp"
+               echo "- Policy: validate-only"
+               echo "- Version validation: ${VERSION_CHECK_OUTCOME}"
+               echo "- Maven/Gradle publication step: ${MAVEN_OUTCOME}"
+               echo "- Release state ownership: not yet modeled as its own release-please manifest authority"
+               echo
+             fi
            } >> "$GITHUB_STEP_SUMMARY"
 
   build-native-binaries:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_corvus_runtime == 'true' }}
     needs: publish
+    permissions:
+      contents: read
     uses: ./.github/workflows/_build-native-binaries.yml
 
   build-cerebro-binaries:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_cerebro == 'true' }}
     needs: publish
+    permissions:
+      contents: read
     uses: ./.github/workflows/_build-cerebro-binaries.yml
 
+  build-rook-binaries:
+    if: ${{ inputs.release && needs.publish.outputs.has_rook == 'true' }}
+    needs: publish
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_build-rook-binaries.yml
+
   docker-image:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_corvus_runtime == 'true' }}
     needs: [publish, build-native-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -428,10 +649,13 @@ jobs:
           labels: ${{ steps.docker-meta.outputs.labels }}
 
   docker-image-cerebro:
-    if: ${{ inputs.release }}
+    if: ${{ inputs.release && needs.publish.outputs.has_cerebro == 'true' }}
     needs: [publish, build-cerebro-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -440,12 +664,12 @@ jobs:
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cerebro-linux-*
-          path: modules/cerebro/dist
+          path: clients/cerebro/dist
           merge-multiple: true
           if-no-files-found: error
 
       - name: 📦 Extract Cerebro Linux binaries
-        working-directory: modules/cerebro/dist
+        working-directory: clients/cerebro/dist
         run: |
           set -euo pipefail
           tar -xzf cerebro-linux-x64.tar.gz
@@ -486,12 +710,235 @@ jobs:
             type=raw,value=latest,enable=${{ needs.publish.outputs.release_channel == 'stable' }}
             type=raw,value=beta,enable=${{ needs.publish.outputs.release_channel == 'beta' }}
 
+      - name: 🧪 Build Cerebro Docker image for smoke test
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: clients/cerebro/Dockerfile.release-prebuilt
+          target: release
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: cerebro:smoke-${{ github.run_id }}
+          labels: ${{ steps.docker-meta.outputs.labels }}
+
+      - name: 🧪 Smoke test Cerebro Docker image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image="cerebro:smoke-${{ github.run_id }}"
+          container="cerebro-smoke-${{ github.run_id }}"
+          host_port="4040"
+          smoke_dir="$RUNNER_TEMP/cerebro-smoke"
+          token="cerebro-smoke-token-${{ github.run_id }}"
+
+          rm -rf "$smoke_dir"
+          mkdir -p "$smoke_dir/data"
+
+          cat > "$smoke_dir/config.toml" <<'EOF'
+          host = "0.0.0.0"
+          port = 4040
+          storage_mode = "embedded_surreal"
+
+          [surreal]
+          namespace = "cerebro_smoke"
+          database = "cerebro_smoke"
+          username = "root"
+          password = "local-smoke-only"
+          EOF
+
+          cleanup() {
+            status=$?
+            echo "--- Cerebro smoke container logs ---"
+            docker logs "$container" 2>/dev/null || true
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          docker rm -f "$container" >/dev/null 2>&1 || true
+          docker run \
+            --detach \
+            --name "$container" \
+            --env CEREBRO_AUTH_TOKEN="$token" \
+            --publish "127.0.0.1:${host_port}:4040" \
+            --mount "type=bind,source=${smoke_dir}/config.toml,target=/etc/cerebro/config.toml,readonly" \
+            --mount "type=bind,source=${smoke_dir}/data,target=/cerebro-data" \
+            "$image"
+
+          assert_container_running() {
+            if ! docker inspect -f '{{.State.Running}}' "$container" | grep -q '^true$'; then
+              echo "Cerebro smoke container exited unexpectedly"
+              exit 1
+            fi
+          }
+
+          wait_for_json_status() {
+            local path="$1"
+            local expected_status="$2"
+            local response_file="$smoke_dir/response.json"
+            local code
+
+            for attempt in $(seq 1 30); do
+              assert_container_running
+              code=$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' "http://127.0.0.1:${host_port}${path}" || true)
+              if [[ "$code" == "200" ]] && python3 - "$response_file" "$expected_status" <<'PY'
+          import json
+          import sys
+
+          path, expected = sys.argv[1], sys.argv[2]
+          with open(path, "r", encoding="utf-8") as handle:
+              payload = json.load(handle)
+          if payload.get("status") != expected:
+              raise SystemExit(1)
+          PY
+              then
+                return 0
+              fi
+              echo "Waiting for ${path} to report ${expected_status}; attempt ${attempt}/30 returned HTTP ${code}"
+              sleep 1
+            done
+
+            echo "Timed out waiting for ${path} to report ${expected_status}"
+            echo "Last response body:"
+            cat "$response_file" || true
+            exit 1
+          }
+
+          post_mcp() {
+            local response_file="$1"
+            shift
+            curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
+              --request POST \
+              --header 'Content-Type: application/json' \
+              "$@" \
+              --data '{"jsonrpc":"2.0","id":"smoke-tools-list","method":"tools/list"}' \
+              "http://127.0.0.1:${host_port}/mcp"
+          }
+
+          wait_for_json_status "/healthz" "ok"
+          wait_for_json_status "/readyz" "ready"
+
+          unauth_response="$smoke_dir/mcp-unauth.json"
+          unauth_code=$(post_mcp "$unauth_response")
+          if [[ "$unauth_code" != "401" ]]; then
+            echo "Expected unauthenticated MCP request to return HTTP 401, got ${unauth_code}"
+            cat "$unauth_response" || true
+            exit 1
+          fi
+          python3 - "$unauth_response" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], "r", encoding="utf-8") as handle:
+              payload = json.load(handle)
+          error = payload.get("error") or {}
+          if error.get("code") != -32001:
+              raise SystemExit(f"expected auth error code -32001, got {error!r}")
+          PY
+
+          auth_response="$smoke_dir/mcp-auth.json"
+          auth_code=$(post_mcp "$auth_response" --header "Authorization: Bearer ${token}")
+          if [[ "$auth_code" != "200" ]]; then
+            echo "Expected authenticated MCP request to return HTTP 200, got ${auth_code}"
+            cat "$auth_response" || true
+            exit 1
+          fi
+          python3 - "$auth_response" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], "r", encoding="utf-8") as handle:
+              payload = json.load(handle)
+          if payload.get("error") is not None:
+              raise SystemExit(f"expected no MCP error, got {payload['error']!r}")
+          if "result" not in payload:
+              raise SystemExit(f"expected MCP result in payload, got {payload!r}")
+          PY
+
+          echo "Cerebro Docker image smoke test passed"
+
       - name: 🐳 Build and push Cerebro Docker image
         continue-on-error: true
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
-          file: modules/cerebro/Dockerfile.release-prebuilt
+          file: clients/cerebro/Dockerfile.release-prebuilt
+          target: release
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.docker-meta.outputs.tags }}
+          labels: ${{ steps.docker-meta.outputs.labels }}
+
+  docker-image-rook:
+    if: ${{ inputs.release && needs.publish.outputs.has_rook == 'true' }}
+    needs: [publish, build-rook-binaries]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: ⬇ Download Rook Linux artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: rook-linux-*
+          path: clients/rook/dist
+          merge-multiple: true
+          if-no-files-found: error
+
+      - name: 📦 Extract Rook Linux binaries
+        working-directory: clients/rook/dist
+        run: |
+          set -euo pipefail
+          tar -xzf rook-linux-x64.tar.gz
+          tar -xzf rook-linux-arm64.tar.gz
+          chmod +x rook-linux-x64 rook-linux-arm64
+
+      - name: 🐳 Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: 🔐 Login to Docker Hub
+        continue-on-error: true
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 🔐 Login to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Generate Rook Docker tags and labels
+        id: docker-meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: |
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/rook
+            ghcr.io/${{ github.repository_owner }}/rook
+          tags: |
+            type=raw,value=${{ needs.publish.outputs.release_version }}
+            type=raw,value=${{ needs.publish.outputs.release_major_minor }},enable=${{ needs.publish.outputs.release_channel == 'stable' }}
+            type=raw,value=${{ needs.publish.outputs.release_major }},enable=${{ needs.publish.outputs.release_channel == 'stable' }}
+            type=raw,value=latest,enable=${{ needs.publish.outputs.release_channel == 'stable' }}
+            type=raw,value=beta,enable=${{ needs.publish.outputs.release_channel == 'beta' }}
+
+      - name: 🐳 Build and push Rook Docker image
+        continue-on-error: true
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: clients/rook/Dockerfile.release-prebuilt
           target: release
           platforms: linux/amd64,linux/arm64
           push: true
@@ -499,10 +946,12 @@ jobs:
           labels: ${{ steps.docker-meta.outputs.labels }}
 
   publish-npm-platforms:
-    if: ${{ inputs.release }}
-    needs: build-native-binaries
+    if: ${{ inputs.release && needs.publish.outputs.has_corvus_runtime == 'true' }}
+    needs: [publish, build-native-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -572,7 +1021,7 @@ jobs:
         id: publish-platform-package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+          NPM_DIST_TAG: latest
         run: |
           set -euo pipefail
           if [ -z "$NODE_AUTH_TOKEN" ]; then
@@ -610,7 +1059,7 @@ jobs:
         if: ${{ always() }}
         env:
           PLATFORM_PUBLISH_OUTCOME: ${{ steps.publish-platform-package.outcome }}
-          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+          NPM_DIST_TAG: latest
         run: |
           {
             echo "## npm platform publish summary"
@@ -623,10 +1072,12 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish-npm-base:
-    if: ${{ inputs.release }}
-    needs: publish-npm-platforms
+    if: ${{ inputs.release && needs.publish.outputs.has_corvus_runtime == 'true' }}
+    needs: [publish, publish-npm-platforms]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -641,7 +1092,7 @@ jobs:
         id: publish-base-package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+          NPM_DIST_TAG: latest
         run: |
           set -euo pipefail
           if [ -z "$NODE_AUTH_TOKEN" ]; then
@@ -670,7 +1121,7 @@ jobs:
         if: ${{ always() }}
         env:
           BASE_PUBLISH_OUTCOME: ${{ steps.publish-base-package.outcome }}
-          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+          NPM_DIST_TAG: latest
         run: |
           {
             echo "## npm base publish summary"
@@ -682,9 +1133,160 @@ jobs:
             echo "- Windows ARM64 is intentionally unsupported and excluded from stable npm publication."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  publish-npm-platforms-rook:
+    if: ${{ inputs.release && needs.publish.outputs.has_rook == 'true' }}
+    needs: [build-rook-binaries, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pkg: rook-darwin-x64
+            artifact: rook-darwin-x64
+            binary: rook-darwin-x64
+            source_binary: rook-darwin-x64
+          - pkg: rook-darwin-arm64
+            artifact: rook-darwin-arm64
+            binary: rook-darwin-arm64
+            source_binary: rook-darwin-arm64
+          - pkg: rook-linux-x64
+            artifact: rook-linux-x64
+            binary: rook-linux-x64
+            source_binary: rook-linux-x64
+          - pkg: rook-linux-arm64
+            artifact: rook-linux-arm64
+            binary: rook-linux-arm64
+            source_binary: rook-linux-arm64
+          - pkg: rook-windows-x64
+            artifact: rook-windows-x64
+            binary: rook-windows-x64.exe
+            source_binary: rook-windows-x64.exe
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: ⬇ Download artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ matrix.artifact }}
+          path: /tmp/artifact
+
+      - name: 📦 Extract binary
+        run: |
+          set -euo pipefail
+          cd /tmp/artifact
+          archive=$(find . -name "*.tar.gz" -o -name "*.zip" | head -1)
+          if [ -z "$archive" ]; then
+            echo "No archive found!"
+            exit 1
+          fi
+          if [[ "$archive" == *.tar.gz ]]; then
+            tar -xzf "$archive"
+          else
+            unzip -o "$archive"
+          fi
+          find . -name "${{ matrix.source_binary }}" -type f -exec chmod +x {} \; -print
+
+      - name: 🚀 Publish to npm
+        id: publish-platform-package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "⚠️ Skipping npm publish - NPM_TOKEN not configured"
+            exit 0
+          fi
+
+          cd clients/rook/npm/${{ matrix.pkg }}
+
+          binary_path=$(find /tmp/artifact -name "${{ matrix.source_binary }}" -type f | head -1)
+          if [ -z "$binary_path" ]; then
+            echo "Binary not found!"
+            exit 1
+          fi
+          cp "$binary_path" ./${{ matrix.binary }}
+
+          package_name="@dallay/${{ matrix.pkg }}"
+          package_version="$(node -p "require('./package.json').version")"
+
+          if npm view "${package_name}@${package_version}" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "ℹ️ ${package_name}@${package_version} is already published, skipping"
+            exit 0
+          fi
+
+          npm_publish_args=(--access public)
+          if [ "${NPM_DIST_TAG:-latest}" != "latest" ]; then
+            npm_publish_args+=(--tag "$NPM_DIST_TAG")
+          fi
+
+          npm publish "${npm_publish_args[@]}"
+
+  publish-npm-base-rook:
+    if: ${{ inputs.release && needs.publish.outputs.has_rook == 'true' }}
+    needs: [publish-npm-platforms-rook, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: 🚀 Publish base package
+        id: publish-base-package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_DIST_TAG: ${{ needs.publish.outputs.npm_dist_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "⚠️ Skipping npm publish - NPM_TOKEN not configured"
+            exit 0
+          fi
+
+          cd clients/rook/npm/rook
+
+          package_name="@dallay/rook"
+          package_version="$(node -p "require('./package.json').version")"
+
+          if npm view "${package_name}@${package_version}" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "ℹ️ ${package_name}@${package_version} is already published, skipping"
+            exit 0
+          fi
+
+          npm_publish_args=(--access public)
+          if [ "${NPM_DIST_TAG:-latest}" != "latest" ]; then
+            npm_publish_args+=(--tag "$NPM_DIST_TAG")
+          fi
+
+          npm publish "${npm_publish_args[@]}"
+
   release-assets:
     if: ${{ inputs.release }}
-    needs: [publish, build-native-binaries, build-cerebro-binaries]
+    needs:
+      [
+        publish,
+        build-native-binaries,
+        build-cerebro-binaries,
+        build-rook-binaries,
+      ]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -707,10 +1309,18 @@ jobs:
           merge-multiple: true
           if-no-files-found: error
 
+      - name: ⬇ Download rook release artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: rook-*
+          path: dist/rook
+          merge-multiple: true
+          if-no-files-found: error
+
       - name: 📋 Generate SHA256 checksums
         run: |
           set -euo pipefail
-          for dir in dist/corvus dist/cerebro; do
+          for dir in dist/corvus dist/cerebro dist/rook; do
             cd "$dir"
             for archive in *.tar.gz *.zip; do
               [[ -f "$archive" ]] || continue
@@ -729,7 +1339,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Uploading assets to existing GitHub Release ${RELEASE_ID} (${RELEASE_TAG})"
-          gh release upload "$RELEASE_TAG" dist/corvus/corvus-* dist/cerebro/cerebro-* --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$RELEASE_TAG" dist/corvus/corvus-* dist/cerebro/cerebro-* dist/rook/rook-* --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: 📄 Summarize GitHub Release publication
         if: ${{ always() }}

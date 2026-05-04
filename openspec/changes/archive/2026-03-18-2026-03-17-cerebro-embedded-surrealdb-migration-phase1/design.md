@@ -3,7 +3,7 @@
 ## Technical Approach
 
 Move Cerebro storage to an embedded SurrealDB engine by default while keeping existing in-memory and
-file-backed modes available. Add a migration CLI within `modules/cerebro/` that imports legacy
+file-backed modes available. Add a migration CLI within `clients/cerebro/` that imports legacy
 SurrealDB data into the embedded store and validates the results using deterministic record
 counts and checksums. All changes are additive, keep the MCP tool surface unchanged, and preserve
 secure configuration defaults. The TUI remains explicitly out of scope for this phase.
@@ -12,7 +12,7 @@ secure configuration defaults. The TUI remains explicitly out of scope for this 
 
 ### Decision: Default storage mode is embedded SurrealDB
 
-**Choice**: Change the default `StorageMode` in `modules/cerebro/src/config.rs` from `InMemory` to
+**Choice**: Change the default `StorageMode` in `clients/cerebro/src/config.rs` from `InMemory` to
 `EmbeddedSurreal`, with explicit configuration to opt into `InMemory` or `Disk`.
 **Alternatives considered**: Keep `InMemory` default; default to `Disk` JSON storage; require an
 explicit `storage_mode` for all deployments.
@@ -31,7 +31,7 @@ in control and aligns with security-first and data integrity requirements.
 ### Decision: Migration tooling via CLI subcommands
 
 **Choice**: Add a `cerebro` CLI with `serve`, `migrate import`, and `migrate validate` subcommands
-implemented with `clap` under `modules/cerebro/src/bin/`.
+implemented with `clap` under `clients/cerebro/src/bin/`.
 **Alternatives considered**: Separate `cerebro-migrate` binary; embed migration in MCP tools.
 **Rationale**: A single CLI keeps operational workflows consistent and avoids expanding the MCP
 surface. `clap` is already in use elsewhere in the repo, so it matches established patterns.
@@ -121,16 +121,16 @@ Comparator --> CLI: validation status
 
 | File                                                                 | Action | Description                                                                          |
 |----------------------------------------------------------------------|--------|--------------------------------------------------------------------------------------|
-| `modules/cerebro/src/config.rs`                                      | Modify | Add embedded/remote storage config fields, default to embedded, add fallback policy. |
-| `modules/cerebro/src/storage/mod.rs`                                 | Modify | Add embedded SurrealDB storage implementation and fallback selection logic.          |
-| `modules/cerebro/src/storage/surreal.rs`                             | Create | Embedded SurrealDB storage adapter implementing `Storage`.                           |
-| `modules/cerebro/src/migration/mod.rs`                               | Create | Migration orchestration: import + validate workflows.                                |
-| `modules/cerebro/src/migration/legacy.rs`                            | Create | Legacy export reader + normalization + checksum generation.                          |
-| `modules/cerebro/src/migration/report.rs`                            | Create | Import/validation report output (JSON + human-readable).                             |
-| `modules/cerebro/src/bin/cerebro.rs`                                 | Create | CLI entrypoint with `serve` and `migrate` subcommands.                               |
-| `modules/cerebro/src/main.rs`                                        | Modify | Delegate to CLI or keep as thin `serve` wrapper.                                     |
-| `modules/cerebro/Cargo.toml`                                         | Modify | Add SurrealDB + clap + checksum dependencies.                                        |
-| `modules/cerebro/tests/`                                             | Modify | Add migration validation tests; update storage default tests.                        |
+| `clients/cerebro/src/config.rs`                                      | Modify | Add embedded/remote storage config fields, default to embedded, add fallback policy. |
+| `clients/cerebro/src/storage/mod.rs`                                 | Modify | Add embedded SurrealDB storage implementation and fallback selection logic.          |
+| `clients/cerebro/src/storage/surreal.rs`                             | Create | Embedded SurrealDB storage adapter implementing `Storage`.                           |
+| `clients/cerebro/src/migration/mod.rs`                               | Create | Migration orchestration: import + validate workflows.                                |
+| `clients/cerebro/src/migration/legacy.rs`                            | Create | Legacy export reader + normalization + checksum generation.                          |
+| `clients/cerebro/src/migration/report.rs`                            | Create | Import/validation report output (JSON + human-readable).                             |
+| `clients/cerebro/src/bin/cerebro.rs`                                 | Create | CLI entrypoint with `serve` and `migrate` subcommands.                               |
+| `clients/cerebro/src/main.rs`                                        | Modify | Delegate to CLI or keep as thin `serve` wrapper.                                     |
+| `clients/cerebro/Cargo.toml`                                         | Modify | Add SurrealDB + clap + checksum dependencies.                                        |
+| `clients/cerebro/tests/`                                             | Modify | Add migration validation tests; update storage default tests.                        |
 | `clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md` | Modify | Document import/validate tooling and embedded default.                               |
 | `openspec/specs/cerebro/spec.md`                                     | Modify | Update delta spec references to include migration tooling scope.                     |
 

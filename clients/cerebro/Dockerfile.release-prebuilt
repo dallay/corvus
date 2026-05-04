@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1
+
+FROM busybox:1.37.0 AS prep
+
+ARG TARGETARCH
+
+RUN mkdir -p /cerebro-data /etc/cerebro
+
+COPY clients/cerebro/dist/cerebro-linux-x64 /tmp/cerebro-linux-x64
+COPY clients/cerebro/dist/cerebro-linux-arm64 /tmp/cerebro-linux-arm64
+
+RUN case "$TARGETARCH" in \
+  amd64) cp /tmp/cerebro-linux-x64 /tmp/cerebro ;; \
+  arm64) cp /tmp/cerebro-linux-arm64 /tmp/cerebro ;; \
+  *) echo "Unsupported TARGETARCH=$TARGETARCH" && exit 1 ;; \
+esac
+
+# Bundled config is for local/demo boot only.
+# The default host is 127.0.0.1 inside the container, so docker -p will not expose Cerebro
+# unless operators override host (for example to 0.0.0.0) and provide a real auth_token.
+# Production deployments must provide explicit config and secrets via mount or environment.
+RUN printf '%s\n' \
+  'host = "127.0.0.1"' \
+  'port = 4040' \
+  'storage_mode = "embedded_surreal"' \
+  '' \
+  '[surreal]' \
+  'namespace = "cerebro"' \
+  'database = "cerebro"' \
+  'username = "root"' \
+  'password = "local-dev-only"' \
+  > /etc/cerebro/config.toml
+
+RUN chmod +x /tmp/cerebro \
+  && chown -R 65532:65532 /cerebro-data /etc/cerebro
+
+FROM gcr.io/distroless/cc-debian13:nonroot AS release
+
+COPY --from=prep /tmp/cerebro /usr/local/bin/cerebro
+COPY --from=prep /cerebro-data /cerebro-data
+COPY --from=prep /etc/cerebro/config.toml /etc/cerebro/config.toml
+
+ENV HOME=/cerebro-data
+
+WORKDIR /cerebro-data
+USER 65532:65532
+EXPOSE 4040
+# NOTE: Distroless has no shell; production orchestrators should use GET /healthz and GET /readyz probes.
+ENTRYPOINT ["cerebro"]
+CMD ["serve", "--config", "/etc/cerebro/config.toml"]

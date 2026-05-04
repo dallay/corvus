@@ -1,13 +1,17 @@
 use super::embeddings::EmbeddingProvider;
 use super::traits::{
-    Memory, MemoryCategory, MemoryEntry, MemoryStats, SessionEntry, SessionStatus,
+    Memory, MemoryCategory, MemoryEntry, MemoryStats, ResumableSessionEntry, SessionEntry,
+    SessionListEntry, SessionSnapshotKind, SessionSnapshotRecord, SessionStateMutation,
+    SessionStatePatch, SessionStateRecord, SessionStatus, SlashSessionLifecycle, TaskCreateInput,
+    TaskListPage, TaskListQuery, TaskPatch, TaskPriority, TaskRecord, TaskStatus,
 };
 use super::vector;
 use anyhow::Context;
 use async_trait::async_trait;
 use chrono::Local;
 use parking_lot::Mutex;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -18,6 +22,35 @@ use uuid::Uuid;
 /// Maximum allowed open timeout (seconds) to avoid unreasonable waits.
 const SQLITE_OPEN_TIMEOUT_CAP_SECS: u64 = 300;
 const MAX_LIST_LIMIT: u32 = 1_000;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DreamSessionDbStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DreamTriggerDbReason {
+    TimeElapsed,
+    SessionCount,
+    Manual,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DreamSessionRow {
+    session_id: String,
+    status: DreamSessionDbStatus,
+    trigger_reason: DreamTriggerDbReason,
+    completion_recorded_at: String,
+    last_attempt_at: Option<String>,
+    completed_at: Option<String>,
+    artifact_refs: Vec<String>,
+    failure_reason: Option<String>,
+}
 
 /// SQLite-backed persistent memory — the brain
 ///
@@ -80,7 +113,8 @@ impl SqliteMemory {
              PRAGMA synchronous  = NORMAL;
              PRAGMA mmap_size    = 8388608;
              PRAGMA cache_size   = -2000;
-             PRAGMA temp_store   = MEMORY;",
+             PRAGMA temp_store   = MEMORY;
+             PRAGMA foreign_keys = ON;",
         )?;
 
         Self::init_schema(&conn)?;
@@ -197,10 +231,82 @@ impl SqliteMemory {
                 token_hash    TEXT,
                 metadata      TEXT
             );
-            CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-            CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
-            CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity);
-            CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);",
+             CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+             CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
+             CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity);
+             CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
+
+             CREATE TABLE IF NOT EXISTS session_snapshots (
+                 id                TEXT PRIMARY KEY,
+                 session_id        TEXT NOT NULL,
+                 snapshot_kind     TEXT NOT NULL,
+                 created_at        TEXT NOT NULL,
+                 payload           TEXT NOT NULL,
+                 is_resume_capable INTEGER NOT NULL DEFAULT 0,
+                 FOREIGN KEY(session_id) REFERENCES sessions(id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_session_snapshots_session_created
+                 ON session_snapshots(session_id, created_at DESC);
+             CREATE INDEX IF NOT EXISTS idx_session_snapshots_session_kind_created
+                 ON session_snapshots(session_id, snapshot_kind, created_at DESC);
+             CREATE INDEX IF NOT EXISTS idx_session_snapshots_resume_capable
+                 ON session_snapshots(session_id, is_resume_capable, created_at DESC);
+
+             CREATE TABLE IF NOT EXISTS session_state (
+                 session_id                    TEXT PRIMARY KEY,
+                 lifecycle_state               TEXT NOT NULL DEFAULT 'active',
+                 latest_tldr_snapshot_id       TEXT,
+                 latest_compact_snapshot_id    TEXT,
+                 pending_hydration_snapshot_id TEXT,
+                 suspended_at                  TEXT,
+                 updated_at                    TEXT NOT NULL,
+                 FOREIGN KEY(session_id) REFERENCES sessions(id),
+                 FOREIGN KEY(latest_tldr_snapshot_id) REFERENCES session_snapshots(id),
+                 FOREIGN KEY(latest_compact_snapshot_id) REFERENCES session_snapshots(id),
+                 FOREIGN KEY(pending_hydration_snapshot_id) REFERENCES session_snapshots(id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_session_state_lifecycle
+                  ON session_state(lifecycle_state, updated_at DESC);",
+        )?;
+
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS tasks (
+                 id          TEXT PRIMARY KEY,
+                 title       TEXT NOT NULL,
+                 description TEXT NOT NULL,
+                 status      TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled')),
+                 priority    TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high')),
+                 session_id  TEXT,
+                 created_at  TEXT NOT NULL,
+                 updated_at  TEXT NOT NULL,
+                 FOREIGN KEY(session_id) REFERENCES sessions(id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_tasks_created_id
+                 ON tasks(created_at DESC, id ASC);
+             CREATE INDEX IF NOT EXISTS idx_tasks_session_created_id
+                 ON tasks(session_id, created_at DESC, id ASC);
+             CREATE INDEX IF NOT EXISTS idx_tasks_status_created_id
+                 ON tasks(status, created_at DESC, id ASC);
+             CREATE INDEX IF NOT EXISTS idx_tasks_priority_created_id
+                 ON tasks(priority, created_at DESC, id ASC);",
+        )?;
+
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS dream_sessions (
+                 session_id              TEXT PRIMARY KEY,
+                 status                  TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+                 trigger_reason          TEXT NOT NULL CHECK (trigger_reason IN ('time_elapsed', 'session_count', 'manual')),
+                 completion_recorded_at  TEXT NOT NULL,
+                 last_attempt_at         TEXT,
+                 completed_at            TEXT,
+                 artifact_refs           TEXT NOT NULL DEFAULT '[]',
+                 failure_reason          TEXT,
+                 FOREIGN KEY(session_id) REFERENCES sessions(id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_dream_sessions_status
+                 ON dream_sessions(status);
+             CREATE INDEX IF NOT EXISTS idx_dream_sessions_completed_at
+                 ON dream_sessions(completed_at DESC);",
         )?;
 
         Ok(())
@@ -221,6 +327,267 @@ impl SqliteMemory {
             "daily" => MemoryCategory::Daily,
             "conversation" => MemoryCategory::Conversation,
             other => MemoryCategory::Custom(other.to_string()),
+        }
+    }
+
+    fn lifecycle_from_row(value: String) -> rusqlite::Result<SlashSessionLifecycle> {
+        match value.as_str() {
+            "active" => Ok(SlashSessionLifecycle::Active),
+            "suspended" => Ok(SlashSessionLifecycle::Suspended),
+            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown lifecycle_state value: {value}"),
+                )),
+            )),
+        }
+    }
+
+    fn snapshot_kind_from_row(value: String) -> rusqlite::Result<SessionSnapshotKind> {
+        match value.as_str() {
+            "tldr" => Ok(SessionSnapshotKind::Tldr),
+            "compact" => Ok(SessionSnapshotKind::Compact),
+            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown snapshot_kind value: {value}"),
+                )),
+            )),
+        }
+    }
+
+    fn task_status_from_row(value: String) -> rusqlite::Result<TaskStatus> {
+        match value.as_str() {
+            "pending" => Ok(TaskStatus::Pending),
+            "in_progress" => Ok(TaskStatus::InProgress),
+            "completed" => Ok(TaskStatus::Completed),
+            "cancelled" => Ok(TaskStatus::Cancelled),
+            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown task status value: {value}"),
+                )),
+            )),
+        }
+    }
+
+    fn task_priority_from_row(value: String) -> rusqlite::Result<TaskPriority> {
+        match value.as_str() {
+            "low" => Ok(TaskPriority::Low),
+            "medium" => Ok(TaskPriority::Medium),
+            "high" => Ok(TaskPriority::High),
+            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown task priority value: {value}"),
+                )),
+            )),
+        }
+    }
+
+    fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
+        Ok(TaskRecord {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            description: row.get(2)?,
+            status: Self::task_status_from_row(row.get::<_, String>(3)?)?,
+            priority: Self::task_priority_from_row(row.get::<_, String>(4)?)?,
+            session_id: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+        })
+    }
+
+    fn ensure_session_exists(conn: &Connection, session_id: &str) -> anyhow::Result<()> {
+        let exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sessions WHERE id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        if exists == 0 {
+            anyhow::bail!("unknown session: {session_id}");
+        }
+        Ok(())
+    }
+
+    fn dream_status_to_str(status: &DreamSessionDbStatus) -> &'static str {
+        match status {
+            DreamSessionDbStatus::Pending => "pending",
+            DreamSessionDbStatus::Running => "running",
+            DreamSessionDbStatus::Completed => "completed",
+            DreamSessionDbStatus::Failed => "failed",
+        }
+    }
+
+    fn dream_status_from_row(value: String) -> rusqlite::Result<DreamSessionDbStatus> {
+        match value.as_str() {
+            "pending" => Ok(DreamSessionDbStatus::Pending),
+            "running" => Ok(DreamSessionDbStatus::Running),
+            "completed" => Ok(DreamSessionDbStatus::Completed),
+            "failed" => Ok(DreamSessionDbStatus::Failed),
+            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown dream status value: {value}"),
+                )),
+            )),
+        }
+    }
+
+    fn dream_trigger_reason_to_str(reason: &DreamTriggerDbReason) -> &'static str {
+        match reason {
+            DreamTriggerDbReason::TimeElapsed => "time_elapsed",
+            DreamTriggerDbReason::SessionCount => "session_count",
+            DreamTriggerDbReason::Manual => "manual",
+        }
+    }
+
+    fn dream_trigger_reason_from_row(value: String) -> rusqlite::Result<DreamTriggerDbReason> {
+        match value.as_str() {
+            "time_elapsed" => Ok(DreamTriggerDbReason::TimeElapsed),
+            "session_count" => Ok(DreamTriggerDbReason::SessionCount),
+            "manual" => Ok(DreamTriggerDbReason::Manual),
+            _ => Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown dream trigger reason value: {value}"),
+                )),
+            )),
+        }
+    }
+
+    fn load_dream_session_row(
+        conn: &Connection,
+        session_id: &str,
+    ) -> anyhow::Result<Option<DreamSessionRow>> {
+        conn.query_row(
+            "SELECT session_id, status, trigger_reason, completion_recorded_at,
+                    last_attempt_at, completed_at, artifact_refs, failure_reason
+             FROM dream_sessions WHERE session_id = ?1",
+            params![session_id],
+            |row| {
+                let artifact_refs: String = row.get(6)?;
+                let refs =
+                    serde_json::from_str::<Vec<String>>(&artifact_refs).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            6,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?;
+                Ok(DreamSessionRow {
+                    session_id: row.get(0)?,
+                    status: Self::dream_status_from_row(row.get::<_, String>(1)?)?,
+                    trigger_reason: Self::dream_trigger_reason_from_row(row.get::<_, String>(2)?)?,
+                    completion_recorded_at: row.get(3)?,
+                    last_attempt_at: row.get(4)?,
+                    completed_at: row.get(5)?,
+                    artifact_refs: refs,
+                    failure_reason: row.get(7)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    fn upsert_dream_session_row(tx: &Transaction<'_>, row: &DreamSessionRow) -> anyhow::Result<()> {
+        tx.execute(
+            "INSERT INTO dream_sessions (
+                session_id, status, trigger_reason, completion_recorded_at,
+                last_attempt_at, completed_at, artifact_refs, failure_reason
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(session_id) DO UPDATE SET
+                status = excluded.status,
+                trigger_reason = excluded.trigger_reason,
+                completion_recorded_at = excluded.completion_recorded_at,
+                last_attempt_at = excluded.last_attempt_at,
+                completed_at = excluded.completed_at,
+                artifact_refs = excluded.artifact_refs,
+                failure_reason = excluded.failure_reason",
+            params![
+                row.session_id,
+                Self::dream_status_to_str(&row.status),
+                Self::dream_trigger_reason_to_str(&row.trigger_reason),
+                row.completion_recorded_at,
+                row.last_attempt_at,
+                row.completed_at,
+                serde_json::to_string(&row.artifact_refs)?,
+                row.failure_reason,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn load_snapshot_by_id(
+        conn: &Connection,
+        snapshot_id: &str,
+    ) -> anyhow::Result<Option<SessionSnapshotRecord>> {
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, snapshot_kind, created_at, payload, is_resume_capable
+             FROM session_snapshots WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![snapshot_id], |row| {
+            let payload_str: String = row.get(4)?;
+            match serde_json::from_str::<serde_json::Value>(&payload_str) {
+                Ok(payload) => Ok(SessionSnapshotRecord {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    kind: Self::snapshot_kind_from_row(row.get::<_, String>(2)?)?,
+                    created_at: row.get(3)?,
+                    payload,
+                    resume_capable: row.get::<_, i64>(5)? != 0,
+                }),
+                Err(e) => Err(rusqlite::Error::FromSqlConversionFailure(
+                    4, // column index for payload (TEXT)
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )),
+            }
+        })?;
+        match rows.next() {
+            Some(Ok(record)) => Ok(Some(record)),
+            Some(Err(error)) => Err(error.into()),
+            None => Ok(None),
+        }
+    }
+
+    fn read_session_state(
+        conn: &Connection,
+        session_id: &str,
+    ) -> anyhow::Result<Option<SessionStateRecord>> {
+        let mut stmt = conn.prepare(
+            "SELECT session_id, lifecycle_state, latest_tldr_snapshot_id, latest_compact_snapshot_id,
+                    pending_hydration_snapshot_id, suspended_at, updated_at
+             FROM session_state WHERE session_id = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![session_id], |row| {
+            Ok(SessionStateRecord {
+                session_id: row.get(0)?,
+                lifecycle: Self::lifecycle_from_row(row.get::<_, String>(1)?)?,
+                latest_tldr_snapshot_id: row.get(2)?,
+                latest_compact_snapshot_id: row.get(3)?,
+                pending_hydration_snapshot_id: row.get(4)?,
+                suspended_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        })?;
+        match rows.next() {
+            Some(Ok(record)) => Ok(Some(record)),
+            Some(Err(error)) => Err(error.into()),
+            None => Ok(None),
         }
     }
 
@@ -1031,6 +1398,49 @@ impl Memory for SqliteMemory {
         .await?
     }
 
+    async fn get_session_for_scope(
+        &self,
+        session_id: &str,
+        caller_scope_key: &str,
+    ) -> anyhow::Result<Option<SessionEntry>> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+        let caller_scope_key = caller_scope_key.to_string();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Option<SessionEntry>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT id, started_at, ended_at, status, message_count, last_activity, metadata
+                 FROM sessions WHERE id = ?1 AND token_hash IS ?2",
+            )?;
+
+            let mut rows = stmt.query_map(params![session_id, caller_scope_key], |row| {
+                #[allow(clippy::cast_sign_loss)]
+                Ok(SessionEntry {
+                    id: row.get(0)?,
+                    started_at: row.get(1)?,
+                    ended_at: row.get(2)?,
+                    status: row
+                        .get::<_, String>(3)?
+                        .parse()
+                        .unwrap_or(SessionStatus::Active),
+                    message_count: row.get::<_, i32>(4)? as u32,
+                    last_activity: row.get(5)?,
+                    metadata: row
+                        .get::<_, Option<String>>(6)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
+                })
+            })?;
+
+            match rows.next() {
+                Some(Ok(record)) => Ok(Some(record)),
+                Some(Err(error)) => Err(error.into()),
+                None => Ok(None),
+            }
+        })
+        .await?
+    }
+
     async fn list_sessions_for_token(
         &self,
         token_hash: &str,
@@ -1079,6 +1489,589 @@ impl Memory for SqliteMemory {
                 .collect::<rusqlite::Result<Vec<_>>>()?;
 
             Ok((rows, total))
+        })
+        .await?
+    }
+
+    async fn load_session_transcript_excerpt(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<MemoryEntry>> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+        let limit = limit.max(1);
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<MemoryEntry>> {
+            let conn = conn.lock();
+            Self::ensure_session_exists(&conn, &session_id)?;
+            let mut stmt = conn.prepare(
+                "SELECT id, key, content, category, created_at, session_id
+                 FROM memories
+                 WHERE session_id = ?1 AND category = 'conversation'
+                 ORDER BY updated_at DESC, id DESC
+                 LIMIT ?2",
+            )?;
+            #[allow(clippy::cast_possible_wrap)]
+            let limit_i64 = limit as i64;
+            let entries = stmt
+                .query_map(params![session_id, limit_i64], |row| {
+                    Ok(MemoryEntry {
+                        id: row.get(0)?,
+                        key: row.get(1)?,
+                        content: row.get(2)?,
+                        category: Self::str_to_category(&row.get::<_, String>(3)?),
+                        timestamp: row.get(4)?,
+                        session_id: row.get(5)?,
+                        score: None,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(entries)
+        })
+        .await?
+    }
+
+    async fn create_session_snapshot(
+        &self,
+        session_id: &str,
+        kind: SessionSnapshotKind,
+        payload: serde_json::Value,
+        resume_capable: bool,
+    ) -> anyhow::Result<SessionSnapshotRecord> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<SessionSnapshotRecord> {
+            let conn = conn.lock();
+            Self::ensure_session_exists(&conn, &session_id)?;
+            let id = Uuid::new_v4().to_string();
+            let created_at = chrono::Utc::now().to_rfc3339();
+            let payload_text = serde_json::to_string(&payload)?;
+            conn.execute(
+                "INSERT INTO session_snapshots (
+                    id, session_id, snapshot_kind, created_at, payload, is_resume_capable
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    id,
+                    session_id,
+                    kind.as_str(),
+                    created_at,
+                    payload_text,
+                    if resume_capable { 1_i64 } else { 0_i64 }
+                ],
+            )?;
+            Ok(SessionSnapshotRecord {
+                id,
+                session_id,
+                kind,
+                created_at,
+                payload,
+                resume_capable,
+            })
+        })
+        .await?
+    }
+
+    async fn get_session_snapshot(
+        &self,
+        snapshot_id: &str,
+    ) -> anyhow::Result<Option<SessionSnapshotRecord>> {
+        let conn = self.conn.clone();
+        let snapshot_id = snapshot_id.to_string();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Option<SessionSnapshotRecord>> {
+            let conn = conn.lock();
+            Self::load_snapshot_by_id(&conn, &snapshot_id)
+        })
+        .await?
+    }
+
+    async fn get_session_state_record(
+        &self,
+        session_id: &str,
+    ) -> anyhow::Result<Option<SessionStateRecord>> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Option<SessionStateRecord>> {
+            let conn = conn.lock();
+            Self::ensure_session_exists(&conn, &session_id)?;
+            Self::read_session_state(&conn, &session_id)
+        })
+        .await?
+    }
+
+    async fn update_session_state_record(
+        &self,
+        state: SessionStateMutation,
+    ) -> anyhow::Result<SessionStateRecord> {
+        let conn = self.conn.clone();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<SessionStateRecord> {
+            let conn = conn.lock();
+            Self::ensure_session_exists(&conn, &state.session_id)?;
+            let updated_at = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "INSERT INTO session_state (
+                    session_id, lifecycle_state, latest_tldr_snapshot_id, latest_compact_snapshot_id,
+                    pending_hydration_snapshot_id, suspended_at, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(session_id) DO UPDATE SET
+                    lifecycle_state = excluded.lifecycle_state,
+                    latest_tldr_snapshot_id = excluded.latest_tldr_snapshot_id,
+                    latest_compact_snapshot_id = excluded.latest_compact_snapshot_id,
+                    pending_hydration_snapshot_id = excluded.pending_hydration_snapshot_id,
+                    suspended_at = excluded.suspended_at,
+                    updated_at = excluded.updated_at",
+                params![
+                    state.session_id,
+                    state.lifecycle.as_str(),
+                    state.latest_tldr_snapshot_id,
+                    state.latest_compact_snapshot_id,
+                    state.pending_hydration_snapshot_id,
+                    state.suspended_at,
+                    updated_at,
+                ],
+            )?;
+            Self::read_session_state(&conn, &state.session_id)?.ok_or_else(|| {
+                anyhow::anyhow!("session state missing after update for {}", state.session_id)
+            })
+        })
+        .await?
+    }
+
+    async fn apply_session_state_patch(
+        &self,
+        patch: SessionStatePatch,
+    ) -> anyhow::Result<SessionStateRecord> {
+        let conn = self.conn.clone();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<SessionStateRecord> {
+            let conn = conn.lock();
+            Self::ensure_session_exists(&conn, &patch.session_id)?;
+
+            let updated_at = chrono::Utc::now().to_rfc3339();
+
+            // Convert SessionFieldPatch to params with explicit clear flags.
+            // Clear must set NULL via CASE WHEN; Set uses the provided value; Keep preserves existing via COALESCE.
+            let (latest_tldr, clear_latest_tldr) = match patch.latest_tldr_snapshot_id {
+                crate::memory::SessionFieldPatch::Set(v) => (Some(v), false),
+                crate::memory::SessionFieldPatch::Keep => (None, false),
+                crate::memory::SessionFieldPatch::Clear => (None, true),
+            };
+            let (latest_compact, clear_latest_compact) = match patch.latest_compact_snapshot_id {
+                crate::memory::SessionFieldPatch::Set(v) => (Some(v), false),
+                crate::memory::SessionFieldPatch::Keep => (None, false),
+                crate::memory::SessionFieldPatch::Clear => (None, true),
+            };
+            let (pending_hydration, clear_pending_hydration) = match patch.pending_hydration_snapshot_id {
+                crate::memory::SessionFieldPatch::Set(v) => (Some(v), false),
+                crate::memory::SessionFieldPatch::Keep => (None, false),
+                crate::memory::SessionFieldPatch::Clear => (None, true),
+            };
+            let (suspended_at_val, clear_suspended_at) = match patch.suspended_at {
+                crate::memory::SessionFieldPatch::Set(v) => (Some(v), false),
+                crate::memory::SessionFieldPatch::Keep => (None, false),
+                crate::memory::SessionFieldPatch::Clear => (None, true),
+            };
+            // lifecycle uses Option<SlashSessionLifecycle>: None means Keep (preserve existing),
+            // Some(v) means Set. It is never nullable (NOT NULL column), so clear is never valid.
+            let clear_lifecycle = false;
+            let lifecycle_value = patch.lifecycle.as_ref().map(|l| l.as_str().to_string());
+
+            conn.execute(
+                "INSERT INTO session_state (
+                    session_id,
+                    lifecycle_state,
+                    latest_tldr_snapshot_id,
+                    latest_compact_snapshot_id,
+                    pending_hydration_snapshot_id,
+                    suspended_at,
+                    updated_at
+                ) VALUES (?1, COALESCE(?2, 'active'), ?3, ?4, ?5, ?6, ?7)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    lifecycle_state = CASE WHEN ?8 THEN NULL ELSE COALESCE(excluded.lifecycle_state, session_state.lifecycle_state) END,
+                    latest_tldr_snapshot_id = CASE WHEN ?9 THEN NULL ELSE COALESCE(excluded.latest_tldr_snapshot_id, session_state.latest_tldr_snapshot_id) END,
+                    latest_compact_snapshot_id = CASE WHEN ?10 THEN NULL ELSE COALESCE(excluded.latest_compact_snapshot_id, session_state.latest_compact_snapshot_id) END,
+                    pending_hydration_snapshot_id = CASE WHEN ?11 THEN NULL ELSE COALESCE(excluded.pending_hydration_snapshot_id, session_state.pending_hydration_snapshot_id) END,
+                    suspended_at = CASE WHEN ?12 THEN NULL ELSE COALESCE(excluded.suspended_at, session_state.suspended_at) END,
+                    updated_at = excluded.updated_at",
+                params![
+                    patch.session_id,
+                    lifecycle_value,
+                    latest_tldr,
+                    latest_compact,
+                    pending_hydration,
+                    suspended_at_val,
+                    updated_at,
+                    clear_lifecycle,
+                    clear_latest_tldr,
+                    clear_latest_compact,
+                    clear_pending_hydration,
+                    clear_suspended_at,
+                ],
+            )?;
+
+            Self::read_session_state(&conn, &patch.session_id)?.ok_or_else(|| {
+                anyhow::anyhow!("session state missing after patch for {}", patch.session_id)
+            })
+        })
+        .await?
+    }
+
+    async fn list_resumable_sessions(
+        &self,
+        caller_token_hash: Option<&str>,
+        limit: u32,
+        offset: u32,
+    ) -> anyhow::Result<Vec<ResumableSessionEntry>> {
+        let conn = self.conn.clone();
+        let caller_token_hash = caller_token_hash.map(str::to_string);
+        let limit = Self::capped_list_limit(limit.max(1));
+        let offset = i64::from(offset);
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<ResumableSessionEntry>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT s.id, s.started_at, s.last_activity, snap.id, snap.created_at, snap.payload
+                 FROM sessions s
+                 JOIN session_state state ON state.session_id = s.id
+                 JOIN session_snapshots snap ON snap.id = state.latest_compact_snapshot_id
+                  WHERE s.status != 'ended'
+                    AND state.lifecycle_state = 'suspended'
+                    AND snap.is_resume_capable = 1
+                    AND s.token_hash IS ?3
+                  ORDER BY s.last_activity DESC, s.id DESC
+                  LIMIT ?1 OFFSET ?2",
+            )?;
+            let rows = stmt
+                .query_map(params![limit, offset, caller_token_hash], |row| {
+                    let payload_str = row.get::<_, String>(5)?;
+                    let payload =
+                        serde_json::from_str::<serde_json::Value>(&payload_str).map_err(|e| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                5, // column index for payload (TEXT)
+                                rusqlite::types::Type::Text,
+                                Box::new(e),
+                            )
+                        })?;
+                    let preview = payload
+                        .get("preview")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string)
+                        .unwrap_or_default();
+                    Ok(ResumableSessionEntry {
+                        session_id: row.get(0)?,
+                        started_at: row.get(1)?,
+                        last_activity: row.get(2)?,
+                        snapshot_id: row.get(3)?,
+                        snapshot_created_at: row.get(4)?,
+                        preview,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await?
+    }
+
+    async fn list_session_rows_for_scope(
+        &self,
+        caller_scope_key: &str,
+        limit: u32,
+        offset: u32,
+    ) -> anyhow::Result<Vec<SessionListEntry>> {
+        let conn = self.conn.clone();
+        let caller_scope_key = caller_scope_key.to_string();
+        let limit = Self::capped_list_limit(limit.max(1));
+        let offset = i64::from(offset);
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<SessionListEntry>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT s.id,
+                        s.last_activity,
+                        CASE
+                            WHEN state.lifecycle_state = 'suspended' THEN 'suspended'
+                            ELSE 'active'
+                        END AS lifecycle,
+                        CASE
+                            WHEN state.lifecycle_state = 'suspended'
+                                 AND state.latest_compact_snapshot_id IS NOT NULL
+                                 AND snap.id IS NOT NULL
+                                 AND snap.is_resume_capable = 1
+                            THEN 1
+                            ELSE 0
+                        END AS resumable
+                 FROM sessions s
+                 LEFT JOIN session_state state ON state.session_id = s.id
+                  LEFT JOIN session_snapshots snap
+                      ON snap.id = state.latest_compact_snapshot_id
+                      AND snap.session_id = s.id
+                      AND snap.snapshot_kind = 'compact'
+                 WHERE s.status != 'ended'
+                   AND s.token_hash IS ?3
+                 ORDER BY s.last_activity DESC, s.id DESC
+                 LIMIT ?1 OFFSET ?2",
+            )?;
+            let rows = stmt
+                .query_map(params![limit, offset, caller_scope_key], |row| {
+                    Ok(SessionListEntry {
+                        id: row.get(0)?,
+                        last_activity: row.get(1)?,
+                        lifecycle: Self::lifecycle_from_row(row.get::<_, String>(2)?)?,
+                        resumable: row.get::<_, i64>(3)? != 0,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await?
+    }
+
+    async fn get_resumable_session_for_scope(
+        &self,
+        session_id: &str,
+        caller_scope_key: &str,
+    ) -> anyhow::Result<Option<ResumableSessionEntry>> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+        let caller_scope_key = caller_scope_key.to_string();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Option<ResumableSessionEntry>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT s.id, s.started_at, s.last_activity, snap.id, snap.created_at, snap.payload
+                 FROM sessions s
+                 JOIN session_state state ON state.session_id = s.id
+                 JOIN session_snapshots snap ON snap.id = state.latest_compact_snapshot_id
+                  WHERE s.id = ?1
+                    AND s.status != 'ended'
+                    AND state.lifecycle_state = 'suspended'
+                    AND snap.is_resume_capable = 1
+                    AND s.token_hash IS ?2",
+            )?;
+
+            stmt.query_row(params![session_id, caller_scope_key], |row| {
+                let payload_str = row.get::<_, String>(5)?;
+                let payload =
+                    serde_json::from_str::<serde_json::Value>(&payload_str).map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            5,
+                            rusqlite::types::Type::Text,
+                            Box::new(e),
+                        )
+                    })?;
+                let preview = payload
+                    .get("preview")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_default();
+                Ok(ResumableSessionEntry {
+                    session_id: row.get(0)?,
+                    started_at: row.get(1)?,
+                    last_activity: row.get(2)?,
+                    snapshot_id: row.get(3)?,
+                    snapshot_created_at: row.get(4)?,
+                    preview,
+                })
+            })
+            .optional()
+            .map_err(Into::into)
+        })
+        .await?
+    }
+
+    async fn take_pending_resume_hydration(
+        &self,
+        session_id: &str,
+    ) -> anyhow::Result<Option<SessionSnapshotRecord>> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Option<SessionSnapshotRecord>> {
+            let mut conn = conn.lock();
+            Self::ensure_session_exists(&conn, &session_id)?;
+            let tx = conn.transaction()?;
+            let pending_snapshot_id: Option<String> = tx
+                .query_row(
+                    "SELECT pending_hydration_snapshot_id FROM session_state WHERE session_id = ?1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .flatten();
+            let Some(snapshot_id) = pending_snapshot_id else {
+                tx.commit()?;
+                return Ok(None);
+            };
+            let snapshot = Self::load_snapshot_by_id(&tx, &snapshot_id)?;
+            let Some(snapshot) = snapshot else {
+                tx.commit()?;
+                anyhow::bail!("pending resume snapshot missing: {snapshot_id}");
+            };
+            tx.execute(
+                "UPDATE session_state SET pending_hydration_snapshot_id = NULL, updated_at = ?2
+                 WHERE session_id = ?1",
+                params![session_id, chrono::Utc::now().to_rfc3339()],
+            )?;
+            tx.commit()?;
+            Ok(Some(snapshot))
+        })
+        .await?
+    }
+
+    async fn create_task(&self, input: TaskCreateInput) -> anyhow::Result<TaskRecord> {
+        let conn = self.conn.clone();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<TaskRecord> {
+            let conn = conn.lock();
+            if let Some(session_id) = input.session_id.as_deref() {
+                Self::ensure_session_exists(&conn, session_id)?;
+            }
+
+            conn.execute(
+                "INSERT INTO tasks (id, title, description, status, priority, session_id, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    input.id,
+                    input.title,
+                    input.description,
+                    input.status.as_str(),
+                    input.priority.as_str(),
+                    input.session_id,
+                    input.created_at,
+                    input.updated_at,
+                ],
+            )?;
+
+            Ok(TaskRecord {
+                id: input.id,
+                title: input.title,
+                description: input.description,
+                status: input.status,
+                priority: input.priority,
+                session_id: input.session_id,
+                created_at: input.created_at,
+                updated_at: input.updated_at,
+            })
+        })
+        .await?
+    }
+
+    async fn get_task(&self, id: &str) -> anyhow::Result<Option<TaskRecord>> {
+        let conn = self.conn.clone();
+        let id = id.to_string();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Option<TaskRecord>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT id, title, description, status, priority, session_id, created_at, updated_at
+                 FROM tasks WHERE id = ?1",
+            )?;
+            stmt.query_row(params![id], Self::task_from_row)
+                .optional()
+                .map_err(Into::into)
+        })
+        .await?
+    }
+
+    async fn list_tasks(&self, query: TaskListQuery) -> anyhow::Result<TaskListPage> {
+        let conn = self.conn.clone();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<TaskListPage> {
+            let conn = conn.lock();
+            let effective_limit = query.limit.clamp(1, MAX_LIST_LIMIT);
+            let fetch_limit = i64::from(effective_limit.saturating_add(1));
+            let offset = i64::from(query.offset);
+
+            let mut sql = String::from(
+                "SELECT id, title, description, status, priority, session_id, created_at, updated_at FROM tasks",
+            );
+            let mut conditions = Vec::new();
+            let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+            if let Some(status) = query.status {
+                conditions.push("status = ?".to_string());
+                param_values.push(Box::new(status.as_str().to_string()));
+            }
+            if let Some(priority) = query.priority {
+                conditions.push("priority = ?".to_string());
+                param_values.push(Box::new(priority.as_str().to_string()));
+            }
+            if let Some(session_id) = query.session_id {
+                conditions.push("session_id = ?".to_string());
+                param_values.push(Box::new(session_id));
+            }
+
+            if !conditions.is_empty() {
+                sql.push_str(" WHERE ");
+                sql.push_str(&conditions.join(" AND "));
+            }
+
+            sql.push_str(" ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?");
+            param_values.push(Box::new(fetch_limit));
+            param_values.push(Box::new(offset));
+            let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+                param_values.iter().map(AsRef::as_ref).collect();
+
+            let mut stmt = conn.prepare(&sql)?;
+            let mut tasks = stmt
+                .query_map(params_ref.as_slice(), Self::task_from_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+
+            let has_more = tasks.len() > effective_limit as usize;
+            tasks.truncate(effective_limit as usize);
+
+            Ok(TaskListPage { tasks, has_more })
+        })
+        .await?
+    }
+
+    async fn update_task(&self, patch: TaskPatch) -> anyhow::Result<Option<TaskRecord>> {
+        let conn = self.conn.clone();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Option<TaskRecord>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT id, title, description, status, priority, session_id, created_at, updated_at
+                 FROM tasks WHERE id = ?1",
+            )?;
+            let current = stmt
+                .query_row(params![patch.id.clone()], Self::task_from_row)
+                .optional()?;
+            let Some(current) = current else {
+                return Ok(None);
+            };
+
+            let updated_at = chrono::Utc::now().to_rfc3339();
+            let next = TaskRecord {
+                id: current.id,
+                title: patch.title.unwrap_or(current.title),
+                description: patch.description.unwrap_or(current.description),
+                status: patch.status.unwrap_or(current.status),
+                priority: patch.priority.unwrap_or(current.priority),
+                session_id: current.session_id,
+                created_at: current.created_at,
+                updated_at: updated_at.clone(),
+            };
+
+            conn.execute(
+                "UPDATE tasks
+                 SET title = ?2, description = ?3, status = ?4, priority = ?5, updated_at = ?6
+                 WHERE id = ?1",
+                params![
+                    patch.id,
+                    next.title,
+                    next.description,
+                    next.status.as_str(),
+                    next.priority.as_str(),
+                    updated_at,
+                ],
+            )?;
+
+            Ok(Some(next))
         })
         .await?
     }
@@ -1137,12 +2130,242 @@ impl Memory for SqliteMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::{
+        SessionFieldPatch, TaskCreateInput, TaskListQuery, TaskPatch, TaskPriority, TaskStatus,
+    };
     use tempfile::TempDir;
 
     fn temp_sqlite() -> (TempDir, SqliteMemory) {
         let tmp = TempDir::new().unwrap();
         let mem = SqliteMemory::new(tmp.path()).unwrap();
         (tmp, mem)
+    }
+
+    #[test]
+    fn sqlite_dream_state_persists_per_session_and_survives_reopen() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path();
+        let mem = SqliteMemory::new(workspace).unwrap();
+
+        {
+            let conn = mem.conn.lock();
+            conn.execute(
+                "INSERT INTO sessions (id, started_at, status, message_count, last_activity)
+                 VALUES (?1, ?2, 'ended', 1, ?2)",
+                params!["sess-123", "2026-04-26T10:00:00Z"],
+            )
+            .unwrap();
+        }
+
+        let core_key = "dream/session/sess-123";
+        let core_content = "Dream summary for completed session sess-123";
+
+        {
+            let conn = mem.conn.lock();
+            let tx = conn.unchecked_transaction().unwrap();
+            tx.execute(
+                "INSERT INTO memories (id, key, content, category, session_id, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, 'core', ?4, ?5, ?5)",
+                params![
+                    "artifact-1",
+                    core_key,
+                    core_content,
+                    "sess-123",
+                    "2026-04-26T10:05:00Z"
+                ],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO dream_sessions (
+                    session_id, status, trigger_reason, completion_recorded_at,
+                    last_attempt_at, completed_at, artifact_refs, failure_reason
+                 ) VALUES (?1, 'completed', 'manual', ?2, ?3, ?3, ?4, NULL)
+                 ON CONFLICT(session_id) DO UPDATE SET
+                    status = excluded.status,
+                    trigger_reason = excluded.trigger_reason,
+                    completion_recorded_at = excluded.completion_recorded_at,
+                    last_attempt_at = excluded.last_attempt_at,
+                    completed_at = excluded.completed_at,
+                    artifact_refs = excluded.artifact_refs,
+                    failure_reason = excluded.failure_reason",
+                params![
+                    "sess-123",
+                    "2026-04-26T10:00:00Z",
+                    "2026-04-26T10:05:00Z",
+                    "[\"dream/session/sess-123\"]"
+                ],
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        drop(mem);
+        let reopened = SqliteMemory::new(workspace).unwrap();
+        let conn = reopened.conn.lock();
+        let row: (String, String, String) = conn
+            .query_row(
+                "SELECT status, trigger_reason, artifact_refs FROM dream_sessions WHERE session_id = ?1",
+                params!["sess-123"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(row.0, "completed");
+        assert_eq!(row.1, "manual");
+        assert_eq!(row.2, "[\"dream/session/sess-123\"]");
+
+        let memory: (String, String) = conn
+            .query_row(
+                "SELECT key, content FROM memories WHERE session_id = ?1",
+                params!["sess-123"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(memory.0, core_key);
+        assert_eq!(memory.1, core_content);
+    }
+
+    #[test]
+    fn sqlite_dream_metadata_and_artifact_write_is_atomic() {
+        let (_tmp, mem) = temp_sqlite();
+        {
+            let conn = mem.conn.lock();
+            conn.execute(
+                "INSERT INTO sessions (id, started_at, status, message_count, last_activity)
+                 VALUES (?1, ?2, 'ended', 1, ?2)",
+                params!["sess-atomic", "2026-04-26T10:00:00Z"],
+            )
+            .unwrap();
+        }
+
+        let conn = mem.conn.lock();
+        let tx = conn.unchecked_transaction().unwrap();
+        tx.execute(
+            "INSERT INTO memories (id, key, content, category, session_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'core', ?4, ?5, ?5)",
+            params![
+                "artifact-atomic",
+                "dream/session/sess-atomic",
+                "atomic write",
+                "sess-atomic",
+                "2026-04-26T10:05:00Z"
+            ],
+        )
+        .unwrap();
+        tx.execute(
+            "INSERT INTO dream_sessions (session_id, status, trigger_reason, completion_recorded_at, artifact_refs)
+             VALUES (?1, 'running', 'manual', ?2, ?3)",
+            params![
+                "sess-atomic",
+                "2026-04-26T10:00:00Z",
+                "[\"dream/session/sess-atomic\"]"
+            ],
+        )
+        .unwrap();
+        tx.rollback().unwrap();
+
+        let artifact_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM memories WHERE session_id = ?1",
+                params!["sess-atomic"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let metadata_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM dream_sessions WHERE session_id = ?1",
+                params!["sess-atomic"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(artifact_count, 0);
+        assert_eq!(metadata_count, 0);
+    }
+
+    #[test]
+    fn sqlite_dream_duplicate_session_metadata_is_suppressed() {
+        let (_tmp, mem) = temp_sqlite();
+        {
+            let conn = mem.conn.lock();
+            conn.execute(
+                "INSERT INTO sessions (id, started_at, status, message_count, last_activity)
+                 VALUES (?1, ?2, 'ended', 1, ?2)",
+                params!["sess-dup", "2026-04-26T10:00:00Z"],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO dream_sessions (session_id, status, trigger_reason, completion_recorded_at, artifact_refs)
+                 VALUES (?1, 'completed', 'manual', ?2, ?3)",
+                params![
+                    "sess-dup",
+                    "2026-04-26T10:00:00Z",
+                    "[\"dream/session/sess-dup\"]"
+                ],
+            )
+            .unwrap();
+        }
+
+        let conn = mem.conn.lock();
+        let duplicate = conn.execute(
+            "INSERT INTO dream_sessions (session_id, status, trigger_reason, completion_recorded_at, artifact_refs)
+             VALUES (?1, 'completed', 'manual', ?2, ?3)",
+            params![
+                "sess-dup",
+                "2026-04-26T10:00:00Z",
+                "[\"dream/session/sess-dup\"]"
+            ],
+        );
+        assert!(duplicate.is_err());
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM dream_sessions WHERE session_id = ?1",
+                params!["sess-dup"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn sqlite_dream_retry_candidates_include_failed_and_pending_but_not_completed() {
+        let (_tmp, mem) = temp_sqlite();
+        let conn = mem.conn.lock();
+        for (session_id, status) in [
+            ("sess-pending", "pending"),
+            ("sess-failed", "failed"),
+            ("sess-completed", "completed"),
+        ] {
+            conn.execute(
+                "INSERT INTO sessions (id, started_at, status, message_count, last_activity)
+                 VALUES (?1, ?2, 'ended', 1, ?2)",
+                params![session_id, "2026-04-26T10:00:00Z"],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO dream_sessions (session_id, status, trigger_reason, completion_recorded_at, artifact_refs, failure_reason)
+                 VALUES (?1, ?2, 'manual', ?3, '[]', CASE WHEN ?2 = 'failed' THEN 'transient' ELSE NULL END)",
+                params![session_id, status, "2026-04-26T10:00:00Z"],
+            )
+            .unwrap();
+        }
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT session_id FROM dream_sessions
+                 WHERE status IN ('pending', 'failed')
+                 ORDER BY session_id ASC",
+            )
+            .unwrap();
+        let ids: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect();
+
+        assert_eq!(
+            ids,
+            vec!["sess-failed".to_string(), "sess-pending".to_string()]
+        );
     }
 
     #[tokio::test]
@@ -1155,6 +2378,165 @@ mod tests {
     async fn sqlite_health() {
         let (_tmp, mem) = temp_sqlite();
         assert!(mem.health_check().await);
+    }
+
+    #[tokio::test]
+    async fn sqlite_task_roundtrip_create_get_list_and_update() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-123", None).await.unwrap();
+
+        let created = mem
+            .create_task(TaskCreateInput {
+                id: "11111111-1111-4111-8111-111111111111".into(),
+                title: "Review parity slice".into(),
+                description: "Capture follow-up work".into(),
+                status: TaskStatus::Pending,
+                priority: TaskPriority::High,
+                session_id: Some("session-123".into()),
+                created_at: "2026-04-18T00:00:00Z".into(),
+                updated_at: "2026-04-18T00:00:00Z".into(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(created.id, "11111111-1111-4111-8111-111111111111");
+        assert_eq!(created.status, TaskStatus::Pending);
+        assert_eq!(created.session_id.as_deref(), Some("session-123"));
+
+        let fetched = mem
+            .get_task("11111111-1111-4111-8111-111111111111")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(fetched.title, "Review parity slice");
+
+        let updated = mem
+            .update_task(TaskPatch {
+                id: "11111111-1111-4111-8111-111111111111".into(),
+                title: Some("Review persistent parity slice".into()),
+                description: None,
+                status: Some(TaskStatus::InProgress),
+                priority: Some(TaskPriority::Medium),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.title, "Review persistent parity slice");
+        assert_eq!(updated.status, TaskStatus::InProgress);
+        assert_eq!(updated.priority, TaskPriority::Medium);
+        assert_ne!(updated.updated_at, created.updated_at);
+
+        let page = mem
+            .list_tasks(TaskListQuery {
+                session_id: Some("session-123".into()),
+                status: Some(TaskStatus::InProgress),
+                priority: None,
+                limit: 10,
+                offset: 0,
+            })
+            .await
+            .unwrap();
+        assert_eq!(page.tasks.len(), 1);
+        assert!(!page.has_more);
+        assert_eq!(page.tasks[0].id, "11111111-1111-4111-8111-111111111111");
+    }
+
+    #[tokio::test]
+    async fn sqlite_task_list_uses_deterministic_order_and_page_metadata() {
+        let (_tmp, mem) = temp_sqlite();
+
+        for (id, title, created_at) in [
+            (
+                "11111111-1111-4111-8111-111111111111",
+                "oldest",
+                "2026-04-18T00:00:00Z",
+            ),
+            (
+                "22222222-2222-4222-8222-222222222222",
+                "middle",
+                "2026-04-18T01:00:00Z",
+            ),
+            (
+                "33333333-3333-4333-8333-333333333333",
+                "newest",
+                "2026-04-18T02:00:00Z",
+            ),
+        ] {
+            mem.create_task(TaskCreateInput {
+                id: id.into(),
+                title: title.into(),
+                description: String::new(),
+                status: TaskStatus::Pending,
+                priority: TaskPriority::Medium,
+                session_id: None,
+                created_at: created_at.into(),
+                updated_at: created_at.into(),
+            })
+            .await
+            .unwrap();
+        }
+
+        let first_page = mem
+            .list_tasks(TaskListQuery {
+                session_id: None,
+                status: None,
+                priority: None,
+                limit: 2,
+                offset: 0,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            first_page
+                .tasks
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "33333333-3333-4333-8333-333333333333",
+                "22222222-2222-4222-8222-222222222222",
+            ]
+        );
+        assert!(first_page.has_more);
+
+        let second_page = mem
+            .list_tasks(TaskListQuery {
+                session_id: None,
+                status: None,
+                priority: None,
+                limit: 2,
+                offset: 2,
+            })
+            .await
+            .unwrap();
+        assert_eq!(second_page.tasks.len(), 1);
+        assert_eq!(
+            second_page.tasks[0].id,
+            "11111111-1111-4111-8111-111111111111"
+        );
+        assert!(!second_page.has_more);
+    }
+
+    #[tokio::test]
+    async fn sqlite_task_create_rejects_unknown_session_association() {
+        let (_tmp, mem) = temp_sqlite();
+
+        let error = mem
+            .create_task(TaskCreateInput {
+                id: "11111111-1111-4111-8111-111111111111".into(),
+                title: "Review parity slice".into(),
+                description: String::new(),
+                status: TaskStatus::Pending,
+                priority: TaskPriority::Medium,
+                session_id: Some("missing-session".into()),
+                created_at: "2026-04-18T00:00:00Z".into(),
+                updated_at: "2026-04-18T00:00:00Z".into(),
+            })
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("unknown session"));
     }
 
     #[tokio::test]
@@ -1482,6 +2864,383 @@ mod tests {
         // Check that embedding column exists by querying it
         let result = conn.execute_batch("SELECT embedding FROM memories LIMIT 0");
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn slash_session_schema_is_additive_and_idempotent() {
+        let tmp = TempDir::new().unwrap();
+        let mem = SqliteMemory::new(tmp.path()).unwrap();
+        {
+            let conn = mem.conn.lock();
+            let snapshot_table_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='session_snapshots'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let state_table_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='session_state'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(snapshot_table_count, 1);
+            assert_eq!(state_table_count, 1);
+        }
+
+        let reopened = SqliteMemory::new(tmp.path()).unwrap();
+        let conn = reopened.conn.lock();
+        let snapshot_index_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_session_snapshots_resume_capable'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(snapshot_index_count, 1);
+    }
+
+    #[tokio::test]
+    async fn slash_session_persistence_roundtrips_and_pending_hydration_is_single_use() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-1", None).await.unwrap();
+        mem.store(
+            "turn-1",
+            "Discuss release checklist",
+            MemoryCategory::Conversation,
+            Some("session-1"),
+        )
+        .await
+        .unwrap();
+
+        let excerpt = mem
+            .load_session_transcript_excerpt("session-1", 5)
+            .await
+            .unwrap();
+        assert_eq!(excerpt.len(), 1);
+        assert_eq!(excerpt[0].session_id.as_deref(), Some("session-1"));
+
+        let snapshot = mem
+            .create_session_snapshot(
+                "session-1",
+                SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "Discuss release checklist",
+                    "summary": "Discuss release checklist",
+                    "resume_context": "Resume from checklist",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+        let state = mem
+            .apply_session_state_patch(SessionStatePatch {
+                session_id: "session-1".into(),
+                lifecycle: Some(SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: SessionFieldPatch::Clear,
+                latest_compact_snapshot_id: SessionFieldPatch::Set(snapshot.id.clone()),
+                pending_hydration_snapshot_id: SessionFieldPatch::Set(snapshot.id.clone()),
+                suspended_at: SessionFieldPatch::Set("now".into()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(state.lifecycle, SlashSessionLifecycle::Suspended);
+        assert_eq!(
+            state.pending_hydration_snapshot_id.as_deref(),
+            Some(snapshot.id.as_str())
+        );
+
+        let resumable = mem.list_resumable_sessions(None, 10, 0).await.unwrap();
+        assert_eq!(resumable.len(), 1);
+        assert_eq!(resumable[0].session_id, "session-1");
+
+        let first_hydration = mem
+            .take_pending_resume_hydration("session-1")
+            .await
+            .unwrap();
+        let second_hydration = mem
+            .take_pending_resume_hydration("session-1")
+            .await
+            .unwrap();
+        assert_eq!(
+            first_hydration
+                .as_ref()
+                .map(|snapshot| snapshot.id.as_str()),
+            Some(snapshot.id.as_str())
+        );
+        assert!(second_hydration.is_none());
+    }
+
+    #[tokio::test]
+    async fn pending_hydration_missing_snapshot_keeps_pointer_for_retry() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-1", None).await.unwrap();
+
+        let snapshot = mem
+            .create_session_snapshot(
+                "session-1",
+                SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "Preview A",
+                    "summary": "Preview A",
+                    "resume_context": "Preview A",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+
+        mem.apply_session_state_patch(SessionStatePatch {
+            session_id: "session-1".into(),
+            lifecycle: Some(SlashSessionLifecycle::Active),
+            latest_tldr_snapshot_id: SessionFieldPatch::Keep,
+            latest_compact_snapshot_id: SessionFieldPatch::Keep,
+            pending_hydration_snapshot_id: SessionFieldPatch::Set(snapshot.id.clone()),
+            suspended_at: SessionFieldPatch::Clear,
+        })
+        .await
+        .unwrap();
+
+        {
+            let conn = mem.conn.lock();
+            conn.execute("PRAGMA foreign_keys = OFF", []).unwrap();
+            conn.execute(
+                "DELETE FROM session_snapshots WHERE id = ?1",
+                params![snapshot.id],
+            )
+            .unwrap();
+            conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
+        }
+
+        let error = mem
+            .take_pending_resume_hydration("session-1")
+            .await
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("pending resume snapshot missing"));
+
+        let state = mem
+            .get_session_state_record("session-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            state.pending_hydration_snapshot_id.as_deref(),
+            Some(snapshot.id.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn list_resumable_sessions_filters_by_token_scope() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-a", Some("token-a"))
+            .await
+            .unwrap();
+        mem.upsert_session("session-b", Some("token-b"))
+            .await
+            .unwrap();
+
+        for (session_id, preview) in [("session-a", "Preview A"), ("session-b", "Preview B")] {
+            let snapshot = mem
+                .create_session_snapshot(
+                    session_id,
+                    SessionSnapshotKind::Compact,
+                    serde_json::json!({
+                        "preview": preview,
+                        "summary": preview,
+                        "resume_context": preview,
+                    }),
+                    true,
+                )
+                .await
+                .unwrap();
+            mem.apply_session_state_patch(SessionStatePatch {
+                session_id: session_id.into(),
+                lifecycle: Some(SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: SessionFieldPatch::Clear,
+                suspended_at: SessionFieldPatch::Set("now".into()),
+            })
+            .await
+            .unwrap();
+        }
+
+        let token_a_results = mem
+            .list_resumable_sessions(Some("token-a"), 10, 0)
+            .await
+            .unwrap();
+        assert_eq!(token_a_results.len(), 1);
+        assert_eq!(token_a_results[0].session_id, "session-a");
+        assert_eq!(token_a_results[0].preview, "Preview A");
+
+        let token_b_results = mem
+            .list_resumable_sessions(Some("token-b"), 10, 0)
+            .await
+            .unwrap();
+        assert_eq!(token_b_results.len(), 1);
+        assert_eq!(token_b_results[0].session_id, "session-b");
+        assert_eq!(token_b_results[0].preview, "Preview B");
+
+        let unscoped_results = mem.list_resumable_sessions(None, 10, 0).await.unwrap();
+        assert!(unscoped_results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_session_rows_for_scope_filters_by_scope_and_excludes_ended_sessions() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-a", Some("token-a"))
+            .await
+            .unwrap();
+        mem.upsert_session("session-b", Some("token-b"))
+            .await
+            .unwrap();
+        mem.upsert_session("session-ended", Some("token-a"))
+            .await
+            .unwrap();
+        mem.end_session("session-ended").await.unwrap();
+
+        let rows = mem
+            .list_session_rows_for_scope("token-a", 10, 0)
+            .await
+            .unwrap();
+
+        let ids: Vec<_> = rows.into_iter().map(|row| row.id).collect();
+        assert_eq!(ids, vec!["session-a"]);
+    }
+
+    #[tokio::test]
+    async fn list_session_rows_for_scope_derives_lifecycle_and_resumable_authoritatively() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-active", Some("token-a"))
+            .await
+            .unwrap();
+        mem.upsert_session("session-suspended", Some("token-a"))
+            .await
+            .unwrap();
+
+        let snapshot = mem
+            .create_session_snapshot(
+                "session-suspended",
+                SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "Preview A",
+                    "summary": "Preview A",
+                    "resume_context": "Preview A",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+        mem.apply_session_state_patch(SessionStatePatch {
+            session_id: "session-suspended".into(),
+            lifecycle: Some(SlashSessionLifecycle::Suspended),
+            latest_tldr_snapshot_id: SessionFieldPatch::Keep,
+            latest_compact_snapshot_id: SessionFieldPatch::Set(snapshot.id),
+            pending_hydration_snapshot_id: SessionFieldPatch::Clear,
+            suspended_at: SessionFieldPatch::Set("now".into()),
+        })
+        .await
+        .unwrap();
+
+        let rows = mem
+            .list_session_rows_for_scope("token-a", 10, 0)
+            .await
+            .unwrap();
+
+        assert!(rows.iter().any(|row| {
+            row.id == "session-active"
+                && row.lifecycle == SlashSessionLifecycle::Active
+                && !row.resumable
+        }));
+        assert!(rows.iter().any(|row| {
+            row.id == "session-suspended"
+                && row.lifecycle == SlashSessionLifecycle::Suspended
+                && row.resumable
+        }));
+    }
+
+    #[tokio::test]
+    async fn list_session_rows_for_scope_uses_last_activity_then_id_desc_ordering() {
+        let (_tmp, mem) = temp_sqlite();
+        for session_id in ["b", "a", "c"] {
+            mem.upsert_session(session_id, Some("token-a"))
+                .await
+                .unwrap();
+        }
+
+        {
+            let conn = mem.conn.lock();
+            conn.execute(
+                "UPDATE sessions SET last_activity = ?1 WHERE token_hash = ?2",
+                params!["2026-03-29T00:00:00Z", "token-a"],
+            )
+            .unwrap();
+        }
+
+        let rows = mem
+            .list_session_rows_for_scope("token-a", MAX_LIST_LIMIT + 500, 0)
+            .await
+            .unwrap();
+
+        let ids: Vec<_> = rows.into_iter().map(|row| row.id).collect();
+        assert_eq!(ids, vec!["c", "b", "a"]);
+    }
+
+    #[tokio::test]
+    async fn get_resumable_session_for_scope_enforces_target_visibility() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("session-a", Some("token-a"))
+            .await
+            .unwrap();
+        mem.upsert_session("session-b", Some("token-b"))
+            .await
+            .unwrap();
+
+        for (session_id, preview) in [("session-a", "Preview A"), ("session-b", "Preview B")] {
+            let snapshot = mem
+                .create_session_snapshot(
+                    session_id,
+                    SessionSnapshotKind::Compact,
+                    serde_json::json!({
+                        "preview": preview,
+                        "summary": preview,
+                        "resume_context": preview,
+                    }),
+                    true,
+                )
+                .await
+                .unwrap();
+            mem.apply_session_state_patch(SessionStatePatch {
+                session_id: session_id.into(),
+                lifecycle: Some(SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: SessionFieldPatch::Clear,
+                suspended_at: SessionFieldPatch::Set("now".into()),
+            })
+            .await
+            .unwrap();
+        }
+
+        let owned = mem
+            .get_resumable_session_for_scope("session-a", "token-a")
+            .await
+            .unwrap();
+        assert_eq!(
+            owned.as_ref().map(|entry| entry.session_id.as_str()),
+            Some("session-a")
+        );
+
+        let denied = mem
+            .get_resumable_session_for_scope("session-b", "token-a")
+            .await
+            .unwrap();
+        assert!(denied.is_none());
     }
 
     // ── FTS5 sync trigger tests ──────────────────────────────────
@@ -2559,5 +4318,61 @@ mod tests {
         assert_eq!(sessions.len(), 3);
         let ids: Vec<_> = sessions.into_iter().map(|session| session.id).collect();
         assert_eq!(ids, vec!["c", "b", "a"]);
+    }
+
+    #[tokio::test]
+    async fn clear_patch_actually_clears_previously_set_field() {
+        let (_temp, mem) = temp_sqlite();
+
+        mem.upsert_session("session-1", None).await.unwrap();
+
+        let snapshot = mem
+            .create_session_snapshot(
+                "session-1",
+                SessionSnapshotKind::Compact,
+                serde_json::json!({"summary": "test"}),
+                true,
+            )
+            .await
+            .unwrap();
+
+        mem.apply_session_state_patch(SessionStatePatch {
+            session_id: "session-1".to_string(),
+            lifecycle: None,
+            latest_tldr_snapshot_id: SessionFieldPatch::Set(snapshot.id.clone()),
+            latest_compact_snapshot_id: SessionFieldPatch::Keep,
+            pending_hydration_snapshot_id: SessionFieldPatch::Keep,
+            suspended_at: SessionFieldPatch::Clear,
+        })
+        .await
+        .unwrap();
+
+        let state = mem
+            .get_session_state_record("session-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(state.latest_tldr_snapshot_id.is_some());
+
+        mem.apply_session_state_patch(SessionStatePatch {
+            session_id: "session-1".to_string(),
+            lifecycle: None,
+            latest_tldr_snapshot_id: SessionFieldPatch::Clear,
+            latest_compact_snapshot_id: SessionFieldPatch::Keep,
+            pending_hydration_snapshot_id: SessionFieldPatch::Keep,
+            suspended_at: SessionFieldPatch::Clear,
+        })
+        .await
+        .unwrap();
+
+        let state = mem
+            .get_session_state_record("session-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            state.latest_tldr_snapshot_id.is_none(),
+            "Clear should have set latest_tldr_snapshot_id to NULL"
+        );
     }
 }

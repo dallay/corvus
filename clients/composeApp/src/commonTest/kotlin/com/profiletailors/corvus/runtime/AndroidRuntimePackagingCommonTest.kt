@@ -48,6 +48,7 @@ class AndroidRuntimePackagingCommonTest {
 
 // Test-only helper - kept for backward compatibility with tests
 // Not used in production code (client-first model)
+@Suppress("ReturnCount") // Guard clauses are idiomatic for nullable chaining in test helpers
 internal fun selectPackagedRuntimeExecutableForTest(
   runtimeDirectory: String?,
   availableEntries: Set<String>,

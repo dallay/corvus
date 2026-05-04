@@ -1,0 +1,21 @@
+change_id: 2026-04-26-track-6-slice-1-bridge-contract-auth
+stage: apply
+status: completed
+artifacts:
+  proposal: proposal.md
+  design: design.md
+  tasks: tasks.md
+  spec: specs/bridge-remote-sessions/spec.md
+  apply_report: apply-report.md
+  apply_result: apply-result.json
+verification:
+  status: passed
+  commands:
+    - cargo test --manifest-path clients/agent-runtime/Cargo.toml bridge -- --nocapture
+tasks:
+  all_checked: true
+audit:
+  documentation_catchup: true
+  notes:
+    - Apply artifacts were missing and have now been persisted.
+    - Implementation/testing work was already completed before this documentation step.

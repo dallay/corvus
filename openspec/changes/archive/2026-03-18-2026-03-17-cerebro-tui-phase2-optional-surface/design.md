@@ -83,15 +83,15 @@ TUI view ── periodic query ──→ Storage (search/get/count)
 
 | File                                   | Action | Description                                                       |
 |----------------------------------------|--------|-------------------------------------------------------------------|
-| `modules/cerebro/src/config.rs`        | Modify | Add TUI feature flag and redaction/backpressure settings.         |
-| `modules/cerebro/src/server.rs`        | Modify | Emit tool-call lifecycle events around `handle_json_rpc`.         |
-| `modules/cerebro/src/tools.rs`         | Modify | Optionally include tool metadata in emitted events for redaction. |
-| `modules/cerebro/src/lib.rs`           | Modify | Export new TUI/event bus modules.                                 |
-| `modules/cerebro/src/tui/mod.rs`       | Create | TUI task entrypoint, view routing, shutdown handling.             |
-| `modules/cerebro/src/tui/event_bus.rs` | Create | Broadcast channel, event types, and drop accounting.              |
-| `modules/cerebro/src/tui/redaction.rs` | Create | Central redaction policy for event payloads and view queries.     |
-| `modules/cerebro/src/tui/views/*`      | Create | Dashboard, memory explorer, session timeline, live logs.          |
-| `modules/cerebro/src/main.rs`          | Modify | Start TUI task when enabled, wire shutdown signal.                |
+| `clients/cerebro/src/config.rs`        | Modify | Add TUI feature flag and redaction/backpressure settings.         |
+| `clients/cerebro/src/server.rs`        | Modify | Emit tool-call lifecycle events around `handle_json_rpc`.         |
+| `clients/cerebro/src/tools.rs`         | Modify | Optionally include tool metadata in emitted events for redaction. |
+| `clients/cerebro/src/lib.rs`           | Modify | Export new TUI/event bus modules.                                 |
+| `clients/cerebro/src/tui/mod.rs`       | Create | TUI task entrypoint, view routing, shutdown handling.             |
+| `clients/cerebro/src/tui/event_bus.rs` | Create | Broadcast channel, event types, and drop accounting.              |
+| `clients/cerebro/src/tui/redaction.rs` | Create | Central redaction policy for event payloads and view queries.     |
+| `clients/cerebro/src/tui/views/*`      | Create | Dashboard, memory explorer, session timeline, live logs.          |
+| `clients/cerebro/src/main.rs`          | Modify | Start TUI task when enabled, wire shutdown signal.                |
 
 ## Interfaces / Contracts
 
@@ -164,4 +164,4 @@ No migration required. TUI remains disabled by default and is enabled via config
 ## Open Questions
 
 - Resolved: ratatui v0.28.0 with crossterm v0.28.0 is used for the terminal UI. Dependencies are
-  declared in `modules/cerebro/Cargo.toml`.
+  declared in `clients/cerebro/Cargo.toml`.

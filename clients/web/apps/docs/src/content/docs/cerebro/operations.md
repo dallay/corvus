@@ -5,7 +5,7 @@ description: >-
   backup strategies, and the TUI dashboard.
 owner: team-platform
 status: canonical
-lastReviewed: 2026-04-02
+lastReviewed: 2026-05-01
 appliesTo: main
 docType: guide
 ---
@@ -16,20 +16,39 @@ This page covers day-2 operations for running Cerebro in
 production: storage management, monitoring, backup, and
 troubleshooting.
 
+## Production Abuse Controls
+
+:::note[Translation pending]
+The Spanish counterpart for **Production Abuse Controls** is not yet available. Keep this section reconciled when ES documentation parity is restored.
+:::
+
+Cerebro uses layered abuse controls. The service self-protects the MCP path, while production ingress owns request-frequency rate limiting.
+
+Recommended starting defaults:
+
+| Control | Recommended default | Owner | Notes |
+|---------|---------------------|-------|-------|
+| MCP body size | `1 MiB` | Cerebro | Built in; oversized requests return `413 Payload Too Large`. |
+| MCP timeout | `request_timeout_secs = 30` | Cerebro | Tune upward only for known slow storage or long-running tools. |
+| MCP concurrency | `max_concurrent_mcp_requests = 32` | Cerebro | Tune based on CPU, memory, and storage saturation. |
+| Rate limiting | `60 requests/minute` per trusted client with burst controls | Ingress | Use source IP, mTLS identity, or authenticated gateway principal. |
+
+Do not expose Cerebro directly to the internet. For non-loopback deployments, put Cerebro behind TLS-capable ingress, set `CEREBRO_AUTH_TOKEN`, keep request body limits enabled, and configure ingress rate limiting. Cerebro does not implement in-process per-IP or per-token rate limiting because trustworthy client identity is established at ingress, not inside the service.
+
 ## Storage Modes
 
-Cerebro supports multiple storage backends. Choose based on your
-durability and performance requirements.
+Cerebro's supported durable production posture in this build is single-node and local-first.
+Choose among the supported local modes based on your durability and operational needs.
 
-| Mode              | Persistence | Performance | Use Case               |
-|-------------------|-------------|-------------|------------------------|
-| Embedded SurrealDB | Durable     | High        | Production (default)   |
-| Disk              | Durable     | Moderate    | Simple file-based      |
-| In-Memory         | None        | Highest     | Testing only           |
+| Mode              | Persistence | Performance | Use Case                           |
+|-------------------|-------------|-------------|------------------------------------|
+| Embedded SurrealDB | Durable     | High        | Default supported production mode  |
+| Disk              | Durable     | Moderate    | Node-local durable alternative     |
+| In-Memory         | None        | Highest     | CI, development, testing only      |
 
 :::caution
-`remote_surreal` mode is defined but **not yet implemented**.
-Do not use it in production.
+`remote_surreal`, shared remote persistence, and HA multi-node durability are unsupported in this
+build. Do not present them as current production options.
 :::
 
 ### Embedded SurrealDB (Default)
@@ -72,7 +91,8 @@ storage_mode = "in_memory"
 ### Disk Mode
 
 Simple file-based persistence. Less performant than SurrealDB
-but simpler to manage.
+but simpler to manage. This remains a node-local durable
+alternative rather than a shared or HA storage mode.
 
 ```toml
 storage_mode = "disk"
@@ -81,7 +101,7 @@ storage_path = "/var/lib/cerebro/disk-data"
 
 ## Storage Fallback
 
-Configure a fallback backend if the primary fails to
+Configure a supported local fallback backend if the primary fails to
 initialize:
 
 ```toml
@@ -91,7 +111,53 @@ storage_fallback = "in_memory"
 
 This can keep Cerebro running even if the primary backend is
 unavailable. Persistence is lost only if the fallback backend
-does not offer persistence (e.g., `in_memory`).
+does not offer persistence (e.g., `in_memory`). `remote_surreal`
+is unsupported in this build and is not a production recovery path.
+
+## Restart and Recovery Expectations
+
+Cerebro's durable production posture is single-node and local-first. Clean restarts preserve committed data when the restarted instance uses the same durable storage path.
+
+For embedded SurrealDB, keep `surreal.storage_path` on persistent node-local storage:
+
+```toml
+storage_mode = "embedded_surreal"
+
+[surreal]
+storage_path = "/var/lib/cerebro/data"
+```
+
+For clean restarts, stop Cerebro, keep the storage directory attached to the same replacement instance, then start Cerebro with the same configuration. After startup, verify `GET /readyz` succeeds and run a storage-backed MCP smoke check such as `mem_stats` or a known `mem_search` query.
+
+Crash recovery is limited to writes that completed before the process exited. In-flight writes are not guaranteed. After an unexpected restart, check `/readyz`, inspect structured logs for storage errors, and compare expected record counts or known memory queries before returning the instance to full traffic.
+
+`/healthz` and `/readyz` intentionally answer different questions:
+
+| Endpoint | Meaning | Operator action |
+|----------|---------|-----------------|
+| `/healthz` | Process is alive and can serve basic HTTP responses. | Keep the process observable; do not use this alone for traffic routing. |
+| `/readyz` | Storage-backed readiness checks are passing. | Route traffic only when this succeeds. |
+
+If `/readyz` fails while `/healthz` succeeds, remove the instance from traffic and investigate storage before restarting repeatedly. Check:
+
+- storage path exists and is mounted at the expected location;
+- directory ownership and permissions allow the Cerebro process to read and write;
+- disk capacity and inode availability;
+- recent structured logs for storage initialization, readiness, or fallback warnings;
+- `cerebro_readiness_failures_total` and `cerebro_storage_errors_total` for repeated failures.
+
+Manual recovery steps:
+
+1. Stop routing MCP traffic to the instance.
+2. Preserve the failing storage directory for analysis before deleting or replacing it.
+3. Fix mount, disk, or permission issues if the data path is intact.
+4. If the durable path is damaged, restore the latest known-good backup to the configured storage path.
+5. Start Cerebro with the durable backend configuration.
+6. Confirm `GET /readyz` succeeds.
+7. Run a storage-backed MCP smoke check.
+8. Return traffic only after readiness and smoke checks pass.
+
+`storage_fallback = "in_memory"` is an emergency availability option, not normal production recovery. When this fallback is active, new writes are not durable across restart. Treat the instance as durability-degraded, restore the embedded or disk-backed storage path, restart onto the durable backend, and verify readiness before returning to normal service.
 
 ## TUI Dashboard
 
@@ -161,6 +227,57 @@ RUST_LOG=cerebro=debug,surrealdb=warn cerebro serve
 RUST_LOG=cerebro=trace cerebro serve
 ```
 
+### Metrics
+
+Cerebro exposes Prometheus-compatible metrics at `GET /metrics`. Scrape this endpoint from private monitoring networks only; it is intentionally unauthenticated like `/healthz` and `/readyz`.
+
+| Metric | Type | Labels | Use for alerting |
+|--------|------|--------|------------------|
+| `cerebro_requests_total` | counter | `method`, `status` | MCP traffic volume and error rates by outcome. |
+| `cerebro_tool_latency_seconds` | histogram | `tool`, `status` | Tool latency percentiles and slow backend behavior. |
+| `cerebro_auth_failures_total` | counter | none | Missing or invalid bearer tokens on MCP requests. |
+| `cerebro_readiness_failures_total` | counter | none | `/readyz` failures, including storage connectivity failures. |
+| `cerebro_storage_errors_total` | counter | `operation` | Storage-layer failures by operation. |
+
+Structured logs include service startup/shutdown, MCP request lifecycle, tool execution outcome and latency, storage fallback warnings, and readiness/auth failure context. Use logs to enrich metric alerts with request paths, HTTP statuses, storage operation names, and deployment metadata.
+
+### Recommended Production Alerts
+
+Tune thresholds to each deployment's normal traffic, but internal production deployments should start with these alerts:
+
+| Alert | Signal | Example threshold | Page when | Notes |
+|-------|--------|-------------------|-----------|-------|
+| Repeated readiness failures | `increase(cerebro_readiness_failures_total[5m])` and failed `GET /readyz` probes | `>= 3` failures in 5 minutes or readiness probe success rate `< 95%` for 5 minutes | A production instance remains unready for 5 minutes, or two consecutive probe windows fail | Indicates storage connectivity or service dependency degradation. Correlate with storage fallback warnings and `cerebro_storage_errors_total`. |
+| Unusual auth failures | `increase(cerebro_auth_failures_total[10m])` or `cerebro_requests_total{status="unauthorized"}` | `> 20` failures in 10 minutes, or `> 5x` the 24-hour baseline | Sustained for 10 minutes, or any sudden spike on a private deployment | Detects broken clients, leaked endpoints, bad token rollout, or scanning. Pair with ingress logs keyed by trusted client identity. |
+| Elevated MCP error rate | <code>(sum(rate(cerebro_requests_total{status=~"storage_error&#124;internal_error"}[5m])) / sum(rate(cerebro_requests_total[5m])))</code> | `> 2%` for 10 minutes; page at `> 5%` for 5 minutes | User-facing requests are likely failing or storage is degraded | Keep validation/auth errors separate from server-side error-rate alerts so noisy clients do not mask service regressions. |
+| Storage operation error spike | `increase(cerebro_storage_errors_total[5m])` | `>= 5` errors in 5 minutes for one operation | Any write/read path repeatedly fails | Break down by `operation` (`save`, `get`, `search`, `delete`, `timeline`, `count`, or `unknown`) to identify affected tools. |
+| Latency spike | `histogram_quantile(0.95, sum by (le, tool) (rate(cerebro_tool_latency_seconds_bucket{status="ok"}[10m])))` | p95 `> 2s` for 10 minutes; warn at p95 `> 1s` | Slow tools persist after expected workload spikes | Compare by `tool` label. For internal deployments with strict SLOs, use the tool's normal p95 plus 2x as the warning threshold. |
+
+Example Prometheus expressions:
+
+```text
+# Readiness degradation
+increase(cerebro_readiness_failures_total[5m]) >= 3
+
+# Auth anomaly
+increase(cerebro_auth_failures_total[10m]) > 20
+
+# Server-side MCP error ratio
+(
+  sum(rate(cerebro_requests_total{status=~"storage_error|internal_error"}[5m]))
+  /
+  sum(rate(cerebro_requests_total[5m]))
+) > 0.02
+
+# p95 successful tool latency
+histogram_quantile(
+  0.95,
+  sum by (le, tool) (rate(cerebro_tool_latency_seconds_bucket{status="ok"}[10m]))
+) > 2
+```
+
+Route readiness and server-side error alerts to the on-call operator for the deployment. Route auth anomalies to both service owners and the team that owns ingress or token distribution. Use warning-only notifications for validation errors and forbidden attempts unless they correlate with elevated server-side errors or known abuse.
+
 ### Health Check
 
 Send a `mem_stats` call to verify the service is responsive:
@@ -187,37 +304,242 @@ Use this in container health checks or monitoring probes.
 
 ## Backup and Restore
 
-### Embedded SurrealDB
+### Prerequisites
 
-The embedded SurrealDB data lives in the working directory or
-the path specified by `surreal.storage_path`. To back up:
+:::caution[Shutdown Required]
+Embedded SurrealDB uses RocksDB as its storage engine, which requires a consistent snapshot for file-based backups. **You must stop Cerebro before performing a backup.** Hot backups (copying files while Cerebro is running) can result in corrupted or incomplete data due to concurrent writes and unflushed buffers.
+:::
+
+Always follow this sequence:
+1. Stop Cerebro gracefully
+2. Perform the backup
+3. Restart Cerebro
+
+### Data Path Resolution
+
+Cerebro resolves the storage path in this order:
+
+1. **`surreal.storage_path`** (if configured) — Highest priority
+2. **`storage_path`** (if configured and `surreal.storage_path` is not set)
+3. **`./cerebro.db`** (default if neither is configured)
+
+**Examples:**
+
+```toml
+# Option 1: Explicit SurrealDB storage path (recommended)
+[surreal]
+storage_path = "/var/lib/cerebro/data"
+```
+
+```toml
+# Option 2: Fallback to general storage_path
+storage_path = "/data/cerebro"
+```
+
+```toml
+# Option 3: Default (working directory)
+# No configuration needed - uses ./cerebro.db
+```
+
+### Cold Backup Procedure
+
+#### Bare Metal Deployment
 
 ```bash
-# Stop Cerebro first for consistency
+# 1. Stop Cerebro gracefully
+sudo systemctl stop cerebro
+
+# 2. Copy the storage directory
+sudo cp -r /var/lib/cerebro/data /backup/cerebro-$(date +%Y%m%d-%H%M%S)
+
+# 3. Verify backup exists
+ls -lh /backup/cerebro-*
+
+# 4. Restart Cerebro
+sudo systemctl start cerebro
+```
+
+#### Docker Container with Named Volume
+
+```bash
+# 1. Stop the container
 docker stop cerebro
 
-# Copy the data directory
-cp -r /path/to/cerebro-data /path/to/backup/
+# 2. Backup the volume
+docker run --rm \
+  -v cerebro-data:/data \
+  -v $(pwd):/backup \
+  busybox tar czf /backup/cerebro-backup-$(date +%Y%m%d-%H%M%S).tar.gz -C /data .
 
-# Restart
+# 3. Verify backup
+ls -lh cerebro-backup-*.tar.gz
+
+# 4. Restart the container
 docker start cerebro
 ```
 
-### Docker Volumes
+#### Docker Compose Setup
 
 ```bash
-# Backup a Docker volume
-docker run --rm \
-  -v cerebro-data:/data \
-  -v $(pwd):/backup \
-  busybox tar czf /backup/cerebro-backup.tar.gz -C /data .
+# 1. Stop services
+docker compose stop cerebro
 
-# Restore
+# 2. Backup the volume
+docker compose run --rm \
+  -v cerebro-data:/data \
+  -v $(pwd):/backup \
+  busybox tar czf /backup/cerebro-backup-$(date +%Y%m%d-%H%M%S).tar.gz -C /data .
+
+# 3. Restart services
+docker compose start cerebro
+```
+
+### Restore Procedure
+
+#### Bare Metal Deployment
+
+```bash
+# 1. Stop Cerebro
+sudo systemctl stop cerebro
+
+# 2. Clear current storage (optional, for clean restore)
+sudo rm -rf /var/lib/cerebro/data
+
+# 3. Restore from backup
+sudo cp -r /backup/cerebro-20260501-120000 /var/lib/cerebro/data
+
+# 4. Fix permissions if needed
+sudo chown -R cerebro:cerebro /var/lib/cerebro/data
+
+# 5. Restart Cerebro
+sudo systemctl start cerebro
+```
+
+#### Docker Container with Named Volume
+
+```bash
+# 1. Stop the container
+docker stop cerebro
+
+# 2. Clear the volume (optional)
+docker run --rm -v cerebro-data:/data busybox rm -rf /data/*
+
+# 3. Restore from backup
 docker run --rm \
   -v cerebro-data:/data \
   -v $(pwd):/backup \
-  busybox tar xzf /backup/cerebro-backup.tar.gz -C /data
+  busybox tar xzf /backup/cerebro-backup-20260501-120000.tar.gz -C /data
+
+# 4. Restart the container
+docker start cerebro
 ```
+
+#### Restore to Different Storage Path
+
+If you need to restore to a different location, update your configuration first:
+
+```toml
+# Update cerebro.toml before restore
+[surreal]
+storage_path = "/new/path/cerebro/data"
+```
+
+Then follow the standard restore procedure for your deployment type.
+
+### Post-Restore Verification
+
+After restoring from backup, verify service health and data integrity:
+
+1. **Check readiness endpoint:**
+   ```bash
+   curl -f http://127.0.0.1:4040/readyz
+   # Should return HTTP 200
+   ```
+
+2. **Verify memory counts:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:4040/mcp \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer <YOUR_TOKEN>" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mem_stats","arguments":{"input":{}}}}' \
+     | jq '.result.output'
+   ```
+   
+   Compare the memory count with your pre-backup count.
+
+3. **Verify data accessibility:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:4040/mcp \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer <YOUR_TOKEN>" \
+     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mem_search","arguments":{"input":{"query":"test","limit":5}}}}' \
+     | jq '.result.output'
+   ```
+   
+   Confirm that search returns expected results.
+
+4. **Test a basic MCP tool call:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:4040/mcp \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer <YOUR_TOKEN>" \
+     -d '{"jsonrpc":"2.0","id":3,"method":"tools/list"}' \
+     | jq '.result'
+   ```
+
+See the [Health Check](#health-check) section for more details on monitoring endpoints.
+
+### RPO/RTO Expectations
+
+| Metric | Cold Backup | Export/Import |
+|--------|-------------|---------------|
+| **RPO** (Recovery Point Objective) | Time since last backup (operator-controlled) | Time since last export |
+| **RTO** (Recovery Time Objective) | Minutes (depends on data size) | Varies by dataset size |
+| **Downtime** | Required during backup and restore | Required during restore only |
+| **Use Case** | Production disaster recovery | Data migration between storage backends |
+
+**RPO is determined by your backup frequency.** For example:
+- Hourly backups → 1-hour maximum data loss
+- Daily backups → 24-hour maximum data loss
+
+Schedule backups according to your data loss tolerance.
+
+### Export/Import Alternative
+
+For data migration scenarios (e.g., moving between storage backends), use the export/import approach instead of file-based backup:
+
+**When to use export/import:**
+- Migrating from embedded SurrealDB to disk storage
+- Transferring data between environments
+- Creating portable data snapshots
+- Cross-platform data migration
+
+**Advantages:**
+- Works across different storage backends
+- No shutdown required during export
+- Portable JSON format
+
+**Disadvantages:**
+- Slower than file-based backup for large datasets
+- Requires more disk space (JSON vs binary)
+
+**Export procedure:**
+
+The storage layer provides `export_collections()` functionality. This is currently available programmatically but not exposed as an MCP tool. For production use, implement a custom export script or use file-based backup.
+
+### Troubleshooting
+
+| Symptom | Likely Cause | Recommended Fix |
+|---------|--------------|-----------------|
+| Backup directory is empty or incomplete | Wrong path configured, insufficient permissions, or Cerebro still running | Verify storage path with `surreal.storage_path` config, check permissions, ensure Cerebro is stopped |
+| Restore fails with "database locked" error | Cerebro is still running | Stop Cerebro completely before restore: `docker stop cerebro` or `systemctl stop cerebro` |
+| Post-restore verification shows zero memories | Backup was incomplete or restore copied to wrong location | Verify backup directory contains RocksDB files (not empty), check storage path configuration matches restore location |
+| Permission denied during backup or restore | Insufficient filesystem permissions | Run backup/restore with appropriate user (e.g., `sudo` for system paths) or fix directory ownership |
+| Backup succeeds but some files are missing | Partial backup failure or disk space issue | Verify backup directory structure, check disk space, test restore in non-production environment before relying on backup |
+
+**Automated validation:**
+
+The Cerebro test suite includes an integration test that validates the complete backup/restore cycle. See `clients/cerebro/tests/backup_restore_test.rs` for the reference implementation.
 
 ## Troubleshooting
 

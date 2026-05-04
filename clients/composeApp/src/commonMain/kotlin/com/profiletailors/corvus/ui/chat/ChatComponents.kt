@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -11,12 +12,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,8 +40,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.profiletailors.corvus.runtime.RuntimeApprovalRequest
@@ -51,6 +60,17 @@ internal val DiagnosticsCardShape = RoundedCornerShape(16.dp)
 internal val ChatBubbleShape = RoundedCornerShape(18.dp)
 
 private const val SETTINGS_CONTENT_DESCRIPTION = "Settings"
+private const val SESSION_HISTORY_CONTENT_DESCRIPTION = "Session History"
+private const val COMPONENT_ANIMATION_DURATION_MS = 300
+private const val DISABLED_BUTTON_ALPHA = 0.5f
+private const val BUTTON_SHADOW_ALPHA = 0.3f
+private const val ACTIVE_STATUS_GLOW_ALPHA = 0.6f
+private const val INACTIVE_STATUS_GLOW_ALPHA = 0.2f
+private const val SESSION_ID_TRUNCATE_LENGTH = 8
+private const val CLOCK_RADIUS_RATIO = 0.85f
+private const val CLOCK_STROKE_WIDTH_RATIO = 0.1f
+private const val CLOCK_HAND_LENGTH_CLOCK_RATIO = 0.55f
+private const val CLOCK_HAND_LENGTH_MINUTE_RATIO = 0.7f
 
 @Immutable data class ChatMessage(val id: Int, val role: ChatRole, val content: String)
 
@@ -99,8 +119,8 @@ fun GradientButton(
     }
   val alpha by
     animateFloatAsState(
-      targetValue = if (enabled) 1f else 0.5f,
-      animationSpec = tween(300),
+      targetValue = if (enabled) 1f else DISABLED_BUTTON_ALPHA,
+      animationSpec = tween(COMPONENT_ANIMATION_DURATION_MS),
       label = "buttonAlpha",
     )
 
@@ -110,7 +130,7 @@ fun GradientButton(
         .shadow(
           elevation = 8.dp,
           shape = RoundedCornerShape(14.dp),
-          spotColor = corvusColors.glowPurple.copy(alpha = 0.3f),
+          spotColor = corvusColors.glowPurple.copy(alpha = BUTTON_SHADOW_ALPHA),
         )
         .clip(RoundedCornerShape(14.dp))
         .clickable(enabled = enabled, onClick = onClick)
@@ -243,13 +263,13 @@ fun StatusIndicator(active: Boolean, label: String, modifier: Modifier = Modifie
   val color by
     animateColorAsState(
       targetValue = if (active) corvusColors.connected else corvusColors.disconnected,
-      animationSpec = tween(300),
+      animationSpec = tween(COMPONENT_ANIMATION_DURATION_MS),
       label = "statusColor",
     )
   val glowAlpha by
     animateFloatAsState(
-      targetValue = if (active) 0.6f else 0.2f,
-      animationSpec = tween(300),
+      targetValue = if (active) ACTIVE_STATUS_GLOW_ALPHA else INACTIVE_STATUS_GLOW_ALPHA,
+      animationSpec = tween(COMPONENT_ANIMATION_DURATION_MS),
       label = "glowAlpha",
     )
 
@@ -270,12 +290,15 @@ fun StatusIndicator(active: Boolean, label: String, modifier: Modifier = Modifie
   }
 }
 
+@Suppress("LongParameterList") // ChatHeader needs all UI state for display
 @Composable
 fun ChatHeader(
   modelName: String,
   bridgeState: MobileBridgeUiState,
   showConfig: Boolean,
+  showSessionHistory: Boolean,
   onToggleConfig: () -> Unit,
+  onToggleSessionHistory: () -> Unit,
 ) {
   val corvusColors = CorvusTheme.colors
   val iconBackgroundBrush =
@@ -301,22 +324,220 @@ fun ChatHeader(
       )
     }
 
-    IconButton(
-      onClick = onToggleConfig,
-      modifier =
-        Modifier.size(44.dp)
-          .shadow(4.dp, CircleShape)
-          .background(brush = iconBackgroundBrush, shape = CircleShape),
-    ) {
-      Icon(
-        imageVector = Icons.Default.Settings,
-        contentDescription = SETTINGS_CONTENT_DESCRIPTION,
-        tint = Color.White,
-        modifier = Modifier.size(22.dp),
-      )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      if (bridgeState.isChatReady) {
+        sessionHistoryToggleButton(
+          showSessionHistory = showSessionHistory,
+          iconBackgroundBrush = iconBackgroundBrush,
+          corvusColors = corvusColors,
+          onToggle = onToggleSessionHistory,
+        )
+      }
+
+      IconButton(
+        onClick = onToggleConfig,
+        modifier =
+          Modifier.size(44.dp)
+            .shadow(4.dp, CircleShape)
+            .background(brush = iconBackgroundBrush, shape = CircleShape),
+      ) {
+        Icon(
+          imageVector = Icons.Default.Settings,
+          contentDescription = SETTINGS_CONTENT_DESCRIPTION,
+          tint = Color.White,
+          modifier = Modifier.size(22.dp),
+        )
+      }
     }
   }
 }
+
+@Composable
+private fun sessionHistoryToggleButton(
+  showSessionHistory: Boolean,
+  iconBackgroundBrush: Brush,
+  corvusColors: CorvusColorPalette,
+  onToggle: () -> Unit,
+) {
+  val activeBackground =
+    remember(corvusColors.glowCyan) {
+      Brush.linearGradient(
+        listOf(corvusColors.glowCyan.copy(alpha = 0.4f), corvusColors.glowCyan.copy(alpha = 0.2f))
+      )
+    }
+  val background = if (showSessionHistory) activeBackground else iconBackgroundBrush
+  IconButton(
+    onClick = onToggle,
+    modifier =
+      Modifier.size(44.dp)
+        .shadow(4.dp, CircleShape)
+        .background(brush = background, shape = CircleShape),
+  ) {
+    historyIcon(
+      tint = Color.White,
+      contentDescription = SESSION_HISTORY_CONTENT_DESCRIPTION,
+      modifier = Modifier.size(22.dp),
+    )
+  }
+}
+
+@Composable
+private fun historyIcon(tint: Color, contentDescription: String?, modifier: Modifier = Modifier) {
+  val semanticsModifier =
+    if (contentDescription != null) {
+      modifier.then(Modifier.semantics { this.contentDescription = contentDescription })
+    } else {
+      modifier
+    }
+  Canvas(modifier = semanticsModifier) {
+    val cx = size.width / 2f
+    val cy = size.height / 2f
+    val r = size.minDimension / 2f * CLOCK_RADIUS_RATIO
+    val strokeWidth = size.minDimension * CLOCK_STROKE_WIDTH_RATIO
+    drawCircle(
+      color = tint,
+      radius = r,
+      center = Offset(cx, cy),
+      style = Stroke(width = strokeWidth),
+    )
+    val handLengthClock = r * CLOCK_HAND_LENGTH_CLOCK_RATIO
+    val handLengthMinute = r * CLOCK_HAND_LENGTH_MINUTE_RATIO
+    drawLine(
+      color = tint,
+      start = Offset(cx, cy),
+      end = Offset(cx, cy - handLengthClock),
+      strokeWidth = strokeWidth,
+      cap = StrokeCap.Round,
+    )
+    drawLine(
+      color = tint,
+      start = Offset(cx, cy),
+      end = Offset(cx + handLengthMinute, cy),
+      strokeWidth = strokeWidth,
+      cap = StrokeCap.Round,
+    )
+  }
+}
+
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
+@Composable
+fun SessionHistoryPanel(
+  sessions: List<RuntimeSession>,
+  activeSessionId: String?,
+  onSwitchSession: (String) -> Unit,
+  onNewSession: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val corvusColors = CorvusTheme.colors
+
+  Surface(
+    modifier = modifier.fillMaxSize(),
+    shape = RoundedCornerShape(20.dp),
+    color = corvusColors.glassSurface,
+  ) {
+    val backgroundBrush = remember {
+      Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
+    }
+    Box(modifier = Modifier.background(brush = backgroundBrush)) {
+      LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
+        item {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Text(
+              text = "Session History",
+              style = MaterialTheme.typography.titleLarge,
+              fontWeight = FontWeight.Bold,
+              color = MaterialTheme.colorScheme.onSurface,
+            )
+            GradientButton(text = "New Session", onClick = onNewSession)
+          }
+        }
+
+        if (sessions.isEmpty()) {
+          item {
+            Text(
+              text = "No past sessions. Start a new session to begin.",
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(top = 8.dp),
+            )
+          }
+        } else {
+          itemsIndexed(items = sessions, key = { _, s -> s.id.value }) { _, session ->
+            sessionHistoryItem(
+              session = session,
+              isActive = session.id.value == activeSessionId,
+              onSwitch = { onSwitchSession(session.id.value) },
+            )
+          }
+        }
+
+        item { Spacer(modifier = Modifier.height(32.dp)) }
+      }
+    }
+  }
+}
+
+@Composable
+private fun sessionHistoryItem(session: RuntimeSession, isActive: Boolean, onSwitch: () -> Unit) {
+  val corvusColors = CorvusTheme.colors
+  val borderColor =
+    if (isActive) corvusColors.glowCyan.copy(alpha = 0.6f) else corvusColors.glassOverlay
+
+  Surface(
+    shape = RoundedCornerShape(14.dp),
+    color = if (isActive) corvusColors.glowCyan.copy(alpha = 0.08f) else corvusColors.glassSurface,
+    border = BorderStroke(1.dp, borderColor),
+  ) {
+    Row(
+      modifier =
+        Modifier.fillMaxWidth()
+          .clickable(onClick = onSwitch)
+          .padding(horizontal = 16.dp, vertical = 12.dp),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+          text = session.title ?: truncateSessionId(session.id.value),
+          style = MaterialTheme.typography.bodyMedium,
+          fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+          color = if (isActive) corvusColors.glowCyan else MaterialTheme.colorScheme.onSurface,
+        )
+        if (isActive) {
+          Text(
+            text = "Active",
+            style = MaterialTheme.typography.labelSmall,
+            color = corvusColors.glowCyan.copy(alpha = 0.8f),
+          )
+        }
+      }
+
+      if (!isActive) {
+        OutlinedButton(
+          onClick = onSwitch,
+          shape = RoundedCornerShape(10.dp),
+          colors = ButtonDefaults.outlinedButtonColors(contentColor = corvusColors.glowCyan),
+        ) {
+          Text(text = "Open", style = MaterialTheme.typography.labelMedium)
+        }
+      }
+    }
+  }
+}
+
+internal fun truncateSessionId(sessionId: String): String =
+  if (sessionId.length > SESSION_ID_TRUNCATE_LENGTH) {
+    sessionId.take(SESSION_ID_TRUNCATE_LENGTH) + "…"
+  } else {
+    sessionId
+  }
 
 @Composable
 fun BridgeStatusCard(bridgeState: MobileBridgeUiState, modifier: Modifier = Modifier) {
@@ -337,6 +558,7 @@ fun BridgeStatusCard(bridgeState: MobileBridgeUiState, modifier: Modifier = Modi
   )
 }
 
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
 @Composable
 fun SessionSelectionCard(
   sessions: List<RuntimeSession>,
@@ -346,10 +568,13 @@ fun SessionSelectionCard(
 ) {
   if (sessions.isEmpty()) return
 
+  val sessionDetails =
+    remember(sessions) { sessions.map { session -> session.title ?: session.id.value } }
+
   diagnosticsCard(
     title = "Resumable sessions",
     subtitle = activeSessionId ?: "Select a session to resume",
-    details = sessions.map { session -> session.title ?: session.id.value },
+    details = sessionDetails,
     modifier = modifier,
   )
 
@@ -370,6 +595,7 @@ fun SessionSelectionCard(
   }
 }
 
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
 @Composable
 fun ApprovalCard(
   request: RuntimeApprovalRequest,

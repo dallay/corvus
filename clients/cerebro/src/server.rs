@@ -1,0 +1,603 @@
+use crate::config::CerebroConfig;
+use crate::errors::{CerebroError, CerebroErrorCode, CerebroErrorResponse};
+use crate::metrics;
+use crate::storage::{storage_from_config, Storage};
+use crate::tools::{CerebroTools, DEFERRED_TOOL_NAMES, IMPLEMENTED_TOOL_NAMES};
+use crate::tui::event_bus::{EventBus, ToolCallEvent, ToolCallEventKind};
+use crate::tui::redaction::RedactionPolicy;
+use axum::error_handling::HandleErrorLayer;
+use axum::extract::{DefaultBodyLimit, State};
+use axum::http::header::CONTENT_TYPE;
+use axum::http::HeaderMap;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use chrono::Utc;
+use prometheus::{Encoder, TextEncoder};
+use secrecy::ExposeSecret;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use subtle::ConstantTimeEq;
+use tokio::sync::Semaphore;
+use tower::timeout::TimeoutLayer;
+use tower::ServiceBuilder;
+use tracing::Instrument;
+
+#[derive(Debug, Deserialize)]
+pub struct JsonRpcRequest {
+    pub jsonrpc: String,
+    pub id: Value,
+    pub method: String,
+    #[serde(default)]
+    pub params: Option<JsonRpcParams>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct JsonRpcParams {
+    pub name: String,
+    pub arguments: Value,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JsonRpcError {
+    pub code: i64,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JsonRpcResponse {
+    pub jsonrpc: String,
+    pub id: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<JsonRpcError>,
+}
+
+#[derive(Debug)]
+struct JsonRpcHttpResponse {
+    status: StatusCode,
+    body: JsonRpcResponse,
+}
+
+impl JsonRpcHttpResponse {
+    fn ok(body: JsonRpcResponse) -> Self {
+        Self {
+            status: StatusCode::OK,
+            body,
+        }
+    }
+}
+
+const MAX_REQUEST_BODY_BYTES: usize = 1024 * 1024;
+
+fn request_method_label(method: &str) -> &'static str {
+    match method {
+        "tools/call" => "tools.call",
+        "tools/list" => "tools.list",
+        _ => "unknown",
+    }
+}
+
+fn tool_name_label(tool: &str) -> String {
+    if IMPLEMENTED_TOOL_NAMES.contains(&tool) || DEFERRED_TOOL_NAMES.contains(&tool) {
+        tool.to_string()
+    } else {
+        "unknown".to_string()
+    }
+}
+
+#[derive(Clone)]
+pub struct CerebroService {
+    config: CerebroConfig,
+    storage: Arc<dyn Storage>,
+    tools: CerebroTools,
+    event_bus: EventBus,
+    redaction: RedactionPolicy,
+    mcp_concurrency: Arc<Semaphore>,
+}
+
+impl CerebroService {
+    pub fn new(config: CerebroConfig, storage: Arc<dyn Storage>) -> Self {
+        metrics::init();
+        let event_bus = EventBus::new(config.tui.event_buffer);
+        let redaction = RedactionPolicy::from_config(&config.tui);
+        let tools = CerebroTools::new(storage.clone());
+        let mcp_concurrency = Arc::new(Semaphore::new(config.max_concurrent_mcp_requests));
+        Self {
+            config,
+            storage,
+            tools,
+            event_bus,
+            redaction,
+            mcp_concurrency,
+        }
+    }
+
+    pub async fn from_config(config: CerebroConfig) -> Result<Self, CerebroError> {
+        let storage = storage_from_config(&config).await?;
+        Ok(Self::new(config, storage))
+    }
+
+    pub fn router(self: Arc<Self>) -> Router {
+        let mcp_layers = ServiceBuilder::new()
+            .layer(HandleErrorLayer::new(handle_mcp_layer_error))
+            .layer(TimeoutLayer::new(Duration::from_secs(
+                self.config.request_timeout_secs,
+            )))
+            .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_BYTES));
+
+        let mcp_router = Router::new()
+            .route("/mcp", post(handle_mcp))
+            .layer(mcp_layers);
+
+        Router::new()
+            .route("/healthz", get(handle_health))
+            .route("/readyz", get(handle_ready))
+            .route("/metrics", get(handle_metrics))
+            .merge(mcp_router)
+            .with_state(self)
+    }
+
+    pub fn event_bus(&self) -> EventBus {
+        self.event_bus.clone()
+    }
+
+    pub fn storage(&self) -> Arc<dyn Storage> {
+        self.storage.clone()
+    }
+
+    pub async fn handle_json_rpc(
+        &self,
+        request: JsonRpcRequest,
+        auth_header: Option<&str>,
+    ) -> JsonRpcResponse {
+        self.handle_json_rpc_http(request, auth_header).await.body
+    }
+
+    async fn handle_json_rpc_http(
+        &self,
+        request: JsonRpcRequest,
+        auth_header: Option<&str>,
+    ) -> JsonRpcHttpResponse {
+        let id = request.id.clone();
+        if request.jsonrpc != "2.0" {
+            metrics::CEREBRO_REQUESTS_TOTAL
+                .with_label_values(&[request_method_label(&request.method), "validation_error"])
+                .inc();
+            log_protocol_failure(&request.method, StatusCode::BAD_REQUEST, "validation_error");
+            return JsonRpcHttpResponse {
+                status: StatusCode::BAD_REQUEST,
+                body: JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id,
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32600,
+                        message: "jsonrpc must be '2.0'".to_string(),
+                        data: None,
+                    }),
+                },
+            };
+        }
+
+        if request.method != "tools/call" && request.method != "tools/list" {
+            metrics::CEREBRO_REQUESTS_TOTAL
+                .with_label_values(&[request_method_label(&request.method), "validation_error"])
+                .inc();
+            log_protocol_failure(&request.method, StatusCode::BAD_REQUEST, "validation_error");
+            return JsonRpcHttpResponse {
+                status: StatusCode::BAD_REQUEST,
+                body: JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id,
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32601,
+                        message: "unsupported method".to_string(),
+                        data: None,
+                    }),
+                },
+            };
+        }
+
+        let tool_name_for_span = request
+            .params
+            .as_ref()
+            .map(|params| params.name.as_str())
+            .unwrap_or("");
+        let request_id = request
+            .id
+            .as_str()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| request.id.to_string());
+        let span = tracing::info_span!(
+            "cerebro_mcp_request",
+            request_id = %request_id,
+            tool_name = %tool_name_for_span,
+            auth_mode = tracing::field::Empty,
+        );
+
+        let span_for_response = span.clone();
+        let response = async {
+            let auth_context = match self.authorize(auth_header) {
+                Ok(context) => context,
+                Err(error) => {
+                    metrics::CEREBRO_AUTH_FAILURES_TOTAL.inc();
+                    metrics::CEREBRO_REQUESTS_TOTAL
+                        .with_label_values(&[
+                            request_method_label(&request.method),
+                            metric_status_for_error(&error),
+                        ])
+                        .inc();
+                    let http_status = status_for_error(&error);
+                    let error_kind = metric_status_for_error(&error);
+                    tracing::warn!(
+                        error = %error,
+                        http_status = http_status.as_u16(),
+                        error_kind,
+                        method = %request_method_label(&request.method),
+                        "authorization failed"
+                    );
+                    return http_error_response(id, error);
+                }
+            };
+
+            span_for_response.record(
+                "auth_mode",
+                if auth_context.is_audit {
+                    "audit"
+                } else {
+                    "operator"
+                },
+            );
+
+            if request.method == "tools/list" {
+                metrics::CEREBRO_REQUESTS_TOTAL
+                    .with_label_values(&[request_method_label(&request.method), "ok"])
+                    .inc();
+                let tools = self.tools.list_manifest();
+                return JsonRpcHttpResponse::ok(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id,
+                    result: Some(json!({ "tools": tools })),
+                    error: None,
+                });
+            }
+
+            let Some(params) = request.params else {
+                metrics::CEREBRO_REQUESTS_TOTAL
+                    .with_label_values(&[request_method_label(&request.method), "validation_error"])
+                    .inc();
+                log_protocol_failure(&request.method, StatusCode::BAD_REQUEST, "validation_error");
+                return JsonRpcHttpResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    body: JsonRpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        id,
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32602,
+                            message: "missing params".to_string(),
+                            data: None,
+                        }),
+                    },
+                };
+            };
+
+            let tool_name = params.name.clone();
+            let tool_label = tool_name_label(&tool_name);
+            let redaction = self.tools.redaction_for_tool(&tool_name);
+            let redacted_args = self
+                .tools
+                .extract_safe_args(&tool_name, &params.arguments)
+                .and_then(|value| {
+                    self.redaction
+                        .redact_with_allowlist(&value, redaction.allowed_arg_fields)
+                });
+            self.event_bus.publish(ToolCallEvent {
+                kind: ToolCallEventKind::Started,
+                request_id: request_id.clone(),
+                tool_name: tool_name.clone(),
+                timestamp: Utc::now().to_rfc3339(),
+                duration_ms: None,
+                status: Some("started".to_string()),
+                redacted_args,
+                redacted_output: None,
+                error: None,
+            });
+
+            let tool_start = Instant::now();
+            match self
+                .tools
+                .handle(&tool_name, params.arguments, &auth_context)
+                .await
+            {
+                Ok(output) => {
+                    let elapsed = tool_start.elapsed();
+                    let duration_ms = elapsed.as_millis() as u64;
+                    metrics::CEREBRO_REQUESTS_TOTAL
+                        .with_label_values(&[request_method_label(&request.method), "ok"])
+                        .inc();
+                    metrics::CEREBRO_TOOL_LATENCY_SECONDS
+                        .with_label_values(&[tool_label.as_str(), "ok"])
+                        .observe(elapsed.as_secs_f64());
+                    let safe_output = self
+                        .tools
+                        .extract_safe_output(&tool_name, &output)
+                        .and_then(|value| {
+                            self.redaction
+                                .redact_with_allowlist(&value, redaction.allowed_output_fields)
+                        });
+                    self.event_bus.publish(ToolCallEvent {
+                        kind: ToolCallEventKind::Finished,
+                        request_id,
+                        tool_name,
+                        timestamp: Utc::now().to_rfc3339(),
+                        duration_ms: Some(duration_ms),
+                        status: Some("ok".to_string()),
+                        redacted_args: None,
+                        redacted_output: safe_output,
+                        error: None,
+                    });
+                    tracing::info!(duration_ms, status = "ok", "tool call completed");
+                    JsonRpcHttpResponse::ok(JsonRpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        id,
+                        result: Some(json!({ "output": output })),
+                        error: None,
+                    })
+                }
+                Err(error) => {
+                    let elapsed = tool_start.elapsed();
+                    let duration_ms = elapsed.as_millis() as u64;
+                    metrics::CEREBRO_REQUESTS_TOTAL
+                        .with_label_values(&[
+                            request_method_label(&request.method),
+                            metric_status_for_error(&error),
+                        ])
+                        .inc();
+                    metrics::CEREBRO_TOOL_LATENCY_SECONDS
+                        .with_label_values(&[tool_label.as_str(), "error"])
+                        .observe(elapsed.as_secs_f64());
+                    let redacted_error = self.redaction.redact_text(&error.to_string());
+                    self.event_bus.publish(ToolCallEvent {
+                        kind: ToolCallEventKind::Failed,
+                        request_id,
+                        tool_name: tool_name.clone(),
+                        timestamp: Utc::now().to_rfc3339(),
+                        duration_ms: Some(duration_ms),
+                        status: Some("error".to_string()),
+                        redacted_args: None,
+                        redacted_output: None,
+                        error: Some(redacted_error),
+                    });
+                    let http_status = status_for_error(&error);
+                    let error_kind = metric_status_for_error(&error);
+                    tracing::warn!(
+                        duration_ms,
+                        error = %error,
+                        status = "error",
+                        http_status = http_status.as_u16(),
+                        error_kind,
+                        method = %request_method_label(&request.method),
+                        tool_name = %tool_name,
+                        "tool call failed"
+                    );
+                    http_error_response(id, error)
+                }
+            }
+        }
+        .instrument(span)
+        .await;
+        response
+    }
+
+    fn authorize(&self, auth_header: Option<&str>) -> Result<AuthContext, CerebroError> {
+        let expected = self
+            .config
+            .auth_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
+            .ok_or(CerebroError::Unauthorized)?;
+
+        let audit_token = self
+            .config
+            .audit_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret);
+
+        let token = parse_bearer_token(auth_header)?;
+
+        if audit_token
+            .is_some_and(|audit| token.as_bytes().ct_eq(audit.as_bytes()).unwrap_u8() == 1)
+        {
+            return Ok(AuthContext { is_audit: true });
+        }
+
+        if token.as_bytes().ct_eq(expected.as_bytes()).unwrap_u8() == 1 {
+            return Ok(AuthContext { is_audit: false });
+        }
+
+        Err(CerebroError::Unauthorized)
+    }
+}
+
+fn parse_bearer_token(auth_header: Option<&str>) -> Result<&str, CerebroError> {
+    let header = auth_header.unwrap_or("");
+    let (scheme, rest) = header
+        .split_once(|c: char| c.is_ascii_whitespace())
+        .ok_or(CerebroError::Unauthorized)?;
+
+    if !scheme.eq_ignore_ascii_case("Bearer") {
+        return Err(CerebroError::Unauthorized);
+    }
+
+    let token = rest.trim();
+    if token.is_empty() {
+        return Err(CerebroError::Unauthorized);
+    }
+
+    Ok(token)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AuthContext {
+    pub is_audit: bool,
+}
+
+fn error_response(id: Value, error: CerebroError) -> JsonRpcResponse {
+    let CerebroErrorResponse { code, message, .. } = error.to_response();
+    JsonRpcResponse {
+        jsonrpc: "2.0".to_string(),
+        id,
+        result: None,
+        error: Some(JsonRpcError {
+            code,
+            message,
+            data: None,
+        }),
+    }
+}
+
+fn status_for_error(error: &CerebroError) -> StatusCode {
+    match error {
+        CerebroError::Validation(_) => StatusCode::BAD_REQUEST,
+        CerebroError::Unauthorized => StatusCode::UNAUTHORIZED,
+        CerebroError::Forbidden(_) => StatusCode::FORBIDDEN,
+        CerebroError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
+        CerebroError::NotFound => StatusCode::NOT_FOUND,
+        CerebroError::Conflict(_) => StatusCode::CONFLICT,
+        CerebroError::Storage(_) => StatusCode::SERVICE_UNAVAILABLE,
+        CerebroError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+fn metric_status_for_error(error: &CerebroError) -> &'static str {
+    error.code().as_str()
+}
+
+fn log_protocol_failure(method: &str, status: StatusCode, error_kind: &'static str) {
+    tracing::warn!(
+        method = %request_method_label(method),
+        http_status = status.as_u16(),
+        error_kind,
+        "mcp protocol request failed"
+    );
+}
+
+fn http_error_response(id: Value, error: CerebroError) -> JsonRpcHttpResponse {
+    let status = status_for_error(&error);
+    JsonRpcHttpResponse {
+        status,
+        body: error_response(id, error),
+    }
+}
+
+async fn handle_health() -> Json<Value> {
+    Json(json!({ "status": "ok" }))
+}
+
+async fn handle_ready(State(service): State<Arc<CerebroService>>) -> (StatusCode, Json<Value>) {
+    match service.storage().ready().await {
+        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ready" }))),
+        Err(error) => {
+            metrics::CEREBRO_READINESS_FAILURES_TOTAL.inc();
+            tracing::error!(error = %error, "readiness check failed");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "status": "not_ready",
+                    "error": "storage_unavailable",
+                })),
+            )
+        }
+    }
+}
+
+async fn handle_mcp_layer_error(error: Box<dyn std::error::Error + Send + Sync>) -> Response {
+    if error.is::<tower::timeout::error::Elapsed>() {
+        return (StatusCode::REQUEST_TIMEOUT, "request timed out").into_response();
+    }
+
+    tracing::warn!(error = %error, "mcp middleware rejected request");
+    (StatusCode::SERVICE_UNAVAILABLE, "service unavailable").into_response()
+}
+
+async fn handle_metrics() -> Response {
+    let encoder = TextEncoder::new();
+    let metric_families = prometheus::gather();
+    let mut buffer = vec![];
+    if let Err(err) = encoder.encode(&metric_families, &mut buffer) {
+        tracing::error!(error = %err, "failed to encode metrics");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            [(CONTENT_TYPE, "text/plain; charset=utf-8")],
+            "failed to encode metrics".to_string(),
+        )
+            .into_response();
+    }
+    match String::from_utf8(buffer) {
+        Ok(s) => (StatusCode::OK, [(CONTENT_TYPE, encoder.format_type())], s).into_response(),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to convert metrics to string");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [(CONTENT_TYPE, "text/plain; charset=utf-8")],
+                "failed to parse metrics".to_string(),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+async fn maybe_apply_test_delay(headers: &HeaderMap) {
+    let Some(delay_ms) = headers
+        .get("x-cerebro-test-delay-ms")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+    else {
+        return;
+    };
+
+    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+}
+
+#[cfg(not(debug_assertions))]
+async fn maybe_apply_test_delay(_headers: &HeaderMap) {}
+
+async fn handle_mcp(
+    State(service): State<Arc<CerebroService>>,
+    headers: HeaderMap,
+    Json(request): Json<JsonRpcRequest>,
+) -> (StatusCode, Json<JsonRpcResponse>) {
+    let Ok(_permit) = service.mcp_concurrency.clone().try_acquire_owned() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: request.id,
+                result: None,
+                error: Some(JsonRpcError {
+                    code: CerebroErrorCode::Internal.as_i64(),
+                    message: "mcp concurrency limit exceeded".to_string(),
+                    data: None,
+                }),
+            }),
+        );
+    };
+
+    maybe_apply_test_delay(&headers).await;
+
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok());
+    let response = service.handle_json_rpc_http(request, auth_header).await;
+    (response.status, Json(response.body))
+}

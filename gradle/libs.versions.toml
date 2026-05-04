@@ -7,7 +7,7 @@
 latest = "latest.release"
 # https://services.gradle.org/versions
 gradle = "9.5.0-milestone-1"
-kotlin = "2.3.20"
+kotlin = "2.3.21"
 jdk = "21"
 node = "22.13.0"
 agp = "8.13.2"
@@ -15,15 +15,15 @@ android-compileSdk = "36"
 android-minSdk = "24"
 android-targetSdk = "36"
 androidx-activity = "1.12.2"
-androidx-lifecycle = "2.9.6"
-compose-hot-reload = "1.0.0"
-compose-multiplatform = "1.10.2"
+androidx-lifecycle = "2.10.0"
+compose-hot-reload = "1.1.0"
+compose-multiplatform = "1.10.3"
 kotlinx-coroutines = "1.10.2"
 junit-jupiter = "5.14.3"
-material3 = "1.10.0-alpha05"
-netty = "4.1.132.Final"
-protobuf = "3.25.9"
-jackson-tools = "3.1.0"
+material3 = "1.11.0-alpha07"
+netty = "4.2.12.Final"
+protobuf = "4.34.1"
+jackson-tools = "3.1.3"
 
 [libraries]
 # https://mvnrepository.com/artifact/org.jspecify/jspecify
@@ -70,25 +70,25 @@ com-gradle-develocity = { id = "com.gradle.develocity", version = "4.3.2" }
 org-ec4j-editorconfig = { id = "org.ec4j.editorconfig", version = "0.1.0" }
 com-diffplug-spotless = { id = "com.diffplug.spotless", version = "8.4.0" }
 com-github-node-gradle-node = { id = "com.github.node-gradle.node", version = "7.1.0" }
-dev-detekt = { id = "dev.detekt", version = "2.0.0-alpha.2" }
+dev-detekt = { id = "dev.detekt", version = "2.0.0-alpha.3" }
 org-jetbrains-dokka = { id = "org.jetbrains.dokka", version = "2.2.0-Beta" }
 me-champeau-jmh = { id = "me.champeau.jmh", version = "0.7.3" }
 org-gradlex-jvm-dependency-conflict-resolution = { id = "org.gradlex.jvm-dependency-conflict-resolution", version = "2.5" }
 org-gradlex-java-module-dependencies = { id = "org.gradlex.java-module-dependencies", version = "1.12.1" }
 org-gradlex-java-module-testing = { id = "org.gradlex.java-module-testing", version = "1.8" }
 org-gradlex-extra-java-module-info = { id = "org.gradlex.extra-java-module-info", version = "1.14" }
-com-gradleup-shadow = { id = "com.gradleup.shadow", version = "9.3.1" }
+com-gradleup-shadow = { id = "com.gradleup.shadow", version = "9.4.1" }
 com-gradle-plugin-publish = { id = "com.gradle.plugin-publish", version = "2.1.1" }
 com-vanniktech-maven-publish = { id = "com.vanniktech.maven.publish", version = "0.36.0" }
-com-autonomousapps-dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version = "3.6.1" }
+com-autonomousapps-dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version = "3.9.0" }
 io-fuchs-gradle-classpath-collision-detector = { id = "io.fuchs.gradle.classpath-collision-detector", version = "1.0.0" }
-org-cyclonedx-bom = { id = "org.cyclonedx.bom", version = "3.1.0" }
-com-github-spotbugs = { id = "com.github.spotbugs", version = "6.4.8" }
+org-cyclonedx-bom = { id = "org.cyclonedx.bom", version = "3.2.4" }
+com-github-spotbugs = { id = "com.github.spotbugs", version = "6.5.1" }
 org-jetbrains-kotlinx-kover = { id = "org.jetbrains.kotlinx.kover", version = "0.9.8" }
-com-google-devtools-ksp = { id = "com.google.devtools.ksp", version = "2.3.5" }
+com-google-devtools-ksp = { id = "com.google.devtools.ksp", version = "2.3.7" }
 com-google-cloud-tools-jib = { id = "com.google.cloud.tools.jib", version = "3.5.3" }
 org-nosphere-apache-rat = { id = "org.nosphere.apache.rat", version = "0.8.1" }
-io-freefair-lombok = { id = "io.freefair.lombok", version = "9.2.0" }
-org-openrewrite-rewrite = { id = "org.openrewrite.rewrite", version = "7.28.0" }
-org-springframework-boot = { id = "org.springframework.boot", version = "4.1.0-M1" }
+io-freefair-lombok = { id = "io.freefair.lombok", version = "9.4.0" }
+org-openrewrite-rewrite = { id = "org.openrewrite.rewrite", version = "7.31.0" }
+org-springframework-boot = { id = "org.springframework.boot", version = "4.1.0-RC1" }
 org-openapi-generator = { id = "org.openapi.generator", version = "7.19.0" }

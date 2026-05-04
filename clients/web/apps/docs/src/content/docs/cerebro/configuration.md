@@ -31,6 +31,8 @@ Supported formats: `.toml` and `.json`.
 host = "127.0.0.1"       # Bind address (default: 127.0.0.1)
 port = 4040               # Bind port (default: 4040)
 scheme = "http"            # URL scheme override (auto-detected)
+request_timeout_secs = 30  # MCP request timeout (default: 30)
+max_concurrent_mcp_requests = 32  # MCP concurrency cap (default: 32)
 
 # Authentication
 # auth_token = "..."      # Set via CEREBRO_AUTH_TOKEN env var
@@ -71,23 +73,31 @@ redact_fields = [
 
 ## Server Settings
 
-| Field    | Type   | Default       | Description                      |
-|----------|--------|---------------|----------------------------------|
-| `host`   | String | `127.0.0.1`   | Bind address                     |
-| `port`   | u16    | `4040`        | Bind port                        |
-| `scheme` | String | auto-detected | `http` for loopback, else `https`|
+| Field                         | Type   | Default       | Description                                      |
+|-------------------------------|--------|---------------|--------------------------------------------------|
+| `host`                        | String | `127.0.0.1`   | Bind address                                     |
+| `port`                        | u16    | `4040`        | Bind port                                        |
+| `scheme`                      | String | auto-detected | `http` for loopback, else `https`                |
+| `request_timeout_secs`        | u64    | `30`          | Timeout for `POST /mcp` request processing       |
+| `max_concurrent_mcp_requests` | usize  | `32`          | Maximum concurrent in-flight `POST /mcp` calls   |
 
 The MCP endpoint is available at
 `{scheme}://{host}:{port}/mcp`.
 
+The timeout and concurrency settings apply only to `POST /mcp`. Health, readiness, and metrics endpoints remain available during MCP saturation so operators can inspect process health.
+
 ## Storage Modes
 
-| Mode              | Value              | Description                    |
-|-------------------|--------------------|--------------------------------|
-| Embedded SurrealDB| `embedded_surreal` | Default. RocksDB-backed.       |
-| In-Memory         | `in_memory`        | No persistence. Testing only.  |
-| Disk              | `disk`             | File-based persistence.        |
-| Remote SurrealDB  | `remote_surreal`   | Not yet implemented.           |
+The current supported durable production posture is single-node and local-first. Embedded
+SurrealDB is the default supported durable mode, `disk` is a node-local durable alternative,
+`in_memory` is non-durable and test-oriented, and `remote_surreal` is unsupported in this build.
+
+| Mode              | Value              | Description                                   |
+|-------------------|--------------------|-----------------------------------------------|
+| Embedded SurrealDB| `embedded_surreal` | Default supported durable single-node mode.   |
+| In-Memory         | `in_memory`        | Non-durable. CI/dev/testing only.             |
+| Disk              | `disk`             | Node-local durable alternative.               |
+| Remote SurrealDB  | `remote_surreal`   | Unsupported in this build.                    |
 
 :::note
 Embedded SurrealDB requires `surreal.username` and
@@ -98,14 +108,14 @@ loopback only by default.
 ### Storage Fallback
 
 If the primary storage fails to initialize, Cerebro can fall back
-to an alternative:
+to a supported local alternative:
 
-| Fallback       | Value            | Description                    |
-|----------------|------------------|--------------------------------|
-| None           | `none`           | Default. Fail if primary fails.|
-| In-Memory      | `in_memory`      | Lose persistence, stay running.|
-| Disk           | `disk`           | Fall back to disk storage.     |
-| Remote SurrealDB| `remote_surreal`| Not yet implemented.           |
+| Fallback        | Value             | Description                                  |
+|-----------------|-------------------|----------------------------------------------|
+| None            | `none`            | Default. Fail if primary fails.              |
+| In-Memory       | `in_memory`       | Non-durable fallback for CI/dev/emergencies. |
+| Disk            | `disk`            | Node-local durable fallback.                 |
+| Remote SurrealDB| `remote_surreal`  | Unsupported in this build.                   |
 
 ## Environment Variable Overrides
 

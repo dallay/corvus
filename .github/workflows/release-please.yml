@@ -23,6 +23,7 @@ jobs:
       release_created: ${{ steps.release-please.outputs.releases_created || steps.release-please.outputs.release_created || 'false' }}
       tag_name: ${{ steps.release-please.outputs.tag_name }}
       release_id: ${{ steps.resolve-release-id.outputs.release_id }}
+      affected_components: ${{ steps.component-scope.outputs.affected_components }}
     steps:
       - name: 🔐 Generate release GitHub App token
         id: app-token
@@ -37,6 +38,45 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
+      - name: 🧭 Resolve affected components
+        id: component-scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+          RESOLVER_OUTPUT: ${{ runner.temp }}/release-components.json
+        run: |
+          set -euo pipefail
+          node scripts/resolve-release-components.mjs > "$RESOLVER_OUTPUT"
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+
+          resolver_output = pathlib.Path(os.environ["RESOLVER_OUTPUT"])
+          payload = json.loads(resolver_output.read_text(encoding="utf-8"))
+          affected = payload["affected_components"]
+          github_output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as fh:
+              fh.write("affected_components=" + json.dumps(affected) + "\n")
+
+          summary = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
+          with summary.open("a", encoding="utf-8") as fh:
+              fh.write("### Affected components\n\n")
+              fh.write("- Resolver: `node scripts/resolve-release-components.mjs`\n")
+              fh.write(f"- Components: `{', '.join(affected)}`\n")
+              if payload["changed_files"]:
+                  fh.write("- Changed files considered:\n")
+                  for path in payload["changed_files"]:
+                      fh.write(f"  - `{path}`\n")
+              if payload["non_release_paths"]:
+                  fh.write("- Non-release paths:\n")
+                  for path in payload["non_release_paths"]:
+                      fh.write(f"  - `{path}`\n")
+              if payload["transitive_components"]:
+                  fh.write(f"- Transitive components: `{', '.join(payload['transitive_components'])}`\n")
+          PY
+
       - name: 🤖 Run release-please
         id: release-please
         uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4.4.0
@@ -46,6 +86,26 @@ jobs:
           manifest-file: .release-please-manifest.json
           target-branch: main
           fork: false
+
+      - name: 🔁 Sync internal release dependencies
+        run: |
+          set -euo pipefail
+          node scripts/sync-internal-release-deps.mjs --write
+
+      - name: 💾 Commit synced internal release dependencies
+        env:
+          SKIP_GIT_HOOKS: "1"
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add clients/agent-runtime/Cargo.toml clients/cerebro/Cargo.toml
+          if git diff --cached --quiet; then
+            echo "Internal release dependencies are already synchronized"
+          else
+            git commit -m "chore: sync internal release dependencies"
+            git push
+          fi
 
       - name: 🧾 Resolve GitHub Release id
         if: ${{ steps.release-please.outputs.releases_created == 'true' || steps.release-please.outputs.release_created == 'true' }}

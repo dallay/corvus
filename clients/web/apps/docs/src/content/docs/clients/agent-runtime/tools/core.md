@@ -25,6 +25,56 @@ See the dedicated [`code_search` page](code-search.md) for the full parameter co
 
 ---
 
+## Parity naming map
+
+| Canonical tool | Compatibility alias | Backing runtime surface | Notes |
+| --- | --- | --- | --- |
+| `Glob` | `glob` | workspace discovery helpers | additive parity alias |
+| `Grep` | `grep` | `code_search` internals | `code_search` remains the retained native contract |
+| `TaskCreate` | `task_create` | persistent task service | only available on SQLite memory backend |
+| `TaskGet` | `task_get` | persistent task service | only available on SQLite memory backend |
+| `TaskList` | `task_list` | persistent task service | deterministic created_at/id ordering |
+| `TaskUpdate` | `task_update` | persistent task service | updates mutable task fields only |
+| `TaskStop` | `task_stop` | persistent task service | semantic cancellation path |
+
+---
+
+## `Glob`
+
+Claude-style parity tool for workspace-safe file pattern discovery.
+
+- **Security Tier:** Read-Only (Safe).
+- **Execution:** Native runtime tool backed by workspace discovery metadata helpers.
+- **Contract:** Requires `pattern`; optionally scopes traversal with a workspace-relative `path`.
+- **Compatibility alias:** `glob`
+- **Parity note:** `Glob` is the canonical parity-facing name for this slice and is additive alongside existing native tool names.
+
+---
+
+## `Grep`
+
+Claude-style parity content search backed by the same Corvus search internals used by `code_search`.
+
+- **Security Tier:** Read-Only (Safe).
+- **Execution:** Native runtime tool with deterministic workspace-relative outputs.
+- **Contract:** Supports `pattern`, optional `path`, optional `glob`, and `output_mode` values `content`, `files_with_matches`, or `count`.
+- **Compatibility alias:** `grep`
+- **Parity note:** `Grep` is canonical for parity-facing documentation, while `code_search` remains available as the retained native contract.
+
+---
+
+## Task parity boundary
+
+- **Current status:** `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, and `TaskStop` are now part
+  of the tooling-parity slice as persistent runtime task tools.
+- **Storage boundary:** They use the runtime SQLite memory store (`workspace/memory/brain.db`) and
+  are only surfaced when the active memory backend is `sqlite`.
+- **Non-goals:** This slice does **not** add reopen semantics, subtasks, or dependencies.
+- **Important distinction:** `schedule` and `cron_*` remain scheduler capabilities, not task
+  lifecycle replacements.
+
+---
+
 ## `shell`
 
 Executes an arbitrary shell command within the workspace directory.

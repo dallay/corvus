@@ -179,7 +179,7 @@ impl AnthropicProvider {
                 .map(ToString::to_string),
             base_url,
             client: Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
+                .timeout(std::time::Duration::from_mins(2))
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
@@ -1115,12 +1115,14 @@ mod tests {
                 description: "First tool".to_string(),
                 parameters: serde_json::json!({"type": "object"}),
                 source: None,
+                aliases: vec![],
             },
             ToolSpec {
                 name: "tool2".to_string(),
                 description: "Second tool".to_string(),
                 parameters: serde_json::json!({"type": "object"}),
                 source: None,
+                aliases: vec![],
             },
         ];
 
@@ -1138,6 +1140,7 @@ mod tests {
             description: "Only tool".to_string(),
             parameters: serde_json::json!({"type": "object"}),
             source: None,
+            aliases: vec![],
         }];
 
         let native_tools = AnthropicProvider::convert_tools(Some(&tools)).unwrap();

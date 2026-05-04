@@ -132,7 +132,7 @@ Servers/
 !**/src/test/**/logs/
 tmp/
 tmp
-modules/cerebro/cerebro.db/
+clients/cerebro/cerebro.db/
 # Note: Lockfiles (package-lock.json, pnpm-lock.yaml, yarn.lock) should be
 # committed for reproducible builds. Only ignore if you have a specific reason.
 
@@ -151,6 +151,7 @@ docs/website/package-lock.json
 # Astro cache/build directories
 **/.astro/
 clients/web/apps/**/dist/
+clients/rook/dist/
 clients/web/apps/**/node_modules/
 dev/Caddyfile.active
 
@@ -170,58 +171,59 @@ build/spotless-prettier-node-modules-*/serve.js
 # Rust coverage artifacts
 *.profraw
 /tmp/
+clients/rook/rook.db
 # START AI Agent Symlinks
 .agent/commands
-.agent/commands.bak
+.agent/commands.bak.*
 .agent/rules/
 .agent/rules/instructions.md
-.agent/rules/instructions.md.bak
+.agent/rules/instructions.md.bak.*
 .agent/skills
-.agent/skills.bak
+.agent/skills.bak.*
 .agent/skills/
 .agents/skills/*.bak
 .claude/commands
-.claude/commands.bak
+.claude/commands.bak.*
 .claude/commands/
 .claude/skills
-.claude/skills.bak
+.claude/skills.bak.*
 .claude/skills/
 .codex/commands
-.codex/commands.bak
+.codex/commands.bak.*
 .codex/config.toml
 .codex/instructions.md
-.codex/instructions.md.bak
+.codex/instructions.md.bak.*
 .codex/skills
-.codex/skills.bak
+.codex/skills.bak.*
 .gemini/commands
-.gemini/commands.bak
+.gemini/commands.bak.*
 .gemini/commands/
 .gemini/settings.json
 .gemini/skills
-.gemini/skills.bak
+.gemini/skills.bak.*
 .gemini/skills/
 .github/agents
-.github/agents.bak
+.github/agents.bak.*
 .github/copilot-instructions.md
-.github/copilot-instructions.md.bak
+.github/copilot-instructions.md.bak.*
+.mcp.json
 .opencode/command
-.opencode/command.bak
+.opencode/command.bak.*
 .opencode/command/
 .opencode/skills
-.opencode/skills.bak
+.opencode/skills.bak.*
 .opencode/skills/
 .qwen/commands
-.qwen/commands.bak
+.qwen/commands.bak.*
 .qwen/settings.json
 .qwen/skills
-.qwen/skills.bak
+.qwen/skills.bak.*
 .vscode/mcp.json
-/.mcp.json
-/AGENTS.md
-/AGENTS.md.bak
-/CLAUDE.md
-/CLAUDE.md.bak
-/GEMINI.md
-/GEMINI.md.bak
-/opencode.json
+AGENTS.md
+AGENTS.md.bak.*
+CLAUDE.md
+CLAUDE.md.bak.*
+GEMINI.md
+GEMINI.md.bak.*
+opencode.json
 # END AI Agent Symlinks

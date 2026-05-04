@@ -1,0 +1,23 @@
+change_id: 2026-04-28-monthly-sonar-review-433
+stage: apply
+status: completed
+artifacts:
+  proposal: proposal.md
+  design: design.md
+  tasks: tasks.md
+  spec: specs/repository-quality-workflows/spec.md
+  apply_report: apply-report.md
+  apply_result: apply-result.json
+verification:
+  status: documented-surfaces-reviewed
+  commands: []
+  notes:
+    - Verification for this slice is based on completed tasks plus direct review of Makefile, scripts/sonar.sh, and the hosted Sonar workflow.
+    - A cargo test probe using a sonar filter timed out and was not treated as authoritative verification for this operational change.
+tasks:
+  all_checked: true
+audit:
+  documentation_catchup: true
+  notes:
+    - Apply artifacts were missing and have now been persisted.
+    - Implementation/testing work was already completed before this documentation step.

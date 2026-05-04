@@ -243,7 +243,7 @@ Developer        main branch       release-please       publish-release/_publish
 - `gradle.properties`
 - `gradle/build-logic/gradle.properties`
 - `clients/agent-runtime/Cargo.toml`
-- `modules/cerebro/Cargo.toml`
+- `clients/cerebro/Cargo.toml`
 - `clients/agent-runtime/npm/**/package.json` for the shipped runtime npm family
 - `clients/agent-runtime/npm/corvus/package.json` optional dependency pins for platform packages
 

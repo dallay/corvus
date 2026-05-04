@@ -11,6 +11,9 @@ data class AndroidRuntimeBridgeConfig(
   val workingDirectory: String? = null,
 )
 
+@Suppress(
+  "TooManyFunctions"
+) // Implements full MobileRuntimeFacade interface; split would be artificial
 class AndroidRuntimeBridge(
   private val config: AndroidRuntimeBridgeConfig = AndroidRuntimeBridgeConfig()
 ) : MobileRuntimeFacade {
@@ -93,6 +96,7 @@ class AndroidRuntimeBridge(
       "",
     )
 
+  @Suppress("ReturnCount") // Process control flow requires multiple early-exit points
   private fun runCommand(prompt: String): String? {
     val command = buildList {
       add(config.executable)

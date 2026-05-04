@@ -1,0 +1,23 @@
+# Semgrep ignore patterns for Corvus monorepo
+# See: https://semgrep.dev/docs/ignoring-files-folders-code/
+
+# False positive: PGP header examples in documentation (not real keys)
+clients/web/apps/docs/src/content/docs/*/guides/gpg-setup.md
+clients/web/apps/docs/src/content/docs/guides/gpg-setup.md
+
+# False positive: Mustache unescaping in OpenAPI generator templates
+# These are code generation templates, not runtime XSS vectors
+gradle/configs/openapi/scripts/**/*.mustache
+
+# False positive: SonarQube workflow uses secrets.SONAR_TOKEN, not hardcoded
+.github/workflows/sonarqube-analysis.yml
+
+# False positive: Android launcher activity requires exported=true for Android 12+
+clients/androidApp/src/main/AndroidManifest.xml
+
+# False positive: iOS ATS pinning recommendation (not a vulnerability)
+# Pinning is not always appropriate and can break certificate rotation
+clients/iosApp/iosApp/Info.plist
+
+# False positive: Insecure WebSocket in test validating rejection of insecure protocol
+clients/agent-runtime/tests/mcp_config_validation.rs

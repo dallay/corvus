@@ -17,6 +17,7 @@ data class AndroidRuntimeBridgeConfig(
   val workingDirectory: String? = null,
 )
 
+@Suppress("TooManyFunctions") // Implements full RuntimeFacade interface; split would be artificial
 class AndroidRuntimeBridge(
   private val config: AndroidRuntimeBridgeConfig = AndroidRuntimeBridgeConfig()
 ) : RuntimeFacade {

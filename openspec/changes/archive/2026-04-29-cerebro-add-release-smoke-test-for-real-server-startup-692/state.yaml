@@ -1,0 +1,11 @@
+change: cerebro-add-release-smoke-test-for-real-server-startup-692
+current_phase: apply
+completed:
+  - explore
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+next: verify
+updated: 2026-04-27T20:15:47Z

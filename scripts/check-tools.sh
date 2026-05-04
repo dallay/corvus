@@ -46,6 +46,10 @@ print_status() {
     0) printf "  %-12s [%s%s%s] %s\n" "$name" "$GREEN" "✅" "$RESET" "$info" ;;
     1) printf "  %-12s [%s%s%s] %s\n" "$name" "$RED" "❌" "$RESET" "${RED}${info}${RESET}" ; return 1 ;;
     2) printf "  %-12s [%s%s%s] %s\n" "$name" "$YELLOW" "⚠️" "$RESET" "${YELLOW}${info}${RESET}" ;;
+    *)
+      printf "  %-12s [%s%s%s] %s\n" "$name" "$RED" "❌" "$RESET" "${RED}Unknown status code: $res${RESET}"
+      return 1
+      ;;
   esac
   return 0
 }
@@ -58,8 +62,16 @@ numeric_prefix() {
   echo "${num:-0}"
 }
 
+has_command() {
+  local command_name="$1"
+  if command -v "$command_name" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
 # 1. Java
-if command -v java >/dev/null 2>&1; then
+if has_command java; then
   java_ver_raw=$(java -version 2>&1 | awk -F '"' '/version/ {print $2; exit}')
   java_major=$(echo "$java_ver_raw" | cut -d. -f1)
   if [[ "$java_major" = "1" ]]; then
@@ -77,7 +89,7 @@ else
 fi
 
 # 2. Git
-if command -v git >/dev/null 2>&1; then
+if has_command git; then
   git_ver=$(git --version | awk '{print $3}')
   print_status "Git" 0 "v$git_ver"
 else
@@ -135,14 +147,21 @@ check_required_major_minor_version() {
   minor_part=${current_version#*.}
   current_minor=$(numeric_prefix "${minor_part%%.*}")
 
-  if [[ "$current_major" -lt "$min_major" || ( "$current_major" -eq "$min_major" && "$current_minor" -lt "$min_minor" ) ]]; then
+  local version_too_low=false
+  if [[ "$current_major" -lt "$min_major" ]]; then
+    version_too_low=true
+  elif [[ "$current_major" -eq "$min_major" && "$current_minor" -lt "$min_minor" ]]; then
+    version_too_low=true
+  fi
+
+  if [[ "$version_too_low" == "true" ]]; then
     print_status "$tool_name" 1 "Found v$current_version, need v$min_major.$min_minor+" || FAILED=1
   else
     print_status "$tool_name" 0 "v$current_version"
   fi
 }
 
-if command -v node >/dev/null 2>&1; then
+if has_command node; then
   node_full=$(node -v)
   check_required_major_version "Node.js" "${node_full#v}" "$MIN_NODE"
 else
@@ -150,7 +169,7 @@ else
 fi
 
 # 4. pnpm
-if command -v pnpm >/dev/null 2>&1; then
+if has_command pnpm; then
   pnpm_ver=$(pnpm --version)
   check_required_major_version "pnpm" "$pnpm_ver" "$MIN_PNPM"
 else
@@ -158,7 +177,7 @@ else
 fi
 
 # 5. Rust
-if command -v rustc >/dev/null 2>&1; then
+if has_command rustc; then
   rust_full=$(rustc --version | awk '{print $2}')
   check_required_major_minor_version "Rust" "$rust_full" "$MIN_RUST_MAJOR" "$MIN_RUST_MINOR"
 else
@@ -166,7 +185,7 @@ else
 fi
 
 # 6. Docker (Optional)
-if command -v docker >/dev/null 2>&1; then
+if has_command docker; then
   docker_ver=$(docker --version | awk '{print $3}' | tr -d ',')
   print_status "Docker" 0 "v$docker_ver"
 else
@@ -175,7 +194,7 @@ fi
 
 # 7. Xcode CLI Tools (macOS only, optional)
 if [[ "$(uname -s 2>/dev/null || echo unknown)" = "Darwin" ]]; then
-  if command -v xcodebuild >/dev/null 2>&1; then
+  if has_command xcodebuild; then
     xcode_ver=$(xcodebuild -version 2>/dev/null | awk 'NR==1{print $2}')
     print_status "Xcode" 0 "v${xcode_ver:-unknown}"
   else

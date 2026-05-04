@@ -1,4 +1,5 @@
 use crate::config::MemoryConfig;
+use crate::memory;
 use anyhow::Result;
 use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
 use rusqlite::{params, Connection};
@@ -360,13 +361,51 @@ fn close_stale_sessions(workspace_dir: &Path, threshold_hours: i64) -> Result<u6
     let cutoff = (now - Duration::hours(threshold_hours)).to_rfc3339();
     let now = now.to_rfc3339();
 
-    let affected = conn.execute(
-        "UPDATE sessions SET status = 'ended', ended_at = ?1
-         WHERE status = 'active' AND ended_at IS NULL AND last_activity < ?2",
-        params![now, cutoff],
-    )?;
+    let updated_ids = {
+        let tx = conn.unchecked_transaction()?;
+        let mut stale_ids = Vec::new();
+        {
+            let mut stmt = tx.prepare(
+                "SELECT id FROM sessions
+                 WHERE status = 'active' AND ended_at IS NULL AND last_activity < ?1",
+            )?;
+            let rows = stmt.query_map(params![cutoff], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                stale_ids.push(row?);
+            }
+        }
 
-    Ok(u64::try_from(affected).unwrap_or(0))
+        if stale_ids.is_empty() {
+            tx.rollback()?;
+            return Ok(0);
+        }
+
+        tx.execute(
+            "UPDATE sessions SET status = 'ended', ended_at = ?1
+             WHERE status = 'active' AND ended_at IS NULL AND last_activity < ?2",
+            params![now, cutoff],
+        )?;
+        tx.commit()?;
+        stale_ids
+    };
+
+    let mut failed_recordings = Vec::new();
+    for session_id in &updated_ids {
+        if let Err(error) = memory::record_session_completion(workspace_dir, session_id) {
+            tracing::warn!(
+                session_id = session_id.as_str(),
+                ?error,
+                "failed to record Dream completion for stale session"
+            );
+            failed_recordings.push(session_id.clone());
+        }
+    }
+
+    if !failed_recordings.is_empty() {
+        tracing::warn!(failed_sessions = ?failed_recordings, "one or more stale sessions were auto-closed without Dream completion metadata");
+    }
+
+    Ok(u64::try_from(updated_ids.len()).unwrap_or(0))
 }
 
 fn memory_date_from_filename(filename: &str) -> Option<NaiveDate> {
@@ -545,6 +584,33 @@ mod tests {
 
         assert!(!old_file.exists(), "old archived file should be purged");
         assert!(keep_file.exists(), "recent archived file should remain");
+    }
+
+    #[tokio::test]
+    async fn close_stale_sessions_marks_session_dream_eligible() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path();
+
+        let mem = SqliteMemory::new(workspace).unwrap();
+        mem.upsert_session("stale-dream-sess", None).await.unwrap();
+        drop(mem);
+
+        let db_path = workspace.join("memory").join("brain.db");
+        let conn = Connection::open(&db_path).unwrap();
+        let old_time = (chrono::Utc::now() - Duration::hours(48)).to_rfc3339();
+        conn.execute(
+            "UPDATE sessions SET last_activity = ?1 WHERE id = 'stale-dream-sess'",
+            params![old_time],
+        )
+        .unwrap();
+        drop(conn);
+
+        let closed = close_stale_sessions(workspace, 24).unwrap();
+        assert_eq!(closed, 1);
+        assert_eq!(
+            crate::memory::dream_eligibility(workspace, "stale-dream-sess").unwrap(),
+            crate::memory::DreamEligibility::Eligible
+        );
     }
 
     #[tokio::test]

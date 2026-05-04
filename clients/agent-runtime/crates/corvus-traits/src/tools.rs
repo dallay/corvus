@@ -20,6 +20,8 @@ pub struct ToolSpec {
     pub parameters: serde_json::Value,
     #[serde(default)]
     pub source: Option<ToolSourceMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -80,6 +82,7 @@ pub trait Tool: Send + Sync {
             description: self.description().to_string(),
             parameters,
             source: None,
+            aliases: vec![],
         }
     }
 

@@ -1,0 +1,13 @@
+change: rook-598-security-defaults-and-secret-protection
+current_phase: archive
+completed:
+  - explore
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+  - archive
+next: none
+updated: 2026-04-23T00:00:00Z

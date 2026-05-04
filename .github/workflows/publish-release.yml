@@ -2,21 +2,77 @@
 # https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#supported-keywords-for-jobs-that-call-a-reusable-workflow
 name: Publish Release
 
+permissions:
+  contents: read
+
 on:
   release:
     types:
       - published
 
 jobs:
-  publish-release:
-    # Canonical stable release handoff: release-please publishes the GitHub Release, then _publish will attach artifacts to the existing canonical GitHub Release.
+  resolve-release-scope:
+    runs-on: ubuntu-latest
     if: >-
       github.event_name == 'release' &&
       github.event.action == 'published' &&
       github.event.release.draft == false &&
       github.event.release.prerelease == false &&
-      startsWith(github.event.release.tag_name, 'v') &&
       github.repository == 'dallay/corvus'
+    outputs:
+      affected_components: ${{ steps.scope.outputs.affected_components }}
+      supported_release: ${{ steps.scope.outputs.supported_release }}
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 🧭 Resolve release scope from tag
+        id: scope
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          RESOLVER_OUTPUT: ${{ runner.temp }}/release-tag-scope.json
+        run: |
+          set -euo pipefail
+          node scripts/resolve-release-from-tag.mjs > "$RESOLVER_OUTPUT"
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path(os.environ['RESOLVER_OUTPUT']).read_text(encoding='utf-8'))
+          affected_components = payload['affected_components']
+          supported_release = payload['supported_release']
+          resolution_reason = payload['resolution_reason']
+          release_tag = payload['release_tag']
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as handle:
+              handle.write(f"affected_components={json.dumps(affected_components)}\n")
+              handle.write(f"supported_release={'true' if supported_release else 'false'}\n")
+
+          lines = [
+              '### Release scope',
+              '',
+              f'- Tag: `{release_tag}`',
+              '- Resolver: `node scripts/resolve-release-from-tag.mjs`',
+          ]
+          if supported_release:
+              lines.extend([
+                  f'- Affected components: `{", ".join(affected_components)}`',
+                  f'- Resolution source: `{resolution_reason}`',
+              ])
+          else:
+              lines.append('- Supported component tag namespaces: `corvus-runtime-v*`, `cerebro-v*`, `rook-v*`')
+              lines.append('- Optional multi-component override: add `affected_components: rook, corvus-runtime` to the release body')
+
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as handle:
+              handle.write("\n".join(lines) + "\n")
+          PY
+
+  publish-release:
+    # Canonical stable release handoff: release-please publishes the GitHub Release, then _publish will attach artifacts to the existing canonical GitHub Release.
+    needs: resolve-release-scope
+    if: ${{ needs.resolve-release-scope.outputs.supported_release == 'true' }}
     permissions:
       contents: write
       packages: write
@@ -26,6 +82,7 @@ jobs:
       prerelease: false
       release_tag: ${{ github.event.release.tag_name }}
       release_id: ${{ github.event.release.id }}
+      affected_components: ${{ needs.resolve-release-scope.outputs.affected_components }}
     secrets:
       SIGNING_IN_MEMORY_KEY: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
       SIGNING_IN_MEMORY_KEY_PASSWORD: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}

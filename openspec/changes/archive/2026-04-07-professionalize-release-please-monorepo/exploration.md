@@ -64,7 +64,7 @@ Key mismatches and likely failure points:
 - `clients/agent-runtime/npm/*/package.json` — runtime npm package set is partially published and
   partially only version-bumped.
 - `gradle.properties`, `gradle/build-logic/gradle.properties`, `clients/agent-runtime/Cargo.toml`,
-  `modules/cerebro/Cargo.toml`, `version.txt` — all currently enforce the repo-wide-version model.
+  `clients/cerebro/Cargo.toml`, `version.txt` — all currently enforce the repo-wide-version model.
 
 ### Approaches
 

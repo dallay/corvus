@@ -146,6 +146,7 @@ impl Tool for McpResourceAdapter {
                 &self.server_name,
                 &self.uri,
             )),
+            aliases: vec![],
         }
     }
 

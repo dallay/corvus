@@ -152,19 +152,55 @@ rust-build: ## Build agent runtime binary
 # --- CEREBRO MEMORY SERVICE ---
 
 cerebro-check: ## Run cargo check for cerebro
-	@cargo check --manifest-path modules/cerebro/Cargo.toml
+	@cargo check --manifest-path clients/cerebro/Cargo.toml
 
 cerebro-test: ## Run cargo tests for cerebro
-	@cargo test --manifest-path modules/cerebro/Cargo.toml
+	@cargo test --manifest-path clients/cerebro/Cargo.toml
 
 cerebro-clippy: ## Run clippy for cerebro
-	@cargo clippy --manifest-path modules/cerebro/Cargo.toml --all-targets -- -D warnings
+	@cargo clippy --manifest-path clients/cerebro/Cargo.toml --all-targets -- -D warnings
 
 cerebro-fmt: ## Check Rust formatting for cerebro
-	@cargo fmt --manifest-path modules/cerebro/Cargo.toml -- --check
+	@cargo fmt --manifest-path clients/cerebro/Cargo.toml -- --check
 
 cerebro-build: ## Build cerebro binary
-	@cargo build --manifest-path modules/cerebro/Cargo.toml --release --bin cerebro
+	@cargo build --manifest-path clients/cerebro/Cargo.toml --release --bin cerebro
+
+# --- ROOK DISTRIBUTION FOUNDATIONS ---
+
+rook-dist-check: ## Validate Rook release artifact contract
+	@cargo test --manifest-path clients/rook/Cargo.toml --test distribution_contract
+
+rook-dist-local: ## Build current-platform Rook release artifact into clients/rook/dist
+	@$(MKDIR_P) clients/rook/dist
+	@cargo build --manifest-path clients/rook/Cargo.toml --release --bin rook
+	@os_name="$${OS:-}"; \
+	 platform_id="$$(uname -s)-$$(uname -m)"; \
+	 if [ "$$platform_id" = "Darwin-arm64" ] || [ "$$platform_id" = "Darwin-aarch64" ]; then \
+		platform_name="rook-darwin-arm64"; \
+		binary_path="clients/rook/target/release/rook"; \
+	 elif [ "$$platform_id" = "Darwin-x86_64" ]; then \
+		platform_name="rook-darwin-x64"; \
+		binary_path="clients/rook/target/release/rook"; \
+	 elif [ "$$platform_id" = "Linux-x86_64" ]; then \
+		platform_name="rook-linux-x64"; \
+		binary_path="clients/rook/target/release/rook"; \
+	 elif [ "$$platform_id" = "Linux-aarch64" ] || [ "$$platform_id" = "Linux-arm64" ]; then \
+		platform_name="rook-linux-arm64"; \
+		binary_path="clients/rook/target/release/rook"; \
+	 elif [ "$$os_name" = "Windows_NT" ] || echo "$$platform_id" | grep -Eq '^(MINGW|MSYS|CYGWIN)'; then \
+		platform_name="rook-windows-x64.exe"; \
+		binary_path="clients/rook/target/release/rook.exe"; \
+	 else \
+		platform_name="unsupported"; \
+		binary_path=""; \
+	 fi; \
+	 if [ "$$platform_name" = unsupported ]; then \
+		printf 'Unsupported local platform for rook-dist-local: %s-%s\n' "$$(uname -s)" "$$(uname -m)"; \
+		exit 1; \
+	 fi; \
+	 cp "$$binary_path" "clients/rook/dist/$$platform_name"; \
+	 printf 'Rook artifact ready at clients/rook/dist/%s\n' "$$platform_name"
 
 # --- WEB APPLICATIONS ---
 
@@ -249,6 +285,16 @@ link-check-local: ## Check repository local links with Lychee (offline)
 
 lint-all: lint-kotlin lint-rust lint-android ## Run all linters
 
+sonar: check-tools rust-coverage-validate ## Run local SonarQube analysis (coverage + scan)
+	@echo "🔍 $(BOLD)Running local SonarQube analysis...$(SGR0)"
+	@echo "   Mirrors the hosted Sonar workflow inputs for Kotlin, dashboard web, and Rust coverage."
+	@pnpm --dir clients/web install --frozen-lockfile
+	@bash ./scripts/sonar.sh --validate-only
+	@$(GRADLEW) test jvmTest :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
+	@pnpm --dir clients/web/apps/dashboard test:coverage
+	@$(MAKE) rust-coverage
+	@bash ./scripts/sonar.sh
+
 # --- TESTING ---
 
 test: ## Run all tests
@@ -268,7 +314,7 @@ test-coverage: rust-coverage ## Run coverage reports
 	@echo "📊 Kotlin report: modules/agent-core-kmp/build/reports/kover/html/index.html"
 	@echo "📊 Rust report: coverage/agent-runtime-coverage.lcov"
 
-rust-coverage: ## Run Rust coverage for agent-runtime
+rust-coverage-validate: ## Validate Rust coverage prerequisites for agent-runtime
 	@command -v cargo-llvm-cov >/dev/null 2>&1 || { \
 		echo "cargo-llvm-cov is required. Install with: cargo install cargo-llvm-cov" >&2; \
 		exit 1; \
@@ -277,8 +323,10 @@ rust-coverage: ## Run Rust coverage for agent-runtime
 		echo "llvm-tools-preview (or llvm-tools) is required. Install with: rustup component add llvm-tools-preview" >&2; \
 		exit 1; \
 	}
+
+rust-coverage: rust-coverage-validate ## Run Rust coverage for agent-runtime
 	@mkdir -p coverage
-	@cd clients/agent-runtime && cargo llvm-cov --lcov --output-path ../../coverage/agent-runtime-coverage.lcov
+	@cd clients/agent-runtime && cargo llvm-cov --lcov --output-path ../../coverage/agent-runtime-coverage.lcov -- --test-threads=1
 
 test-all: test rust-test web-test-all ## Run all tests (Gradle + Rust + Web)
 
@@ -384,8 +432,8 @@ sync-version: ## Sync VERSION with git tag
         web-install docs-dev docs-build docs-check docs-format \
         dashboard-dev dashboard-build dashboard-check dashboard-test \
         marketing-dev marketing-build marketing-check web-build-all web-clean-all web-test-all web-check-all \
-        format check-format check lint-kotlin lint-rust lint-android lint-all \
-        test test-app test-core test-verbose test-coverage rust-coverage test-all check-all docs-code \
+        format check-format check lint-kotlin lint-rust lint-android lint-all sonar \
+        test test-app test-core test-verbose test-coverage rust-coverage rust-coverage-validate test-all check-all docs-code \
         deps deps-app deps-analysis deps-update \
         dev-up dev-up-dashboard dev-down dev-shell dev-agent dev-logs dev-status dev-build dev-clean clean-web clean-pnpm \
         runtime-up runtime-up-dashboard runtime-down runtime-logs runtime-status \

@@ -230,6 +230,9 @@ describe("MemoryList", () => {
     await flushPromises();
 
     const dialog = wrapper.get(".confirm-dialog");
+    expect(dialog.attributes("aria-modal")).toBe("true");
+    expect(dialog.attributes("aria-labelledby")).toBe("memory-delete-title");
+    expect(wrapper.text()).toContain("fact-1");
     await expectNoAxeViolations(dialog.element, {
       rules: {
         region: { enabled: false },

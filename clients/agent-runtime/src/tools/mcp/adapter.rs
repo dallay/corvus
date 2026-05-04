@@ -146,6 +146,7 @@ impl Tool for McpToolAdapter {
                 &self.server_name,
                 &self.original_name,
             )),
+            aliases: vec![],
         }
     }
 

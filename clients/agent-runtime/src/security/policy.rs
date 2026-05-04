@@ -6,6 +6,9 @@ use std::time::Instant;
 pub const PLAN_MODE_BLOCKED_CODE: &str = "plan_mode_blocked";
 
 const PLAN_MODE_SAFE_TOOLS: &[&str] = &[
+    "Glob",
+    "Grep",
+    "WebFetch",
     "code_search",
     "file_read",
     "image_info",
@@ -104,7 +107,7 @@ impl ActionTracker {
     pub fn record(&self) -> usize {
         let mut actions = self.actions.lock();
         let cutoff = Instant::now()
-            .checked_sub(std::time::Duration::from_secs(3600))
+            .checked_sub(std::time::Duration::from_hours(1))
             .unwrap_or_else(Instant::now);
         actions.retain(|t| *t > cutoff);
         actions.push(Instant::now());
@@ -115,7 +118,7 @@ impl ActionTracker {
     pub fn count(&self) -> usize {
         let mut actions = self.actions.lock();
         let cutoff = Instant::now()
-            .checked_sub(std::time::Duration::from_secs(3600))
+            .checked_sub(std::time::Duration::from_hours(1))
             .unwrap_or_else(Instant::now);
         actions.retain(|t| *t > cutoff);
         actions.len()
@@ -220,6 +223,20 @@ fn skip_env_assignments(s: &str) -> &str {
     }
 }
 
+fn command_uses_forbidden_globs(base_raw: &str, segment: &str) -> bool {
+    base_raw != "find"
+        && ['*', '?', '[', ']', '{', '}']
+            .iter()
+            .any(|ch| segment.contains(*ch))
+}
+
+fn normalize_args_for_path_checks(raw_args: &[&str]) -> Option<Vec<String>> {
+    raw_args
+        .iter()
+        .map(|arg| normalize_arg_for_path_checks(arg))
+        .collect::<Option<Vec<_>>>()
+}
+
 /// Detect a single `&` operator (background/chain). `&&` is allowed.
 ///
 /// We treat any standalone `&` as unsafe in policy validation because it can
@@ -311,6 +328,11 @@ impl SecurityPolicy {
 
     /// Classify command risk. Any high-risk segment marks the whole command high.
     pub fn command_risk_level(&self, command: &str) -> CommandRiskLevel {
+        let command = iterative_url_decode(command);
+        if command.contains('%') {
+            return CommandRiskLevel::High;
+        }
+
         // Early exit on the raw command catches snippets that span segment
         // boundaries (e.g. fork bombs containing `;`).  The per-segment check
         // below is intentionally kept for snippets that appear within a single
@@ -319,7 +341,7 @@ impl SecurityPolicy {
             return CommandRiskLevel::High;
         }
 
-        let normalized = normalize_risk_segments(command);
+        let normalized = normalize_risk_segments(&command);
 
         let mut saw_medium = false;
 
@@ -404,11 +426,16 @@ impl SecurityPolicy {
             return false;
         }
 
-        if self.contains_blocked_operators(command) {
+        let command = iterative_url_decode(command);
+        if command.contains('%') {
             return false;
         }
 
-        self.validate_command_segments(command)
+        if self.contains_blocked_operators(&command) {
+            return false;
+        }
+
+        self.validate_command_segments(&command)
     }
 
     fn contains_blocked_operators(&self, command: &str) -> bool {
@@ -430,6 +457,43 @@ impl SecurityPolicy {
             .any(|w| w == "tee" || w.ends_with("/tee"))
     }
 
+    fn is_likely_path(arg: &str) -> bool {
+        (arg.contains('/') && !arg.contains(':'))
+            || arg.starts_with('~')
+            || arg.starts_with('.')
+            || arg.contains(std::path::MAIN_SEPARATOR)
+    }
+
+    fn effective_path_arg(arg: &str) -> &str {
+        if arg.starts_with("--") {
+            arg.split_once('=').map(|(_, value)| value).unwrap_or(arg)
+        } else if arg.starts_with('-') && arg.len() > 2 {
+            arg.char_indices()
+                .nth(2)
+                .map(|(idx, _)| &arg[idx..])
+                .unwrap_or("")
+        } else {
+            arg
+        }
+    }
+
+    fn is_path_argument_safe(&self, effective_arg: &str) -> bool {
+        if !Self::is_likely_path(effective_arg) {
+            return true;
+        }
+
+        if Path::new(effective_arg)
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+            || (self.workspace_only
+                && (effective_arg.starts_with('/') || effective_arg.starts_with('~')))
+        {
+            return false;
+        }
+
+        !matches_any_forbidden_path(effective_arg, &self.forbidden_paths)
+    }
+
     fn validate_command_segments(&self, command: &str) -> bool {
         let normalized = self.normalize_command(command);
 
@@ -445,39 +509,20 @@ impl SecurityPolicy {
         }
 
         let cmd_part = skip_env_assignments(segment);
-
         let mut words = cmd_part.split_whitespace();
-        let base_raw = words.next().unwrap_or("");
-
-        if base_raw.is_empty() {
+        let Some(base_raw) = words.next() else {
             return true;
-        }
+        };
 
-        // Enforce exact matches for allowed commands and disallow path components.
-        // This prevents executing malicious binaries in the workspace that happen
-        // to share a name with an allowed command (e.g. ./ls).
-        if !self
-            .allowed_commands
-            .iter()
-            .any(|allowed| allowed == base_raw)
-        {
+        if !self.is_allowed_command(base_raw) {
             return false;
         }
-
-        if base_raw != "find"
-            && ['*', '?', '[', ']', '{', '}']
-                .iter()
-                .any(|ch| segment.contains(*ch))
-        {
+        if command_uses_forbidden_globs(base_raw, segment) {
             return false;
         }
 
         let raw_args: Vec<&str> = words.collect();
-        let normalized_args = match raw_args
-            .iter()
-            .map(|arg| normalize_arg_for_path_checks(arg))
-            .collect::<Option<Vec<_>>>()
-        {
+        let normalized_args = match normalize_args_for_path_checks(&raw_args) {
             Some(args) => args,
             None => return false,
         };
@@ -486,50 +531,24 @@ impl SecurityPolicy {
             .map(|arg| arg.to_ascii_lowercase())
             .collect();
 
-        // Helper to identify tokens that likely represent paths
-        fn is_likely_path(arg: &str) -> bool {
-            (arg.contains('/') && !arg.contains(':'))
-                || arg.starts_with('~')
-                || arg.starts_with('.')
-                || arg.contains(std::path::MAIN_SEPARATOR)
-        }
-
-        // Ensure no argument is a forbidden path or a traversal attempt.
-        // We only check arguments that look like paths to avoid false positives
-        // on non-path tokens (e.g., git diff patterns, grep globs, brace literals).
-        for (_raw_arg, arg) in raw_args.iter().zip(normalized_args.iter()) {
-            // Extract potential path from flags (e.g. --file=/path or -C/path)
-            let effective_arg = if arg.starts_with("--") {
-                arg.split_once('=').map(|(_, v)| v).unwrap_or(arg)
-            } else if arg.starts_with('-') && arg.len() > 2 {
-                arg.char_indices()
-                    .nth(2)
-                    .map(|(idx, _)| &arg[idx..])
-                    .unwrap_or("")
-            } else {
-                arg
-            };
-
-            if !is_likely_path(effective_arg) {
-                continue;
-            }
-
-            if Path::new(effective_arg)
-                .components()
-                .any(|c| matches!(c, std::path::Component::ParentDir))
-                || (self.workspace_only
-                    && (effective_arg.starts_with('/') || effective_arg.starts_with('~')))
-            {
-                return false;
-            }
-
-            // Check against forbidden paths (e.g. /etc, ~/.ssh)
-            if matches_any_forbidden_path(effective_arg, &self.forbidden_paths) {
+        for arg in &normalized_args {
+            let effective_arg = Self::effective_path_arg(arg);
+            if !self.is_path_argument_safe(effective_arg) {
                 return false;
             }
         }
 
-        self.is_args_safe(base_raw, &args)
+        if !self.is_args_safe(base_raw, &args) {
+            return false;
+        }
+
+        true
+    }
+
+    fn is_allowed_command(&self, base_raw: &str) -> bool {
+        self.allowed_commands
+            .iter()
+            .any(|allowed| allowed == base_raw)
     }
 
     fn has_any_command(&self, normalized: &str) -> bool {
@@ -585,35 +604,34 @@ impl SecurityPolicy {
             return false;
         }
 
-        // Iterative URL decoding to prevent bypasses like %252e%252e (double-encoded "..")
-        let mut decoded = path.to_string();
-        for _ in 0..3 {
-            let next = urlencoding::decode(&decoded).unwrap_or_else(|_| decoded.clone().into());
-            if next == decoded {
-                break;
-            }
-            decoded = next.into_owned();
-        }
-
         // Block backslashes (Windows-style separators or escaping)
-        if decoded.contains('\\') {
+        if path.contains('\\') {
             return false;
         }
 
-        // Block residual percent signs after decoding (incomplete or malicious encoding)
-        if decoded.contains('%') {
+        // Reject quoted direct path inputs before validation so quotes cannot hide
+        // absolute paths or traversal components from `Path::components`.
+        if path.len() >= 2
+            && ((path.starts_with('"') && path.ends_with('"'))
+                || (path.starts_with('\'') && path.ends_with('\'')))
+        {
+            return false;
+        }
+
+        // Block percent signs rather than decoding direct path inputs here.
+        if path.contains('%') {
             return false;
         }
 
         // Block path traversal: check for ".." as a path component
-        if Path::new(&decoded)
+        if Path::new(path)
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
         {
             return false;
         }
 
-        let expanded = expand_tilde(&decoded);
+        let expanded = expand_tilde(path);
 
         // Block absolute paths when workspace_only is set
         if self.workspace_only && Path::new(&expanded).is_absolute() {
@@ -816,32 +834,48 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
-fn strip_matching_quotes(token: &str) -> &str {
-    if token.len() >= 2 {
-        let first = token.as_bytes()[0];
-        let last = token.as_bytes()[token.len() - 1];
-        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
-            return &token[1..token.len() - 1];
+fn strip_all_quotes(token: &str) -> String {
+    let mut stripped = String::with_capacity(token.len());
+    for ch in token.chars() {
+        if ch != '"' && ch != '\'' {
+            stripped.push(ch);
         }
     }
-    token
+    stripped
 }
 
 fn normalize_arg_for_path_checks(token: &str) -> Option<String> {
-    let dequoted = strip_matching_quotes(token);
+    let decoded = iterative_url_decode(token);
+    if decoded.contains('%') {
+        return None;
+    }
+
+    let dequoted = strip_all_quotes(&decoded);
     if dequoted == "$HOME" || dequoted == "${HOME}" || dequoted == "$PATH" || dequoted == "${PATH}"
     {
-        return Some(dequoted.to_string());
+        return Some(dequoted);
     }
     if dequoted.contains('$') || dequoted.starts_with('~') {
-        return shellexpand::full(dequoted)
+        return shellexpand::full(&dequoted)
             .ok()
             .map(|value| value.into_owned());
     }
-    Some(dequoted.to_string())
+    Some(dequoted)
 }
 
 /// Check whether `expanded` path starts with any of the forbidden paths.
+fn iterative_url_decode(input: &str) -> String {
+    let mut decoded = input.to_string();
+    for _ in 0..10 {
+        let next = urlencoding::decode(decoded.as_str()).unwrap_or_else(|_| decoded.clone().into());
+        if next == decoded {
+            break;
+        }
+        decoded = next.into_owned();
+    }
+    decoded
+}
+
 fn matches_any_forbidden_path(expanded: &str, forbidden_paths: &[String]) -> bool {
     let expanded_path = Path::new(expanded);
     for forbidden in forbidden_paths {
@@ -1433,6 +1467,12 @@ mod tests {
     // ── Edge cases: path traversal ──────────────────────────
 
     #[test]
+    fn command_with_flag_embedded_absolute_path_is_blocked() {
+        let p = default_policy();
+        assert!(!p.is_command_allowed("grep --file=/etc/passwd foo.txt"));
+    }
+
+    #[test]
     fn path_traversal_encoded_dots() {
         let p = default_policy();
         // Literal ".." in path — always blocked
@@ -1623,6 +1663,18 @@ mod tests {
         );
         assert_eq!(
             policy.evaluate_tool_policy("code_search"),
+            ToolPolicyDecision::Allow
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy("Glob"),
+            ToolPolicyDecision::Allow
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy("Grep"),
+            ToolPolicyDecision::Allow
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy("WebFetch"),
             ToolPolicyDecision::Allow
         );
         assert_eq!(
@@ -2032,6 +2084,71 @@ mod tests {
         );
     }
 
+    #[test]
+    fn is_command_allowed_blocks_url_encoded_bypasses() {
+        let p = default_policy();
+
+        assert!(!p.is_command_allowed("echo secret %3e /tmp/pwned"));
+        assert!(!p.is_command_allowed("echo secret %3E /tmp/pwned"));
+        assert!(!p.is_command_allowed("ls %26 rm -rf /"));
+        assert!(!p.is_command_allowed("echo %24%28whoami%29"));
+        assert!(!p.is_command_allowed("cat ..%2f..%2fetc%2fpasswd"));
+        assert!(!p.is_command_allowed("cat secret.txt%00.jpg"));
+    }
+
+    #[test]
+    fn is_path_allowed_blocks_encoded_null_bytes() {
+        let p = default_policy();
+        assert!(!p.is_path_allowed("file.txt%00"));
+        assert!(!p.is_path_allowed("%00file.txt"));
+    }
+
+    #[test]
+    fn command_risk_level_detects_encoded_dangerous_snippets() {
+        let p = default_policy();
+        assert_eq!(
+            p.command_risk_level("rm%20-rf%20%2f"),
+            CommandRiskLevel::High
+        );
+
+        let encoded_fork = "%3a%28%29%7b%3a%7c%3a%26%7d%3b%3a";
+        assert_eq!(p.command_risk_level(encoded_fork), CommandRiskLevel::High);
+    }
+
+    #[test]
+    fn deep_encoded_traversal_attacks_blocked() {
+        let p = default_policy();
+
+        assert!(
+            !p.is_command_allowed("cat %2525252e%2525252e/etc/passwd"),
+            "Deep-encoded traversal in cat command must be blocked"
+        );
+        assert!(
+            !p.is_path_allowed("%2525252e%2525252e/etc/passwd"),
+            "Deep-encoded traversal path must be blocked"
+        );
+        assert_eq!(
+            p.command_risk_level("rm %2525252e%2525252e/etc/passwd"),
+            CommandRiskLevel::High,
+            "Deep-encoded rm must be classified as High risk"
+        );
+        assert!(
+            !p.is_command_allowed("rm %2525252e%2525252e/etc/passwd"),
+            "Deep-encoded rm command must be blocked"
+        );
+
+        let deep_fork = "%253a%2528%2529%257b%253a%257c%253a%2526%257d%253b%253a";
+        assert_eq!(
+            p.command_risk_level(deep_fork),
+            CommandRiskLevel::High,
+            "Deep-encoded fork bomb must be classified as High risk"
+        );
+        assert!(
+            !p.is_command_allowed(deep_fork),
+            "Deep-encoded fork bomb must be blocked"
+        );
+    }
+
     /// `enforce_tool_operation` Act gate must be identical for delegated context:
     /// read-only policy blocks Act, rate limit blocks Act.
     #[test]
@@ -2068,30 +2185,78 @@ mod tests {
             "Read must always be allowed regardless of autonomy level"
         );
     }
-}
 
-#[test]
-fn is_command_allowed_blocks_path_in_flags() {
-    let mut p = SecurityPolicy::default();
-    p.workspace_only = true;
-    p.allowed_commands = vec!["grep".into()];
-    p.forbidden_paths = vec!["/etc".into()];
+    #[test]
+    fn is_command_allowed_blocks_path_in_flags() {
+        let mut p = SecurityPolicy::default();
+        p.workspace_only = true;
+        p.allowed_commands = vec!["grep".into()];
+        p.forbidden_paths = vec!["/etc".into()];
 
-    // Case 1: Standalone absolute path - Should be BLOCKED (currently passes test)
-    assert!(!p.is_command_allowed("grep pattern /etc/passwd"));
+        // Case 1: Standalone absolute path
+        assert!(!p.is_command_allowed("grep pattern /etc/passwd"));
 
-    // Case 2: Path in flag - CURRENTLY BYPASSES (this test should fail if my hypothesis is correct)
-    assert!(
-        !p.is_command_allowed("grep --file=/etc/passwd pattern"),
-        "Should block absolute path in flag"
-    );
+        // Case 2: Path in flag
+        assert!(
+            !p.is_command_allowed("grep --file=/etc/passwd pattern"),
+            "Should block absolute path in flag"
+        );
 
-    // Case 3: git -C/etc status - CURRENTLY BYPASSES
-    p.allowed_commands.push("git".into());
-    assert!(
-        !p.is_command_allowed("git -C/etc status"),
-        "Should block absolute path in short flag"
-    );
+        // Case 3: git -C/etc status
+        p.allowed_commands.push("git".into());
+        assert!(
+            !p.is_command_allowed("git -C/etc status"),
+            "Should block absolute path in short flag"
+        );
+    }
+
+    #[test]
+    fn is_command_allowed_blocks_quote_bypasses() {
+        let mut p = SecurityPolicy::default();
+        p.workspace_only = true;
+        p.allowed_commands = vec!["cat".into(), "git".into()];
+        p.forbidden_paths = vec!["/etc".into()];
+
+        // Nested quotes
+        assert!(!p.is_command_allowed("cat '\"/etc/passwd\"'"));
+        assert!(!p.is_command_allowed("cat \"'/etc/passwd'\""));
+        assert!(!p.is_command_allowed("cat \"\"/etc/passwd\"\""));
+
+        // Partial quotes
+        assert!(!p.is_command_allowed("cat \"/etc\"/passwd"));
+        assert!(!p.is_command_allowed("cat /\"etc\"/passwd"));
+
+        // Quoted flags
+        assert!(!p.is_command_allowed("git -C\"/etc\" status"));
+        assert!(!p.is_command_allowed("git \"-C/etc\" status"));
+    }
+
+    #[test]
+    fn is_path_allowed_validates_raw_paths_without_dequoting() {
+        let p = SecurityPolicy {
+            workspace_only: true,
+            ..SecurityPolicy::default()
+        };
+
+        assert!(!p.is_path_allowed("\"relative/file.txt\""));
+        assert!(!p.is_path_allowed("\"/etc/passwd\""));
+        assert!(!p.is_path_allowed("'../secret'"));
+        assert!(!p.is_path_allowed("%2e%2e/etc/passwd"));
+        assert!(!p.is_path_allowed(".."));
+        assert!(!p.is_path_allowed("../etc/passwd"));
+    }
+
+    #[test]
+    fn command_path_checks_decode_and_dequote_shell_arguments() {
+        let mut p = SecurityPolicy::default();
+        p.workspace_only = true;
+        p.allowed_commands = vec!["cat".into()];
+        p.forbidden_paths = vec!["/etc".into()];
+
+        assert!(!p.is_command_allowed("cat %2fetc%2fpasswd"));
+        assert!(!p.is_command_allowed("cat '\"/etc/passwd\"'"));
+        assert!(!p.is_command_allowed("cat %252e%252e%252fetc%252fpasswd"));
+    }
 }
 
 #[test]

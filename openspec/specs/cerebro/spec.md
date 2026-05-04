@@ -58,54 +58,100 @@ summary-first retrieval and the What/Why/Where/Learned structure.
 
 ### Requirement: MCP Tool Inventory
 
-The Cerebro MCP service MUST expose the following 13 tools as the canonical tool surface, and tool
-introspection MUST return this list without omissions or extra entries:
+The Cerebro MCP service MUST publish an 8-tool implemented inventory as the canonical callable surface
+for normal operation.
 
+The published callable inventory MUST include exactly:
+
+- `mem_save`
+- `mem_search`
+- `mem_delete`
+- `mem_get_observation`
+- `mem_update`
+- `mem_suggest_topic_key`
+- `mem_timeline`
+- `mem_stats`
+
+The service MUST treat the following 5 tools as deferred and not currently implemented:
+
+- `mem_save_prompt`
 - `mem_session_start`
 - `mem_session_end`
 - `mem_session_summary`
 - `mem_context`
-- `mem_save`
-- `mem_update`
-- `mem_delete`
-- `mem_suggest_topic_key`
-- `mem_search`
-- `mem_get_observation`
-- `mem_timeline`
-- `mem_save_prompt`
-- `mem_stats`
 
-#### Scenario: Tool inventory returned (happy path)
+The published inventory MUST NOT advertise deferred tools as callable or implemented.
 
-- GIVEN a running Cerebro MCP service with tool introspection enabled
-- WHEN a client requests the available tools
-- THEN the response includes exactly the 13 tools listed above
-- AND the response contains no additional tool names
-
-#### Scenario: Missing tool name (edge case)
+#### Scenario: Implemented callable inventory is published
 
 - GIVEN a running Cerebro MCP service
-- WHEN tool introspection is called
-- THEN the service returns a structured error if any of the 13 tools is not available
+- WHEN a client requests the currently callable tool inventory through the supported discovery path
+- THEN the response MUST include exactly the 8 implemented tools listed above
+- AND the response MUST NOT include any of the 5 deferred tools as callable entries
+
+#### Scenario: Deferred tool is excluded from callable inventory
+
+- GIVEN a running Cerebro MCP service
+- WHEN a client evaluates whether `mem_context` is currently callable
+- THEN the service's published callable inventory MUST exclude `mem_context`
+- AND clients MUST be able to distinguish that exclusion from successful tool availability
 
 ### Requirement: Cerebro MCP Tool Surface
 
-The Cerebro module MUST expose the MCP tool set defined in the 13-tool inventory and return
-structured, typed errors for invalid requests. Tool contracts MUST align with the Cerebro product
-specification and remain agent-agnostic.
+The Cerebro module MUST align its published contract with the implemented 8-tool surface while
+preserving structured unavailable behavior for deferred tools.
 
-#### Scenario: Save and recall through Cerebro (happy path)
+Calls to `mem_save`, `mem_search`, `mem_delete`, `mem_get_observation`, `mem_update`,
+`mem_suggest_topic_key`, `mem_timeline`, and `mem_stats` MUST remain supported.
+
+Calls to `mem_save_prompt`, `mem_session_start`, `mem_session_end`, `mem_session_summary`, and
+`mem_context` MUST return a structured `NotImplemented` outcome rather than being represented as
+successful or generally available tools.
+
+The published Cerebro contract MUST describe current guarantees in terms of the supported callable
+surface and MUST NOT claim a broader implemented MCP surface than the service currently provides.
+
+#### Scenario: Implemented tool call succeeds under published contract
 
 - GIVEN a running Cerebro MCP service
 - WHEN an agent calls `mem_save` with a valid structured observation
-- THEN the service stores the observation and returns a stable memory ID
-- AND a subsequent `mem_search` can retrieve a compact summary for that memory
+- THEN the service MUST store the observation and return a stable memory ID
+- AND that success MUST remain consistent with the published callable contract
 
-#### Scenario: Invalid tool input (edge case)
+#### Scenario: Deferred tool call returns structured NotImplemented
 
 - GIVEN a running Cerebro MCP service
-- WHEN an agent calls `mem_save` with empty content or missing required fields
-- THEN the service rejects the request with a structured validation error
+- WHEN an agent calls `mem_session_summary` or `mem_context`
+- THEN the service MUST reject the call with a structured `NotImplemented` outcome
+- AND the response MUST NOT imply that the tool is implemented or generally available
+
+### Requirement: Contract Verification for Implemented and Deferred Tools
+
+Cerebro contract verification MUST distinguish implemented tools from deferred tools to prevent
+future inventory drift.
+
+Verification MUST assert both of the following:
+
+- the published callable inventory contains exactly the 8 implemented tools, and
+- each deferred tool returns a structured `NotImplemented` outcome when invoked through the
+  supported call path.
+
+#### Scenario: Verification passes for implemented and deferred split
+
+- GIVEN contract verification is executed against the current Cerebro service
+- WHEN verification checks inventory publication and deferred-tool behavior
+- THEN verification MUST pass only if the 8 implemented tools are published as callable
+- AND each of the 5 deferred tools returns structured `NotImplemented`
+
+#### Scenario: Verification fails on overstated inventory
+
+- GIVEN a future change republishes `mem_save_prompt` or `mem_context` as implemented without
+  backend support
+- WHEN contract verification runs
+- THEN verification MUST fail
+- AND the failure MUST identify the mismatch between published availability and observed behavior
+
+---
 
 ### Requirement: Separation of Memory Scopes
 
@@ -235,6 +281,34 @@ All MCP requests MUST be authenticated with a Bearer token.
 - GIVEN a running Cerebro MCP service with authentication enabled
 - WHEN a client calls `tools/call` without a Bearer token
 - THEN the service returns an unauthorized error
+
+### Requirement: Operational Metrics
+
+Cerebro MUST expose Prometheus-compatible operational metrics so production operators can scrape or export request, authentication, readiness, and storage signals.
+
+The metrics surface MUST include:
+
+- `cerebro_requests_total` counter labeled by `method` and `status`, where `method` is bounded to canonical values (`tools.call`, `tools.list`, or `unknown`).
+- `cerebro_tool_latency_seconds` histogram labeled by `tool` and `status`.
+- `cerebro_auth_failures_total` counter with no labels.
+- `cerebro_readiness_failures_total` counter with no labels.
+- `cerebro_storage_errors_total` counter labeled by `operation`.
+
+The metrics endpoint MUST be scrapeable as Prometheus text exposition from `GET /metrics`. Operators MAY export this endpoint through Prometheus, an OpenTelemetry Collector Prometheus receiver, or any compatible scraper.
+
+#### Scenario: Metrics endpoint is scrapeable (happy path)
+
+- GIVEN a running Cerebro service
+- WHEN an operator scrapes `GET /metrics`
+- THEN the response uses Prometheus text exposition
+- AND it includes the Cerebro request, tool latency, auth failure, readiness failure, and storage error metric families
+
+#### Scenario: Failed authentication is counted (edge case)
+
+- GIVEN a running Cerebro MCP service with authentication enabled
+- WHEN a client calls `tools/call` without a valid Bearer token
+- THEN the service increments `cerebro_auth_failures_total`
+- AND the failed request is visible in the metrics scrape output
 
 ### Requirement: Data Hygiene Defaults
 
@@ -422,22 +496,35 @@ What/Why/Where/Learned format.
 The Cerebro service MUST use embedded SurrealDB as the default storage mode when no storage mode is
 explicitly configured.
 
-The Cerebro service MUST allow configuration to override the default storage mode to supported
-non-embedded modes (for example, in-memory or disk-backed storage).
+The Cerebro service MUST treat embedded SurrealDB as the default supported durable mode for the
+current single-node, local-first production posture.
 
-#### Scenario: Default storage mode uses embedded SurrealDB (happy path)
+The Cerebro service MUST allow configuration to override the default storage mode only to other
+supported local modes, including `disk` and `in_memory`.
+
+The Cerebro service MUST NOT treat `remote_surreal` as a supported storage mode in this build.
+
+#### Scenario: Default storage mode uses embedded SurrealDB for single-node durability
 
 - GIVEN a Cerebro deployment with no explicit storage mode configured
 - WHEN the service starts
 - THEN embedded SurrealDB is selected as the storage mode
-- AND the service is ready to serve MCP requests
+- AND the selected mode MUST be treated as the default supported single-node durable production mode
 
-#### Scenario: Explicit storage override bypasses embedded SurrealDB (edge case)
+#### Scenario: Explicit storage override remains limited to supported local modes
 
-- GIVEN a Cerebro deployment with storage mode explicitly set to a non-embedded mode
+- GIVEN a Cerebro deployment with storage mode explicitly set to `disk` or `in_memory`
 - WHEN the service starts
-- THEN the configured storage mode is used
+- THEN the configured local mode MUST be used
 - AND embedded SurrealDB is not initialized
+- AND the override MUST NOT imply support for remote/shared persistence
+
+#### Scenario: Remote storage mode is not a supported override
+
+- GIVEN a Cerebro deployment with storage mode explicitly set to `remote_surreal`
+- WHEN the service validates startup configuration
+- THEN the configuration MUST be rejected as unsupported in this build
+- AND the service MUST NOT start as though remote SurrealDB were a supported production mode
 
 ### Requirement: Embedded SurrealDB Loopback Binding
 
@@ -503,24 +590,63 @@ counts and schema compatibility).
 The Cerebro service MUST support an operational fallback mode for storage when embedded SurrealDB is
 unavailable at startup and a fallback mode is configured.
 
-If no fallback mode is configured and embedded SurrealDB cannot start, the service MUST fail fast
-and MUST NOT serve MCP requests.
+Any configured fallback mode MUST be limited to supported local fallback modes in this build.
 
-#### Scenario: Fallback configured and used (happy path)
+The Cerebro service MUST NOT accept `remote_surreal` as a supported fallback target in this build.
 
-- GIVEN embedded SurrealDB is configured as the default storage mode
-- AND a fallback storage mode is configured
-- WHEN embedded SurrealDB fails to start
-- THEN the service starts using the fallback storage mode
-- AND the service reports that it is running in fallback mode
+If no supported local fallback mode is configured and embedded SurrealDB cannot start, the service
+MUST fail fast and MUST NOT serve MCP requests.
 
-#### Scenario: No fallback configured (edge case)
+#### Scenario: Supported local fallback is used
 
 - GIVEN embedded SurrealDB is configured as the default storage mode
-- AND no fallback storage mode is configured
+- AND a supported local fallback storage mode is configured
 - WHEN embedded SurrealDB fails to start
-- THEN the service fails to start
+- THEN the service MUST start using the configured local fallback mode
+- AND the service MUST report that it is running in fallback mode
+
+#### Scenario: Unsupported remote fallback is rejected
+
+- GIVEN embedded SurrealDB is configured as the default storage mode
+- AND the fallback storage mode is configured as `remote_surreal`
+- WHEN the service validates startup configuration
+- THEN the configuration MUST be rejected as unsupported in this build
+- AND the service MUST NOT treat remote/shared persistence as an available recovery path
+
+#### Scenario: No supported fallback configured
+
+- GIVEN embedded SurrealDB is configured as the default storage mode
+- AND no supported local fallback storage mode is configured
+- WHEN embedded SurrealDB fails to start
+- THEN the service MUST fail to start
 - AND no MCP requests are served
+
+### Requirement: Unsupported Remote Shared Persistence Boundary
+
+The Cerebro specification MUST align with the gateway operational source-of-truth by defining
+remote/shared SurrealDB and HA multi-node persistence as unsupported in this build.
+
+The Cerebro specification MUST describe `disk` as a node-local durable alternative and `in_memory`
+as non-durable storage suitable only for CI, development, or emergency fallback scenarios.
+
+The Cerebro specification MUST NOT describe any current storage mode as providing shared remote
+persistence, clustered coordination, or HA multi-node persistence.
+
+#### Scenario: Supported storage modes remain local-first
+
+- GIVEN a reader consults the Cerebro storage behavior specification
+- WHEN the reader compares `embedded_surreal`, `disk`, and `in_memory`
+- THEN the specification MUST describe `embedded_surreal` and `disk` as local storage modes
+- AND the specification MUST describe `in_memory` as non-durable
+- AND the specification MUST NOT imply that any of those modes provide shared remote persistence
+
+#### Scenario: Multi-node persistence is not claimed by storage behavior spec
+
+- GIVEN a reader looks for current HA or multi-node persistence guarantees in the Cerebro specification
+- WHEN the reader checks the storage behavior requirements
+- THEN the specification MUST state that HA multi-node persistence is unsupported in this build
+- AND the specification MUST defer any future remote/shared persistence support to a separate
+  follow-on change
 
 ### Requirement: Migration Tooling Without TUI Dependency
 
@@ -541,7 +667,10 @@ independent of migration operations.
 
 ## Acceptance Criteria
 
-- The Cerebro MCP tool set is available and matches the 13-tool inventory.
+- The Cerebro MCP tool set publishes exactly the 8-tool implemented callable inventory.
+- The 5 deferred tools (`mem_save_prompt`, `mem_session_start`, `mem_session_end`, `mem_session_summary`,
+  `mem_context`) return structured `NotImplemented` outcomes when called.
+- Contract verification confirms the implemented/deferred split is maintained.
 - The agent runtime no longer ships a SurrealDB memory backend or `memory-surreal` feature flag.
 - Embedded SurrealDB is available only as a Cerebro service deployment mode, not a runtime backend.
 - Long-term memory operations route through MCP to Cerebro, while local memory remains private and

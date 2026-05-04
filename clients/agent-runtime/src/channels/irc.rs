@@ -12,7 +12,7 @@ use tokio_rustls::rustls;
 
 /// Read timeout for IRC — if no data arrives within this duration, the
 /// connection is considered dead. IRC servers typically PING every 60-120s.
-const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(5);
 
 /// Per-phase timeout applied independently to TCP connect and TLS handshake.
 /// Total setup wait can be up to 2x this value.
@@ -482,13 +482,11 @@ impl IrcChannel {
                 self.send_to_writer(&format!("NICK {alt}")).await?;
                 return Ok(IrcAction::SetNick(alt));
             }
-            "PRIVMSG" => {
-                if registered {
-                    let sender_nick = msg.nick().unwrap_or("unknown");
-                    if let Some(channel_msg) = self.parse_privmsg(msg, sender_nick) {
-                        if tx.send(channel_msg).await.is_err() {
-                            return Ok(IrcAction::ChannelClosed);
-                        }
+            "PRIVMSG" if registered => {
+                let sender_nick = msg.nick().unwrap_or("unknown");
+                if let Some(channel_msg) = self.parse_privmsg(msg, sender_nick) {
+                    if tx.send(channel_msg).await.is_err() {
+                        return Ok(IrcAction::ChannelClosed);
                     }
                 }
             }

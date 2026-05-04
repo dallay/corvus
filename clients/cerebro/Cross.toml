@@ -1,0 +1,15 @@
+# Cross.toml - cross-compilation configuration for clients/cerebro
+#
+# RocksDB (via surrealdb-librocksdb-sys) requires C11 headers (stdbool.h,
+# stdint.h, etc.) that are not present in the default cross Docker images for
+# aarch64-unknown-linux-gnu. The pre-build hook installs the missing headers
+# before cargo compiles the C/C++ sources.
+#
+# Ref: https://github.com/cross-rs/cross/wiki/Configuration
+
+[target.aarch64-unknown-linux-gnu]
+pre-build = [
+  "dpkg --add-architecture arm64",
+  "apt-get update -qq",
+  "apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross cmake clang libclang-dev",
+]

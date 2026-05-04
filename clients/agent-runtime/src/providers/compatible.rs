@@ -56,7 +56,7 @@ impl OpenAiCompatibleProvider {
             auth_header: auth_style,
             supports_responses_fallback: true,
             client: Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
+                .timeout(std::time::Duration::from_mins(2))
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
@@ -78,7 +78,7 @@ impl OpenAiCompatibleProvider {
             auth_header: auth_style,
             supports_responses_fallback: false,
             client: Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
+                .timeout(std::time::Duration::from_mins(2))
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
@@ -1556,6 +1556,7 @@ mod tests {
                 "required": ["command"]
             }),
             source: None,
+            aliases: vec![],
         }];
 
         let tools = OpenAiCompatibleProvider::tool_specs_to_openai_format(&specs);
@@ -1564,6 +1565,25 @@ mod tests {
         assert_eq!(tools[0]["function"]["name"], "shell");
         assert_eq!(tools[0]["function"]["description"], "Run shell command");
         assert_eq!(tools[0]["function"]["parameters"]["required"][0], "command");
+    }
+
+    #[test]
+    fn tool_specs_convert_to_openai_format_do_not_publish_aliases_as_duplicate_tools() {
+        let specs = vec![crate::tools::ToolSpec {
+            name: "WebFetch".to_string(),
+            description: "Fetch web content".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {"url": {"type": "string"}, "prompt": {"type": "string"}},
+                "required": ["url", "prompt"]
+            }),
+            source: None,
+            aliases: vec!["web_fetch".to_string()],
+        }];
+
+        let tools = OpenAiCompatibleProvider::tool_specs_to_openai_format(&specs);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["function"]["name"], "WebFetch");
     }
 
     #[test]

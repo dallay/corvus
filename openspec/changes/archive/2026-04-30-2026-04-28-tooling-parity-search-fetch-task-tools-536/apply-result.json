@@ -1,0 +1,62 @@
+{
+  "change_id": "2026-04-28-tooling-parity-search-fetch-task-tools-536",
+  "status": "completed",
+  "phase": "apply",
+  "summary": {
+    "title": "Tooling parity for search, fetch, and task tools #536",
+    "completed": true,
+    "implementation_surfaces": [
+      "clients/agent-runtime/src/agent/agent.rs",
+      "clients/agent-runtime/src/agent/dispatcher.rs",
+      "clients/agent-runtime/src/agent/tests.rs",
+      "clients/agent-runtime/src/tools/mod.rs",
+      "clients/agent-runtime/src/tools/glob.rs",
+      "clients/agent-runtime/src/tools/grep.rs",
+      "clients/agent-runtime/src/tools/web_fetch.rs",
+      "clients/agent-runtime/src/tools/task_create.rs",
+      "clients/agent-runtime/src/tools/task_get.rs",
+      "clients/agent-runtime/src/tools/task_list.rs",
+      "clients/agent-runtime/src/tools/task_update.rs",
+      "clients/agent-runtime/src/tools/task_stop.rs",
+      "clients/agent-runtime/src/capabilities/tool_registration.rs",
+      "clients/agent-runtime/src/providers/compatible.rs"
+    ],
+    "outcomes": [
+      "Alias-aware execution for search/fetch/task parity tools",
+      "Centralized canonical-to-alias parity mapping metadata",
+      "Policy and validation parity between canonical names and aliases",
+      "Deterministic canonical-first alias publication on inventory surfaces"
+    ]
+  },
+  "verification": {
+    "commands": [
+      "cargo fmt --manifest-path clients/agent-runtime/Cargo.toml --all",
+      "cargo test --manifest-path clients/agent-runtime/Cargo.toml xml_prompt_instructions_publish_aliases_deterministically -- --nocapture",
+      "cargo test --manifest-path clients/agent-runtime/Cargo.toml parity_alias_mapping_round_trips -- --nocapture",
+      "cargo test --manifest-path clients/agent-runtime/Cargo.toml turn_executes_tool_via_alias_then_returns -- --nocapture",
+      "cargo test --manifest-path clients/agent-runtime/Cargo.toml test_risk_classification -- --nocapture",
+      "cargo test --manifest-path clients/agent-runtime/Cargo.toml registry_from_tools_preserves_canonical_and_alias_metadata_without_duplicate_entries -- --nocapture",
+      "cargo test --manifest-path clients/agent-runtime/Cargo.toml tool_specs_convert_to_openai_format_do_not_publish_aliases_as_duplicate_tools -- --nocapture",
+      "cargo test --manifest-path clients/agent-runtime/Cargo.toml tool_spec_generation -- --nocapture",
+      "git diff --check -- clients/agent-runtime/src/agent/agent.rs clients/agent-runtime/src/agent/dispatcher.rs clients/agent-runtime/src/agent/tests.rs clients/agent-runtime/src/tools/mod.rs clients/agent-runtime/src/tools/glob.rs clients/agent-runtime/src/tools/grep.rs clients/agent-runtime/src/tools/web_fetch.rs clients/agent-runtime/src/tools/task_create.rs clients/agent-runtime/src/tools/task_get.rs clients/agent-runtime/src/tools/task_list.rs clients/agent-runtime/src/tools/task_update.rs clients/agent-runtime/src/tools/task_stop.rs clients/agent-runtime/src/capabilities/tool_registration.rs clients/agent-runtime/src/providers/compatible.rs openspec/changes/2026-04-28-tooling-parity-search-fetch-task-tools-536/tasks.md"
+    ],
+    "status": "passed"
+  },
+  "tasks": {
+    "all_checked": true,
+    "source": "openspec/changes/2026-04-28-tooling-parity-search-fetch-task-tools-536/tasks.md"
+  },
+  "artifacts": [
+    "proposal.md",
+    "design.md",
+    "tasks.md",
+    "specs/tooling-parity/spec.md",
+    "apply-report.md",
+    "apply-result.json",
+    "state.yaml"
+  ],
+  "notes": [
+    "Apply documentation was persisted after implementation/testing had already been completed.",
+    "This artifact exists to complete the OpenSpec audit chain for the change folder."
+  ]
+}

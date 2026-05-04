@@ -1,0 +1,36 @@
+{
+  "status": "success",
+  "change": "release-component-graph-design",
+  "archived_at": "2026-04-29T17:15:20Z",
+  "archive_path": "openspec/archive/2026-04-29_release-component-graph-design",
+  "verification_result": "PASS",
+  "completion_rate": "100%",
+  "requirements_documented": 8,
+  "scenarios_verified": 30,
+  "tasks_completed": 10,
+  "critical_issues": 0,
+  "warnings": 0,
+  "observations": 3,
+  "artifacts_archived": [
+    "proposal.md",
+    "spec.md",
+    "design.md",
+    "tasks.md",
+    "apply-summary.md",
+    "verify-report.md",
+    "verify-result.json",
+    "state.yaml",
+    "apply-result.json",
+    "ARCHIVE.md"
+  ],
+  "main_specs_updated": [
+    "openspec/specs/release-management/spec.md",
+    "openspec/specs/release-management/component-versioning.md",
+    "openspec/specs/release-management/component-inventory.md",
+    "openspec/specs/release-management/impact-map.md",
+    "openspec/specs/release-management/pipeline-gating.md",
+    "openspec/specs/release-management/migration-plan.md"
+  ],
+  "phase": "archive",
+  "type": "documentation-first"
+}

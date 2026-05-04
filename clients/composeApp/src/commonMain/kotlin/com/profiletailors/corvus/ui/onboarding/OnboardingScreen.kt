@@ -83,6 +83,15 @@ enum class OnboardingIcon {
 }
 
 object OnboardingDefaults {
+  private const val STEP_INDEX_RUNTIME_AVAILABLE = 0
+  private const val STEP_INDEX_LINK_SURFACE = 1
+  private const val STEP_INDEX_CONNECT_RUNTIME = 2
+  internal const val STEP_INDEX_RESUME_SESSION = 3
+  internal const val PROGRESS_BAR_ACTIVE_WIDTH = 32f
+  internal const val PROGRESS_BAR_INACTIVE_WIDTH = 16f
+  internal const val PROGRESS_BAR_INACTIVE_ALPHA = 0.3f
+  internal const val PROGRESS_ANIMATION_DURATION_MS = 300
+
   val steps: List<OnboardingStep> =
     listOf(
       OnboardingStep(
@@ -90,21 +99,21 @@ object OnboardingDefaults {
         descriptionRes = Res.string.onboarding_desc_runtime_available,
         status = MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED,
         icon = OnboardingIcon.RUNTIME,
-        progressIndex = 0,
+        progressIndex = STEP_INDEX_RUNTIME_AVAILABLE,
       ),
       OnboardingStep(
         titleRes = Res.string.onboarding_title_link_surface,
         descriptionRes = Res.string.onboarding_desc_link_surface,
         status = MobileOnboardingStatus.TRUST_PENDING,
         icon = OnboardingIcon.LINK,
-        progressIndex = 1,
+        progressIndex = STEP_INDEX_LINK_SURFACE,
       ),
       OnboardingStep(
         titleRes = Res.string.onboarding_title_connect_runtime,
         descriptionRes = Res.string.onboarding_desc_connect_runtime,
         status = MobileOnboardingStatus.TRANSPORT_CONNECTING,
         icon = OnboardingIcon.SYNC,
-        progressIndex = 2,
+        progressIndex = STEP_INDEX_CONNECT_RUNTIME,
       ),
       OnboardingStep(
         titleRes = Res.string.onboarding_title_resume_session,
@@ -112,7 +121,7 @@ object OnboardingDefaults {
         status = MobileOnboardingStatus.SESSION_PENDING,
         icon = OnboardingIcon.SESSION,
         actionLabel = Res.string.button_start,
-        progressIndex = 3,
+        progressIndex = STEP_INDEX_RESUME_SESSION,
         isTerminal = true,
       ),
     )
@@ -136,8 +145,10 @@ fun runtimeOnboardingStep(state: MobileOnboardingState): OnboardingStep =
     MobileOnboardingStatus.TRUST_PENDING ->
       OnboardingDefaults.steps[1].copy(actionLabel = Res.string.button_next)
     MobileOnboardingStatus.TRANSPORT_CONNECTING -> OnboardingDefaults.steps[2]
-    MobileOnboardingStatus.SESSION_PENDING -> OnboardingDefaults.steps[3]
-    MobileOnboardingStatus.SESSION_READY -> OnboardingDefaults.steps[3]
+    MobileOnboardingStatus.SESSION_PENDING ->
+      OnboardingDefaults.steps[OnboardingDefaults.STEP_INDEX_RESUME_SESSION]
+    MobileOnboardingStatus.SESSION_READY ->
+      OnboardingDefaults.steps[OnboardingDefaults.STEP_INDEX_RESUME_SESSION]
     MobileOnboardingStatus.BLOCKED ->
       OnboardingDefaults.steps[2].copy(
         titleRes = Res.string.onboarding_title_connect_runtime,
@@ -159,7 +170,7 @@ fun OnboardingScreen(
   actions: OnboardingScreenActions,
   modifier: Modifier = Modifier,
 ) {
-  val layoutModifier = rememberOnboardingLayoutModifier()
+  val layoutModifier = onboardingLayoutModifier()
 
   Column(
     modifier = modifier.then(layoutModifier),
@@ -178,7 +189,7 @@ fun OnboardingScreen(
 }
 
 @Composable
-private fun rememberOnboardingLayoutModifier(): Modifier {
+private fun onboardingLayoutModifier(): Modifier {
   val colors = MaterialTheme.colorScheme
   val corvusColors = CorvusTheme.colors
 
@@ -193,6 +204,7 @@ private fun rememberOnboardingLayoutModifier(): Modifier {
     .padding(horizontal = 24.dp, vertical = 32.dp)
 }
 
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
 @Composable
 private fun OnboardingSkipButton(onSkip: () -> Unit) {
   val colors = MaterialTheme.colorScheme
@@ -211,6 +223,7 @@ private fun OnboardingSkipButton(onSkip: () -> Unit) {
   }
 }
 
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
 @Composable
 private fun ColumnScope.OnboardingMainContent(step: OnboardingStep) {
   val colors = MaterialTheme.colorScheme
@@ -254,6 +267,7 @@ private fun ColumnScope.OnboardingMainContent(step: OnboardingStep) {
   }
 }
 
+@Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
 @Composable
 private fun OnboardingFooter(
   currentStep: Int,
@@ -341,18 +355,19 @@ private fun FuturisticProgressIndicator(currentStep: Int, totalSteps: Int) {
         animateFloatAsState(
           targetValue =
             when {
-              isActive -> 32f
-              isCompleted -> 16f
-              else -> 16f
+              isActive -> OnboardingDefaults.PROGRESS_BAR_ACTIVE_WIDTH
+              isCompleted -> OnboardingDefaults.PROGRESS_BAR_INACTIVE_WIDTH
+              else -> OnboardingDefaults.PROGRESS_BAR_INACTIVE_WIDTH
             },
-          animationSpec = tween(300),
+          animationSpec = tween(OnboardingDefaults.PROGRESS_ANIMATION_DURATION_MS),
           label = "progressWidth",
         )
 
       val alpha by
         animateFloatAsState(
-          targetValue = if (isActive || isCompleted) 1f else 0.3f,
-          animationSpec = tween(300),
+          targetValue =
+            if (isActive || isCompleted) 1f else OnboardingDefaults.PROGRESS_BAR_INACTIVE_ALPHA,
+          animationSpec = tween(OnboardingDefaults.PROGRESS_ANIMATION_DURATION_MS),
           label = "progressAlpha",
         )
 

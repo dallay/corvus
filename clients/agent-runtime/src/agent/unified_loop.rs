@@ -13,7 +13,7 @@ impl Default for LoopConfig {
     fn default() -> Self {
         Self {
             max_iterations: 10,
-            timeout: Duration::from_secs(60),
+            timeout: Duration::from_mins(1),
             compaction_threshold: 4_096,
             approval_required_tool: None,
         }
@@ -27,7 +27,7 @@ pub enum LoopEvent {
     ToolDispatchStarted(String),
     ToolDispatchCompleted(String),
     CompactionTriggered,
-    ApprovalRequired(String),
+    ApprovalRequired(String, String),
     Complete(String),
     Error(String),
 }
@@ -101,7 +101,10 @@ impl AgentLoop {
                 if let Ok(mut pending) = self.pending_approval.lock() {
                     *pending = Some(tool_name.clone());
                 }
-                events.push(LoopEvent::ApprovalRequired(tool_name));
+                events.push(LoopEvent::ApprovalRequired(
+                    tool_name.clone(),
+                    format!("approval required for `{tool_name}`"),
+                ));
                 return futures::stream::iter(events);
             }
 
@@ -240,7 +243,7 @@ mod tests {
 
         assert!(run_events
             .iter()
-            .any(|event| matches!(event, LoopEvent::ApprovalRequired(_))));
+            .any(|event| matches!(event, LoopEvent::ApprovalRequired(..))));
 
         let resumed = agent_loop.resume(true).collect::<Vec<_>>().await;
         assert_eq!(
@@ -326,7 +329,7 @@ mod tests {
             .await;
         assert!(approval_run
             .iter()
-            .any(|event| matches!(event, LoopEvent::ApprovalRequired(_))));
+            .any(|event| matches!(event, LoopEvent::ApprovalRequired(..))));
         let approved_resume = approval_required.resume(true).collect::<Vec<_>>().await;
         assert!(approved_resume
             .iter()

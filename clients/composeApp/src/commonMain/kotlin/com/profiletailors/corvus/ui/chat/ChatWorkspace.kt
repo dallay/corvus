@@ -20,11 +20,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -90,6 +86,7 @@ data class ChatUiState(
   val activeSessionId: String?,
   val query: String,
   val showConfig: Boolean,
+  val showSessionHistory: Boolean,
 )
 
 @Stable
@@ -108,6 +105,7 @@ data class ChatWorkspaceActions(
   val onQueryChange: (String) -> Unit,
   val onSend: (String) -> Unit,
   val onToggleConfig: () -> Unit,
+  val onToggleSessionHistory: () -> Unit,
   val bridge: BridgeActions,
 )
 
@@ -120,6 +118,9 @@ data class ChatWorkspaceContent(
   val pendingApproval: RuntimeApprovalRequest?,
   val targetLabel: String?,
   val activeSessionId: String?,
+  val query: String,
+  val showConfig: Boolean,
+  val showSessionHistory: Boolean = false,
 )
 
 object ChatWorkspaceDefaults {
@@ -139,11 +140,12 @@ fun ChatWorkspace(
   content: ChatWorkspaceContent,
   bridgeActions: BridgeActions,
   onSendMessage: (String) -> Unit,
+  onQueryChange: (String) -> Unit,
+  onShowConfigChange: (Boolean) -> Unit,
+  onShowSessionHistoryChange: (Boolean) -> Unit,
   modifier: Modifier = Modifier,
   state: ChatWorkspaceState = ChatWorkspaceDefaults.state(),
 ) {
-  var query by remember { mutableStateOf("") }
-  var showConfig by rememberSaveable { mutableStateOf(false) }
 
   val bridgeState =
     remember(content.platformName, content.bridgeSnapshot) {
@@ -154,7 +156,7 @@ fun ChatWorkspace(
     if (!bridgeState.isChatReady) return
     if (prompt.trim().isBlank()) return
     onSendMessage(prompt)
-    query = ""
+    onQueryChange("")
   }
 
   val displayMessages =
@@ -167,11 +169,21 @@ fun ChatWorkspace(
     }
 
   val actions =
-    remember(bridgeState, bridgeActions, onSendMessage) {
+    remember(
+      bridgeState,
+      bridgeActions,
+      onSendMessage,
+      onQueryChange,
+      content.showConfig,
+      content.showSessionHistory,
+      onShowConfigChange,
+      onShowSessionHistoryChange,
+    ) {
       ChatWorkspaceActions(
-        onQueryChange = { query = it },
+        onQueryChange = onQueryChange,
         onSend = ::sendMessage,
-        onToggleConfig = { showConfig = !showConfig },
+        onToggleConfig = { onShowConfigChange(!content.showConfig) },
+        onToggleSessionHistory = { onShowSessionHistoryChange(!content.showSessionHistory) },
         bridge = bridgeActions,
       )
     }
@@ -185,8 +197,9 @@ fun ChatWorkspace(
       pendingApproval = content.pendingApproval,
       targetLabel = content.targetLabel,
       activeSessionId = content.activeSessionId,
-      query = query,
-      showConfig = showConfig,
+      query = content.query,
+      showConfig = content.showConfig,
+      showSessionHistory = content.showSessionHistory,
     )
 
   ChatWorkspaceScreen(uiState = uiState, actions = actions, modifier = modifier)
@@ -201,21 +214,21 @@ private fun ChatWorkspaceScreen(
   val colors = MaterialTheme.colorScheme
   val corvusColors = CorvusTheme.colors
   val shouldShowConfig = uiState.showConfig || !uiState.bridgeState.isChatReady
+  val shouldShowSessionHistory = !shouldShowConfig && uiState.showSessionHistory
 
-  val baseModifier =
-    remember(colors.background) {
-      Modifier.fillMaxSize()
-        .background(colors.background)
-        .safeContentPadding()
-        .padding(horizontal = 20.dp, vertical = 16.dp)
-    }
+  val staticModifier = remember {
+    Modifier.fillMaxSize().safeContentPadding().padding(horizontal = 20.dp, vertical = 16.dp)
+  }
+  val backgroundModifier = remember(colors.background) { Modifier.background(colors.background) }
 
-  Column(modifier = modifier.then(baseModifier)) {
+  Column(modifier = modifier.then(backgroundModifier).then(staticModifier)) {
     ChatHeader(
       modelName = uiState.workspaceState.modelName,
       bridgeState = uiState.bridgeState,
       showConfig = shouldShowConfig,
+      showSessionHistory = shouldShowSessionHistory,
       onToggleConfig = actions.onToggleConfig,
+      onToggleSessionHistory = actions.onToggleSessionHistory,
     )
 
     Spacer(modifier = Modifier.height(16.dp))
@@ -228,6 +241,7 @@ private fun ChatWorkspaceScreen(
       uiState = uiState,
       actions = actions,
       shouldShowConfig = shouldShowConfig,
+      shouldShowSessionHistory = shouldShowSessionHistory,
       modifier = Modifier.weight(1f),
     )
   }
@@ -255,6 +269,7 @@ private fun WorkspaceBody(
   uiState: ChatUiState,
   actions: ChatWorkspaceActions,
   shouldShowConfig: Boolean,
+  shouldShowSessionHistory: Boolean,
   modifier: Modifier = Modifier,
 ) {
   if (shouldShowConfig) {
@@ -264,6 +279,23 @@ private fun WorkspaceBody(
       activeSessionId = uiState.activeSessionId,
       targetLabel = uiState.targetLabel,
       actions = actions,
+      modifier = modifier,
+    )
+    return
+  }
+
+  if (shouldShowSessionHistory) {
+    SessionHistoryPanel(
+      sessions = uiState.resumableSessions,
+      activeSessionId = uiState.activeSessionId,
+      onSwitchSession = { sessionId ->
+        actions.bridge.onResumeSession(sessionId)
+        actions.onToggleSessionHistory()
+      },
+      onNewSession = {
+        actions.bridge.onStartSession()
+        actions.onToggleSessionHistory()
+      },
       modifier = modifier,
     )
     return

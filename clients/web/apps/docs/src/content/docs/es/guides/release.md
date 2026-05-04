@@ -36,13 +36,24 @@ Antes de publicar, confirma:
 
 ## Contrato de Release Estable
 
+### Graph canónico de release scope y resolvers
+
+- `config/release-components.json` es el graph canónico de componentes gestionados.
+- `scripts/release-components.mjs` carga y valida ese graph antes de que lo consuman los workflows.
+- `scripts/resolve-release-components.mjs` resuelve el scope por archivos cambiados para `release-please.yml` y `release-please-beta.yml`.
+- `scripts/resolve-release-from-tag.mjs` resuelve el scope del publish estable desde el tag del release y el override opcional `affected_components:` en el body del release.
+- `scripts/sync-internal-release-deps.mjs` valida y normaliza dependencias internas versionadas del release antes de regenerar lockfiles y ejecutar validaciones pesadas de Rust.
+
 ### Qué sale en un release estable `vX.Y.Z`
 
 La automatización estable valida y publica solo artefactos enviados:
 
 - artefactos Gradle/KMP, incluida la publicación de build-logic
+- crate de Rust: `cerebro`
+- crate de Rust + paquete npm + imagen Docker: `corvus-runtime`
+- crate de Rust + paquete npm + imagen Docker: `rook`
 - crate `clients/agent-runtime`
-- assets de release de `modules/cerebro`
+- assets de release de `clients/cerebro`
 - paquetes npm del runtime:
   - `@dallay/corvus`
   - `@dallay/corvus-darwin-x64`
@@ -64,8 +75,9 @@ La automatización estable valida y publica solo artefactos enviados:
 
 1. Mergea en `main` el trabajo listo para salir.
 2. `release-please.yml` abre o actualiza un único PR repo-wide de release.
-3. Revisa el diff del PR. Solo los artefactos estables enviados deben recibir bump de versión.
-4. Mergea el PR de release.
+3. El mantenimiento del PR de release ejecuta `node scripts/sync-internal-release-deps.mjs --write` para mantener alineadas las dependencias internas con `path` y versión antes de regenerar lockfiles.
+4. Revisa el diff del PR de release. Solo deben cambiar de versión los artefactos estables publicados y sus pins declarados de dependencias internas de release.
+5. Mergea el PR de release.
 5. release-please crea el tag canónico `vX.Y.Z` y el GitHub Release canónico.
 6. `publish-release.yml` corre desde `release.published` y pasa el contexto explícito `release_tag` / `release_id` hacia `_publish.yml`.
 7. `_publish.yml` valida versiones de artefactos enviados, publica artefactos y adjunta assets al GitHub Release existente.
@@ -80,7 +92,7 @@ La automatización beta publica las mismas superficies de artefactos que el cana
 
 - artefactos Gradle/KMP, incluida la publicación de build-logic
 - crate `clients/agent-runtime`
-- assets de release de `modules/cerebro`
+- assets de release de `clients/cerebro`
 - paquetes npm de runtime enviados
 - imágenes Docker
 - archivos nativos y checksums adjuntos al GitHub Release
@@ -94,6 +106,11 @@ La automatización beta publica las mismas superficies de artefactos que el cana
 - La publicación beta de Docker usa la versión exacta del prerelease más el tag móvil `beta` y no debe sobrescribir alias estables como `latest`, `X` o `X.Y`.
 
 ## Flujo de Release Beta
+
+Solo `release-please` y `release-please-beta` son dueños de las notas canónicas del GitHub Release.
+`publish-release.yml` y `_publish.yml` nunca deben reemplazar, editar o reinterpretar las notas canónicas del GitHub Release.
+El workflow beta sigue respetando la misma superficie de artefactos: `cerebro`, `corvus-runtime` y `rook`.
+
 
 1. Crea o refresca la rama `beta` desde `minor` cuando un candidato prerelease esté listo para validación más amplia.
 2. Mergea fixes listos para salir en `beta`.
@@ -116,6 +133,31 @@ La automatización beta publica las mismas superficies de artefactos que el cana
 - No crea el tag estable canónico.
 - No crea GitHub Release.
 - No publica notas de release estables.
+
+## Migración a releases por componente
+
+La transición desde el release repo-wide actual hacia releases por componente se hace por fases.
+
+1. **Descubrimiento**
+   - mantener actualizado el inventario canónico de componentes releaseables
+   - mantener actualizado el mapa de impacto por paths y módulos compartidos
+2. **Transición controlada**
+   - definir rollout, señales de éxito y rollback antes de tocar automatización
+3. **Piloto de versionado**
+   - empezar con un componente piloto de superficie pequeña
+4. **Piloto de publish selectivo**
+   - validar y publicar solo componentes afectados
+5. **Expansión gradual**
+   - retirar supuestos repo-wide solo cuando el patrón ya esté probado
+
+### Regla de rollback
+
+Si una fase introduce drift de tags, changelog confuso o publicación fuera de alcance:
+
+- revierte juntos los archivos de configuración y manifiesto de `release-please` de esa fase
+- revierte juntos los workflows llamadores y `_publish.yml` si el problema está en gating/publicación
+- no crees tags competidores para “arreglar rápido” el estado
+- vuelve al último estado sano y documenta la causa antes de avanzar
 
 ## Diagnósticos a revisar durante un Release
 
@@ -192,6 +234,12 @@ Usa este procedimiento cuando haya drift entre el manifiesto, los tags o GitHub 
 - Revisa el PR de release ya mergeado para detectar labels stale de `release-please`.
 - Si el PR mergeado todavía tiene `autorelease: pending`, elimina ese label y vuelve a correr `release-please`.
 - Trata un label stale `autorelease: pending` como drift del estado de release, no como prueba de un problema real de permisos del GitHub App.
+
+### Drift de dependencias internas de release
+
+- Ejecuta `node scripts/sync-internal-release-deps.mjs --check` para validar los pins internos administrados por el release.
+- Si el check reporta drift, ejecuta `node scripts/sync-internal-release-deps.mjs --write` y vuelve a regenerar los lockfiles.
+- Trata mismatches como `corvus-runtime -> cerebro` como fallas del contrato de release y no como fallas genéricas de `Cargo.lock`.
 
 ### Falló la publicación estable
 

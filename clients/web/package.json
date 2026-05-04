@@ -11,11 +11,13 @@
     "build:marketing": "pnpm --filter @corvus/marketing run build",
     "build:landing": "pnpm run build:marketing",
     "build:dashboard": "pnpm --filter @corvus/dashboard run build",
+    "build:rook-dashboard": "pnpm --filter @corvus/rook-dashboard run build",
     "dev": "pnpm --parallel -r run dev",
     "dev:docs": "pnpm --filter @corvus/docs run dev",
     "dev:marketing": "pnpm --filter @corvus/marketing run dev",
     "dev:landing": "pnpm run dev:marketing",
     "dev:dashboard": "pnpm --filter @corvus/dashboard run dev",
+    "dev:rook-dashboard": "pnpm --filter @corvus/rook-dashboard run dev",
     "format": "pnpm -r run format",
     "format:styles": "stylelint \"apps/*/src/**/*.css\" \"packages/**/*.css\" --fix",
     "check": "pnpm run check:styles && pnpm -r run check",
@@ -23,13 +25,16 @@
     "clean": "pnpm -r run clean",
     "test": "pnpm -r run test",
     "test:dashboard": "pnpm --filter @corvus/dashboard run test",
+    "test:rook-dashboard": "pnpm --filter @corvus/rook-dashboard run test",
     "test:dashboard:e2e": "pnpm --filter @corvus/dashboard run test:e2e",
-    "test:dashboard:e2e:install": "pnpm --filter @corvus/dashboard run test:e2e:install"
+    "test:dashboard:e2e:install": "pnpm --filter @corvus/dashboard run test:e2e:install",
+    "test:rook-dashboard:e2e": "pnpm --filter @corvus/rook-dashboard run test:e2e",
+    "test:rook-dashboard:e2e:install": "pnpm --filter @corvus/rook-dashboard run test:e2e:install"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
     "@vue/compiler-dom": "catalog:",
-    "stylelint": "^17.6.0",
+    "stylelint": "^17.9.1",
     "stylelint-config-standard": "^40.0.0",
     "typescript": "catalog:"
   },

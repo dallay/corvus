@@ -24,7 +24,7 @@ separation guarantees.
 
 ### Out of Scope
 
-- Implementing code changes in `modules/cerebro` or `clients/agent-runtime`.
+- Implementing code changes in `clients/cerebro` or `clients/agent-runtime`.
 - Creating new spec/design/tasks artifacts beyond the refreshed spec.
 - Shipping the TUI, SurrealDB embedding, or migration tooling; this change only updates spec text.
 

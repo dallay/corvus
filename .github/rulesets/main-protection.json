@@ -48,6 +48,18 @@
     },
     {
       "type": "required_signatures"
+    },
+    {
+      "type": "merge_queue",
+      "parameters": {
+        "merge_method": "MERGE",
+        "max_entries_to_build": 5,
+        "min_entries_to_merge": 1,
+        "max_entries_to_merge": 5,
+        "min_entries_to_merge_wait_minutes": 5,
+        "grouping_strategy": "ALLGREEN",
+        "check_response_timeout_minutes": 60
+      }
     }
   ],
   "bypass_actors": [
@@ -63,6 +75,11 @@
     },
     {
       "actor_id": 915548,
+      "actor_type": "Integration",
+      "bypass_mode": "always"
+    },
+    {
+      "actor_id": 2502251,
       "actor_type": "Integration",
       "bypass_mode": "always"
     }

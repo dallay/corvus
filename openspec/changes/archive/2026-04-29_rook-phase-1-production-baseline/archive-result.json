@@ -1,0 +1,83 @@
+{
+  "status": "COMPLETE",
+  "phase": "archive",
+  "change": "rook-phase-1-production-baseline",
+  "timestamp": "2026-04-29T16:36:20Z",
+  "executive_summary": "Successfully archived rook-phase-1-production-baseline after full SDD cycle completion. Merged 6 new requirements (292 lines) from delta spec into main gateway spec. Moved change folder to archive with date prefix 2026-04-29. All artifacts preserved. Source of truth updated.",
+  "operations": {
+    "delta_merge": {
+      "source": "openspec/changes/rook-phase-1-production-baseline/specs/gateway/spec.md",
+      "target": "openspec/specs/gateway/spec.md",
+      "operation": "APPEND",
+      "requirements_merged": 6,
+      "lines_added": 292,
+      "main_spec_before": 3611,
+      "main_spec_after": 3903,
+      "integrity": "VERIFIED"
+    },
+    "archive_move": {
+      "source": "openspec/changes/rook-phase-1-production-baseline",
+      "destination": "openspec/archive/2026-04-29_rook-phase-1-production-baseline",
+      "date_prefix": "2026-04-29",
+      "artifacts_preserved": [
+        "proposal.md",
+        "specs/gateway/spec.md",
+        "design.md",
+        "tasks.md",
+        "apply-report.md",
+        "apply-result.json",
+        "verify-report.md",
+        "state.yaml",
+        "archive-report.md"
+      ]
+    }
+  },
+  "merged_requirements": [
+    {
+      "name": "Effective Rook Configuration Assembly and Export",
+      "scenarios": 4,
+      "description": "Configuration precedence, rook config export command, validation"
+    },
+    {
+      "name": "Operator-Visible Config Export Redaction",
+      "scenarios": 2,
+      "description": "Secret redaction for operator visibility"
+    },
+    {
+      "name": "Rook Doctor Deterministic Diagnostics",
+      "scenarios": 4,
+      "description": "rook doctor command for local diagnostics"
+    },
+    {
+      "name": "Readiness and Liveness Health Endpoints",
+      "scenarios": 4,
+      "description": "Distinct /api/health/* endpoints for orchestration"
+    },
+    {
+      "name": "Existing Base Health Endpoint Compatibility",
+      "scenarios": 1,
+      "description": "GET /api/health backward compatibility"
+    },
+    {
+      "name": "Baseline Metrics Exposure for Gateway Operations",
+      "scenarios": 4,
+      "description": "Prometheus/OpenMetrics exposition for operators"
+    }
+  ],
+  "verification_summary": {
+    "verdict": "PASS",
+    "spec_scenarios_compliant": "20/20",
+    "tasks_complete": "42/42",
+    "tests_passing": 360,
+    "critical_issues": 0,
+    "warnings": 0
+  },
+  "artifacts": {
+    "archive_report": "openspec/archive/2026-04-29_rook-phase-1-production-baseline/archive-report.md",
+    "archive_result": "openspec/archive/2026-04-29_rook-phase-1-production-baseline/archive-result.json",
+    "main_spec_updated": "openspec/specs/gateway/spec.md",
+    "archived_change": "openspec/archive/2026-04-29_rook-phase-1-production-baseline/"
+  },
+  "next_recommended": "SDD cycle complete. Main gateway spec is now the authoritative source of truth for Phase 1 production baseline. Ready for new changes.",
+  "risks": []
+}

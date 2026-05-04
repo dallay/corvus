@@ -1,0 +1,27 @@
+{
+  "name": "@dallay/rook-cli",
+  "private": true,
+  "version": "3.6.0",
+  "description": "Rook CLI wrapper for npm/pnpm/yarn/bun and npx",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dallay/corvus.git",
+    "directory": "clients/rook/npm/rook-cli"
+  },
+  "bin": {
+    "rook": "bin/rook.js"
+  },
+  "files": [
+    "bin/rook.js",
+    "lib",
+    "scripts"
+  ],
+  "scripts": {
+    "postinstall": "node ./scripts/postinstall.mjs",
+    "test": "node --test lib/install.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

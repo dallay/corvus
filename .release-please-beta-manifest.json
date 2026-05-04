@@ -1,3 +1,5 @@
 {
-  ".": "3.0.0"
+  "clients/agent-runtime": "3.0.0",
+  "clients/cerebro": "3.0.0",
+  "clients/rook": "3.0.0"
 }

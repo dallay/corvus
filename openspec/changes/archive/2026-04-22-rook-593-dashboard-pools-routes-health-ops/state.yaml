@@ -1,0 +1,12 @@
+change: rook-593-dashboard-pools-routes-health-ops
+current_phase: archive
+completed:
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+  - archive
+next: none
+updated: 2026-04-22

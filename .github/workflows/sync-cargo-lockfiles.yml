@@ -6,19 +6,18 @@ on:
     branches: [main]
     paths:
       - "clients/agent-runtime/Cargo.toml"
-      - "modules/cerebro/Cargo.toml"
+      - "clients/cerebro/Cargo.toml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
-
 jobs:
   sync-cargo-lockfiles:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
 
     steps:
       - name: 🔐 Generate GitHub App token
@@ -61,13 +60,18 @@ jobs:
         with:
           toolchain: ${{ steps.rust-channel.outputs.channel }}
 
+      - name: 🔁 Sync internal release dependencies
+        run: |
+          set -euo pipefail
+          node scripts/sync-internal-release-deps.mjs --write
+
       - name: 🔄 Regenerate Cargo.lock files
         run: |
           set -euo pipefail
           echo "Regenerating clients/agent-runtime/Cargo.lock..."
           cargo generate-lockfile --manifest-path clients/agent-runtime/Cargo.toml
-          echo "Regenerating modules/cerebro/Cargo.lock..."
-          cargo generate-lockfile --manifest-path modules/cerebro/Cargo.toml
+          echo "Regenerating clients/cerebro/Cargo.lock..."
+          cargo generate-lockfile --manifest-path clients/cerebro/Cargo.toml
 
       - name: 💾 Commit updated lockfiles
         env:
@@ -76,7 +80,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add clients/agent-runtime/Cargo.lock modules/cerebro/Cargo.lock
+          git add --all -- clients/**/Cargo.toml clients/**/Cargo.lock
           if git diff --cached --quiet; then
             echo "Cargo.lock files are already up to date"
           else

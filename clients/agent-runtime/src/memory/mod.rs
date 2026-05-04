@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod chunker;
+pub mod dream;
 pub mod embeddings;
 pub mod hygiene;
 pub mod lucid;
@@ -16,6 +17,13 @@ pub use backend::{
     classify_memory_backend, default_memory_backend_key, memory_backend_profile,
     selectable_memory_backends, MemoryBackendKind, MemoryBackendProfile,
 };
+#[allow(unused_imports)]
+pub use dream::{
+    dream_eligibility, record_session_completion, run_if_triggered as run_dream_if_triggered,
+    run_now as run_dream_now, DreamConfig, DreamEligibility, DreamLaunchContract, DreamLockState,
+    DreamPhase, DreamPhaseResult, DreamRunStatus, DreamSessionReport, DreamSessionStateRecord,
+    DreamSessionStatus, DreamTriggerReason, MemoryConsolidationReport,
+};
 pub use lucid::LucidMemory;
 pub use markdown::MarkdownMemory;
 pub use none::NoneMemory;
@@ -24,7 +32,12 @@ pub use sqlite::SqliteMemory;
 pub use traits::Memory;
 #[allow(unused_imports)]
 pub use traits::{
-    MemoryCategory, MemoryEntry, MemoryStats, MemoryValidationResult, SessionEntry, SessionStatus,
+    is_slash_session_unsupported_error, is_task_unsupported_error, task_unsupported_error,
+    MemoryCategory, MemoryEntry, MemoryStats, MemoryValidationResult, ResumableSessionEntry,
+    SessionEntry, SessionFieldPatch, SessionListEntry, SessionSnapshotKind, SessionSnapshotRecord,
+    SessionStateMutation, SessionStatePatch, SessionStateRecord, SessionStatus,
+    SlashSessionLifecycle, TaskCreateInput, TaskListPage, TaskListQuery, TaskPatch, TaskPriority,
+    TaskRecord, TaskStatus,
 };
 
 use crate::config::MemoryConfig;
@@ -82,6 +95,9 @@ pub fn create_memory(
     // Best-effort memory hygiene/retention pass (throttled by state file).
     if let Err(e) = hygiene::run_if_due(&effective_config, workspace_dir) {
         tracing::warn!("memory hygiene skipped: {e}");
+    }
+    if let Err(e) = dream::run_if_triggered(workspace_dir) {
+        tracing::warn!("dream consolidation skipped: {e}");
     }
 
     // If snapshot_on_hygiene is enabled, export core memories during hygiene.

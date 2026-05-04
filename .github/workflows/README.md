@@ -4,31 +4,41 @@ This directory contains all GitHub Actions workflows for the Corvus monorepo. Wo
 
 ## 📋 Quick Reference
 
-| Category        | Workflow                             | Purpose                                                           | Trigger                                 |
-| --------------- | ------------------------------------ | ----------------------------------------------------------------- | --------------------------------------- |
-| **CI/CD**       | `pull-request-check.yml`             | Main CI checks for PRs and protected pushes                       | Push to main/minor, PR to main/minor/\* |
-| **CI/CD**       | `pull-request-check-build-logic.yml` | Checks for build-logic changes                                    | Changes to `gradle/build-logic/**`      |
-| **CI/CD**       | `deploy-docs.yml`                    | Deploy documentation to GitHub Pages                              | Push docs to `main`, Release published  |
-| **Security**    | `codeql-analysis.yml`                | Security scanning with CodeQL                                     | Push to main/minor, daily schedule      |
-| **Security**    | `snyk-security.yml`                  | Snyk SAST/SCA/Container/IaC scans                                 | Push/PR to main/minor, manual           |
-| **Publishing**  | `publish-release.yml`                | Attach stable artifacts to canonical GitHub Release               | `release.published`                     |
-| **Publishing**  | `publish-snapshot.yml`               | Publish Gradle/Maven snapshots only                               | Manual, daily schedule                  |
-| **Publishing**  | `release-please.yml`                 | Create repo-wide release PRs, tags, and canonical GitHub Releases | Push to `main`, manual                  |
-| **Publishing**  | `release-please-beta.yml`            | Create beta prerelease PRs, tags, and canonical GitHub Releases   | Push to `beta`, manual                  |
-| **Publishing**  | `_publish.yml`                       | Reusable stable/beta/snapshot publish workflow                    | Called by other workflows               |
-| **Automation**  | `auto-fix-lockfile.yml`              | Auto-update lockfiles                                             | Daily schedule, manual                  |
-| **Automation**  | `fix-renovate.yml`                   | Fix lockfiles for Renovate PRs                                    | Comment `/fix-lock` on PR               |
-| **Repo Mgmt**   | `git-issue-labeled.yml`              | Auto-comments/closes labeled issues                               | Issue labeled                           |
-| **Repo Mgmt**   | `git-issue-auto-close.yml`           | Close inactive issues                                             | Weekly schedule                         |
-| **Repo Mgmt**   | `git-sync-labels.yml`                | Sync labels from config                                           | Push to `labels.yml`                    |
-| **Quality**     | `semantic-pull-request.yml`          | Lint PR titles                                                    | PR open/edit                            |
-| **Quality**     | `pull-request-limit.yml`             | Block changes to restricted files                                 | PR touching CODEOWNERS/workflows        |
-| **Quality**     | `detekt.yml`                         | Kotlin static analysis for KMP surfaces                           | Kotlin/Gradle changes, weekly, manual   |
-| **Quality**     | `lychee-links.yml`                   | Check project links with Lychee (full repo)                       | Daily schedule (4am), manual            |
-| **Maintenance** | `cleanup-cache.yml`                  | Clean up Action caches                                            | PR closed                               |
-| **Maintenance** | `stale.yml`                          | Mark stale issues/PRs                                             | Daily schedule                          |
-| **Reporting**   | `contributor-report.yml`             | PR contributor reports                                            | PR events                               |
-| **Community**   | `greetings.yml`                      | Welcome new contributors                                          | PR/issue created                        |
+| Category       | Workflow                             | Purpose                                                           | Trigger                                 |
+| -------------- | ------------------------------------ | ----------------------------------------------------------------- | --------------------------------------- |
+| **CI/CD**      | `pull-request-check.yml`             | Main CI checks for PRs and protected pushes                       | Push to main/minor, PR to main/minor/\* |
+| **CI/CD**      | `pull-request-check-build-logic.yml` | Checks for build-logic changes                                    | Changes to `gradle/build-logic/**`      |
+| **CI/CD**      | `deploy-docs.yml`                    | Deploy documentation to GitHub Pages                              | Push docs to `main`, Release published  |
+| **Security**   | `codeql-analysis.yml`                | Security scanning with CodeQL                                     | Push to main/minor, daily schedule      |
+| **Security**   | `snyk-security.yml`                  | Snyk SAST/SCA/Container/IaC scans                                 | Push/PR to main/minor, manual           |
+| **Publishing** | `publish-release.yml`                | Attach stable artifacts to canonical GitHub Release               | `release.published`                     |
+| **Publishing** | `publish-snapshot.yml`               | Publish Gradle/Maven snapshots only                               | Manual, daily schedule                  |
+| **Publishing** | `release-please.yml`                 | Create repo-wide release PRs, tags, and canonical GitHub Releases | Push to `main`, manual                  |
+| **Publishing** | `release-please-beta.yml`            | Create beta prerelease PRs, tags, and canonical GitHub Releases   | Push to `beta`, manual                  |
+| **Publishing** | `_publish.yml`                       | Reusable stable/beta/snapshot publish workflow                    | Called by other workflows               |
+
+## Release Scope Resolution
+
+- `config/release-components.json` defines the canonical managed component graph.
+- `scripts/resolve-release-components.mjs` is the shared changed-file resolver for release-please stable and beta.
+- `scripts/resolve-release-from-tag.mjs` is the shared stable publish resolver for canonical release tags and `affected_components:` overrides.
+- GitHub Releases remain the canonical stable and beta release notes surface.
+- `publish-release.yml` and `_publish.yml` never author canonical release notes.
+- `publish-snapshot.yml` never owns stable release notes.
+
+| **Automation** | `auto-fix-lockfile.yml` | Auto-update lockfiles | Daily schedule, manual |
+| **Automation** | `fix-renovate.yml` | Fix lockfiles for Renovate PRs | Comment `/fix-lock` on PR |
+| **Repo Mgmt** | `git-issue-labeled.yml` | Auto-comments/closes labeled issues | Issue labeled |
+| **Repo Mgmt** | `git-issue-auto-close.yml` | Close inactive issues | Weekly schedule |
+| **Repo Mgmt** | `git-sync-labels.yml` | Sync labels from config | Push to `labels.yml` |
+| **Quality** | `semantic-pull-request.yml` | Lint PR titles | PR open/edit |
+| **Quality** | `pull-request-limit.yml` | Block changes to restricted files | PR touching CODEOWNERS/workflows |
+| **Quality** | `detekt.yml` | Kotlin static analysis for KMP surfaces | Kotlin/Gradle changes, weekly, manual |
+| **Quality** | `lychee-links.yml` | Check project links with Lychee (full repo) | Daily schedule (4am), manual |
+| **Maintenance** | `cleanup-cache.yml` | Clean up Action caches | PR closed |
+| **Maintenance** | `stale.yml` | Mark stale issues/PRs | Daily schedule |
+| **Reporting** | `contributor-report.yml` | PR contributor reports | PR events |
+| **Community** | `greetings.yml` | Welcome new contributors | PR/issue created |
 
 ---
 
@@ -196,8 +206,9 @@ Release, then attaches assets to that existing release.
 Calls the reusable `_publish.yml` workflow with explicit release context:
 
 - `release: true` - Enables stable publication mode
-- `release_tag` - Canonical `vX.Y.Z` tag from the GitHub Release event
+- `release_tag` - Canonical component-scoped stable tag from the GitHub Release event (for example `rook-vX.Y.Z`, `corvus-runtime-vX.Y.Z`, or `cerebro-vX.Y.Z`)
 - `release_id` - Existing GitHub Release identifier used for asset upload
+- `affected_components` - Component set resolved from the published stable tag namespace, or overridden for multi-component stable handoff with an `affected_components:` line in the GitHub Release body, then passed into `_publish.yml`
 
 **Stable contract**:
 
@@ -212,7 +223,8 @@ Calls the reusable `_publish.yml` workflow with explicit release context:
 **Restrictions**:
 
 - Only runs on `dallay/corvus` repository
-- Requires a published, non-draft, non-prerelease GitHub Release with a `vX.Y.Z` tag
+- Requires a published, non-draft, non-prerelease GitHub Release with a supported component-scoped stable tag (`rook-vX.Y.Z`, `corvus-runtime-vX.Y.Z`, or `cerebro-vX.Y.Z`)
+- Multi-component stable handoff may override the tag-implied component set by adding a release body line like `affected_components: rook, corvus-runtime`
 
 ---
 
@@ -395,20 +407,14 @@ canonical stable tag, GitHub Release, and release notes.
 
 **What it does**:
 
-1. 📡 Validates PR is from a bot (github-actions, dependabot, or renovate)
-2. 📡 Gets PR branch info
-3. ✈ Checks out the PR branch
-4. 📦 Sets up build environment
-5. 🔏 Writes build-logic locks (if exists)
-6. 🔒 Writes global locks
-7. 💾 Commits and pushes changes directly to PR branch
-8. 💬 Adds 👍 reaction to the comment
+1. Historical workflow for maintainers to request a Renovate lockfile refresh from a PR comment
+2. It is currently disabled pending a safer replacement because privileged `issue_comment` workflows must not execute PR code
 
 **Key Points**:
 
-- Only works on PRs from automation bots
-- Directly commits to the PR branch
-- Fails if PR is not from an allowed bot
+- Disabled for security hardening
+- Keep `auto-fix-lockfile.yml` as the safe lockfile refresh path
+- Do not directly commit to untrusted PR branches from `issue_comment`
 
 ---
 

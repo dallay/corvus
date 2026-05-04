@@ -15,20 +15,20 @@ RUN apt-get update && apt-get install -y \
 # 1. Copy manifests to cache dependencies
 COPY clients/agent-runtime/Cargo.toml clients/agent-runtime/Cargo.lock ./
 COPY clients/agent-runtime/crates/robot-kit/Cargo.toml ./crates/robot-kit/Cargo.toml
-COPY modules/cerebro/Cargo.toml /modules/cerebro/Cargo.toml
+COPY clients/cerebro/Cargo.toml /clients/cerebro/Cargo.toml
 
 # Create dummy sources to build dependency graph for workspace members
-RUN mkdir -p src crates/robot-kit/src benches /modules/cerebro/src && \
+RUN mkdir -p src crates/robot-kit/src benches /clients/cerebro/src && \
     echo "fn main() {}" > src/main.rs && \
     echo "pub fn _dummy() {}" > crates/robot-kit/src/lib.rs && \
-    echo "pub fn _dummy() {}" > /modules/cerebro/src/lib.rs && \
+    echo "pub fn _dummy() {}" > /clients/cerebro/src/lib.rs && \
     touch benches/agent_benchmarks.rs
 RUN cargo build --release --locked
 RUN rm -rf src crates/robot-kit/src benches
 
 # 2. Copy source code
 COPY clients/agent-runtime/ .
-COPY modules/cerebro /modules/cerebro
+COPY clients/cerebro /clients/cerebro
 # Touch main.rs to force rebuild
 RUN touch src/main.rs
 RUN cargo build --release --locked && \
@@ -49,7 +49,7 @@ default_temperature = 0.7
 
 [gateway]
 port = 3000
-host = "127.0.0.1"
+host = "0.0.0.0"
 EOF
 
 RUN chown -R 65534:65534 /corvus-data
@@ -89,7 +89,7 @@ WORKDIR /corvus-data
 USER 65534:65534
 EXPOSE 3000
 ENTRYPOINT ["corvus"]
-CMD ["gateway", "--port", "3000", "--host", "127.0.0.1"]
+CMD ["gateway", "--port", "3000", "--host", "0.0.0.0"]
 
 # ── Stage 4: Production Runtime (Distroless) ─────────────────
 FROM gcr.io/distroless/cc-debian13:nonroot AS release
@@ -111,4 +111,4 @@ WORKDIR /corvus-data
 USER 65534:65534
 EXPOSE 3000
 ENTRYPOINT ["corvus"]
-CMD ["gateway", "--port", "3000", "--host", "127.0.0.1"]
+CMD ["gateway", "--port", "3000", "--host", "0.0.0.0"]

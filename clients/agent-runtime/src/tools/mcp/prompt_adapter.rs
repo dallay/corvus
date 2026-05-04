@@ -316,6 +316,7 @@ impl Tool for McpPromptAdapter {
                 &self.server_name,
                 &self.original_name,
             )),
+            aliases: vec![],
         }
     }
 

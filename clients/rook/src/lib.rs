@@ -1,0 +1,22 @@
+//! Rook library root.
+//!
+//! Exposes the public module tree for the gateway, TUI, and operator surfaces.
+
+pub mod admin;
+pub mod auth;
+pub mod config;
+pub mod dashboard;
+pub mod db;
+pub mod distribution;
+pub mod doctor;
+pub mod domain;
+pub mod gateway;
+pub mod health;
+pub mod idempotency;
+pub mod observability;
+pub mod registry;
+pub mod routing;
+pub mod server;
+pub mod services;
+pub mod transport;
+pub mod tui;

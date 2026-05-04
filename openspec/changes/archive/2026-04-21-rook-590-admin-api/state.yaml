@@ -1,0 +1,12 @@
+change: rook-590-admin-api
+current_phase: archive
+completed:
+  - propose
+  - spec
+  - design
+  - tasks
+  - apply
+  - verify
+  - archive
+next: none
+updated: 2026-04-21T00:00:00Z

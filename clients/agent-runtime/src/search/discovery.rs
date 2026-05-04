@@ -51,6 +51,13 @@ pub struct DiscoveryResult {
     pub hit_max_files: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct MetadataDiscoveryResult {
+    pub files: Vec<DiscoveredFile>,
+    pub visited_files: usize,
+    pub hit_max_files: bool,
+}
+
 pub fn validate_search_root(
     security: &SecurityPolicy,
     relative_root: &str,
@@ -207,6 +214,67 @@ pub fn discover_searchable_files_with_stats(
 
     discovered.sort_by(|left, right| left.file.relative_path.cmp(&right.file.relative_path));
     Ok(DiscoveryResult {
+        files: discovered,
+        visited_files,
+        hit_max_files,
+    })
+}
+
+pub fn discover_metadata_files_with_stats(
+    security: &SecurityPolicy,
+    relative_root: &str,
+    pattern: &str,
+    rules: DiscoveryRules,
+) -> anyhow::Result<MetadataDiscoveryResult> {
+    let (workspace_root, search_root) = validate_search_root(security, relative_root)?;
+    let mut builder = configured_walk_builder(&search_root, rules);
+    apply_overrides(&mut builder, &search_root, &[pattern.to_string()], &[])?;
+
+    let mut discovered = Vec::new();
+    let mut visited_files = 0usize;
+    let mut hit_max_files = false;
+
+    for entry in builder.build() {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                tracing::debug!(error = %error, "metadata discovery skipped unreadable entry");
+                continue;
+            }
+        };
+
+        let Some(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+
+        if let Some(max_files) = rules.max_files {
+            if visited_files >= max_files {
+                hit_max_files = true;
+                break;
+            }
+        }
+        visited_files += 1;
+
+        let entry_path = entry.into_path();
+        let Some(discovered_file) =
+            discover_file_metadata(security, &workspace_root, &entry_path, rules)
+        else {
+            continue;
+        };
+        discovered.push(discovered_file);
+    }
+
+    discovered.sort_by(|left, right| {
+        right
+            .modified_unix_ms
+            .cmp(&left.modified_unix_ms)
+            .then(left.relative_path.cmp(&right.relative_path))
+    });
+
+    Ok(MetadataDiscoveryResult {
         files: discovered,
         visited_files,
         hit_max_files,
@@ -418,5 +486,63 @@ fn discover_file_path(
             modified_unix_ms,
         },
         bytes,
+    })
+}
+
+fn discover_file_metadata(
+    security: &SecurityPolicy,
+    workspace_root: &Path,
+    entry_path: &Path,
+    rules: DiscoveryRules,
+) -> Option<DiscoveredFile> {
+    let resolved_path = match fs::canonicalize(entry_path) {
+        Ok(path) => path,
+        Err(error) => {
+            tracing::debug!(path = %entry_path.display(), error = %error, "metadata discovery skipped unresolved path");
+            return None;
+        }
+    };
+
+    if !security.is_resolved_path_allowed(&resolved_path) {
+        tracing::debug!(path = %resolved_path.display(), "metadata discovery skipped path escaping workspace");
+        return None;
+    }
+
+    let relative_path = match normalize_relative_path(workspace_root, &resolved_path) {
+        Ok(relative_path) => relative_path,
+        Err(error) => {
+            tracing::debug!(path = %resolved_path.display(), error = %error, "metadata discovery skipped non-workspace path");
+            return None;
+        }
+    };
+
+    if is_index_artifact_path(&relative_path) {
+        return None;
+    }
+
+    let metadata = match fs::metadata(&resolved_path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            tracing::debug!(path = %resolved_path.display(), error = %error, "metadata discovery skipped unreadable metadata");
+            return None;
+        }
+    };
+
+    if !metadata.is_file() || metadata.len() > rules.max_file_size_bytes {
+        return None;
+    }
+
+    let modified_unix_ms = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .and_then(|duration| i64::try_from(duration.as_millis()).ok())
+        .unwrap_or(0);
+
+    Some(DiscoveredFile {
+        resolved_path,
+        relative_path,
+        size_bytes: metadata.len(),
+        modified_unix_ms,
     })
 }

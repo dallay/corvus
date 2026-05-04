@@ -73,8 +73,10 @@ mod runtime;
 mod search;
 mod security;
 mod service;
+mod session_commands;
 mod skillforge;
 mod skills;
+mod tasks;
 #[cfg(test)]
 mod test_support;
 mod tools;
@@ -714,7 +716,7 @@ async fn collect_unified_loop_result(
         if preview.events.iter().any(|event| {
             matches!(
                 event,
-                crate::agent::unified_loop::LoopEvent::ApprovalRequired(_)
+                crate::agent::unified_loop::LoopEvent::ApprovalRequired(..)
             )
         }) && !preview.events.iter().any(|event| {
             matches!(
@@ -734,6 +736,7 @@ async fn collect_unified_loop_result(
             session_id: preview.session_id,
             events: preview.events,
             approval_required: None,
+            approval_reason: None,
             timeout_aborted: false,
             fallback_response: if preview.used_fallback {
                 Some("fallback response: temporary tool/runtime issue".to_string())
@@ -777,7 +780,7 @@ fn loop_event_kind(event: &crate::agent::unified_loop::LoopEvent) -> &'static st
             "tool_dispatch_completed"
         }
         crate::agent::unified_loop::LoopEvent::CompactionTriggered => "compaction_triggered",
-        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_) => "approval_required",
+        crate::agent::unified_loop::LoopEvent::ApprovalRequired(..) => "approval_required",
         crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
         crate::agent::unified_loop::LoopEvent::Error(_) => "error",
     }
@@ -1396,79 +1399,22 @@ async fn handle_agent_command(
 ) -> Result<()> {
     maybe_print_update_notice_bounded(&config).await;
 
-    let canonical_prompt = message
-        .clone()
-        .unwrap_or_else(|| "interactive-session".to_string());
-    let canonical = collect_unified_loop_result(&canonical_prompt).await;
-
-    if std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1") {
-        print_unified_loop_preview(&canonical);
-        if std::env::var("CORVUS_UNIFIED_LOOP_ONLY").as_deref() == Ok("1") {
-            return Ok(());
-        }
+    let config = prepare_agent_config(config, provider, model, temperature, peripheral, plan)?;
+    if let Some(result) = maybe_handle_agent_fast_paths(&config, message.as_deref()).await? {
+        return result;
     }
 
-    if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
-        match blocking {
-            crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
-                return Err(anyhow!(
-                    "[session:{}] approval required for `{tool}`; request blocked",
-                    canonical.session_id
-                ));
-            }
-            crate::pre_execution::BlockingOutcome::TimeoutAborted => {
-                return Err(anyhow!(
-                    "[session:{}] request aborted due to timeout semantics",
-                    canonical.session_id
-                ));
-            }
-            crate::pre_execution::BlockingOutcome::Fallback { response } => {
-                return Err(anyhow!(
-                    "[session:{}] fallback activated: {response}",
-                    canonical.session_id
-                ));
-            }
-        }
-    }
-
-    if std::env::var("CORVUS_UNIFIED_CANONICAL_ONLY").as_deref() == Ok("1") {
-        print_canonical_only(&canonical);
-        return Ok(());
-    }
-
-    let mut effective_config = config;
-    if let Some(p) = provider {
-        effective_config.default_provider = Some(p);
-    }
-    if let Some(m) = model {
-        effective_config.default_model = Some(m);
-    }
-    effective_config.default_temperature = temperature;
-    effective_config.agent.execution_mode = if plan {
-        ExecutionMode::Plan
-    } else {
-        ExecutionMode::Standard
-    };
-
-    if !peripheral.is_empty() {
-        anyhow::bail!(
-            "peripheral overrides are not currently supported; found {} override(s): {:?}",
-            peripheral.len(),
-            peripheral
-        );
-    }
-
-    let provider_name = effective_config
+    let provider_name = config
         .default_provider
         .as_deref()
         .unwrap_or("openrouter")
         .to_string();
-    let model_name = effective_config
+    let model_name = config
         .default_model
         .as_deref()
         .unwrap_or("anthropic/claude-sonnet-4-20250514")
         .to_string();
-    let mut agent = crate::agent::Agent::from_config(&effective_config)?;
+    let mut agent = crate::agent::Agent::from_config(&config)?;
     let session_start = Instant::now();
 
     if override_budget {
@@ -1477,40 +1423,248 @@ async fn handle_agent_command(
 
     agent.record_agent_start_event(&provider_name, &model_name);
 
-    let run_result = if let Some(msg) = message {
-        let turn_result = agent
-            .turn_with_context(&msg, crate::agent::TurnContext::default())
-            .await;
-        if let Ok(turn_result) = &turn_result {
-            let blocking_err = cli_blocking_error_from_turn_result(turn_result);
-            if let Some(response) = turn_result.final_text.as_deref() {
-                println!("{response}");
-            }
-            if let Some(err) = blocking_err {
-                let summary_result = agent.session_cost_summary(chrono::Utc::now());
-                agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
-                match summary_result {
-                    Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Agent),
-                    Err(error) => {
-                        tracing::warn!("Failed to load agent session cost summary: {error}");
-                    }
-                }
-                return Err(err);
-            }
-        }
-        turn_result.map(|_| ())
-    } else {
-        agent.run_interactive().await
-    };
-
-    let summary_result = agent.session_cost_summary(chrono::Utc::now());
-    agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
-    match summary_result {
-        Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Agent),
-        Err(error) => tracing::warn!("Failed to load agent session cost summary: {error}"),
-    }
+    let run_result = run_agent_message_or_interactive(
+        &mut agent,
+        message.clone(),
+        &provider_name,
+        &model_name,
+        session_start,
+    )
+    .await;
+    finish_cli_session(
+        &agent,
+        &provider_name,
+        &model_name,
+        session_start,
+        CliSessionSurface::Agent,
+        "agent",
+    );
 
     run_result
+}
+
+fn prepare_agent_config(
+    config: Config,
+    provider: Option<String>,
+    model: Option<String>,
+    temperature: f64,
+    peripheral: Vec<String>,
+    plan: bool,
+) -> Result<Config> {
+    if !peripheral.is_empty() {
+        anyhow::bail!(
+            "peripheral overrides are not currently supported; found {} override(s): {:?}",
+            peripheral.len(),
+            peripheral
+        );
+    }
+
+    let mut effective_config = config.clone();
+    effective_config.agent.execution_mode = if plan {
+        ExecutionMode::Plan
+    } else {
+        ExecutionMode::Standard
+    };
+    if let Some(provider) = provider {
+        effective_config.default_provider = Some(provider);
+    }
+    if let Some(model) = model {
+        effective_config.default_model = Some(model);
+    }
+    effective_config.default_temperature = temperature;
+    Ok(effective_config)
+}
+
+async fn maybe_handle_agent_fast_paths(
+    config: &Config,
+    message: Option<&str>,
+) -> Result<Option<Result<()>>> {
+    if let Some(raw_message) = message {
+        if let Some(result_message) = maybe_handle_cli_handled_ingress(config, raw_message).await? {
+            println!("{result_message}");
+            return Ok(Some(Ok(())));
+        }
+    }
+
+    let canonical_prompt = message.unwrap_or("interactive-session");
+    let canonical = collect_unified_loop_result(canonical_prompt).await;
+    if should_return_after_preview(&canonical) {
+        return Ok(Some(Ok(())));
+    }
+    if let Some(error) = blocking_error_from_canonical(&canonical) {
+        return Ok(Some(Err(error)));
+    }
+    if std::env::var("CORVUS_UNIFIED_CANONICAL_ONLY").as_deref() == Ok("1") {
+        print_canonical_only(&canonical);
+        return Ok(Some(Ok(())));
+    }
+
+    Ok(None)
+}
+
+fn should_return_after_preview(
+    canonical: &crate::agent::unified_entrypoint::CanonicalOutcome,
+) -> bool {
+    if std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() != Ok("1") {
+        return false;
+    }
+
+    print_unified_loop_preview(canonical);
+    std::env::var("CORVUS_UNIFIED_LOOP_ONLY").as_deref() == Ok("1")
+}
+
+fn blocking_error_from_canonical(
+    canonical: &crate::agent::unified_entrypoint::CanonicalOutcome,
+) -> Option<anyhow::Error> {
+    let blocking = crate::pre_execution::classify_blocking(canonical)?;
+    Some(match blocking {
+        crate::pre_execution::BlockingOutcome::ApprovalRequired { tool, .. } => anyhow!(
+            "[session:{}] approval required for `{tool}`; request blocked",
+            canonical.session_id
+        ),
+        crate::pre_execution::BlockingOutcome::TimeoutAborted => anyhow!(
+            "[session:{}] request aborted due to timeout semantics",
+            canonical.session_id
+        ),
+        crate::pre_execution::BlockingOutcome::Fallback { response } => anyhow!(
+            "[session:{}] fallback activated: {response}",
+            canonical.session_id
+        ),
+    })
+}
+
+async fn run_agent_message_or_interactive(
+    agent: &mut crate::agent::Agent,
+    message: Option<String>,
+    provider_name: &str,
+    model_name: &str,
+    session_start: Instant,
+) -> Result<()> {
+    let Some(message) = message else {
+        return agent.run_interactive().await;
+    };
+
+    let turn_result = agent
+        .turn_with_context(&message, crate::agent::TurnContext::default())
+        .await;
+    if let Ok(turn_result) = &turn_result {
+        if let Some(response) = turn_result.final_text.as_deref() {
+            println!("{response}");
+        }
+        if let Some(err) = cli_blocking_error_from_turn_result(turn_result) {
+            finish_cli_session(
+                agent,
+                provider_name,
+                model_name,
+                session_start,
+                CliSessionSurface::Agent,
+                "agent",
+            );
+            return Err(err);
+        }
+    }
+    turn_result.map(|_| ())
+}
+
+fn finish_cli_session(
+    agent: &crate::agent::Agent,
+    provider_name: &str,
+    model_name: &str,
+    session_start: Instant,
+    surface: CliSessionSurface,
+    surface_name: &str,
+) {
+    let summary_result = agent.session_cost_summary(chrono::Utc::now());
+    agent.record_agent_end_event(provider_name, model_name, session_start.elapsed());
+    match summary_result {
+        Ok(summary) => print_cli_session_summary(summary, surface),
+        Err(error) => tracing::warn!("Failed to load {surface_name} session cost summary: {error}"),
+    }
+}
+
+async fn maybe_handle_cli_handled_ingress(
+    config: &Config,
+    message: &str,
+) -> Result<Option<String>> {
+    let (memory, _observer) = crate::bootstrap::create_memory_and_observer(config)?;
+    let tool_snapshot = crate::bootstrap::slash_tool_snapshot_from_config(config)?;
+    let session_id_env = std::env::var("CORVUS_SESSION_ID").ok();
+    let session_source = if session_id_env.is_some() {
+        crate::session_commands::CommandSessionSource::Explicit
+    } else {
+        crate::session_commands::CommandSessionSource::Generated
+    };
+    let session_id = session_id_env.unwrap_or_else(|| "interactive-session".to_string());
+    let context = crate::session_commands::CommandContext::for_cli(
+        session_id,
+        session_source,
+        config.agent.execution_mode,
+        None,
+    );
+
+    match crate::pre_execution::adapt_handled_ingress(
+        crate::pre_execution::evaluate_ingress(
+            memory.as_ref(),
+            &tool_snapshot,
+            context,
+            message,
+            false,
+        )
+        .await,
+    ) {
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandSuccess(success),
+        ) => Ok(Some(success.message.clone())),
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::SessionCommandFailure { class, failure },
+        ) => match class {
+            crate::pre_execution::SessionCommandFailureClass::PermissionDenied => {
+                Err(anyhow::anyhow!("permission denied: {}", failure.message))
+            }
+            crate::pre_execution::SessionCommandFailureClass::Failed => {
+                Err(anyhow::anyhow!("{}", failure.message))
+            }
+        },
+        crate::pre_execution::HandledIngress::Handled(
+            crate::pre_execution::HandledIngressOutcome::Blocking(_),
+        )
+        | crate::pre_execution::HandledIngress::NotHandled => Ok(None),
+    }
+}
+
+async fn maybe_print_code_fast_path(config: &Config, message: Option<&str>) -> Result<bool> {
+    if let Some(raw_message) = message {
+        if let Some(result_message) = maybe_handle_cli_handled_ingress(config, raw_message).await? {
+            println!("{result_message}");
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+async fn run_code_message_or_interactive(
+    agent: &mut crate::agent::Agent,
+    message: Option<String>,
+) -> Result<()> {
+    let Some(message) = message else {
+        return agent.run_interactive().await;
+    };
+
+    let turn_result = agent
+        .turn_with_context(&message, crate::agent::TurnContext::default())
+        .await;
+
+    if let Ok(turn_result) = &turn_result {
+        if let Some(response) = turn_result.final_text.as_deref() {
+            println!("{response}");
+        }
+        if let Some(err) = cli_blocking_error_from_turn_result(turn_result) {
+            return Err(err);
+        }
+    }
+
+    turn_result.map(|_| ())
 }
 
 async fn handle_code_command(
@@ -1523,6 +1677,11 @@ async fn handle_code_command(
     plan: bool,
 ) -> Result<()> {
     let config = apply_code_session_config(config, provider, model, temperature, plan);
+
+    if maybe_print_code_fast_path(&config, message.as_deref()).await? {
+        return Ok(());
+    }
+
     info!("Starting code-specialist session (profile=code)");
     let provider_name = config
         .default_provider
@@ -1543,38 +1702,16 @@ async fn handle_code_command(
 
     agent.record_agent_start_event(&provider_name, &model_name);
 
-    let run_result = if let Some(msg) = message {
-        let turn_result = agent
-            .turn_with_context(&msg, crate::agent::TurnContext::default())
-            .await;
-        if let Ok(turn_result) = &turn_result {
-            let blocking_err = cli_blocking_error_from_turn_result(turn_result);
-            if let Some(response) = turn_result.final_text.as_deref() {
-                println!("{response}");
-            }
-            if let Some(err) = blocking_err {
-                let summary_result = agent.session_cost_summary(chrono::Utc::now());
-                agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
-                match summary_result {
-                    Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Code),
-                    Err(error) => {
-                        tracing::warn!("Failed to load code session cost summary: {error}");
-                    }
-                }
-                return Err(err);
-            }
-        }
-        turn_result.map(|_| ())
-    } else {
-        agent.run_interactive().await
-    };
+    let run_result = run_code_message_or_interactive(&mut agent, message).await;
 
-    let summary_result = agent.session_cost_summary(chrono::Utc::now());
-    agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
-    match summary_result {
-        Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Code),
-        Err(error) => tracing::warn!("Failed to load code session cost summary: {error}"),
-    }
+    finish_cli_session(
+        &agent,
+        &provider_name,
+        &model_name,
+        session_start,
+        CliSessionSurface::Code,
+        "code",
+    );
 
     run_result
 }
@@ -2148,7 +2285,7 @@ async fn handle_browser_flow_login(
 
     let code = match auth::openai_oauth::receive_loopback_code(
         &pkce.state,
-        std::time::Duration::from_secs(180),
+        std::time::Duration::from_mins(3),
         auth::openai_oauth::OPENAI_LOOPBACK_PORT,
     )
     .await
@@ -2379,6 +2516,7 @@ fn handle_status(auth_service: &auth::AuthService) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::Memory;
     use crate::test_support::tracing_capture::capture_tracing_events;
     use async_trait::async_trait;
     use clap::CommandFactory;
@@ -2814,7 +2952,7 @@ mod tests {
         config.multimodal.staged_image_reaper_threshold_minutes = Some(90);
         assert_eq!(
             startup_staged_image_reaper_threshold(&config),
-            Duration::from_secs(90 * 60)
+            Duration::from_mins(90)
         );
     }
 
@@ -3357,5 +3495,121 @@ mod tests {
         .unwrap();
         assert_eq!(result.scope, crate::cost::CostResetScope::Day);
         assert_eq!(result.removed_requests, 1);
+    }
+
+    #[tokio::test]
+    async fn cli_shared_ingress_handles_compact_before_agent_execution() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = crate::test_support::test_config(&tmp);
+        config.memory.backend = "none".into();
+
+        let error = maybe_handle_cli_handled_ingress(&config, "/compact")
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("require sqlite"));
+    }
+
+    #[tokio::test]
+    async fn cli_session_command_success_returns_message() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let memory = crate::memory::SqliteMemory::new(&config.workspace_dir).unwrap();
+        memory
+            .upsert_session("interactive-session", None::<&str>)
+            .await
+            .unwrap();
+
+        let handled = maybe_handle_cli_handled_ingress(&config, "/tldr")
+            .await
+            .unwrap();
+
+        assert!(handled.is_some());
+        assert!(handled
+            .unwrap()
+            .contains("No persisted session transcript is available yet."));
+    }
+
+    #[tokio::test]
+    async fn cli_resume_target_without_caller_scope_preserves_denied_error_path() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let memory = crate::memory::SqliteMemory::new(&config.workspace_dir).unwrap();
+
+        memory
+            .upsert_session("interactive-session", None::<&str>)
+            .await
+            .unwrap();
+        memory
+            .upsert_session("session-target", Some("owner-hash"))
+            .await
+            .unwrap();
+        let snapshot = memory
+            .create_session_snapshot(
+                "session-target",
+                crate::memory::SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "resume me",
+                    "summary": "resume me",
+                    "resume_context": "resume me",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+        memory
+            .apply_session_state_patch(crate::memory::SessionStatePatch {
+                session_id: "session-target".to_string(),
+                lifecycle: Some(crate::memory::SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: crate::memory::SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: crate::memory::SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: crate::memory::SessionFieldPatch::Clear,
+                suspended_at: crate::memory::SessionFieldPatch::Set("now".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let error = maybe_handle_cli_handled_ingress(&config, "/resume session-target")
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("caller scope unavailable"));
+
+        let state = memory
+            .get_session_state_record("session-target")
+            .await
+            .unwrap()
+            .expect("seeded state should remain available");
+        assert_eq!(
+            state.lifecycle,
+            crate::memory::SlashSessionLifecycle::Suspended
+        );
+        assert_eq!(state.pending_hydration_snapshot_id.as_deref(), None);
+    }
+
+    #[tokio::test]
+    async fn cli_unknown_slash_like_input_falls_through() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+
+        let handled = maybe_handle_cli_handled_ingress(&config, "/resume-later")
+            .await
+            .unwrap();
+
+        assert!(handled.is_none());
+    }
+
+    #[tokio::test]
+    async fn cli_tools_command_returns_effective_tool_listing() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+
+        let handled = maybe_handle_cli_handled_ingress(&config, "/tools")
+            .await
+            .unwrap();
+
+        let message = handled.expect("/tools should be handled");
+        assert!(message.starts_with("Available tools ("));
+        assert!(message.contains("shell"));
     }
 }

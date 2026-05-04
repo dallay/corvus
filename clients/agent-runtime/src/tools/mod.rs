@@ -9,12 +9,18 @@ pub mod cron_run;
 pub mod cron_runs;
 pub mod cron_update;
 pub mod delegate;
+pub mod delegate_cancel;
+pub mod delegate_inspect;
+pub mod delegate_launch;
 pub mod file_read;
 pub mod file_write;
 pub mod git_operations;
+pub mod glob;
+pub mod grep;
 pub mod hardware_board_info;
 pub mod hardware_memory_map;
 pub mod hardware_memory_read;
+pub mod http_common;
 pub mod http_request;
 pub mod image_info;
 #[cfg(feature = "mcp-runtime")]
@@ -28,9 +34,60 @@ pub mod schedule;
 pub mod schema;
 pub mod screenshot;
 pub mod shell;
+pub mod task_create;
+pub mod task_get;
+pub mod task_list;
+pub mod task_stop;
+pub mod task_update;
 pub mod traits;
 pub(crate) mod url_safety;
+pub mod web_fetch;
 pub mod web_search_tool;
+
+pub const PARITY_TOOL_ALIASES: &[(&str, &str)] = &[
+    ("Glob", "glob"),
+    ("Grep", "grep"),
+    ("WebFetch", "web_fetch"),
+    ("TaskCreate", "task_create"),
+    ("TaskGet", "task_get"),
+    ("TaskList", "task_list"),
+    ("TaskUpdate", "task_update"),
+    ("TaskStop", "task_stop"),
+];
+
+pub fn parity_alias_for(canonical_name: &str) -> Option<&'static str> {
+    PARITY_TOOL_ALIASES
+        .iter()
+        .find_map(|(canonical, alias)| (*canonical == canonical_name).then_some(*alias))
+}
+
+pub fn canonical_tool_name_for_alias(name: &str) -> &str {
+    PARITY_TOOL_ALIASES
+        .iter()
+        .find_map(|(canonical, alias)| (*alias == name).then_some(*canonical))
+        .unwrap_or(name)
+}
+
+#[cfg(test)]
+pub(crate) mod test_helpers {
+    use crate::memory::SqliteMemory;
+    use crate::security::{AutonomyLevel, SecurityPolicy};
+    use crate::tasks::TaskService;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    pub(crate) fn task_tool_test_context() -> (TempDir, Arc<SecurityPolicy>, Arc<TaskService>) {
+        let dir = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::ReadOnly,
+            workspace_dir: dir.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let memory = Arc::new(SqliteMemory::new(dir.path()).unwrap());
+        let service = Arc::new(TaskService::new(memory));
+        (dir, security, service)
+    }
+}
 
 pub use browser::{BrowserTool, ComputerUseConfig};
 pub use browser_open::BrowserOpenTool;
@@ -43,9 +100,14 @@ pub use cron_run::CronRunTool;
 pub use cron_runs::CronRunsTool;
 pub use cron_update::CronUpdateTool;
 pub use delegate::DelegateTool;
+pub use delegate_cancel::DelegateCancelTool;
+pub use delegate_inspect::DelegateInspectTool;
+pub use delegate_launch::DelegateLaunchTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
 pub use git_operations::GitOperationsTool;
+pub use glob::GlobTool;
+pub use grep::GrepTool;
 pub use hardware_board_info::HardwareBoardInfoTool;
 pub use hardware_memory_map::HardwareMemoryMapTool;
 pub use hardware_memory_read::HardwareMemoryReadTool;
@@ -60,15 +122,24 @@ pub use schedule::ScheduleTool;
 pub use schema::{CleaningStrategy, SchemaCleanr};
 pub use screenshot::ScreenshotTool;
 pub use shell::ShellTool;
+pub use task_create::TaskCreateTool;
+pub use task_get::TaskGetTool;
+pub use task_list::TaskListTool;
+pub use task_stop::TaskStopTool;
+pub use task_update::TaskUpdateTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
+pub use web_fetch::WebFetchTool;
 pub use web_search_tool::WebSearchTool;
 
+use crate::agent::coordinator::SupervisedOrchestrationService;
+use crate::agent::mailbox::{MailboxBackedChildRunner, MailboxWakeupHub, SqliteMailboxStore};
 use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::security::SecurityPolicy;
+use crate::tasks::TaskService;
 use std::collections::HashMap;
 #[cfg(feature = "mcp-runtime")]
 use std::collections::HashSet;
@@ -164,6 +235,12 @@ fn add_http_request_tool(
         http_config.max_response_size,
         http_config.timeout_secs,
     )));
+    tools.push(Box::new(WebFetchTool::new(
+        security.clone(),
+        http_config.allowed_domains.clone(),
+        http_config.max_response_size,
+        http_config.timeout_secs,
+    )));
 }
 
 fn add_web_search_tool(
@@ -210,6 +287,7 @@ fn add_delegate_tool(
     agents: &HashMap<String, DelegateAgentConfig>,
     fallback_api_key: Option<&str>,
     base_config: Arc<Config>,
+    workspace_dir: &std::path::Path,
 ) {
     if agents.is_empty() {
         return;
@@ -220,12 +298,43 @@ fn add_delegate_tool(
         let trimmed_value = value.trim();
         (!trimmed_value.is_empty()).then(|| trimmed_value.to_owned())
     });
-    tools.push(Box::new(DelegateTool::new(
+
+    let service = Arc::new(SupervisedOrchestrationService::new());
+    let mailbox_store = match SqliteMailboxStore::from_db_path(SqliteMailboxStore::default_db_path(
+        workspace_dir,
+    )) {
+        Ok(store) => Arc::new(store),
+        Err(error) => {
+            tracing::warn!(error = %error, "delegate tools disabled: mailbox init failed closed");
+            return;
+        }
+    };
+    let wakeups = Arc::new(MailboxWakeupHub::default());
+    let delegated_runner: Arc<dyn crate::agent::coordinator::CoordinatorChildRunner> =
+        Arc::new(crate::agent::coordinator::DelegatedAgentRunner::new(
+            base_config.clone(),
+            Arc::new(agents.clone()),
+            delegate_fallback_credential.clone(),
+        ));
+    let mailbox_runner: Arc<dyn crate::agent::coordinator::CoordinatorChildRunner> = Arc::new(
+        MailboxBackedChildRunner::new(mailbox_store, delegated_runner, wakeups),
+    );
+
+    tools.push(Box::new(DelegateTool::with_supervised_executor(
         delegate_agents,
-        delegate_fallback_credential,
+        delegate_fallback_credential.clone(),
         security.clone(),
-        base_config,
+        base_config.clone(),
+        service.clone(),
+        mailbox_runner.clone(),
     )));
+
+    tools.push(Box::new(DelegateLaunchTool::new(
+        service.clone(),
+        mailbox_runner,
+    )));
+    tools.push(Box::new(DelegateCancelTool::new(service.clone())));
+    tools.push(Box::new(DelegateInspectTool::new(service)));
 }
 
 #[cfg(feature = "mcp-runtime")]
@@ -322,6 +431,8 @@ pub fn all_tools_with_runtime(
     let mut tools: Vec<Box<dyn Tool>> = vec![
         Box::new(ShellTool::new(security.clone(), runtime, sandbox)),
         Box::new(CodeSearchTool::new(security.clone())),
+        Box::new(GlobTool::new(security.clone())),
+        Box::new(GrepTool::new(security.clone())),
         Box::new(FileReadTool::new(security.clone())),
         Box::new(FileWriteTool::new(security.clone())),
         Box::new(CronAddTool::new(config.clone(), security.clone())),
@@ -354,6 +465,27 @@ pub fn all_tools_with_runtime(
             memory.clone(),
             security.clone(),
         )));
+
+        if memory.name() == "sqlite" {
+            let task_service = Arc::new(TaskService::new(memory.clone()));
+            tools.push(Box::new(TaskCreateTool::new(
+                security.clone(),
+                task_service.clone(),
+            )));
+            tools.push(Box::new(TaskGetTool::new(
+                security.clone(),
+                task_service.clone(),
+            )));
+            tools.push(Box::new(TaskListTool::new(
+                security.clone(),
+                task_service.clone(),
+            )));
+            tools.push(Box::new(TaskUpdateTool::new(
+                security.clone(),
+                task_service.clone(),
+            )));
+            tools.push(Box::new(TaskStopTool::new(security.clone(), task_service)));
+        }
     } else if cerebro_configured {
         tools.push(Box::new(MemoryStoreTool::new(
             root_config.memory.cerebro.clone(),
@@ -390,6 +522,7 @@ pub fn all_tools_with_runtime(
         agents,
         fallback_api_key,
         config.clone(),
+        workspace_dir,
     );
 
     #[cfg(feature = "mcp-runtime")]
@@ -508,6 +641,68 @@ mod tests {
     }
 
     #[test]
+    fn all_tools_registers_task_tools_only_for_sqlite_memory() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+
+        let sqlite_cfg = MemoryConfig {
+            backend: "sqlite".into(),
+            ..MemoryConfig::default()
+        };
+        let sqlite_mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&sqlite_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = crate::config::HttpRequestConfig::default();
+        let cfg = test_config(&tmp);
+
+        let sqlite_tools = all_tools(
+            Arc::new(Config::default()),
+            &security,
+            test_sandbox(),
+            sqlite_mem,
+            None,
+            None,
+            &browser,
+            &http,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let sqlite_names: Vec<&str> = sqlite_tools.iter().map(|tool| tool.name()).collect();
+        assert!(sqlite_names.contains(&"TaskCreate"));
+        assert!(sqlite_names.contains(&"TaskGet"));
+        assert!(sqlite_names.contains(&"TaskList"));
+        assert!(sqlite_names.contains(&"TaskUpdate"));
+        assert!(sqlite_names.contains(&"TaskStop"));
+
+        let markdown_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let markdown_mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&markdown_cfg, tmp.path(), None).unwrap());
+        let markdown_tools = all_tools(
+            Arc::new(Config::default()),
+            &security,
+            test_sandbox(),
+            markdown_mem,
+            None,
+            None,
+            &browser,
+            &http,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let markdown_names: Vec<&str> = markdown_tools.iter().map(|tool| tool.name()).collect();
+        assert!(!markdown_names.contains(&"TaskCreate"));
+        assert!(!markdown_names.contains(&"TaskList"));
+    }
+
+    #[test]
     fn default_tools_all_have_descriptions() {
         let security = Arc::new(SecurityPolicy::default());
         let tools = default_tools(security, test_sandbox());
@@ -552,6 +747,18 @@ mod tests {
     }
 
     #[test]
+    fn parity_alias_mapping_round_trips() {
+        assert_eq!(parity_alias_for("Glob"), Some("glob"));
+        assert_eq!(parity_alias_for("TaskUpdate"), Some("task_update"));
+        assert_eq!(canonical_tool_name_for_alias("glob"), "Glob");
+        assert_eq!(canonical_tool_name_for_alias("task_update"), "TaskUpdate");
+        assert_eq!(
+            canonical_tool_name_for_alias("unknown_tool"),
+            "unknown_tool"
+        );
+    }
+
+    #[test]
     fn tool_result_serde() {
         let result = ToolResult {
             success: true,
@@ -587,11 +794,13 @@ mod tests {
             description: "A test tool".into(),
             parameters: serde_json::json!({"type": "object"}),
             source: None,
+            aliases: vec!["test_alias".into()],
         };
         let json = serde_json::to_string(&spec).unwrap();
         let parsed: ToolSpec = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.name, "test");
         assert_eq!(parsed.description, "A test tool");
+        assert_eq!(parsed.aliases, vec!["test_alias"]);
     }
 
     #[test]

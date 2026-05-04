@@ -1617,9 +1617,33 @@ pub struct RuntimeConfig {
     #[serde(default = "default_runtime_kind")]
     pub kind: String,
 
+    /// Dream trigger thresholds for long-term memory consolidation.
+    #[serde(default)]
+    pub dream: DreamTriggerConfig,
+
     /// Docker runtime settings (used when `kind = "docker"`).
     #[serde(default)]
     pub docker: DockerRuntimeConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DreamTriggerConfig {
+    #[serde(default = "default_dream_session_count")]
+    pub session_count: usize,
+    #[serde(default = "default_dream_time_hours")]
+    pub time_hours: i64,
+}
+
+impl DreamTriggerConfig {
+    pub fn validate(&self) -> Result<()> {
+        if self.session_count == 0 {
+            anyhow::bail!("runtime.dream.session_count must be greater than zero");
+        }
+        if self.time_hours <= 0 {
+            anyhow::bail!("runtime.dream.time_hours must be greater than zero");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1657,6 +1681,14 @@ fn default_runtime_kind() -> String {
     "native".into()
 }
 
+fn default_dream_session_count() -> usize {
+    5
+}
+
+fn default_dream_time_hours() -> i64 {
+    24
+}
+
 fn default_docker_image() -> String {
     "alpine:3.20".into()
 }
@@ -1687,10 +1719,20 @@ impl Default for DockerRuntimeConfig {
     }
 }
 
+impl Default for DreamTriggerConfig {
+    fn default() -> Self {
+        Self {
+            session_count: default_dream_session_count(),
+            time_hours: default_dream_time_hours(),
+        }
+    }
+}
+
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             kind: default_runtime_kind(),
+            dream: DreamTriggerConfig::default(),
             docker: DockerRuntimeConfig::default(),
         }
     }
@@ -3191,7 +3233,8 @@ impl Config {
         self.validate_account_pools()?;
         self.validate_skills_config()?;
         self.validate_multimodal_config()?;
-        self.validate_audio_config()
+        self.validate_audio_config()?;
+        self.runtime.dream.validate()
     }
 
     fn validate_cost_config(&self) -> Result<()> {
@@ -3328,11 +3371,11 @@ impl Config {
             let parsed = Url::parse(url)
                 .map_err(|e| anyhow::anyhow!("invalid catalog_repo_url '{}': {}", url, e))?;
             if parsed.scheme() != "https" {
-                anyhow::bail!("catalog_repo_url must use https:// scheme, got '{}'", url,);
+                anyhow::bail!("catalog_repo_url must use https:// scheme, got '{}'", url);
             }
             let host = parsed.host_str().unwrap_or("");
             if host.is_empty() || Self::is_loopback_host(host) {
-                anyhow::bail!("catalog_repo_url must not point to localhost: '{}'", url,);
+                anyhow::bail!("catalog_repo_url must not point to localhost: '{}'", url);
             }
         }
         if self.skills.catalog_cache_ttl_hours == Some(0) {
@@ -3344,106 +3387,135 @@ impl Config {
     fn validate_multimodal_config(&self) -> Result<()> {
         let mm = &self.multimodal;
 
-        // Validate max_image_bytes bounds regardless of enabled state
-        if let Some(max_bytes) = mm.max_image_bytes {
-            if max_bytes == 0 {
-                anyhow::bail!("multimodal.max_image_bytes must be greater than 0");
-            }
-            if max_bytes > crate::channels::media::MAX_IMAGE_BYTES_CEILING {
-                anyhow::bail!(
-                    "multimodal.max_image_bytes={} exceeds the 50 MiB ceiling ({})",
-                    max_bytes,
-                    crate::channels::media::MAX_IMAGE_BYTES_CEILING,
-                );
-            }
-        }
-
-        if let Some(max_images_per_turn) = mm.max_images_per_turn {
-            if max_images_per_turn == 0 {
-                anyhow::bail!("multimodal.max_images_per_turn must be greater than 0");
-            }
-            if max_images_per_turn > crate::channels::media::MAX_IMAGES_PER_TURN_CEILING {
-                anyhow::bail!(
-                    "multimodal.max_images_per_turn={} exceeds the ceiling ({})",
-                    max_images_per_turn,
-                    crate::channels::media::MAX_IMAGES_PER_TURN_CEILING,
-                );
-            }
-        }
-
-        if let Some(threshold_minutes) = mm.staged_image_reaper_threshold_minutes {
-            if threshold_minutes == 0 {
-                anyhow::bail!(
-                    "multimodal.staged_image_reaper_threshold_minutes must be greater than 0"
-                );
-            }
-        }
+        Self::validate_optional_upper_bounded_u64(
+            mm.max_image_bytes,
+            "multimodal.max_image_bytes",
+            crate::channels::media::MAX_IMAGE_BYTES_CEILING,
+            "50 MiB",
+        )?;
+        Self::validate_optional_upper_bounded_usize(
+            mm.max_images_per_turn,
+            "multimodal.max_images_per_turn",
+            crate::channels::media::MAX_IMAGES_PER_TURN_CEILING,
+            "the",
+        )?;
+        Self::validate_optional_positive_u64(
+            mm.staged_image_reaper_threshold_minutes,
+            "multimodal.staged_image_reaper_threshold_minutes",
+        )?;
 
         if !mm.enabled {
             return Ok(());
         }
-        let hint = match mm.vision_model_hint {
-            Some(ref h) => h,
-            None => {
-                anyhow::bail!(
-                    "multimodal.enabled=true requires multimodal.vision_model_hint to be set"
-                );
-            }
+
+        let hint = Self::multimodal_hint_or_error(mm)?;
+        Self::ensure_multimodal_route_exists(&self.model_routes, hint)?;
+        Self::ensure_multimodal_allowed_channels(mm)?;
+        Self::log_multimodal_limits(mm);
+
+        Ok(())
+    }
+
+    fn validate_optional_upper_bounded_u64(
+        value: Option<u64>,
+        field_name: &str,
+        ceiling: u64,
+        ceiling_label: &str,
+    ) -> Result<()> {
+        let Some(value) = value else {
+            return Ok(());
         };
-        // Cross-reference: a matching model_route must exist with
-        // allow_image_input enabled.
-        let has_image_route = self
-            .model_routes
+        if value == 0 {
+            anyhow::bail!("{field_name} must be greater than 0");
+        }
+        if value > ceiling {
+            anyhow::bail!("{field_name}={value} exceeds the {ceiling_label} ceiling ({ceiling})");
+        }
+        Ok(())
+    }
+
+    fn validate_optional_upper_bounded_usize(
+        value: Option<usize>,
+        field_name: &str,
+        ceiling: usize,
+        ceiling_label: &str,
+    ) -> Result<()> {
+        let Some(value) = value else {
+            return Ok(());
+        };
+        if value == 0 {
+            anyhow::bail!("{field_name} must be greater than 0");
+        }
+        if value > ceiling {
+            anyhow::bail!("{field_name}={value} exceeds the {ceiling_label} ceiling ({ceiling})");
+        }
+        Ok(())
+    }
+
+    fn validate_optional_positive_u64(value: Option<u64>, field_name: &str) -> Result<()> {
+        if value == Some(0) {
+            anyhow::bail!("{field_name} must be greater than 0");
+        }
+        Ok(())
+    }
+
+    fn multimodal_hint_or_error(mm: &MultimodalConfig) -> Result<&str> {
+        mm.vision_model_hint.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "multimodal.enabled=true requires multimodal.vision_model_hint to be set"
+            )
+        })
+    }
+
+    fn ensure_multimodal_route_exists(model_routes: &[ModelRouteConfig], hint: &str) -> Result<()> {
+        let has_image_route = model_routes
             .iter()
-            .any(|r| r.hint == *hint && r.allow_image_input);
+            .any(|route| route.hint == hint && route.allow_image_input);
         if !has_image_route {
             anyhow::bail!(
-                "multimodal.vision_model_hint='{}' does not match any \
-                 [[model_routes]] entry with allow_image_input=true",
-                hint,
-            );
+            "multimodal.vision_model_hint='{}' does not match any [[model_routes]] entry with allow_image_input=true",
+            hint,
+        );
         }
+        Ok(())
+    }
+
+    fn ensure_multimodal_allowed_channels(mm: &MultimodalConfig) -> Result<()> {
         if mm.allowed_channels.is_empty() {
             anyhow::bail!(
                 "multimodal.enabled=true requires multimodal.allowed_channels to be non-empty"
             );
         }
-        for ch in &mm.allowed_channels {
-            if !MVP_VALID_MULTIMODAL_CHANNELS.contains(&ch.as_str()) {
+        for channel in &mm.allowed_channels {
+            if !MVP_VALID_MULTIMODAL_CHANNELS.contains(&channel.as_str()) {
                 tracing::warn!(
-                    "multimodal.allowed_channels contains '{}' which is not a supported MVP channel \
-                     (telegram, whatsapp, discord, slack) — it will be fail-closed at runtime",
-                    ch,
-                );
+                "multimodal.allowed_channels contains '{}' which is not a supported MVP channel (telegram, whatsapp, discord, slack) — it will be fail-closed at runtime",
+                channel,
+            );
             }
         }
+        Ok(())
+    }
 
-        // Log effective multimodal limits
+    fn log_multimodal_limits(mm: &MultimodalConfig) {
         let effective_max_image_bytes = mm
             .max_image_bytes
             .unwrap_or(crate::channels::media::MAX_IMAGE_BYTES);
         let effective_max_images_per_turn = mm.effective_max_images_per_turn();
-        if mm.max_image_bytes.is_some() {
-            tracing::info!(
-                "Multimodal enabled: max_image_bytes={effective_max_image_bytes} (config override), max_images_per_turn={effective_max_images_per_turn}{}",
-                if mm.max_images_per_turn.is_some() {
-                    " (config override)"
-                } else {
-                    " (default)"
-                }
-            );
+        let image_bytes_source = if mm.max_image_bytes.is_some() {
+            "config override"
         } else {
-            tracing::info!(
-                "Multimodal enabled: max_image_bytes={effective_max_image_bytes} (default), max_images_per_turn={effective_max_images_per_turn}{}",
-                if mm.max_images_per_turn.is_some() {
-                    " (config override)"
-                } else {
-                    " (default)"
-                }
-            );
-        }
+            "default"
+        };
+        let images_per_turn_source = if mm.max_images_per_turn.is_some() {
+            "config override"
+        } else {
+            "default"
+        };
 
-        Ok(())
+        tracing::info!(
+        "Multimodal enabled: max_image_bytes={effective_max_image_bytes} ({image_bytes_source}), max_images_per_turn={effective_max_images_per_turn} ({images_per_turn_source})"
+    );
     }
 
     fn validate_audio_config(&self) -> Result<()> {
@@ -3688,8 +3760,7 @@ impl Config {
             .auth_token
             .as_deref()
             .map(str::trim)
-            .filter(|token| !token.is_empty())
-            .is_none()
+            .is_none_or(str::is_empty)
         {
             anyhow::bail!("memory.cerebro.auth_token is required when endpoint is configured");
         }
@@ -4358,6 +4429,28 @@ tool_dispatcher = "xml"
         assert!(err
             .to_string()
             .contains("agents.child.timeout_ms must be greater than zero"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_dream_session_count_zero() {
+        let mut config = Config::default();
+        config.runtime.dream.session_count = 0;
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("runtime.dream.session_count must be greater than zero"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_dream_time_hours_non_positive() {
+        let mut config = Config::default();
+        config.runtime.dream.time_hours = 0;
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("runtime.dream.time_hours must be greater than zero"));
     }
 
     #[test]
