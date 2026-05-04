@@ -328,7 +328,7 @@ Buffered retry decisions are exported through `rook_upstream_retry_outcomes_tota
 
 Treat sustained `retry_exhausted` growth as a paging signal: every buffered attempt was spent and Rook returned a gateway error instead of falling back successfully. A useful first alert is any non-zero increase over a short production window, grouped by `vendor`, `account`, and `model`. During triage, check `/api/status` for degraded accounts, `/api/metrics` for `rook_provider_account_cooldown_active`, upstream auth/quota status, and whether `max_buffered_attempts` is lower than the number of healthy fallback accounts.
 
-Provider account health is exported through `rook_provider_account_health` and `rook_provider_account_cooldown_active` with bounded `vendor` and redaction-safe `account` labels. `rook_provider_account_health` uses a one-hot `status` label (`healthy`, `degraded`, `unhealthy`, `unknown`) for the currently persisted provider health state, while `rook_provider_account_cooldown_active` reports whether the account is currently excluded by cooldown.
+Provider account health is exported through `rook_provider_account_health` and `rook_provider_account_cooldown_active` with bounded `vendor` and opaque `account` labels. `rook_provider_account_health` uses a `status` label (`healthy`, `degraded`, `unhealthy`, `unknown`) to report persisted provider health state. Consumers should not assume the status label is exclusive per `vendor` and `account` in a single scrape; multiple status values may appear during state transitions or when distinct provider accounts normalize to the same exported label. `rook_provider_account_cooldown_active` reports whether the account is currently excluded by cooldown.
 
 ### Validation and safe export
 

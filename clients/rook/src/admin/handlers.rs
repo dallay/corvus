@@ -378,7 +378,7 @@ async fn render_metrics_with_provider_health(state: &AdminState) -> Result<Strin
 }
 
 async fn append_provider_health_metrics(body: &mut String, registry: &RookRegistry) {
-    body.push_str("# HELP rook_provider_account_health Provider account health state as a one-hot gauge partitioned by vendor, account, and status.\n");
+    body.push_str("# HELP rook_provider_account_health Provider account health state gauge partitioned by vendor, opaque account, and status.\n");
     body.push_str("# TYPE rook_provider_account_health gauge\n");
     body.push_str("# HELP rook_provider_account_cooldown_active Provider account cooldown activity as a gauge partitioned by vendor and account.\n");
     body.push_str("# TYPE rook_provider_account_cooldown_active gauge\n");
@@ -386,8 +386,7 @@ async fn append_provider_health_metrics(body: &mut String, registry: &RookRegist
     for account in registry.accounts().list().await {
         let health = registry.health().get(account.id).await;
         let vendor = crate::observability::normalize_vendor_label(&account.vendor);
-        let account_label =
-            crate::observability::normalize_account_label(Some(&account.display_name));
+        let account_label = provider_health_account_label(account.id);
         let status = provider_health_status_label(&health.status);
         body.push_str(&format!(
             "rook_provider_account_health{{vendor=\"{}\",account=\"{}\",status=\"{}\"}} 1\n",
@@ -403,6 +402,11 @@ async fn append_provider_health_metrics(body: &mut String, registry: &RookRegist
             if cooldown_active { 1 } else { 0 }
         ));
     }
+}
+
+fn provider_health_account_label(account_id: crate::domain::AccountId) -> String {
+    crate::observability::normalize_account_label(Some(&format!("acct_{}", account_id)))
+        .into_owned()
 }
 
 fn provider_health_status_label(status: &crate::services::health::HealthStatus) -> &'static str {

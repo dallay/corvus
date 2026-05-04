@@ -247,6 +247,16 @@ async fn handle_buffered_chat_completions(
             Err(error) => {
                 if let Some((error, metric_context, account_id)) = last_error.take() {
                     let outcome = classify_upstream_error(&error);
+                    let retryable = should_retry_buffered_upstream_error(&error);
+                    record_upstream_retry_outcome(
+                        state,
+                        &metric_context,
+                        if retryable {
+                            "retry_exhausted"
+                        } else {
+                            "not_retryable"
+                        },
+                    );
                     let response = map_upstream_error(error);
                     record_usage(
                         state,

@@ -173,6 +173,16 @@ impl UpstreamResilienceConfig {
                 "upstream_resilience.max_buffered_attempts must be at least 1".to_string(),
             ));
         }
+        if self.failure_cooldown_seconds == 0 {
+            return Err(RookError::Config(
+                "upstream_resilience.failure_cooldown_seconds must be at least 1".to_string(),
+            ));
+        }
+        if self.retry_backoff_milliseconds == 0 {
+            return Err(RookError::Config(
+                "upstream_resilience.retry_backoff_milliseconds must be at least 1".to_string(),
+            ));
+        }
         if self.max_concurrent_upstream_requests == 0 {
             return Err(RookError::Config(
                 "upstream_resilience.max_concurrent_upstream_requests must be at least 1"
@@ -1647,6 +1657,32 @@ mod tests {
     }
 
     #[test]
+    fn validate_rejects_zero_upstream_failure_cooldown() {
+        let mut config = super::RookConfig::default();
+        config.upstream_resilience.failure_cooldown_seconds = 0;
+
+        let error = config.validate().unwrap_err().to_string();
+
+        assert!(
+            error.contains("upstream_resilience.failure_cooldown_seconds must be at least 1"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_zero_upstream_retry_backoff() {
+        let mut config = super::RookConfig::default();
+        config.upstream_resilience.retry_backoff_milliseconds = 0;
+
+        let error = config.validate().unwrap_err().to_string();
+
+        assert!(
+            error.contains("upstream_resilience.retry_backoff_milliseconds must be at least 1"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
     fn validate_rejects_zero_upstream_concurrency() {
         let mut config = super::RookConfig::default();
         config.upstream_resilience.max_concurrent_upstream_requests = 0;
@@ -1681,25 +1717,6 @@ mod tests {
             config.upstream_resilience.max_concurrent_upstream_requests,
             12
         );
-    }
-
-    #[test]
-    fn from_toml_loads_upstream_resilience_config() {
-        let config = super::RookConfig::from_toml_str(
-            r#"
-            [upstream_resilience]
-            max_buffered_attempts = 5
-            failure_cooldown_seconds = 120
-            retry_backoff_milliseconds = 75
-            max_concurrent_upstream_requests = 12
-            "#,
-        )
-        .unwrap();
-
-        assert_eq!(config.upstream_resilience.max_buffered_attempts, 5);
-        assert_eq!(config.upstream_resilience.failure_cooldown_seconds, 120);
-        assert_eq!(config.upstream_resilience.retry_backoff_milliseconds, 75);
-        assert_eq!(config.upstream_resilience.max_concurrent_upstream_requests, 12);
     }
 
     #[test]

@@ -231,7 +231,17 @@ fn production_posture_advisories(config: &crate::config::RookConfig) -> Vec<Doct
 
 fn is_externally_reachable_bind(host: &str) -> bool {
     let host = host.trim().trim_matches(['[', ']']);
-    matches!(host, "0.0.0.0" | "::" | "*")
+    if matches!(host, "0.0.0.0" | "::" | "*") {
+        return true;
+    }
+    if host.eq_ignore_ascii_case("localhost") {
+        return false;
+    }
+
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => !ip.is_loopback(),
+        Err(_) => true,
+    }
 }
 
 fn inbound_auth_check_result(
@@ -452,6 +462,35 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("enable inbound auth"));
+    }
+
+    #[tokio::test]
+    async fn doctor_warns_when_concrete_non_loopback_bind_has_inbound_auth_disabled() {
+        let _serial = doctor_test_serial_guard().await;
+        let mut initialized = initialized_db_env().await;
+        initialized.env.extend(HashMap::from([
+            ("ROOK_HOST".to_string(), "203.0.113.10".to_string()),
+            ("ROOK_INBOUND_AUTH_ENABLED".to_string(), "false".to_string()),
+        ]));
+
+        let report = run_with_config_path(None, &initialized.env).await;
+
+        assert_eq!(report.overall_status(), DoctorStatus::Pass);
+        assert!(report
+            .advisory_checks
+            .iter()
+            .any(|check| check.name == "production_bind_auth"));
+    }
+
+    #[test]
+    fn externally_reachable_bind_detection_keeps_loopback_localhost_local() {
+        assert!(!is_externally_reachable_bind("127.0.0.1"));
+        assert!(!is_externally_reachable_bind("[::1]"));
+        assert!(!is_externally_reachable_bind("localhost"));
+        assert!(is_externally_reachable_bind("0.0.0.0"));
+        assert!(is_externally_reachable_bind("::"));
+        assert!(is_externally_reachable_bind("203.0.113.10"));
+        assert!(is_externally_reachable_bind("rook.internal"));
     }
 
     #[tokio::test]

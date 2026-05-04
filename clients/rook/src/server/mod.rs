@@ -393,7 +393,8 @@ mod tests {
     };
     use crate::services::idempotency::{IdempotencyService, SharedIdempotencyService};
     use crate::services::{
-        account::AccountService as _, pool::PoolService as _, route::RouteService as _,
+        account::AccountService as _, health::HealthService as _, pool::PoolService as _,
+        route::RouteService as _,
     };
     use axum::body::{to_bytes, Body};
     use axum::extract::State;
@@ -666,7 +667,30 @@ mod tests {
 
     #[tokio::test]
     async fn build_app_uses_configured_upstream_resilience_policy() {
+        use axum::{routing::post, Json, Router};
+        use std::net::SocketAddr;
+
+        async fn error_handler() -> (StatusCode, Json<serde_json::Value>) {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "boom"})),
+            )
+        }
+
+        let upstream = Router::new().route("/v1/chat/completions", post(error_handler));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let _server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+
         let registry = RookRegistry::open_in_memory().await.unwrap();
+        let account_id = seed_route(
+            &registry,
+            "gpt-4o-resilience",
+            ProviderVendor::OpenAi,
+            Some(format!("http://{addr}")),
+            Some("sk-test".to_string()),
+        )
+        .await;
         let config = ServerConfig {
             upstream_resilience: crate::gateway::UpstreamResiliencePolicy {
                 max_buffered_attempts: 1,
@@ -681,12 +705,27 @@ mod tests {
             .await
             .unwrap();
 
-        let response = tower::ServiceExt::oneshot(
+        let first_response = tower::ServiceExt::oneshot(
+            app.clone(),
+            axum::http::Request::post("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"model":"gpt-4o-resilience","messages":[],"stream":false}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(first_response.status(), axum::http::StatusCode::BAD_GATEWAY);
+        assert!(!registry.health().is_available(account_id).await);
+
+        let second_response = tower::ServiceExt::oneshot(
             app,
             axum::http::Request::post("/v1/chat/completions")
                 .header("content-type", "application/json")
                 .body(axum::body::Body::from(
-                    r#"{"model":"missing","messages":[],"stream":false}"#,
+                    r#"{"model":"gpt-4o-resilience","messages":[],"stream":false}"#,
                 ))
                 .unwrap(),
         )
@@ -694,7 +733,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            response.status(),
+            second_response.status(),
             axum::http::StatusCode::SERVICE_UNAVAILABLE
         );
     }
@@ -1859,19 +1898,17 @@ mod tests {
         assert!(text.contains(
             "rook_upstream_failures_total{vendor=\"open_ai\",account=\"unlabeled\",model=\"gpt-4o-secret-account\",outcome=\"network_error\"} 1"
         ));
-        assert!(text.contains(
-            "rook_provider_account_health{vendor=\"open_ai\",account=\"test-account\",status=\"healthy\"} 1"
-        ));
-        assert!(text.contains(
-            "rook_provider_account_health{vendor=\"open_ai\",account=\"test-account\",status=\"unhealthy\"} 1"
-        ));
-        assert!(text.contains(
-            "rook_provider_account_cooldown_active{vendor=\"open_ai\",account=\"test-account\"} 1"
-        ));
-        assert!(text.contains(
-            "rook_provider_account_health{vendor=\"open_ai\",account=\"unlabeled\",status=\"unhealthy\"} 1"
-        ));
+        assert!(text.contains("rook_provider_account_health{vendor=\"open_ai\",account=\"acct_"));
+        assert!(text.contains("status=\"healthy\"} 1"));
+        assert!(text.contains("status=\"unhealthy\"} 1"));
+        assert!(text
+            .contains("rook_provider_account_cooldown_active{vendor=\"open_ai\",account=\"acct_"));
         assert!(!text.contains("Bearer sk-secret"));
+        assert!(!text
+            .contains("rook_provider_account_health{vendor=\"open_ai\",account=\"test-account\""));
+        assert!(!text.contains(
+            "rook_provider_account_cooldown_active{vendor=\"open_ai\",account=\"test-account\""
+        ));
         assert!(!text.contains("account=\"bearer_sk-secret\""));
     }
 
