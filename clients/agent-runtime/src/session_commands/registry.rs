@@ -523,8 +523,8 @@ fn validate_requirements(
                     message: "permission denied: caller scope unavailable".to_string(),
                 });
             }
-            CommandPermission::RequiresCallerScope => {}
-            CommandPermission::RequiresResumableSessionVisibility => {}
+            CommandPermission::RequiresCallerScope
+            | CommandPermission::RequiresResumableSessionVisibility => {}
         }
     }
 
