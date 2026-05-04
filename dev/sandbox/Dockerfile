@@ -4,20 +4,20 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install common development tools and runtimes
-# - Node.js: Install v20 (LTS) from NodeSource
+# - Node.js/npm: from Ubuntu's signed package repositories
 # - Core: curl, git, vim, build-essential (gcc, make)
 # - Python: python3, pip
 # - Network: ping, dnsutils
-RUN apt-get update && apt-get install -y curl && \
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y \
+RUN apt-get update && apt-get install -y \
     build-essential \
+    curl \
     dnsutils \
     git \
     iputils-ping \
     nano \
     net-tools \
     nodejs \
+    npm \
     python3 \
     python3-pip \
     sudo \
