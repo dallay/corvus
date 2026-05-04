@@ -68,14 +68,14 @@ actual constructor(actual val host: String, actual val port: Int, actual val tim
 )
 actual class SocketIosRuntimeCompanionClient
 actual constructor(private val config: IosRuntimeCompanionConfig) : IosRuntimeCompanionClient {
-  override val capabilities: RuntimeCapabilities =
+  actual override val capabilities: RuntimeCapabilities =
     RuntimeCapabilities(
       streamingResponses = false,
       resumableSessionList = true,
       approvalRequests = true,
     )
 
-  override fun probeReadiness(): RuntimeReadinessSnapshot =
+  actual override fun probeReadiness(): RuntimeReadinessSnapshot =
     sendCommand("__corvus_probe__")?.let { parseReadiness(it) }
       ?: RuntimeReadinessSnapshot(
         runtimeAvailable = false,
@@ -85,14 +85,14 @@ actual constructor(private val config: IosRuntimeCompanionConfig) : IosRuntimeCo
         capabilities = capabilities,
       )
 
-  override fun createSession(metadata: Map<String, String>): RuntimeSession =
+  actual override fun createSession(metadata: Map<String, String>): RuntimeSession =
     sessionFrom(
       requireNotNull(sendCommand("__corvus_create_session__")) {
         "sendCommand('__corvus_create_session__') returned null in createSession"
       }
     )
 
-  override fun listResumableSessions(): List<RuntimeSession> =
+  actual override fun listResumableSessions(): List<RuntimeSession> =
     sendCommand("__corvus_list_sessions__")
       ?.lineSequence()
       ?.map { it.trim() }
@@ -107,7 +107,7 @@ actual constructor(private val config: IosRuntimeCompanionConfig) : IosRuntimeCo
       }
       ?.toList() ?: emptyList()
 
-  override fun resumeSession(sessionId: RuntimeSessionId): RuntimeSession {
+  actual override fun resumeSession(sessionId: RuntimeSessionId): RuntimeSession {
     val command = "__corvus_resume_session__${sessionId.value}"
     return sessionFrom(
       requireNotNull(sendCommand(command)) {
@@ -116,21 +116,21 @@ actual constructor(private val config: IosRuntimeCompanionConfig) : IosRuntimeCo
     )
   }
 
-  override fun endSession(sessionId: RuntimeSessionId) {
+  actual override fun endSession(sessionId: RuntimeSessionId) {
     val result = sendCommand("__corvus_end_session__${sessionId.value}")
     if (result == null) {
       error("Failed to end session ${sessionId.value}: iOS companion unavailable")
     }
   }
 
-  override fun sendMessage(sessionId: RuntimeSessionId, prompt: String): RuntimeTurnResult =
+  actual override fun sendMessage(sessionId: RuntimeSessionId, prompt: String): RuntimeTurnResult =
     turnFrom(
       sessionId,
       sendCommand("__corvus_send_message__${sessionId.value}$UNIT_SEPARATOR$prompt"),
       "",
     )
 
-  override fun submitApproval(
+  actual override fun submitApproval(
     requestId: String,
     decision: RuntimeApprovalDecision,
     sessionId: RuntimeSessionId,
