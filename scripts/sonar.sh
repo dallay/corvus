@@ -97,7 +97,7 @@ sonar-scanner \
   -Dsonar.sources=. \
   -Dsonar.tests=. \
   -Dsonar.test.inclusions='**/*.spec.ts,**/*.test.ts,**/*.test.tsx,**/*_test.rs,**/tests/**,**/src/test/**,**/src/commonTest/**,**/src/jvmTest/**,**/src/androidUnitTest/**,**/src/iosTest/**' \
-  -Dsonar.exclusions='**/.git/**,**/.gradle/**,**/build/**,**/dist/**,**/coverage/**,**/node_modules/**,**/.next/**,**/.turbo/**,**/target/**,**/vendor/**,**/generated/**,**/clients/agent-runtime/target/**' \
+  -Dsonar.exclusions='**/.git/**,**/.gradle/**,**/build/**,**/dist/**,**/coverage/**,**/node_modules/**,**/.next/**,**/.turbo/**,**/target/**,**/vendor/**,**/generated/**,**/clients/agent-runtime/target/**,**/clients/agent-runtime/crates/**/Cargo.toml,**/clients/agent-runtime/firmware/**/Cargo.toml' \
   -Dsonar.coverage.exclusions='**/*.spec.ts,**/*.test.ts,**/*.test.tsx,scripts/**,clients/web/apps/dashboard/src/App.vue,clients/web/packages/shared/index.ts,clients/agent-runtime/npm/corvus-cli/scripts/postinstall.mjs,clients/agent-runtime/npm/corvus-cli/lib/install.js,gradle/build-logic/src/main/kotlin/**,clients/composeApp/src/**,clients/iosApp/**,clients/web/apps/*/src/main.ts,clients/web/apps/*/src/i18n.ts,clients/web/apps/docs/src/content.config.ts,clients/web/apps/docs/astro.config.mjs,clients/web/apps/marketing/astro.config.mjs,clients/web/apps/dashboard/tsconfig.node.json,clients/web/packages/locales/src/index.ts,clients/agent-runtime/firmware/**,clients/agent-runtime/examples/**' \
   -Dsonar.cpd.exclusions='**/content/docs/**/*.md,**/content/docs/**/*.mdx' \
   -Dsonar.issue.ignore.multicriteria=e1 \
