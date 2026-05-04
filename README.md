@@ -48,29 +48,6 @@
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=coverage)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 
-### Local monthly review
-
-Run the recurring Sonar review workflow locally with:
-
-```bash
-make sonar
-```
-
-Local prerequisites:
-
-- `SONAR_TOKEN` exported in your shell
-- `sonar-scanner` available on `PATH`
-- the standard repo toolchain required by `make check-tools`
-- the Rust coverage tooling required by `rust-coverage`:
-  - `cargo install cargo-llvm-cov`
-  - `rustup component add llvm-tools-preview`
-
-`make sonar` generates the same main coverage inputs used by CI before invoking the local scanner. As part of that flow it runs the `rust-coverage` target, so missing `cargo-llvm-cov` or `llvm-tools-preview` will cause `make sonar` to exit during preflight. The authoritative quality gate still lives in SonarCloud, but this command makes the monthly review reproducible from a developer workstation.
-
-> Note: la traducción al español de esta sección sigue pendiente para mantener la paridad del README.
-
-## 🛠️ Tech Stack
-
 ![Kotlin](https://img.shields.io/badge/kotlin-%237F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white)
 ![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/typescript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white)
@@ -208,22 +185,23 @@ We use a `Makefile` to standardize common operations:
 
 ### Local Sonar Review Workflow
 
-Use `make sonar` when you need to reproduce the monthly Sonar review locally before relying on the hosted SonarCloud workflow.
+Use `make sonar` when you need to reproduce the monthly Sonar review locally before relying on the hosted SonarCloud workflow. This command generates the same main coverage inputs used by CI before invoking the local scanner.
 
 Prerequisites:
 
 - `SONAR_TOKEN` exported in your shell
 - `sonar-scanner` available on `PATH`
-- Rust coverage prerequisites (`cargo-llvm-cov` and `llvm-tools-preview`)
-- web dependencies installed under `clients/web/node_modules` (the target runs `pnpm --dir clients/web install --frozen-lockfile` for you)
+- The standard repo toolchain required by `make check-tools`
+- Rust coverage tooling (`cargo install cargo-llvm-cov` and `rustup component add llvm-tools-preview`)
+- Web dependencies installed under `clients/web/node_modules` (the target runs `pnpm --dir clients/web install --frozen-lockfile` for you)
 
 What `make sonar` does:
 
-1. validates Sonar credentials and scanner prerequisites fail-closed;
-2. generates Kotlin Kover XML reports for `modules/agent-core-kmp` and `clients/composeApp`;
-3. installs dashboard web dependencies and generates dashboard LCOV coverage;
-4. generates Rust LCOV coverage at `coverage/agent-runtime-coverage.lcov`;
-5. runs `scripts/sonar.sh` with CI-aligned scanner arguments.
+1. Validates Sonar credentials and scanner prerequisites fail-closed;
+2. Generates Kotlin Kover XML reports for `modules/agent-core-kmp` and `clients/composeApp`;
+3. Installs dashboard web dependencies and generates dashboard LCOV coverage;
+4. Generates Rust LCOV coverage at `coverage/agent-runtime-coverage.lcov`;
+5. Runs `scripts/sonar.sh` with CI-aligned scanner arguments.
 
 Local execution is intended to improve reproducibility and faster iteration, not to replace the hosted SonarCloud workflow as the repository’s final shared quality signal.
 

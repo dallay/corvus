@@ -588,6 +588,11 @@ impl SecurityPolicy {
                         || arg == "-c"
                 })
             }
+            "npm" | "pnpm" | "yarn" => {
+                // npm config and set can be used to set dangerous options
+                // (e.g. npm config set editor "rm -rf /")
+                !args.iter().any(|arg| arg == "config" || arg == "set")
+            }
             _ => true,
         }
     }
@@ -794,13 +799,24 @@ fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
         "npm" | "pnpm" | "yarn" => args.first().is_some_and(|verb| {
             matches!(
                 verb.as_str(),
-                "install" | "add" | "remove" | "uninstall" | "update" | "publish"
+                "install"
+                    | "add"
+                    | "remove"
+                    | "uninstall"
+                    | "update"
+                    | "publish"
+                    | "run"
+                    | "run-script"
+                    | "test"
+                    | "t"
+                    | "it"
+                    | "cit"
             )
         }),
         "cargo" => args.first().is_some_and(|verb| {
             matches!(
                 verb.as_str(),
-                "add" | "remove" | "install" | "clean" | "publish"
+                "add" | "remove" | "install" | "clean" | "publish" | "run" | "r" | "test" | "t"
             )
         }),
         "touch" | "mkdir" | "mv" | "cp" | "ln" => true,
@@ -2241,4 +2257,33 @@ mod tests {
         assert!(!p.is_command_allowed("cat '\"/etc/passwd\"'"));
         assert!(!p.is_command_allowed("cat %252e%252e%252fetc%252fpasswd"));
     }
+}
+
+#[test]
+fn test_package_manager_risk_hardening() {
+    let mut p = SecurityPolicy::default();
+    p.allowed_commands = vec![
+        "npm".into(),
+        "pnpm".into(),
+        "yarn".into(),
+        "cargo".into(),
+    ];
+
+    // is_args_safe hardening
+    assert!(!p.is_command_allowed("npm config set editor malicious"));
+    assert!(!p.is_command_allowed("pnpm config get user"));
+    assert!(!p.is_command_allowed("yarn set version berry"));
+
+    // is_medium_risk_command hardening (npm)
+    assert_eq!(p.command_risk_level("npm run build"), CommandRiskLevel::Medium);
+    assert_eq!(p.command_risk_level("npm test"), CommandRiskLevel::Medium);
+    assert_eq!(p.command_risk_level("npm t"), CommandRiskLevel::Medium);
+    assert_eq!(p.command_risk_level("pnpm run-script start"), CommandRiskLevel::Medium);
+    assert_eq!(p.command_risk_level("yarn it"), CommandRiskLevel::Medium);
+
+    // is_medium_risk_command hardening (cargo)
+    assert_eq!(p.command_risk_level("cargo run"), CommandRiskLevel::Medium);
+    assert_eq!(p.command_risk_level("cargo r"), CommandRiskLevel::Medium);
+    assert_eq!(p.command_risk_level("cargo test"), CommandRiskLevel::Medium);
+    assert_eq!(p.command_risk_level("cargo t"), CommandRiskLevel::Medium);
 }
