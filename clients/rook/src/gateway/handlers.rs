@@ -71,6 +71,19 @@ fn record_upstream_failure(
     );
 }
 
+fn record_upstream_retry_outcome(
+    state: &GatewayState,
+    context: &UpstreamMetricContext,
+    outcome: &'static str,
+) {
+    state.observability.upstream_retry_outcomes_total().inc(
+        context.vendor.clone(),
+        context.account.clone(),
+        context.model.clone(),
+        outcome,
+    );
+}
+
 fn classify_upstream_error(error: &UpstreamError) -> &'static str {
     match error {
         UpstreamError::MissingBaseUrl { .. } | UpstreamError::MissingAuthHeader { .. } => {
@@ -320,8 +333,17 @@ async fn handle_buffered_chat_completions(
                 mark_account_failure(state, account_id).await;
 
                 let retryable = should_retry_buffered_upstream_error(&error);
-                last_error = Some((error, metric_context, account_id));
+                last_error = Some((error, metric_context.clone_static(), account_id));
                 if !retryable || attempts >= max_attempts {
+                    record_upstream_retry_outcome(
+                        state,
+                        &metric_context,
+                        if retryable {
+                            "retry_exhausted"
+                        } else {
+                            "not_retryable"
+                        },
+                    );
                     let (error, metric_context, account_id) = last_error.take().unwrap();
                     let response = map_upstream_error(error);
                     record_usage(
@@ -341,6 +363,7 @@ async fn handle_buffered_chat_completions(
                     return response;
                 }
 
+                record_upstream_retry_outcome(state, &metric_context, "retry_scheduled");
                 tokio::time::sleep(state.resilience_policy.retry_backoff).await;
             }
         }
@@ -1222,6 +1245,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn buffered_chat_records_retry_outcome_metrics() {
+        let (_failing_server, failing_upstream, _failing_calls) =
+            mock_counting_upstream(vec![StatusCode::INTERNAL_SERVER_ERROR]).await;
+        let (_success_server, success_upstream, _success_calls) =
+            mock_counting_upstream(vec![StatusCode::OK]).await;
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let engine = RoutingEngine::new(registry.clone());
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let observability = Arc::new(crate::observability::Observability::bootstrap());
+        let resilience_policy = crate::gateway::UpstreamResiliencePolicy {
+            retry_backoff: std::time::Duration::from_millis(1),
+            ..Default::default()
+        };
+        let upstream_concurrency = crate::gateway::UpstreamConcurrency::new(
+            resilience_policy.max_concurrent_upstream_requests,
+        );
+        let state = GatewayState {
+            registry: registry.clone(),
+            engine,
+            client,
+            observability: observability.clone(),
+            resilience_policy,
+            upstream_concurrency,
+        };
+        let app = build_router(state);
+
+        let mut failing_account = make_account(ProviderVendor::OpenAi);
+        failing_account.api_base_override = Some(failing_upstream);
+        failing_account.api_key = Some("sk-test".to_string());
+        failing_account.priority = 0;
+
+        let mut success_account = make_account(ProviderVendor::OpenAi);
+        success_account.api_base_override = Some(success_upstream);
+        success_account.api_key = Some("sk-test".to_string());
+        success_account.priority = 1;
+
+        seed_route_with_accounts(&registry, "gpt-4o", vec![failing_account, success_account]).await;
+
+        let response = app
+            .oneshot(
+                Request::post("/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let metrics = observability.render_prometheus().unwrap();
+        assert!(metrics.contains(
+            "rook_upstream_retry_outcomes_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o\",outcome=\"retry_scheduled\"} 1"
+        ));
+    }
+
+    #[tokio::test]
     async fn buffered_chat_does_not_retry_non_retryable_client_error() {
         use std::sync::atomic::Ordering;
 
@@ -1252,6 +1337,137 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn buffered_chat_records_retry_exhausted_when_all_attempts_fail() {
+        use std::sync::atomic::Ordering;
+
+        let (_first_server, first_upstream, first_calls) =
+            mock_counting_upstream(vec![StatusCode::INTERNAL_SERVER_ERROR]).await;
+        let (_second_server, second_upstream, second_calls) =
+            mock_counting_upstream(vec![StatusCode::INTERNAL_SERVER_ERROR]).await;
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let engine = RoutingEngine::new(registry.clone());
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let observability = Arc::new(crate::observability::Observability::bootstrap());
+        let resilience_policy = crate::gateway::UpstreamResiliencePolicy {
+            max_buffered_attempts: 2,
+            retry_backoff: std::time::Duration::from_millis(1),
+            ..Default::default()
+        };
+        let upstream_concurrency = crate::gateway::UpstreamConcurrency::new(
+            resilience_policy.max_concurrent_upstream_requests,
+        );
+        let state = GatewayState {
+            registry: registry.clone(),
+            engine,
+            client,
+            observability: observability.clone(),
+            resilience_policy,
+            upstream_concurrency,
+        };
+        let app = build_router(state);
+
+        let mut first_account = make_account(ProviderVendor::OpenAi);
+        first_account.api_base_override = Some(first_upstream);
+        first_account.api_key = Some("sk-test".to_string());
+        first_account.priority = 0;
+        let first_account_id = first_account.id;
+
+        let mut second_account = make_account(ProviderVendor::OpenAi);
+        second_account.api_base_override = Some(second_upstream);
+        second_account.api_key = Some("sk-test".to_string());
+        second_account.priority = 1;
+        let second_account_id = second_account.id;
+
+        seed_route_with_accounts(&registry, "gpt-4o", vec![first_account, second_account]).await;
+
+        let response = app
+            .oneshot(
+                Request::post("/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(first_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(second_calls.load(Ordering::SeqCst), 1);
+        assert!(!registry.health().is_available(first_account_id).await);
+        assert!(!registry.health().is_available(second_account_id).await);
+
+        let metrics = observability.render_prometheus().unwrap();
+        assert!(metrics.contains(
+            "rook_upstream_retry_outcomes_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o\",outcome=\"retry_scheduled\"} 1"
+        ));
+        assert!(metrics.contains(
+            "rook_upstream_retry_outcomes_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o\",outcome=\"retry_exhausted\"} 1"
+        ));
+    }
+
+    #[tokio::test]
+    async fn buffered_chat_records_not_retryable_retry_outcome_metric() {
+        let (_server, upstream, _calls) =
+            mock_counting_upstream(vec![StatusCode::BAD_REQUEST]).await;
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let engine = RoutingEngine::new(registry.clone());
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let observability = Arc::new(crate::observability::Observability::bootstrap());
+        let resilience_policy = crate::gateway::UpstreamResiliencePolicy {
+            retry_backoff: std::time::Duration::from_millis(1),
+            ..Default::default()
+        };
+        let upstream_concurrency = crate::gateway::UpstreamConcurrency::new(
+            resilience_policy.max_concurrent_upstream_requests,
+        );
+        let state = GatewayState {
+            registry: registry.clone(),
+            engine,
+            client,
+            observability: observability.clone(),
+            resilience_policy,
+            upstream_concurrency,
+        };
+        let app = build_router(state);
+        seed_route(
+            &registry,
+            "gpt-4o",
+            ProviderVendor::OpenAi,
+            Some(upstream),
+            Some("sk-test".to_string()),
+        )
+        .await;
+
+        let response = app
+            .oneshot(
+                Request::post("/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let metrics = observability.render_prometheus().unwrap();
+        assert!(metrics.contains(
+            "rook_upstream_retry_outcomes_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o\",outcome=\"not_retryable\"} 1"
+        ));
     }
 
     #[tokio::test]

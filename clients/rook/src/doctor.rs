@@ -4,14 +4,15 @@ use crate::server;
 use std::collections::HashMap;
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DoctorStatus {
     Pass,
     Warn,
     Fail,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct DoctorCheckResult {
     pub name: &'static str,
     pub status: DoctorStatus,
@@ -20,7 +21,7 @@ pub struct DoctorCheckResult {
     pub details: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct DoctorReport {
     pub checks: Vec<DoctorCheckResult>,
     pub advisory_checks: Vec<DoctorCheckResult>,
@@ -64,10 +65,16 @@ pub async fn run_with_config_path(
                     status: DoctorStatus::Pass,
                     summary: "effective configuration loaded and validated".to_string(),
                     guidance: None,
-                    details: vec![format!(
-                        "effective bind target: {}",
-                        config.effective_bind_target()
-                    )],
+                    details: vec![
+                        format!("effective bind target: {}", config.effective_bind_target()),
+                        format!(
+                            "upstream resilience: max_buffered_attempts={}, failure_cooldown_seconds={}, retry_backoff_milliseconds={}, max_concurrent_upstream_requests={}",
+                            config.upstream_resilience.max_buffered_attempts,
+                            config.upstream_resilience.failure_cooldown_seconds,
+                            config.upstream_resilience.retry_backoff_milliseconds,
+                            config.upstream_resilience.max_concurrent_upstream_requests,
+                        ),
+                    ],
                 },
                 Err(error) => {
                     return DoctorReport {
@@ -147,9 +154,11 @@ pub async fn run_with_config_path(
             let inbound_auth_check = inbound_auth_check_result(auth_state, config.inbound_auth.validate().err());
             checks.push(inbound_auth_check);
 
+            let advisory_checks = production_posture_advisories(&config);
+
             DoctorReport {
                 checks,
-                advisory_checks: Vec::new(),
+                advisory_checks,
             }
         }
         Err(error) => DoctorReport {
@@ -166,6 +175,63 @@ pub async fn run_with_config_path(
             advisory_checks: Vec::new(),
         },
     }
+}
+
+fn production_posture_advisories(config: &crate::config::RookConfig) -> Vec<DoctorCheckResult> {
+    let mut checks = Vec::new();
+
+    if is_externally_reachable_bind(&config.host) && !config.inbound_auth.enabled {
+        checks.push(DoctorCheckResult {
+            name: "production_bind_auth",
+            status: DoctorStatus::Warn,
+            summary: format!(
+                "externally reachable bind {} has inbound auth disabled",
+                config.effective_bind_target()
+            ),
+            guidance: Some(
+                "enable inbound auth before exposing Rook outside a trusted local process or private network boundary"
+                    .to_string(),
+            ),
+            details: vec![
+                format!("effective bind target: {}", config.effective_bind_target()),
+                "inbound auth state: disabled".to_string(),
+            ],
+        });
+    }
+
+    let mut resilience_details = Vec::new();
+    if config.upstream_resilience.max_buffered_attempts > 10 {
+        resilience_details.push(format!(
+            "max_buffered_attempts={}",
+            config.upstream_resilience.max_buffered_attempts
+        ));
+    }
+    if config.upstream_resilience.max_concurrent_upstream_requests > 1024 {
+        resilience_details.push(format!(
+            "max_concurrent_upstream_requests={}",
+            config.upstream_resilience.max_concurrent_upstream_requests
+        ));
+    }
+
+    if !resilience_details.is_empty() {
+        checks.push(DoctorCheckResult {
+            name: "upstream_resilience_posture",
+            status: DoctorStatus::Warn,
+            summary: "upstream resilience settings are unusually aggressive".to_string(),
+            guidance: Some(
+                "confirm upstream retry and concurrency settings match provider quotas and deployment capacity"
+                    .to_string(),
+            ),
+            details: resilience_details,
+        });
+    }
+
+    checks
+}
+
+fn is_externally_reachable_bind(host: &str) -> bool {
+    let host = host.trim().trim_matches(['[', ']']);
+    matches!(host, "0.0.0.0" | "::" | "*")
 }
 
 fn inbound_auth_check_result(
@@ -208,6 +274,22 @@ fn inbound_auth_check_result(
             details: vec![format!("inbound auth state: {}", auth_state.summary())],
         },
     }
+}
+
+#[derive(serde::Serialize)]
+struct DoctorJsonReport<'a> {
+    status: DoctorStatus,
+    checks: &'a [DoctorCheckResult],
+    advisory_checks: &'a [DoctorCheckResult],
+}
+
+pub fn render_json_report(report: &DoctorReport) -> Result<String, RookError> {
+    serde_json::to_string_pretty(&DoctorJsonReport {
+        status: report.overall_status(),
+        checks: &report.checks,
+        advisory_checks: &report.advisory_checks,
+    })
+    .map_err(|error| RookError::Config(format!("failed to render doctor JSON: {error}")))
 }
 
 pub fn render_report(report: &DoctorReport) -> String {
@@ -347,6 +429,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn doctor_warns_when_external_bind_has_inbound_auth_disabled() {
+        let _serial = doctor_test_serial_guard().await;
+        let mut initialized = initialized_db_env().await;
+        initialized.env.extend(HashMap::from([
+            ("ROOK_HOST".to_string(), "0.0.0.0".to_string()),
+            ("ROOK_INBOUND_AUTH_ENABLED".to_string(), "false".to_string()),
+        ]));
+
+        let report = run_with_config_path(None, &initialized.env).await;
+
+        assert_eq!(report.overall_status(), DoctorStatus::Pass);
+        let warning = report
+            .advisory_checks
+            .iter()
+            .find(|check| check.name == "production_bind_auth")
+            .expect("external bind auth advisory should be present");
+        assert_eq!(warning.status, DoctorStatus::Warn);
+        assert!(warning.summary.contains("externally reachable bind"));
+        assert!(warning
+            .guidance
+            .as_deref()
+            .unwrap()
+            .contains("enable inbound auth"));
+    }
+
+    #[tokio::test]
+    async fn doctor_warns_when_upstream_resilience_policy_is_unusually_aggressive() {
+        let _serial = doctor_test_serial_guard().await;
+        let mut initialized = initialized_db_env().await;
+        initialized.env.extend(HashMap::from([
+            (
+                "ROOK_UPSTREAM_RESILIENCE_MAX_BUFFERED_ATTEMPTS".to_string(),
+                "11".to_string(),
+            ),
+            (
+                "ROOK_UPSTREAM_RESILIENCE_MAX_CONCURRENT_UPSTREAM_REQUESTS".to_string(),
+                "1025".to_string(),
+            ),
+        ]));
+
+        let report = run_with_config_path(None, &initialized.env).await;
+
+        assert_eq!(report.overall_status(), DoctorStatus::Pass);
+        let warning = report
+            .advisory_checks
+            .iter()
+            .find(|check| check.name == "upstream_resilience_posture")
+            .expect("upstream resilience advisory should be present");
+        assert_eq!(warning.status, DoctorStatus::Warn);
+        assert!(warning.summary.contains("unusually aggressive"));
+        assert!(warning
+            .details
+            .iter()
+            .any(|detail| detail.contains("max_buffered_attempts=11")));
+        assert!(warning
+            .details
+            .iter()
+            .any(|detail| detail.contains("max_concurrent_upstream_requests=1025")));
+    }
+
+    #[tokio::test]
+    async fn doctor_config_check_reports_upstream_resilience_policy() {
+        let _serial = doctor_test_serial_guard().await;
+        let mut initialized = initialized_db_env().await;
+        initialized.env.extend(HashMap::from([
+            (
+                "ROOK_UPSTREAM_RESILIENCE_MAX_BUFFERED_ATTEMPTS".to_string(),
+                "4".to_string(),
+            ),
+            (
+                "ROOK_UPSTREAM_RESILIENCE_FAILURE_COOLDOWN_SECONDS".to_string(),
+                "90".to_string(),
+            ),
+            (
+                "ROOK_UPSTREAM_RESILIENCE_RETRY_BACKOFF_MILLISECONDS".to_string(),
+                "50".to_string(),
+            ),
+            (
+                "ROOK_UPSTREAM_RESILIENCE_MAX_CONCURRENT_UPSTREAM_REQUESTS".to_string(),
+                "9".to_string(),
+            ),
+        ]));
+
+        let report = run_with_config_path(None, &initialized.env).await;
+        let rendered = render_report(&report);
+
+        assert!(
+            rendered.contains("upstream resilience: max_buffered_attempts=4, failure_cooldown_seconds=90, retry_backoff_milliseconds=50, max_concurrent_upstream_requests=9"),
+            "{rendered}"
+        );
+    }
+
+    #[tokio::test]
     async fn doctor_report_passes_when_effective_config_validates() {
         let _serial = doctor_test_serial_guard().await;
         let initialized = initialized_db_env().await;
@@ -468,6 +643,55 @@ mod tests {
             .guidance
             .as_deref()
             .is_none_or(|guidance| !guidance.contains("super-secret-token")));
+    }
+
+    #[test]
+    fn render_json_report_outputs_machine_readable_status_and_checks() {
+        let report = DoctorReport {
+            checks: vec![DoctorCheckResult {
+                name: "config",
+                status: DoctorStatus::Pass,
+                summary: "effective configuration loaded and validated".to_string(),
+                guidance: None,
+                details: vec!["effective bind target: 127.0.0.1:4141".to_string()],
+            }],
+            advisory_checks: vec![],
+        };
+
+        let rendered = render_json_report(&report).expect("doctor json should render");
+        let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+
+        assert_eq!(parsed["status"], "pass");
+        assert_eq!(parsed["checks"][0]["name"], "config");
+        assert_eq!(parsed["checks"][0]["status"], "pass");
+        assert_eq!(
+            parsed["checks"][0]["summary"],
+            "effective configuration loaded and validated"
+        );
+        assert_eq!(
+            parsed["checks"][0]["details"][0],
+            "effective bind target: 127.0.0.1:4141"
+        );
+        assert_eq!(parsed["advisory_checks"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn render_json_report_does_not_leak_inbound_auth_token() {
+        let report = DoctorReport {
+            checks: vec![DoctorCheckResult {
+                name: "inbound_auth",
+                status: DoctorStatus::Pass,
+                summary: "inbound auth is enabled and token configuration is present".to_string(),
+                guidance: None,
+                details: vec!["inbound auth state: enabled token_configured=true".to_string()],
+            }],
+            advisory_checks: vec![],
+        };
+
+        let rendered = render_json_report(&report).expect("doctor json should render");
+
+        assert!(!rendered.contains("super-secret-token"));
+        assert!(rendered.contains("token configuration is present"));
     }
 
     #[test]

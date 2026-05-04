@@ -201,6 +201,10 @@ If no config file exists, Rook uses built-in defaults.
 | `/v1/chat/completions` rate limit | `30` requests / `60` seconds |
 | chat idempotency | enabled |
 | chat idempotency replay window | `86400` seconds |
+| upstream buffered attempts | `3` |
+| upstream failure cooldown | `60` seconds |
+| upstream retry backoff | `25` milliseconds |
+| upstream concurrency limit | `64` requests |
 
 ### Precedence
 
@@ -257,6 +261,12 @@ window_seconds = 60
 [idempotency.chat_completions]
 enabled = true
 replay_window_seconds = 86400
+
+[upstream_resilience]
+max_buffered_attempts = 3
+failure_cooldown_seconds = 60
+retry_backoff_milliseconds = 25
+max_concurrent_upstream_requests = 64
 ```
 
 ### Supported environment overrides
@@ -301,7 +311,24 @@ Idempotency:
 - `ROOK_CHAT_IDEMPOTENCY_ENABLED`
 - `ROOK_CHAT_IDEMPOTENCY_REPLAY_WINDOW_SECONDS`
 
+Upstream resilience:
+
+- `ROOK_UPSTREAM_RESILIENCE_MAX_BUFFERED_ATTEMPTS`
+- `ROOK_UPSTREAM_RESILIENCE_FAILURE_COOLDOWN_SECONDS`
+- `ROOK_UPSTREAM_RESILIENCE_RETRY_BACKOFF_MILLISECONDS`
+- `ROOK_UPSTREAM_RESILIENCE_MAX_CONCURRENT_UPSTREAM_REQUESTS`
+
 Boolean environment values accept `true`, `false`, `1`, `0`, `yes`, `no`, `on`, and `off`.
+
+### Upstream resilience tuning
+
+Rook retries only buffered chat completion requests before a response body is sent downstream. Streaming requests are not retried after an upstream failure because bytes may already be committed to the client. `failure_cooldown_seconds` controls how long a failed account is kept out of routing, `retry_backoff_milliseconds` controls delay between buffered retry attempts, and `max_concurrent_upstream_requests` bounds gateway fan-out pressure against upstream providers.
+
+Buffered retry decisions are exported through `rook_upstream_retry_outcomes_total` with bounded `vendor`, `account`, `model`, and `outcome` labels. Outcomes include `retry_scheduled`, `retry_exhausted`, and `not_retryable`. Use this alongside `rook_upstream_failures_total` to alert on providers that are repeatedly failing before fallback succeeds.
+
+Treat sustained `retry_exhausted` growth as a paging signal: every buffered attempt was spent and Rook returned a gateway error instead of falling back successfully. A useful first alert is any non-zero increase over a short production window, grouped by `vendor`, `account`, and `model`. During triage, check `/api/status` for degraded accounts, `/api/metrics` for `rook_provider_account_cooldown_active`, upstream auth/quota status, and whether `max_buffered_attempts` is lower than the number of healthy fallback accounts.
+
+Provider account health is exported through `rook_provider_account_health` and `rook_provider_account_cooldown_active` with bounded `vendor` and redaction-safe `account` labels. `rook_provider_account_health` uses a one-hot `status` label (`healthy`, `degraded`, `unhealthy`, `unknown`) for the currently persisted provider health state, while `rook_provider_account_cooldown_active` reports whether the account is currently excluded by cooldown.
 
 ### Validation and safe export
 
@@ -375,17 +402,29 @@ Operational endpoints:
 | `GET /api/health` | Compatibility check; returns `ok` when the HTTP server responds. |
 | `GET /api/health/live` | Liveness; returns JSON status for process liveness. |
 | `GET /api/health/ready` | Readiness; reports config, database, router, and embedded asset startup readiness. |
+| `GET /api/status` | Redaction-safe operator status summary combining startup readiness, provider health totals, and runtime signal availability. |
 | `GET /api/metrics` | OpenMetrics/Prometheus scrape output. |
 | `GET /api/health/accounts` | Current account health view. |
 | `GET /api/health/summary` | Current health summary. |
 | `GET /api/usage` | Persisted request/outcome usage summaries. |
 | `GET /api/audit/events` | Recent persisted admin audit events. |
 
+### Usage report CLI
+
+Rook can print the persisted usage summary directly from the configured SQLite database without requiring the HTTP server to be running:
+
+```bash
+rook usage report --period day --limit 10 --format json
+```
+
+`period` accepts `hour`, `day`, or `month`. `limit` controls the maximum number of groups returned for each breakdown and is clamped to `1..100`. The first supported output format is `json`, matching the `GET /api/usage` summary shape for automation and CI.
+
 Recommended probes:
 
 ```bash
 curl -fsS http://127.0.0.1:4141/api/health/live
 curl -fsS http://127.0.0.1:4141/api/health/ready
+curl -fsS http://127.0.0.1:4141/api/status
 curl -fsS http://127.0.0.1:4141/api/metrics
 ```
 
@@ -397,6 +436,20 @@ When inbound auth is enabled, include:
 
 Readiness can be `fail` when config, database, or routing startup checks fail. It can be `degraded` when embedded dashboard assets are missing while critical gateway dependencies are ready.
 
+`/api/status` is intended for operator dashboards and deployment automation that need one compact JSON document. It does not include API keys, bearer tokens, raw prompts, completions, or database paths.
+
+### Production operations runbook
+
+Use this checklist for deploy verification and incident triage:
+
+1. **Before deploy:** run `rook config export` and confirm the effective bind target, `db_path`, inbound auth state, rate limits, idempotency settings, and upstream resilience settings. Secret values are redacted.
+2. **Startup gate:** run `rook doctor --json` from the same environment that will start Rook. Treat any `fail` result as a deploy blocker. Review `warn` results before exposing Rook beyond a local process.
+3. **Readiness gate:** check `/api/health/ready`. A `fail` response means a startup dependency such as config, database, or router readiness is not safe for production traffic. A `degraded` response can still serve gateway traffic when only non-critical embedded assets are unavailable.
+4. **Operator status:** check `/api/status` for one compact view of startup readiness, provider health totals, and whether metrics and usage accounting are available.
+5. **Provider health:** check `/api/metrics` for `rook_provider_account_health` and `rook_provider_account_cooldown_active` when traffic shifts unexpectedly or routes report no available accounts.
+6. **Retry exhaustion:** alert on sustained growth in `rook_upstream_retry_outcomes_total{outcome="retry_exhausted"}`. During triage, compare retry exhaustion with provider cooldowns, upstream quotas, provider auth status, and the configured `max_buffered_attempts`.
+7. **Usage review:** run `rook usage report --period day --limit 10 --format json` during or after an incident to summarize request outcomes and token visibility from the persisted SQLite database without requiring the HTTP server to be running.
+
 ## Operational workflows
 
 ### Start and verify
@@ -404,8 +457,11 @@ Readiness can be `fail` when config, database, or routing startup checks fail. I
 ```bash
 rook serve --host 127.0.0.1 --port 4141 --db-path /var/lib/rook/rook.db
 rook doctor
+rook doctor --json
 curl -fsS http://127.0.0.1:4141/api/health/ready
 ```
+
+Use `rook doctor --json` in CI, deploy hooks, or supervisor automation that needs machine-readable check status and remediation details. `rook doctor` also emits advisory warnings for risky production posture, including wildcard/external binds without inbound auth and unusually aggressive upstream retry or concurrency settings. Advisory warnings do not fail startup checks, but they should be reviewed before controlled or external deployments.
 
 ### Inspect effective configuration
 
@@ -500,8 +556,17 @@ Inspect the `checks` object:
 - Verify the provider account has a valid outbound API key.
 - Verify any `api_base_override` is correct.
 - Check provider-side rate limits and account status.
-- Inspect `/api/metrics` for gateway and upstream outcome counters.
+- Inspect `/api/status` for degraded provider health totals.
+- Inspect `/api/metrics` for gateway outcome counters, upstream outcome counters, provider health metrics, and cooldown state.
+- If `retry_exhausted` is increasing, confirm enough healthy fallback accounts exist for the configured `max_buffered_attempts`.
 - Remember that inbound bearer auth is not reused as outbound provider auth.
+
+### Usage report is empty or lower than expected
+
+- Confirm requests reached Rook during the selected `--period` window.
+- Confirm the command is reading the intended database with `rook config export`.
+- Use `--period hour`, `--period day`, or `--period month` to match the incident window.
+- Remember that usage accounting is request/outcome focused. It is not a billing ledger, and token totals are present only when upstream responses include token usage fields.
 
 ### Rate limited requests
 
