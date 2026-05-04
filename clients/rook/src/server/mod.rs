@@ -171,11 +171,39 @@ async fn build_app_with_registry_and_startup_state(
         .build()
         .map_err(|e| RookError::Gateway(format!("failed to build HTTP client: {e}")))?;
 
-    let observability = Arc::new(Observability::bootstrap());
+    // Validate upstream resilience config before using it to build gateway state.
+    let policy = &config.upstream_resilience;
+    if policy.max_buffered_attempts == 0 {
+        return Err(RookError::Config(
+            "upstream_resilience.max_buffered_attempts must be at least 1".to_string(),
+        ));
+    }
+    if policy.failure_cooldown.as_secs() == 0 {
+        return Err(RookError::Config(
+            "upstream_resilience.failure_cooldown_seconds must be at least 1".to_string(),
+        ));
+    }
+    if policy.retry_backoff.as_millis() == 0 {
+        return Err(RookError::Config(
+            "upstream_resilience.retry_backoff_milliseconds must be at least 1".to_string(),
+        ));
+    }
+    if policy.max_concurrent_upstream_requests == 0 {
+        return Err(RookError::Config(
+            "upstream_resilience.max_concurrent_upstream_requests must be at least 1".to_string(),
+        ));
+    }
+    if policy.max_concurrent_upstream_requests > crate::config::MAX_CONCURRENT_UPSTREAM_REQUESTS {
+        return Err(RookError::Config(format!(
+            "upstream_resilience.max_concurrent_upstream_requests must be at most {}",
+            crate::config::MAX_CONCURRENT_UPSTREAM_REQUESTS
+        )));
+    }
     let resilience_policy = config.upstream_resilience.clone();
     let upstream_concurrency = crate::gateway::UpstreamConcurrency::new(
         resilience_policy.max_concurrent_upstream_requests,
     );
+    let observability = Arc::new(Observability::bootstrap());
     let gateway_state = GatewayState {
         registry: registry.clone(),
         engine,
@@ -1726,7 +1754,7 @@ mod tests {
             tokio::spawn(async move { axum::serve(error_listener, error_upstream).await.unwrap() });
 
         let registry = RookRegistry::open_in_memory().await.unwrap();
-        seed_route(
+        let ok_account_id = seed_route(
             &registry,
             "gpt-4o-ok",
             ProviderVendor::OpenAi,
@@ -1734,7 +1762,7 @@ mod tests {
             Some("sk-ok".to_string()),
         )
         .await;
-        seed_route(
+        let error_account_id = seed_route(
             &registry,
             "gpt-4o-error",
             ProviderVendor::OpenAi,
@@ -1742,7 +1770,7 @@ mod tests {
             Some("sk-error".to_string()),
         )
         .await;
-        seed_route_with_display_name(
+        let secret_account_id = seed_route_with_display_name(
             &registry,
             "gpt-4o-secret-account",
             ProviderVendor::OpenAi,
@@ -1751,7 +1779,7 @@ mod tests {
             Some("sk-secret".to_string()),
         )
         .await;
-        seed_route(
+        let misconfigured_account_id = seed_route(
             &registry,
             "gpt-4o-misconfigured",
             ProviderVendor::OpenAi,
@@ -1759,7 +1787,7 @@ mod tests {
             Some("   ".to_string()),
         )
         .await;
-        seed_route(
+        let network_account_id = seed_route(
             &registry,
             "gpt-4o-network",
             ProviderVendor::OpenAi,
@@ -1882,22 +1910,34 @@ mod tests {
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
-        assert!(!text.contains("rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-ok\",outcome=\"success\"}"));
-        assert!(text.contains(
-            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-error\",outcome=\"http_error\"} 1"
-        ));
-        assert!(text.contains(
-            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-misconfigured\",outcome=\"account_misconfigured\"} 1"
-        ));
-        assert!(text.contains(
-            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-network\",outcome=\"network_error\"} 1"
-        ));
+        let ok_account_label = format!("acct_{}", ok_account_id);
+        let error_account_label = format!("acct_{}", error_account_id);
+        let misconfigured_account_label = format!("acct_{}", misconfigured_account_id);
+        let network_account_label = format!("acct_{}", network_account_id);
+        let secret_account_label = format!("acct_{}", secret_account_id);
+        assert!(!text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-ok\",outcome=\"success\"}}",
+            ok_account_label
+        )));
+        assert!(text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-error\",outcome=\"http_error\"}} 1",
+            error_account_label
+        )));
+        assert!(text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-misconfigured\",outcome=\"account_misconfigured\"}} 1",
+            misconfigured_account_label
+        )));
+        assert!(text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-network\",outcome=\"network_error\"}} 1",
+            network_account_label
+        )));
         assert!(text.contains(
             "rook_upstream_failures_total{vendor=\"unrouted\",account=\"unrouted\",model=\"unrouted\",outcome=\"route_rejected\"} 1"
         ));
-        assert!(text.contains(
-            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"unlabeled\",model=\"gpt-4o-secret-account\",outcome=\"network_error\"} 1"
-        ));
+        assert!(text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-secret-account\",outcome=\"network_error\"}} 1",
+            secret_account_label
+        )));
         assert!(text.contains("rook_provider_account_health{vendor=\"open_ai\",account=\"acct_"));
         assert!(text.contains("status=\"healthy\"} 1"));
         assert!(text.contains("status=\"unhealthy\"} 1"));

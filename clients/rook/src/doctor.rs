@@ -497,16 +497,10 @@ mod tests {
     async fn doctor_warns_when_upstream_resilience_policy_is_unusually_aggressive() {
         let _serial = doctor_test_serial_guard().await;
         let mut initialized = initialized_db_env().await;
-        initialized.env.extend(HashMap::from([
-            (
-                "ROOK_UPSTREAM_RESILIENCE_MAX_BUFFERED_ATTEMPTS".to_string(),
-                "11".to_string(),
-            ),
-            (
-                "ROOK_UPSTREAM_RESILIENCE_MAX_CONCURRENT_UPSTREAM_REQUESTS".to_string(),
-                "1025".to_string(),
-            ),
-        ]));
+        initialized.env.extend(HashMap::from([(
+            "ROOK_UPSTREAM_RESILIENCE_MAX_BUFFERED_ATTEMPTS".to_string(),
+            "11".to_string(),
+        )]));
 
         let report = run_with_config_path(None, &initialized.env).await;
 
@@ -522,10 +516,6 @@ mod tests {
             .details
             .iter()
             .any(|detail| detail.contains("max_buffered_attempts=11")));
-        assert!(warning
-            .details
-            .iter()
-            .any(|detail| detail.contains("max_concurrent_upstream_requests=1025")));
     }
 
     #[tokio::test]

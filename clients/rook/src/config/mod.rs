@@ -20,6 +20,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+pub const MAX_CONCURRENT_UPSTREAM_REQUESTS: usize = 1024;
+
 pub fn discover_default_config_path(env_map: &HashMap<String, String>) -> Option<PathBuf> {
     if let Some(xdg_config_home) = env_map.get("XDG_CONFIG_HOME") {
         return Some(
@@ -189,6 +191,11 @@ impl UpstreamResilienceConfig {
                     .to_string(),
             ));
         }
+        if self.max_concurrent_upstream_requests > MAX_CONCURRENT_UPSTREAM_REQUESTS {
+            return Err(RookError::Config(format!(
+                "upstream_resilience.max_concurrent_upstream_requests must be at most {MAX_CONCURRENT_UPSTREAM_REQUESTS}"
+            )));
+        }
         Ok(())
     }
 }
@@ -255,6 +262,7 @@ impl RookConfig {
 
         let mut config = Self::default();
         partial.apply_to(&mut config);
+        config.validate()?;
         Ok(config)
     }
 
@@ -1688,6 +1696,39 @@ mod tests {
         config.upstream_resilience.max_concurrent_upstream_requests = 0;
 
         let error = config.validate().unwrap_err().to_string();
+
+        assert!(
+            error.contains(
+                "upstream_resilience.max_concurrent_upstream_requests must be at least 1"
+            ),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_excessive_upstream_concurrency() {
+        let mut config = super::RookConfig::default();
+        config.upstream_resilience.max_concurrent_upstream_requests =
+            super::MAX_CONCURRENT_UPSTREAM_REQUESTS + 1;
+
+        let error = config.validate().unwrap_err().to_string();
+
+        assert!(
+            error.contains("upstream_resilience.max_concurrent_upstream_requests must be at most"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn from_toml_rejects_invalid_upstream_resilience_config() {
+        let error = super::RookConfig::from_toml_str(
+            r#"
+            [upstream_resilience]
+            max_concurrent_upstream_requests = 0
+            "#,
+        )
+        .unwrap_err()
+        .to_string();
 
         assert!(
             error.contains(

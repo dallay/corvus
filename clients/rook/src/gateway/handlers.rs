@@ -52,7 +52,9 @@ impl UpstreamMetricContext {
     fn from_decision(decision: &crate::routing::RoutingDecision) -> Self {
         Self {
             vendor: Cow::Borrowed(normalize_vendor_label(&decision.account.vendor)),
-            account: normalize_account_label(Some(decision.account.display_name.as_str())),
+            // Use account ID (opaque) instead of display_name to avoid exposing
+            // tenant identifiers in metrics.
+            account: normalize_account_label(Some(&format!("acct_{}", decision.account.id))),
             model: normalize_model_label(Some(decision.logical_model.as_str())),
         }
     }
@@ -622,6 +624,10 @@ mod tests {
             tags: vec![],
             capabilities: vec![],
         }
+    }
+
+    fn account_metric_label(account_id: AccountId) -> String {
+        format!("acct_{}", account_id)
     }
 
     fn make_pool(account_id: AccountId) -> ProviderPool {
@@ -1294,7 +1300,10 @@ mod tests {
         success_account.api_key = Some("sk-test".to_string());
         success_account.priority = 1;
 
-        seed_route_with_accounts(&registry, "gpt-4o", vec![failing_account, success_account]).await;
+        let account_ids =
+            seed_route_with_accounts(&registry, "gpt-4o", vec![failing_account, success_account])
+                .await;
+        let failing_account_label = account_metric_label(account_ids[0]);
 
         let response = app
             .oneshot(
@@ -1311,9 +1320,10 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         let metrics = observability.render_prometheus().unwrap();
-        assert!(metrics.contains(
-            "rook_upstream_retry_outcomes_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o\",outcome=\"retry_scheduled\"} 1"
-        ));
+        assert!(metrics.contains(&format!(
+            "rook_upstream_retry_outcomes_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o\",outcome=\"retry_scheduled\"}} 1",
+            failing_account_label
+        )));
     }
 
     #[tokio::test]
@@ -1416,12 +1426,16 @@ mod tests {
         assert!(!registry.health().is_available(second_account_id).await);
 
         let metrics = observability.render_prometheus().unwrap();
-        assert!(metrics.contains(
-            "rook_upstream_retry_outcomes_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o\",outcome=\"retry_scheduled\"} 1"
-        ));
-        assert!(metrics.contains(
-            "rook_upstream_retry_outcomes_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o\",outcome=\"retry_exhausted\"} 1"
-        ));
+        let first_account_label = account_metric_label(first_account_id);
+        let second_account_label = account_metric_label(second_account_id);
+        assert!(metrics.contains(&format!(
+            "rook_upstream_retry_outcomes_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o\",outcome=\"retry_scheduled\"}} 1",
+            first_account_label
+        )));
+        assert!(metrics.contains(&format!(
+            "rook_upstream_retry_outcomes_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o\",outcome=\"retry_exhausted\"}} 1",
+            second_account_label
+        )));
     }
 
     #[tokio::test]
@@ -1451,7 +1465,7 @@ mod tests {
             upstream_concurrency,
         };
         let app = build_router(state);
-        seed_route(
+        let account_id = seed_route(
             &registry,
             "gpt-4o",
             ProviderVendor::OpenAi,
@@ -1459,6 +1473,7 @@ mod tests {
             Some("sk-test".to_string()),
         )
         .await;
+        let account_label = account_metric_label(account_id);
 
         let response = app
             .oneshot(
@@ -1475,9 +1490,10 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
         let metrics = observability.render_prometheus().unwrap();
-        assert!(metrics.contains(
-            "rook_upstream_retry_outcomes_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o\",outcome=\"not_retryable\"} 1"
-        ));
+        assert!(metrics.contains(&format!(
+            "rook_upstream_retry_outcomes_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o\",outcome=\"not_retryable\"}} 1",
+            account_label
+        )));
     }
 
     #[tokio::test]
