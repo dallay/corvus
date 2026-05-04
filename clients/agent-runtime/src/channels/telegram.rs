@@ -2511,7 +2511,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_attachment_path_rejects_workspace_escape() {
+    fn resolve_attachment_path_rejects_absolute_path() {
         let workspace = tempfile::tempdir().unwrap();
         let outside = tempfile::NamedTempFile::new().unwrap();
         let channel = TelegramChannel::new("fake-token".into(), vec!["*".into()])
@@ -2520,7 +2520,7 @@ mod tests {
         let err = channel
             .resolve_attachment_path(outside.path().to_string_lossy().as_ref())
             .unwrap_err();
-        assert!(err.to_string().contains("escapes attachment root"));
+        assert!(err.to_string().contains("must be relative"));
     }
 
     #[test]

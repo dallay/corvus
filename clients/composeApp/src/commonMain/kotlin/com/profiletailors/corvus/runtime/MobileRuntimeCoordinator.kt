@@ -22,6 +22,7 @@ data class MobileRuntimeCoordinatorState(
       com.profiletailors.corvus.ui.chat.MobileOnboardingStatus.SESSION_READY
 }
 
+@Suppress("TooManyFunctions") // Coordinator must handle lifecycle, persistence, and messaging
 class MobileRuntimeCoordinator(
   private val facade: RuntimeFacade,
   private val persistence: MobileRuntimePersistence,
