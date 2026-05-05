@@ -1,10 +1,11 @@
 use crate::admin::types::admin_rate_limited_response;
+use crate::auth::types::AuthenticatedPrincipal;
 use crate::config::{RateLimitConfig, SurfaceRateLimitPolicy};
 use crate::gateway::types::gateway_rate_limited_response;
 use crate::observability::{
     normalize_rate_limit_endpoint, normalize_rate_limit_surface, Observability,
 };
-use crate::transport::context::RateLimitedSurface;
+use crate::transport::context::{ForwardedTrust, RateLimitedSurface, SanitizedTransportContext};
 use axum::body::Body;
 use axum::extract::{MatchedPath, Request, State};
 use axum::middleware::Next;
@@ -12,6 +13,14 @@ use axum::response::Response;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// Probability-based pruning: 1% chance to trigger pruning on each check.
+const PRUNE_CHANCE_DENOMINATOR: u32 = 100;
+const PRUNE_CHANCE_NUMERATOR: u32 = 1;
+
+/// TTL for stale entry eviction: 2x the max configured window (safe upper bound).
+/// Window configs max out at 3600s (1 hour), so 7200s is safe.
+const MAX_TTL_SECONDS: u64 = 7200;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RateLimitDecision {
@@ -25,10 +34,25 @@ pub struct SurfaceWindowState {
     pub request_count: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum RateLimitPrincipalKey {
+    Authenticated(String),
+    TrustedForwardedIp(std::net::IpAddr),
+    DirectIp(std::net::IpAddr),
+    LocalAnonymous,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RateLimitBucketKey {
+    pub surface: RateLimitedSurface,
+    pub principal: RateLimitPrincipalKey,
+}
+
 #[derive(Debug, Clone)]
 pub struct RateLimitState {
     pub policies: HashMap<RateLimitedSurface, SurfaceRateLimitPolicy>,
-    pub windows: Arc<tokio::sync::Mutex<HashMap<RateLimitedSurface, SurfaceWindowState>>>,
+    pub windows: Arc<tokio::sync::Mutex<HashMap<RateLimitBucketKey, SurfaceWindowState>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -54,21 +78,74 @@ impl RateLimitState {
         }
     }
 
-    pub async fn check(&self, surface: RateLimitedSurface) -> RateLimitDecision {
+    pub async fn check(
+        &self,
+        surface: RateLimitedSurface,
+        principal: RateLimitPrincipalKey,
+    ) -> RateLimitDecision {
         let now = Instant::now();
         let policy = self
             .policies
             .get(&surface)
             .expect("covered surface policy must exist");
+        let key = RateLimitBucketKey { surface, principal };
+
+        // Probabilistic pruning to evict stale entries and prevent unbounded growth.
         let mut windows = self.windows.lock().await;
-        let window = windows
-            .entry(surface)
-            .or_insert_with(|| SurfaceWindowState {
-                window_started_at: now,
-                request_count: 0,
-            });
+        if should_prune() {
+            pruning(&mut windows, now);
+        }
+
+        let window = windows.entry(key).or_insert_with(|| SurfaceWindowState {
+            window_started_at: now,
+            request_count: 0,
+        });
         evaluate_surface_limit(now, policy, window)
     }
+}
+
+/// Returns true with ~1% probability per call.
+/// Uses thread-local RNG to avoid per-call overhead.
+fn should_prune() -> bool {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+
+    let state = RandomState::new();
+    let hash = state.build_hasher();
+    let seed = hash.finish();
+    (seed % u64::from(PRUNE_CHANCE_DENOMINATOR)) < u64::from(PRUNE_CHANCE_NUMERATOR)
+}
+
+/// Removes entries whose window started more than `ttl` seconds ago.
+/// Uses `ttl = max_window_seconds * 2` as a safe upper bound.
+fn pruning(windows: &mut HashMap<RateLimitBucketKey, SurfaceWindowState>, now: Instant) {
+    let ttl = Duration::from_secs(MAX_TTL_SECONDS);
+    windows.retain(|_, state| now.saturating_duration_since(state.window_started_at) < ttl);
+}
+
+pub fn resolve_rate_limit_principal(request: &Request<Body>) -> RateLimitPrincipalKey {
+    if let Some(principal) = request.extensions().get::<AuthenticatedPrincipal>() {
+        if principal.scope_id == "anonymous-local" {
+            return RateLimitPrincipalKey::LocalAnonymous;
+        }
+        return RateLimitPrincipalKey::Authenticated(principal.scope_id.clone());
+    }
+
+    let Some(context) = request.extensions().get::<SanitizedTransportContext>() else {
+        return RateLimitPrincipalKey::Unknown;
+    };
+
+    if context.forwarded.trust == ForwardedTrust::Trusted {
+        if let Some(client_ip) = context.forwarded.client_ip {
+            return RateLimitPrincipalKey::TrustedForwardedIp(client_ip);
+        }
+    }
+
+    if let Some(peer_addr) = context.direct_peer_addr {
+        return RateLimitPrincipalKey::DirectIp(peer_addr.ip());
+    }
+
+    RateLimitPrincipalKey::Unknown
 }
 
 fn normalized_endpoint(request: &Request<Body>, surface: RateLimitedSurface) -> String {
@@ -89,7 +166,7 @@ pub fn evaluate_surface_limit(
 ) -> RateLimitDecision {
     let window_duration = Duration::from_secs(policy.window_seconds);
 
-    if now.duration_since(window.window_started_at) >= window_duration {
+    if now.saturating_duration_since(window.window_started_at) >= window_duration {
         window.window_started_at = now;
         window.request_count = 0;
     }
@@ -119,7 +196,8 @@ pub async fn apply_rate_limit(
     }
 
     let surface = normalize_rate_limit_surface(state.surface);
-    match state.state.check(state.surface).await {
+    let principal = resolve_rate_limit_principal(&request);
+    match state.state.check(state.surface, principal).await {
         RateLimitDecision::Allow => {
             state
                 .observability
@@ -147,9 +225,16 @@ pub async fn apply_rate_limit(
 
 #[cfg(test)]
 mod tests {
-    use super::{evaluate_surface_limit, RateLimitDecision, RateLimitState, SurfaceWindowState};
+    use super::{
+        evaluate_surface_limit, pruning, resolve_rate_limit_principal, RateLimitBucketKey,
+        RateLimitDecision, RateLimitPrincipalKey, RateLimitState, SurfaceWindowState,
+    };
     use crate::config::{RateLimitConfig, SurfaceRateLimitPolicy};
-    use crate::transport::context::RateLimitedSurface;
+    use crate::transport::context::{
+        ForwardedTrust, RateLimitedSurface, RouteSurface, SanitizedForwardedContext,
+        SanitizedTransportContext,
+    };
+    use std::collections::HashMap;
     use std::time::{Duration, Instant};
 
     fn policy(max_requests: u32, window_seconds: u64) -> SurfaceRateLimitPolicy {
@@ -157,6 +242,30 @@ mod tests {
             max_requests,
             window_seconds,
         }
+    }
+
+    fn request_with_context(
+        forwarded_trust: ForwardedTrust,
+        forwarded_ip: Option<&str>,
+        direct_peer: Option<&str>,
+    ) -> axum::http::Request<axum::body::Body> {
+        let mut request = axum::http::Request::builder()
+            .body(axum::body::Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(SanitizedTransportContext {
+            request_id: "req-1".to_string(),
+            route_surface: RouteSurface::GatewayV1,
+            direct_peer_addr: direct_peer.map(|peer| peer.parse().unwrap()),
+            forwarded: SanitizedForwardedContext {
+                trust: forwarded_trust,
+                client_ip: forwarded_ip.map(|ip| ip.parse().unwrap()),
+                host: None,
+                proto: None,
+                port: None,
+                ignored_headers: vec![],
+            },
+        });
+        request
     }
 
     #[test]
@@ -203,6 +312,41 @@ mod tests {
     }
 
     #[test]
+    fn pruning_keeps_future_windows_without_panicking() {
+        let now = Instant::now();
+        let mut windows = HashMap::from([(
+            RateLimitBucketKey {
+                surface: RateLimitedSurface::AdminApi,
+                principal: RateLimitPrincipalKey::Unknown,
+            },
+            SurfaceWindowState {
+                window_started_at: now + Duration::from_secs(1),
+                request_count: 1,
+            },
+        )]);
+
+        pruning(&mut windows, now);
+
+        assert_eq!(windows.len(), 1);
+    }
+
+    #[test]
+    fn evaluate_surface_limit_handles_future_window_without_panicking() {
+        let now = Instant::now();
+        let policy = policy(2, 60);
+        let mut window = SurfaceWindowState {
+            window_started_at: now + Duration::from_secs(1),
+            request_count: 0,
+        };
+
+        assert_eq!(
+            evaluate_surface_limit(now, &policy, &mut window),
+            RateLimitDecision::Allow
+        );
+        assert_eq!(window.request_count, 1);
+    }
+
+    #[test]
     fn evaluate_surface_limit_clamps_retry_after_to_at_least_one_second() {
         let started_at = Instant::now();
         let policy = policy(1, 60);
@@ -223,6 +367,65 @@ mod tests {
         );
     }
 
+    #[test]
+    fn resolve_rate_limit_principal_prefers_authenticated_principal() {
+        let mut request = request_with_context(
+            ForwardedTrust::Trusted,
+            Some("203.0.113.9"),
+            Some("198.51.100.10:1234"),
+        );
+        request
+            .extensions_mut()
+            .insert(crate::auth::types::AuthenticatedPrincipal {
+                scope_id: "token-a".to_string(),
+            });
+
+        assert_eq!(
+            resolve_rate_limit_principal(&request),
+            RateLimitPrincipalKey::Authenticated("token-a".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_rate_limit_principal_uses_trusted_forwarded_ip_before_direct_peer() {
+        let request = request_with_context(
+            ForwardedTrust::Trusted,
+            Some("203.0.113.9"),
+            Some("198.51.100.10:1234"),
+        );
+
+        assert_eq!(
+            resolve_rate_limit_principal(&request),
+            RateLimitPrincipalKey::TrustedForwardedIp("203.0.113.9".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn resolve_rate_limit_principal_ignores_untrusted_forwarded_ip_and_uses_direct_peer() {
+        let request = request_with_context(
+            ForwardedTrust::Ignored,
+            Some("203.0.113.9"),
+            Some("198.51.100.10:1234"),
+        );
+
+        assert_eq!(
+            resolve_rate_limit_principal(&request),
+            RateLimitPrincipalKey::DirectIp("198.51.100.10".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn resolve_rate_limit_principal_uses_unknown_when_no_context_exists() {
+        let request = axum::http::Request::builder()
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        assert_eq!(
+            resolve_rate_limit_principal(&request),
+            RateLimitPrincipalKey::Unknown
+        );
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn rate_limit_state_keeps_surface_budgets_independent() {
         let state = RateLimitState::new(&RateLimitConfig {
@@ -232,23 +435,95 @@ mod tests {
         });
 
         assert_eq!(
-            state.check(RateLimitedSurface::AdminApi).await,
+            state
+                .check(RateLimitedSurface::AdminApi, RateLimitPrincipalKey::Unknown)
+                .await,
             RateLimitDecision::Allow
         );
         assert_eq!(
-            state.check(RateLimitedSurface::AdminApi).await,
+            state
+                .check(RateLimitedSurface::AdminApi, RateLimitPrincipalKey::Unknown)
+                .await,
             RateLimitDecision::Reject {
                 retry_after_seconds: 59,
             }
         );
 
         assert_eq!(
-            state.check(RateLimitedSurface::GatewayModels).await,
+            state
+                .check(
+                    RateLimitedSurface::GatewayModels,
+                    RateLimitPrincipalKey::Unknown
+                )
+                .await,
             RateLimitDecision::Allow
         );
         assert_eq!(
             state
-                .check(RateLimitedSurface::GatewayChatCompletions)
+                .check(
+                    RateLimitedSurface::GatewayChatCompletions,
+                    RateLimitPrincipalKey::Unknown,
+                )
+                .await,
+            RateLimitDecision::Allow
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn rate_limit_state_keeps_principal_budgets_independent_on_same_surface() {
+        let state = RateLimitState::new(&RateLimitConfig {
+            api: policy(1, 60),
+            v1_models: policy(1, 60),
+            v1_chat_completions: policy(1, 60),
+        });
+
+        let alice = RateLimitPrincipalKey::Authenticated("alice".to_string());
+        let bob = RateLimitPrincipalKey::Authenticated("bob".to_string());
+
+        assert_eq!(
+            state
+                .check(RateLimitedSurface::GatewayChatCompletions, alice.clone())
+                .await,
+            RateLimitDecision::Allow
+        );
+        assert!(matches!(
+            state
+                .check(RateLimitedSurface::GatewayChatCompletions, alice)
+                .await,
+            RateLimitDecision::Reject { .. }
+        ));
+        assert_eq!(
+            state
+                .check(RateLimitedSurface::GatewayChatCompletions, bob)
+                .await,
+            RateLimitDecision::Allow
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn rate_limit_state_keeps_surface_budgets_independent_for_same_principal() {
+        let state = RateLimitState::new(&RateLimitConfig {
+            api: policy(1, 60),
+            v1_models: policy(1, 60),
+            v1_chat_completions: policy(1, 60),
+        });
+        let principal = RateLimitPrincipalKey::Authenticated("shared".to_string());
+
+        assert_eq!(
+            state
+                .check(RateLimitedSurface::AdminApi, principal.clone())
+                .await,
+            RateLimitDecision::Allow
+        );
+        assert!(matches!(
+            state
+                .check(RateLimitedSurface::AdminApi, principal.clone())
+                .await,
+            RateLimitDecision::Reject { .. }
+        ));
+        assert_eq!(
+            state
+                .check(RateLimitedSurface::GatewayModels, principal)
                 .await,
             RateLimitDecision::Allow
         );

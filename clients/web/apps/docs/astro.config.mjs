@@ -240,6 +240,21 @@ export default defineConfig({
           ],
         },
         {
+          label: "Rook",
+          translations: {
+            es: "Rook",
+          },
+          items: [
+            {
+              label: "Operational Health",
+              slug: "rook/operational-health",
+              translations: {
+                es: "Salud operacional",
+              },
+            },
+          ],
+        },
+        {
           label: "Cerebro",
           translations: {
             es: "Cerebro",
@@ -299,6 +314,13 @@ export default defineConfig({
               slug: "cerebro/operations",
               translations: {
                 es: "Operaciones",
+              },
+            },
+            {
+              label: "Deployment Runbook",
+              slug: "cerebro/deployment-runbook",
+              translations: {
+                es: "Runbook de despliegue",
               },
             },
           ],

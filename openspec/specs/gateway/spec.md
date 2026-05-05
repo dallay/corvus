@@ -18,8 +18,8 @@ OpenAI-shaped transport types, routing via `RoutingEngine`, upstream proxy behav
 header construction, and health feedback after upstream calls.
 
 The admin portion covers CRUD management for accounts, pools, pool membership, routes, health,
-settings, and the placeholder usage endpoint, including redacted response views and coexistence
-with the dashboard routes.
+settings, and `GET /api/usage` real persisted usage accounting per R25, including redacted response
+views and coexistence with the dashboard routes.
 
 ---
 
@@ -365,7 +365,8 @@ The gateway MUST expose a `POST /v1/chat/completions` endpoint that:
 7. Sets `Content-Type: application/json` on the upstream request.
 8. Forwards the **original raw JSON request body** to the upstream provider.
 9. Returns the upstream response body and status to the client.
-10. After the upstream call, reports health feedback (R10).
+10. Applies policy-driven upstream resilience controls (R10A) before surfacing terminal failures.
+11. After each upstream attempt, reports health feedback (R10).
 
 **Response mapping**:
 
@@ -475,6 +476,55 @@ upstream status code.
 - GIVEN a valid request with extra vendor-specific fields (e.g., `"logprobs": true`)
 - WHEN the gateway forwards to the upstream
 - THEN the upstream request body MUST contain all original fields, including unknown ones
+
+---
+
+### R8A: Upstream Resilience Policy
+
+The gateway MUST apply explicit resilience policy for upstream attempts instead of ad hoc failure handling.
+
+Buffered, non-streaming chat completion requests MUST retry only failure classes that are safe to replay:
+
+- Retryable: upstream HTTP 5xx, HTTP 429, connection/transport errors, response body read errors, and request timeouts.
+- Non-retryable: upstream HTTP 4xx other than 429, missing base URL, and auth-header construction failures.
+
+For buffered requests, the default policy MUST allow at most 3 upstream attempts total. After each failed
+retryable attempt, the gateway MUST mark the attempted account unhealthy with the configured cooldown,
+wait for the configured backoff, resolve routing again, and avoid immediately thrashing the same unhealthy
+account when another healthy account is available. If no account remains after a retryable failure, the
+gateway MUST return the terminal upstream error mapping rather than replacing it with a routing error.
+
+Streaming requests MUST NOT retry after an upstream attempt has been made, because replaying a stream can
+violate client-visible semantics. Streaming requests MAY fail before bytes are sent using the normal upstream
+error mapping and MUST still mark the attempted account unhealthy.
+
+The gateway MUST bound concurrent upstream attempts with a shared concurrency control. The default timeout
+remains the configured `reqwest::Client` timeout (30 seconds in server wiring).
+
+#### Scenario: Buffered retryable failure retries on next healthy account
+
+- GIVEN a route resolves first to account A and then to account B after health filtering
+- AND account A returns HTTP 500
+- AND account B returns HTTP 200
+- WHEN the client sends a non-streaming chat completion request
+- THEN account A MUST be marked unhealthy with cooldown
+- AND the request MUST be retried against account B
+- AND the client MUST receive account B's successful upstream response
+
+#### Scenario: Buffered non-retryable client error is not retried
+
+- GIVEN a route resolves to an account that returns HTTP 400
+- WHEN the client sends a non-streaming chat completion request
+- THEN the gateway MUST return the upstream error mapping
+- AND no second upstream attempt MUST be made for that client error
+
+#### Scenario: Streaming upstream failure is not retried
+
+- GIVEN a streaming request resolves to account A and another healthy account B exists
+- AND account A returns an upstream failure before a stream is opened
+- WHEN the client sends `stream: true`
+- THEN the gateway MUST return the upstream error mapping
+- AND account B MUST NOT be attempted for that streaming request
 
 ---
 
@@ -1134,34 +1184,50 @@ current settings service.
 
 ---
 
-### R25: Usage Placeholder Endpoint
+### R25: Usage Accounting Endpoint
 
 The system MUST expose `GET /api/usage`.
 
-Because no real usage or cost-accounting backend exists in M1, this endpoint MUST return a stable
-placeholder response using `UsageStatusView` with `available: false`.
+The endpoint MUST return real, persisted gateway request accounting derived from redacted usage
+ledger events. The endpoint MUST NOT invent fake usage totals, provider billing details, quota
+consumption, token estimates, or analytics summaries that are not backed by persisted events.
 
-The endpoint MUST NOT invent fake usage totals, provider billing details, quota consumption, token
-accounting, or analytics summaries.
+Each `/v1/chat/completions` request attempt MUST record one usage event with safe metadata:
+timestamp, request id when available, logical model, normalized vendor label, account id when routed,
+normalized account label, stream flag, outcome, status code, latency, and provider-reported token
+usage only when safely present in the upstream response.
 
-This audit slice MUST preserve that placeholder behavior unchanged unless a separate change adds a
-real usage ledger and corresponding specification updates.
+The usage ledger MUST NOT persist prompts, messages, raw request bodies, raw response bodies,
+authorization headers, API keys, provider secrets, or provider error payloads.
 
-#### Scenario: usage placeholder response
+Streaming requests MUST be counted as requests and outcomes, but token fields MUST remain unknown
+unless a future provider-specific implementation safely extracts explicit usage data.
 
-- GIVEN the M1 runtime with no backing usage subsystem
+#### Scenario: usage summary response
+
+- GIVEN gateway usage events exist in the persisted usage ledger
 - WHEN a client requests `GET /api/usage`
 - THEN the response status MUST be `200 OK`
-- AND the response body MUST equal the documented placeholder contract
-- AND `available` MUST be `false`
+- AND `available` MUST be `true`
+- AND the response MUST include `window`, `totals`, `by_model`, `by_vendor`, and `by_outcome`
+- AND totals MUST be derived from persisted usage events
 
-#### Scenario: usage endpoint remains placeholder after audit slice
+#### Scenario: usage accounting redacts sensitive payloads
 
-- GIVEN persisted admin audit events exist in the system
-- WHEN a client requests `GET /api/usage`
-- THEN the response MUST still equal the documented placeholder contract
-- AND `available` MUST be `false`
-- AND the response MUST NOT claim real usage analytics or accounting
+- GIVEN a gateway request includes prompt content, authorization credentials, or provider secrets
+- WHEN the request is recorded as a usage event
+- THEN the event MUST NOT persist prompt content, raw request bodies, raw response bodies,
+  authorization headers, API keys, provider secrets, or provider error payloads
+- AND summary responses MUST expose only aggregate metadata and token/cost fields backed by stored
+  safe values
+
+#### Scenario: unrouted requests are counted honestly
+
+- GIVEN a `/v1/chat/completions` request cannot be routed to a provider account
+- WHEN Rook returns the route rejection response
+- THEN one usage event MUST be persisted with outcome `route_rejected`
+- AND vendor/account/model labels that cannot be safely resolved MUST use the canonical `unrouted`
+  label
 
 ---
 
@@ -3034,19 +3100,43 @@ Rules:
 
 ---
 
-### UsageStatusView (placeholder)
+### UsageSummaryView
 
 ```json
 {
-  "available": false,
-  "reason": "usage accounting is not implemented in M1"
+  "available": true,
+  "window": {
+    "period": "day",
+    "since": "2026-05-03T00:00:00Z",
+    "until": "2026-05-03T12:34:56Z"
+  },
+  "totals": {
+    "requests": 12,
+    "successful_requests": 10,
+    "failed_requests": 2,
+    "streaming_requests": 4,
+    "prompt_tokens": 1000,
+    "completion_tokens": 500,
+    "total_tokens": 1500,
+    "known_token_requests": 8,
+    "estimated_cost_usd": null
+  },
+  "by_model": [],
+  "by_vendor": [],
+  "by_outcome": []
 }
 ```
 
 Rules:
 
-- `available` MUST be `false` in M1
-- `reason` MUST be a human-readable explanation that usage accounting does not yet exist
+- `available` MUST be `true` when the usage ledger is available.
+- `window.period` MUST be `hour`, `day`, or `month`.
+- Token totals MUST include only provider-reported token usage persisted in usage events.
+- `estimated_cost_usd` MUST be `null` unless a future cost implementation persists real cost data.
+- Group arrays MUST contain bounded aggregate rows with a `key` and the same aggregate fields as
+  `totals`.
+- The response MUST NOT include raw request payloads, raw response payloads, credentials, or provider
+  secrets.
 
 ---
 
@@ -3843,60 +3933,106 @@ upstream provider probing.
 
 ### Requirement: Readiness and Liveness Health Endpoints
 
-The system MUST expose distinct liveness and readiness health semantics for the admin surface.
+The system MUST expose distinct operational liveness and readiness health semantics for the admin
+surface.
 
-The system MUST expose a liveness endpoint and a readiness endpoint under the `/api/health/*`
-namespace.
+The system MUST expose these endpoints under the admin health namespace:
 
-For Phase 1, the liveness endpoint MUST report whether the Rook process is running and capable of
-serving the event loop. Liveness MUST NOT depend on database reachability, provider reachability,
-or account-level routing state.
+- `GET /api/health/live`
+- `GET /api/health/ready`
 
-For Phase 1, the readiness endpoint MUST report whether critical local dependencies required to
+For Phase 1, `GET /api/health/live` MUST report whether the Rook process is running and capable of
+serving HTTP requests. Liveness MUST NOT depend on database reachability, provider reachability,
+embedded dashboard asset availability, or account-level routing state.
+
+The liveness response body MUST be structured JSON:
+
+```json
+{ "status": "ok" }
+```
+
+For Phase 1, `GET /api/health/ready` MUST report whether critical local dependencies required to
 serve traffic are available.
 
 Readiness MUST evaluate at minimum:
 
-- effective configuration validation success
-- database open or initialization success required for serving
-- router availability
-- embedded assets or other local runtime resources required by the process
+- `config`: effective configuration validation success
+- `database`: database open or initialization success required for serving
+- `router`: router availability
+- `assets`: embedded dashboard asset availability
 
-Readiness MUST NOT require all upstream AI providers to be reachable in Phase 1.
+`config`, `database`, and `router` MUST be treated as critical readiness dependencies. If any of
+these dependencies is unavailable, readiness MUST return `503 Service Unavailable` and aggregate
+status `"fail"`.
 
-Both health endpoints MUST return structured JSON responses with stable semantics suitable for
-orchestration.
+`assets` MUST be treated as non-critical for Phase 1. If assets are unavailable while all critical
+dependencies are available, readiness MUST return `200 OK` and aggregate status `"degraded"`.
+
+Readiness MUST NOT require all upstream AI providers to be reachable in Phase 1. Upstream/provider
+availability belongs to provider account health and routing state, not operational readiness.
+
+The readiness response body MUST be structured JSON with stable semantics suitable for orchestration:
+
+```json
+{
+  "status": "ok",
+  "checks": {
+    "config": { "ready": true },
+    "database": { "ready": true },
+    "router": { "ready": true },
+    "assets": { "ready": true }
+  }
+}
+```
+
+When a dependency is not ready, its check object MUST include `ready: false` and SHOULD include an
+operator-friendly `reason` string.
 
 #### Scenario: liveness is healthy while process is running
 
 - GIVEN the Rook process is running
-- WHEN a client requests the liveness endpoint
-- THEN the response status MUST be successful
-- AND the JSON body MUST indicate a live state
-- AND the result MUST NOT depend on database or upstream provider reachability
+- WHEN a client requests `GET /api/health/live`
+- THEN the response status MUST be `200 OK`
+- AND the JSON body MUST equal `{ "status": "ok" }`
+- AND the result MUST NOT depend on database, asset, account, or upstream provider reachability
 
 #### Scenario: readiness is healthy after valid startup
 
 - GIVEN the Rook process has completed startup with valid effective configuration
-- AND the required database and local runtime resources are available
-- WHEN a client requests the readiness endpoint
-- THEN the response status MUST be successful
-- AND the JSON body MUST indicate a ready state
+- AND the required database and router are available
+- AND embedded assets are available
+- WHEN a client requests `GET /api/health/ready`
+- THEN the response status MUST be `200 OK`
+- AND the JSON body MUST include `status: "ok"`
+- AND the JSON body MUST include `checks.config.ready: true`
+- AND the JSON body MUST include `checks.database.ready: true`
+- AND the JSON body MUST include `checks.router.ready: true`
+- AND the JSON body MUST include `checks.assets.ready: true`
 
 #### Scenario: readiness fails when a critical local dependency is unavailable
 
 - GIVEN the Rook process cannot satisfy a critical local serving dependency such as configuration
-  validation or database initialization
-- WHEN a client requests the readiness endpoint
-- THEN the response status MUST be non-success
-- AND the JSON body MUST indicate not-ready state
-- AND the response MUST identify at least one failing readiness dependency
+  validation, database initialization, or router availability
+- WHEN a client requests `GET /api/health/ready`
+- THEN the response status MUST be `503 Service Unavailable`
+- AND the JSON body MUST include `status: "fail"`
+- AND the response MUST identify at least one failing readiness dependency with `ready: false`
+
+#### Scenario: readiness is degraded when only embedded assets are unavailable
+
+- GIVEN valid effective configuration
+- AND the required database and router are available
+- AND embedded dashboard assets are unavailable
+- WHEN a client requests `GET /api/health/ready`
+- THEN the response status MUST be `200 OK`
+- AND the JSON body MUST include `status: "degraded"`
+- AND the JSON body MUST include `checks.assets.ready: false`
 
 #### Scenario: readiness does not fail solely because upstream providers are unreachable
 
 - GIVEN the Rook process has valid local startup state
 - AND one or more upstream AI providers are unreachable
-- WHEN a client requests the readiness endpoint
+- WHEN a client requests `GET /api/health/ready`
 - THEN readiness MUST continue to report ready for Phase 1
 - AND upstream provider reachability MUST NOT be required by this requirement
 
@@ -3906,16 +4042,19 @@ orchestration.
 
 The existing `GET /api/health` admin route MUST remain available for compatibility during Phase 1.
 
-If distinct readiness and liveness routes are added, `GET /api/health` MUST continue to return a
-successful lightweight health response or a documented compatibility view, and it MUST NOT be
-removed by this change.
+`GET /api/health` MUST continue to return `200 OK` with plain text body `ok` for a running process.
+It MUST NOT be redefined to aggregate dependency readiness or provider account health.
+
+Operators SHOULD use `GET /api/health/live` for liveness probes and `GET /api/health/ready` for
+readiness probes. `GET /api/health` is retained for legacy/simple smoke checks.
 
 #### Scenario: existing base health endpoint remains available after readiness/liveness are added
 
 - GIVEN Phase 1 readiness and liveness endpoints are implemented
 - WHEN a client requests `GET /api/health`
 - THEN the route MUST still exist
-- AND the response MUST remain successful for a healthy running process
+- AND the response status MUST be `200 OK`
+- AND the response body MUST equal `ok`
 
 ---
 

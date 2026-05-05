@@ -9,6 +9,13 @@ use super::types::{
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
+/// Central slash-command registry for runtime ingress paths.
+///
+/// The registry is the single runtime abstraction responsible for slash-command
+/// registration, metadata discovery, name/alias resolution, argument-shape
+/// validation, requirement checks, and dispatch into command handlers. CLI,
+/// gateway, webhook, and channel ingress should call through this registry
+/// instead of matching on slash command names directly.
 pub struct SlashCommandRegistry {
     registrations: Vec<SlashCommandRegistration>,
     by_canonical_name: BTreeMap<&'static str, usize>,
@@ -116,31 +123,53 @@ impl SlashCommandRegistry {
             .map(|registration| &registration.descriptor)
     }
 
-    fn iter(&self) -> impl Iterator<Item = &SlashCommandDescriptor> {
+    pub fn contains(&self, name: &str) -> bool {
+        self.resolve_registration(name).is_some()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &SlashCommandDescriptor> {
         self.registrations
             .iter()
             .map(|registration| &registration.descriptor)
     }
 
-    pub async fn dispatch(
+    pub async fn dispatch_prompt(
         &self,
         service: &SessionCommandService<'_>,
         context: CommandContext,
         prompt: &str,
     ) -> Option<SessionCommandOutcome> {
         let raw = SessionCommandParser::parse(prompt)?;
-        let registration = self.resolve_registration(&raw.invoked_name)?;
+        self.resolve_registration(&raw.invoked_name)?;
+        Some(self.dispatch_raw(service, context, raw).await)
+    }
+
+    pub async fn dispatch_raw(
+        &self,
+        service: &SessionCommandService<'_>,
+        context: CommandContext,
+        raw: RawSlashInvocation,
+    ) -> SessionCommandOutcome {
+        let Some(registration) = self.resolve_registration(&raw.invoked_name) else {
+            return SessionCommandOutcome::Failure(SessionCommandFailure {
+                command: "/",
+                kind: SessionCommandFailureKind::UnknownCommand,
+                session_id: Some(context.session.session_id.clone()),
+                message: format!("unknown slash command: {}", raw.invoked_name),
+            });
+        };
         let invocation = match validate_invocation(&registration.descriptor, raw) {
             Ok(invocation) => invocation,
-            Err(error) => return Some(SessionCommandOutcome::Failure(error)),
+            Err(error) => return SessionCommandOutcome::Failure(error),
         };
+        if let Err(error) = validate_requirements(&registration.descriptor, &context) {
+            return SessionCommandOutcome::Failure(error);
+        }
 
-        Some(
-            registration
-                .handler
-                .handle(service, context, invocation)
-                .await,
-        )
+        registration
+            .handler
+            .handle(service, context, invocation)
+            .await
     }
 
     fn resolve_registration(&self, name: &str) -> Option<&SlashCommandRegistration> {
@@ -506,6 +535,28 @@ fn validate_name(name: &str) -> Result<(), SlashRegistryError> {
     }
 }
 
+fn validate_requirements(
+    descriptor: &SlashCommandDescriptor,
+    context: &CommandContext,
+) -> Result<(), SessionCommandFailure> {
+    for permission in descriptor.requirements.permissions {
+        match permission {
+            CommandPermission::RequiresCallerScope if !context.facts.has_caller_scope => {
+                return Err(SessionCommandFailure {
+                    command: descriptor.canonical_name,
+                    kind: SessionCommandFailureKind::MissingCallerScope,
+                    session_id: Some(context.session.session_id.clone()),
+                    message: "permission denied: caller scope unavailable".to_string(),
+                });
+            }
+            CommandPermission::RequiresCallerScope
+            | CommandPermission::RequiresResumableSessionVisibility => {}
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_invocation(
     descriptor: &SlashCommandDescriptor,
     raw: RawSlashInvocation,
@@ -713,6 +764,58 @@ mod tests {
     }
 
     #[test]
+    fn registry_rejects_duplicate_aliases_within_one_descriptor() {
+        let mut registry = SlashCommandRegistry::empty();
+
+        let error = registry
+            .register(registration(
+                "/resume",
+                &["/continue", "/continue"],
+                "resume a session",
+                SlashCommandArgumentShape::OptionalTargetThenText,
+            ))
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            SlashRegistryError::DuplicateAlias {
+                alias: "/continue".to_string(),
+                existing_canonical_name: "/resume".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn registry_rejects_canonical_names_that_collide_with_existing_aliases() {
+        let mut registry = SlashCommandRegistry::empty();
+        registry
+            .register(registration(
+                "/resume",
+                &["/continue"],
+                "resume a session",
+                SlashCommandArgumentShape::OptionalTargetThenText,
+            ))
+            .unwrap();
+
+        let error = registry
+            .register(registration(
+                "/continue",
+                &[],
+                "continue a session",
+                SlashCommandArgumentShape::OptionalTargetThenText,
+            ))
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            SlashRegistryError::AliasCollidesWithCanonical {
+                alias: "/continue".to_string(),
+                canonical_name: "/resume".to_string(),
+            }
+        );
+    }
+
+    #[test]
     fn registry_rejects_alias_collisions_with_canonical_names() {
         let mut registry = SlashCommandRegistry::empty();
         registry
@@ -765,6 +868,55 @@ mod tests {
                 .get("/continue")
                 .map(|descriptor| descriptor.canonical_name),
             Some("/resume")
+        );
+        assert!(registry.contains("/resume"));
+        assert!(registry.contains("/continue"));
+        assert!(!registry.contains("/missing"));
+    }
+
+    #[test]
+    fn registry_iteration_exposes_discoverable_metadata_in_registration_order() {
+        let mut registry = SlashCommandRegistry::empty();
+        registry
+            .register(registration(
+                "/tools",
+                &[],
+                "list tools",
+                SlashCommandArgumentShape::None,
+            ))
+            .unwrap();
+        registry
+            .register(registration(
+                "/resume",
+                &["/continue"],
+                "resume a session",
+                SlashCommandArgumentShape::OptionalTargetThenText,
+            ))
+            .unwrap();
+
+        let metadata = registry
+            .iter()
+            .map(|descriptor| {
+                (
+                    descriptor.canonical_name,
+                    descriptor.aliases,
+                    descriptor.description,
+                    descriptor.argument_shape.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(metadata.len(), 2);
+        assert_eq!(metadata[0].0, "/tools");
+        assert_eq!(metadata[0].1, &[] as &[&str]);
+        assert_eq!(metadata[0].2, "list tools");
+        assert_eq!(metadata[0].3, SlashCommandArgumentShape::None);
+        assert_eq!(metadata[1].0, "/resume");
+        assert_eq!(metadata[1].1, &["/continue"] as &[&str]);
+        assert_eq!(metadata[1].2, "resume a session");
+        assert_eq!(
+            metadata[1].3,
+            SlashCommandArgumentShape::OptionalTargetThenText
         );
     }
 
@@ -855,11 +1007,90 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dispatch_raw_reports_unknown_registered_command() {
+        let service = SessionCommandService::new(&RegistryMemory);
+
+        let result = default_registry()
+            .dispatch_raw(
+                &service,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                RawSlashInvocation {
+                    invoked_name: "/missing".to_string(),
+                    raw_args: String::new(),
+                },
+            )
+            .await;
+
+        assert_eq!(
+            result,
+            SessionCommandOutcome::Failure(SessionCommandFailure {
+                command: "/",
+                kind: SessionCommandFailureKind::UnknownCommand,
+                session_id: Some("session-1".to_string()),
+                message: "unknown slash command: /missing".to_string(),
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_prompt_falls_through_unknown_slash_commands() {
+        let service = SessionCommandService::new(&RegistryMemory);
+
+        let result = default_registry()
+            .dispatch_prompt(
+                &service,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                "/missing",
+            )
+            .await;
+
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn dispatch_denies_command_when_declared_caller_scope_permission_is_missing() {
+        let service = SessionCommandService::new(&RegistryMemory);
+
+        let result = default_registry()
+            .dispatch_prompt(
+                &service,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                "/resume",
+            )
+            .await;
+
+        assert_eq!(
+            result,
+            Some(SessionCommandOutcome::Failure(SessionCommandFailure {
+                command: "/resume",
+                kind: SessionCommandFailureKind::MissingCallerScope,
+                session_id: Some("session-1".to_string()),
+                message: "permission denied: caller scope unavailable".to_string(),
+            }))
+        );
+    }
+
+    #[tokio::test]
     async fn dispatch_validates_argument_shape_for_exact_commands() {
         let service = SessionCommandService::new(&RegistryMemory);
 
         let result = default_registry()
-            .dispatch(
+            .dispatch_prompt(
                 &service,
                 CommandContext::for_cli(
                     "session-1",
@@ -893,7 +1124,7 @@ mod tests {
         let service = SessionCommandService::with_tool_snapshot(&RegistryMemory, &tools);
 
         let result = default_registry()
-            .dispatch(
+            .dispatch_prompt(
                 &service,
                 CommandContext::for_cli(
                     "session-1",
@@ -927,7 +1158,7 @@ mod tests {
         let service = SessionCommandService::with_tool_snapshot(&RegistryMemory, &tools);
 
         let result = default_registry()
-            .dispatch(
+            .dispatch_prompt(
                 &service,
                 CommandContext::for_cli(
                     "session-1",
@@ -955,7 +1186,7 @@ mod tests {
         let service = SessionCommandService::new(&memory);
 
         let result = default_registry()
-            .dispatch(
+            .dispatch_prompt(
                 &service,
                 CommandContext::for_cli(
                     "session-1",
@@ -985,7 +1216,7 @@ mod tests {
         let service = SessionCommandService::new(&memory);
 
         let result = default_registry()
-            .dispatch(
+            .dispatch_prompt(
                 &service,
                 CommandContext::for_cli(
                     "session-1",
@@ -1027,7 +1258,7 @@ mod tests {
             .unwrap();
 
         let result = registry
-            .dispatch(
+            .dispatch_prompt(
                 &service,
                 CommandContext::for_cli(
                     "session-1",
@@ -1056,7 +1287,7 @@ mod tests {
         let service = SessionCommandService::new(&memory);
 
         let result = default_registry()
-            .dispatch(
+            .dispatch_prompt(
                 &service,
                 CommandContext::for_cli(
                     "session-1",
@@ -1084,7 +1315,7 @@ mod tests {
         let service = SessionCommandService::new(&RegistryMemory);
 
         let result = default_registry()
-            .dispatch(
+            .dispatch_prompt(
                 &service,
                 CommandContext::for_cli(
                     "session-1",
@@ -1112,7 +1343,7 @@ mod tests {
         let service = SessionCommandService::new(&RegistryMemory);
 
         let result = default_registry()
-            .dispatch(
+            .dispatch_prompt(
                 &service,
                 CommandContext::for_cli(
                     "session-1",
@@ -1140,7 +1371,7 @@ mod tests {
         let service = SessionCommandService::new(&RegistryMemory);
 
         let result = default_registry()
-            .dispatch(
+            .dispatch_prompt(
                 &service,
                 CommandContext::for_cli(
                     "session-1",
@@ -1170,7 +1401,7 @@ mod tests {
         let service = SessionCommandService::new(&memory);
 
         let result = default_registry()
-            .dispatch(
+            .dispatch_prompt(
                 &service,
                 CommandContext::for_cli(
                     "session-1",
@@ -1198,7 +1429,7 @@ mod tests {
         let service = SessionCommandService::new(&RegistryMemory);
 
         let result = default_registry()
-            .dispatch(
+            .dispatch_prompt(
                 &service,
                 CommandContext::for_cli(
                     "session-1",

@@ -2177,6 +2177,7 @@ fn map_session_command_failure_code(
         crate::session_commands::SessionCommandFailureKind::UnsupportedBackend => {
             "unsupported_backend"
         }
+        crate::session_commands::SessionCommandFailureKind::UnknownCommand => "unknown_command",
         crate::session_commands::SessionCommandFailureKind::UnknownSession => "unknown_session",
         crate::session_commands::SessionCommandFailureKind::InvalidState => "invalid_state",
         crate::session_commands::SessionCommandFailureKind::MissingSnapshot => "missing_snapshot",

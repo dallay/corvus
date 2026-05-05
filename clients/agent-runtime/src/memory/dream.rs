@@ -635,9 +635,22 @@ mod tests {
     use tempfile::TempDir;
 
     fn run_if_triggered_after_transient_busy(workspace_dir: &Path) -> MemoryConsolidationReport {
+        run_after_transient_busy(|| run_if_triggered(workspace_dir))
+    }
+
+    fn run_now_after_transient_busy(
+        workspace_dir: &Path,
+        trigger_reason: DreamTriggerReason,
+    ) -> MemoryConsolidationReport {
+        run_after_transient_busy(|| run_now(workspace_dir, trigger_reason.clone()))
+    }
+
+    fn run_after_transient_busy(
+        mut run: impl FnMut() -> Result<Option<MemoryConsolidationReport>>,
+    ) -> MemoryConsolidationReport {
         let mut last_report = None;
         for _ in 0..10 {
-            if let Some(report) = run_if_triggered(workspace_dir).unwrap() {
+            if let Some(report) = run().unwrap() {
                 if report.lock_state != DreamLockState::Busy {
                     return report;
                 }
@@ -844,9 +857,7 @@ mod tests {
         failed.failure_reason = Some("transient backend error".to_string());
         fs::write(&state_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
 
-        let report = run_now(tmp.path(), DreamTriggerReason::Manual)
-            .unwrap()
-            .unwrap();
+        let report = run_now_after_transient_busy(tmp.path(), DreamTriggerReason::Manual);
         let recovered = record_session_completion(tmp.path(), "sess-retry").unwrap();
         let memory = fs::read_to_string(tmp.path().join("MEMORY.md")).unwrap();
         let dream_summary_count = memory
@@ -870,7 +881,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         record_session_completion(tmp.path(), "sess-busy").unwrap();
 
-        let busy_guard = DreamLockGuard::acquire(tmp.path()).unwrap().unwrap();
+        let busy_guard = DreamLockGuard::acquire_blocking(tmp.path()).unwrap();
         let busy = run_now(tmp.path(), DreamTriggerReason::Manual)
             .unwrap()
             .unwrap();
