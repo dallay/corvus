@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.9.0](https://github.com/dallay/corvus/compare/corvus-runtime-v3.8.0...corvus-runtime-v3.9.0) (2026-05-05)
+
+
+### Features
+
+* **runtime:** implement core memory creation and snapshot hydration tests ([a316126](https://github.com/dallay/corvus/commit/a316126b644c50837fe218432b963de411c14862))
+
 ## [3.8.0](https://github.com/dallay/corvus/compare/corvus-runtime-v3.7.0...corvus-runtime-v3.8.0) (2026-05-05)
 
 
