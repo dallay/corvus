@@ -140,9 +140,7 @@ impl SlashCommandRegistry {
         prompt: &str,
     ) -> Option<SessionCommandOutcome> {
         let raw = SessionCommandParser::parse(prompt)?;
-        if self.resolve_registration(&raw.invoked_name).is_none() {
-            return None;
-        }
+        self.resolve_registration(&raw.invoked_name)?;
         Some(self.dispatch_raw(service, context, raw).await)
     }
 
