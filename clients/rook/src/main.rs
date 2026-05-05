@@ -3,15 +3,22 @@
 //! Entry point. Parses subcommands and dispatches to the appropriate module.
 
 use anyhow::Result;
-use clap::{ArgAction, Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+use rook::admin::types::{
+    UsageAggregateView, UsageGroupView, UsageSummaryPeriod, UsageSummaryView,
+    UsageSummaryWindowView,
+};
 use rook::config::{
     discover_default_config_path, load_effective_config, CliRookConfigOverlay, LoadRookConfigInput,
     PartialChatCompletionsIdempotencyConfig, PartialIdempotencyConfig, PartialInboundAuthConfig,
-    PartialRateLimitConfig, PartialSurfaceRateLimitPolicy, RookConfig, RookConfigExportView,
+    PartialRateLimitConfig, PartialSurfaceRateLimitPolicy, PartialUpstreamResilienceConfig,
+    RookConfig, RookConfigExportView,
 };
+use rook::db::usage::{UsageAggregate, UsageGroupAggregate, UsageSummaryQuery};
 use rook::doctor;
 use rook::registry::RookRegistry;
 use rook::server::ServerConfig;
+use rook::services::usage::UsageService as _;
 
 const DEFAULT_ROOK_DB_PATH: &str = "./rook.db";
 
@@ -82,11 +89,36 @@ enum Commands {
         /// Replay window in seconds for keyed `POST /v1/chat/completions` idempotency
         #[arg(long)]
         chat_idempotency_replay_window_seconds: Option<u64>,
+
+        /// Maximum attempts for buffered upstream chat completion requests
+        #[arg(long)]
+        upstream_max_buffered_attempts: Option<usize>,
+
+        /// Cooldown seconds applied to an account after upstream failure
+        #[arg(long)]
+        upstream_failure_cooldown_seconds: Option<u64>,
+
+        /// Backoff in milliseconds between buffered upstream retry attempts
+        #[arg(long)]
+        upstream_retry_backoff_milliseconds: Option<u64>,
+
+        /// Maximum concurrent upstream requests allowed by the gateway
+        #[arg(long)]
+        upstream_max_concurrent_requests: Option<usize>,
     },
     /// Launch the operator TUI
     Tui,
     /// Run diagnostics and check configuration
-    Doctor,
+    Doctor {
+        /// Render machine-readable JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Usage accounting reports
+    Usage {
+        #[command(subcommand)]
+        action: UsageCommands,
+    },
     /// Configuration management
     Config {
         #[command(subcommand)]
@@ -98,6 +130,48 @@ enum Commands {
 enum ConfigCommands {
     /// Export current configuration to stdout
     Export,
+}
+
+#[derive(Subcommand)]
+enum UsageCommands {
+    /// Print a persisted usage summary
+    Report {
+        /// Reporting window to summarize
+        #[arg(long, default_value = "day", value_parser = parse_usage_summary_period)]
+        period: UsageSummaryPeriod,
+
+        /// Maximum number of groups to include per breakdown
+        #[arg(long)]
+        limit: Option<usize>,
+
+        /// Output format
+        #[arg(long, value_enum, default_value_t = UsageReportFormat::Json)]
+        format: UsageReportFormat,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum UsageReportFormat {
+    Json,
+}
+
+impl std::fmt::Display for UsageReportFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json => f.write_str("json"),
+        }
+    }
+}
+
+fn parse_usage_summary_period(value: &str) -> std::result::Result<UsageSummaryPeriod, String> {
+    match value {
+        "hour" => Ok(UsageSummaryPeriod::Hour),
+        "day" => Ok(UsageSummaryPeriod::Day),
+        "month" => Ok(UsageSummaryPeriod::Month),
+        other => Err(format!(
+            "invalid period '{other}', expected one of: hour, day, month"
+        )),
+    }
 }
 
 #[tokio::main]
@@ -163,6 +237,10 @@ where
             chat_rate_limit_max_requests,
             chat_rate_limit_window_seconds,
             chat_idempotency_replay_window_seconds,
+            upstream_max_buffered_attempts,
+            upstream_failure_cooldown_seconds,
+            upstream_retry_backoff_milliseconds,
+            upstream_max_concurrent_requests,
         } => {
             let config_path = discover_default_config_path(env);
             let config = build_serve_config(
@@ -180,6 +258,10 @@ where
                     chat_rate_limit_max_requests,
                     chat_rate_limit_window_seconds,
                     chat_idempotency_replay_window_seconds,
+                    upstream_max_buffered_attempts,
+                    upstream_failure_cooldown_seconds,
+                    upstream_retry_backoff_milliseconds,
+                    upstream_max_concurrent_requests,
                 },
                 config_path.as_deref(),
                 env,
@@ -194,11 +276,32 @@ where
             )
             .await?;
         }
-        Commands::Doctor => {
+        Commands::Doctor { json } => {
             let config_path = discover_default_config_path(env);
             let report = doctor::run_with_config_path(config_path.as_deref(), env).await;
-            output(doctor::render_report(&report))?;
+            if json {
+                output(doctor::render_json_report(&report)?)?;
+            } else {
+                output(doctor::render_report(&report))?;
+            }
             doctor::ensure_success(&report)?;
+        }
+        Commands::Usage {
+            action:
+                UsageCommands::Report {
+                    period,
+                    limit,
+                    format,
+                },
+        } => {
+            let config_path = discover_default_config_path(env);
+            let config = build_export_config_from_path(
+                config_path.as_deref(),
+                env,
+                CliRookConfigOverlay::default(),
+            )?;
+            let report = build_usage_report(&config, period, limit).await?;
+            output(render_usage_report(&report, format)?)?;
         }
         Commands::Config {
             action: ConfigCommands::Export,
@@ -248,6 +351,79 @@ fn render_config_export(config: &RookConfig) -> Result<String> {
     )?)
 }
 
+fn render_usage_report(view: &UsageSummaryView, format: UsageReportFormat) -> Result<String> {
+    match format {
+        UsageReportFormat::Json => Ok(serde_json::to_string_pretty(view)?),
+    }
+}
+
+async fn build_usage_report(
+    config: &RookConfig,
+    period: UsageSummaryPeriod,
+    limit: Option<usize>,
+) -> Result<UsageSummaryView> {
+    let registry = RookRegistry::open(config.db_path.to_string_lossy().as_ref()).await?;
+    let now = chrono::Utc::now();
+    let since = usage_window_start(period.clone(), now);
+    let limit = limit.unwrap_or(10).clamp(1, 100);
+    let summary = registry
+        .usage()
+        .summary(UsageSummaryQuery {
+            since,
+            until: now,
+            limit,
+        })
+        .await?;
+
+    Ok(UsageSummaryView {
+        available: true,
+        window: UsageSummaryWindowView {
+            period,
+            since,
+            until: now,
+        },
+        totals: usage_aggregate_view(summary.totals),
+        by_model: usage_group_views(summary.by_model),
+        by_vendor: usage_group_views(summary.by_vendor),
+        by_outcome: usage_group_views(summary.by_outcome),
+    })
+}
+
+fn usage_window_start(
+    period: UsageSummaryPeriod,
+    now: chrono::DateTime<chrono::Utc>,
+) -> chrono::DateTime<chrono::Utc> {
+    match period {
+        UsageSummaryPeriod::Hour => now - chrono::Duration::hours(1),
+        UsageSummaryPeriod::Day => now - chrono::Duration::days(1),
+        UsageSummaryPeriod::Month => now - chrono::Duration::days(30),
+    }
+}
+
+fn usage_aggregate_view(aggregate: UsageAggregate) -> UsageAggregateView {
+    UsageAggregateView {
+        requests: aggregate.requests,
+        successful_requests: aggregate.successful_requests,
+        failed_requests: aggregate.failed_requests,
+        streaming_requests: aggregate.streaming_requests,
+        prompt_tokens: aggregate.prompt_tokens,
+        completion_tokens: aggregate.completion_tokens,
+        total_tokens: aggregate.total_tokens,
+        known_token_requests: aggregate.known_token_requests,
+        estimated_cost_usd: aggregate.estimated_cost_usd,
+    }
+}
+
+fn usage_group_views(groups: Vec<UsageGroupAggregate>) -> Vec<UsageGroupView> {
+    groups
+        .into_iter()
+        .map(|group| UsageGroupView {
+            key: group.key,
+            aggregate: usage_aggregate_view(group.aggregate),
+        })
+        .collect()
+}
+
 async fn launch_tui_with_runner<F, Fut>(
     db_path: &str,
     dashboard_url: String,
@@ -277,10 +453,30 @@ struct ServeOverrides {
     chat_rate_limit_max_requests: Option<u32>,
     chat_rate_limit_window_seconds: Option<u64>,
     chat_idempotency_replay_window_seconds: Option<u64>,
+    upstream_max_buffered_attempts: Option<usize>,
+    upstream_failure_cooldown_seconds: Option<u64>,
+    upstream_retry_backoff_milliseconds: Option<u64>,
+    upstream_max_concurrent_requests: Option<usize>,
 }
 
 impl ServeOverrides {
     fn into_cli_overlay(self) -> CliRookConfigOverlay {
+        let upstream_resilience = PartialUpstreamResilienceConfig {
+            max_buffered_attempts: self.upstream_max_buffered_attempts,
+            failure_cooldown_seconds: self.upstream_failure_cooldown_seconds,
+            retry_backoff_milliseconds: self.upstream_retry_backoff_milliseconds,
+            max_concurrent_upstream_requests: self.upstream_max_concurrent_requests,
+        };
+        let upstream_resilience = option_if(
+            upstream_resilience.max_buffered_attempts.is_some()
+                || upstream_resilience.failure_cooldown_seconds.is_some()
+                || upstream_resilience.retry_backoff_milliseconds.is_some()
+                || upstream_resilience
+                    .max_concurrent_upstream_requests
+                    .is_some(),
+            upstream_resilience,
+        );
+
         CliRookConfigOverlay {
             host: self.host,
             port: self.port,
@@ -337,6 +533,7 @@ impl ServeOverrides {
                     }),
                 },
             ),
+            upstream_resilience,
         }
     }
 }
@@ -348,10 +545,79 @@ fn option_if<T>(condition: bool, value: T) -> Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
     use std::sync::{Arc, Mutex};
 
     fn capture_output() -> Arc<Mutex<Vec<String>>> {
         Arc::new(Mutex::new(Vec::new()))
+    }
+
+    #[test]
+    fn usage_report_cli_parses_json_report_options() {
+        let cli = Cli::try_parse_from([
+            "rook", "usage", "report", "--period", "day", "--limit", "25", "--format", "json",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Usage {
+                action:
+                    UsageCommands::Report {
+                        period,
+                        limit,
+                        format,
+                    },
+            } => {
+                assert_eq!(period, rook::admin::types::UsageSummaryPeriod::Day);
+                assert_eq!(limit, Some(25));
+                assert_eq!(format, UsageReportFormat::Json);
+            }
+            _ => panic!("expected usage report command"),
+        }
+    }
+
+    #[test]
+    fn doctor_cli_parses_json_flag() {
+        let cli = Cli::try_parse_from(["rook", "doctor", "--json"]).unwrap();
+
+        match cli.command {
+            Commands::Doctor { json } => assert!(json),
+            _ => panic!("expected doctor command"),
+        }
+    }
+
+    #[test]
+    fn serve_overrides_include_upstream_resilience_cli_values() {
+        let overrides = ServeOverrides {
+            host: None,
+            port: None,
+            enable_tui: false,
+            db_path: None,
+            inbound_auth_enabled: false,
+            inbound_auth_token: None,
+            api_rate_limit_max_requests: None,
+            api_rate_limit_window_seconds: None,
+            models_rate_limit_max_requests: None,
+            models_rate_limit_window_seconds: None,
+            chat_rate_limit_max_requests: None,
+            chat_rate_limit_window_seconds: None,
+            chat_idempotency_replay_window_seconds: None,
+            upstream_max_buffered_attempts: Some(4),
+            upstream_failure_cooldown_seconds: Some(90),
+            upstream_retry_backoff_milliseconds: Some(50),
+            upstream_max_concurrent_requests: Some(9),
+        };
+
+        let env = std::collections::HashMap::new();
+        let config = build_serve_config(overrides, None, &env).unwrap();
+
+        assert_eq!(config.upstream_resilience.max_buffered_attempts, 4);
+        assert_eq!(config.upstream_resilience.failure_cooldown.as_secs(), 90);
+        assert_eq!(config.upstream_resilience.retry_backoff.as_millis(), 50);
+        assert_eq!(
+            config.upstream_resilience.max_concurrent_upstream_requests,
+            9
+        );
     }
 
     #[test]
@@ -368,6 +634,108 @@ mod tests {
         assert!(output.contains("\"host\": \"127.0.0.1\""));
         assert!(output.contains("\"bearer_token\": \"[redacted]\""));
         assert!(!output.contains("super-secret-token"));
+    }
+
+    #[tokio::test]
+    async fn build_usage_report_reads_configured_database_summary() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let db_path = temp_dir.path().join("usage.db");
+        let registry = RookRegistry::open(db_path.to_str().unwrap())
+            .await
+            .expect("registry should open temp db");
+        registry
+            .usage()
+            .record(rook::db::usage::StoredUsageEvent {
+                id: "usage-cli-one".to_string(),
+                occurred_at: Utc::now(),
+                request_id: Some("req-usage-cli".to_string()),
+                logical_model: "gpt-4o".to_string(),
+                vendor: "open_ai".to_string(),
+                account_id: Some("account-id".to_string()),
+                account_label: "primary".to_string(),
+                stream: false,
+                outcome: "success".to_string(),
+                status_code: 200,
+                latency_ms: 42,
+                prompt_tokens: Some(10),
+                completion_tokens: Some(20),
+                total_tokens: Some(30),
+                cost_usd: None,
+                currency: None,
+                provider_request_id: None,
+            })
+            .await
+            .expect("usage event should be recorded");
+        drop(registry);
+
+        let config = RookConfig {
+            db_path: db_path.clone(),
+            ..Default::default()
+        };
+
+        let report = build_usage_report(&config, UsageSummaryPeriod::Day, Some(10))
+            .await
+            .expect("usage report should load from configured db");
+
+        assert!(report.available);
+        assert_eq!(report.totals.requests, 1);
+        assert_eq!(report.totals.successful_requests, 1);
+        assert_eq!(report.totals.total_tokens, 30);
+        assert_eq!(report.by_model[0].key, "gpt-4o");
+        assert_eq!(report.by_vendor[0].key, "open_ai");
+        assert_eq!(report.by_outcome[0].key, "success");
+    }
+
+    #[test]
+    fn render_usage_report_outputs_admin_usage_json_shape() {
+        let since = chrono::Utc::now() - chrono::Duration::days(1);
+        let until = chrono::Utc::now();
+        let view = rook::admin::types::UsageSummaryView {
+            available: true,
+            window: rook::admin::types::UsageSummaryWindowView {
+                period: rook::admin::types::UsageSummaryPeriod::Day,
+                since,
+                until,
+            },
+            totals: rook::admin::types::UsageAggregateView {
+                requests: 1,
+                successful_requests: 1,
+                failed_requests: 0,
+                streaming_requests: 0,
+                prompt_tokens: 10,
+                completion_tokens: 20,
+                total_tokens: 30,
+                known_token_requests: 1,
+                estimated_cost_usd: None,
+            },
+            by_model: vec![rook::admin::types::UsageGroupView {
+                key: "gpt-4o".to_string(),
+                aggregate: rook::admin::types::UsageAggregateView {
+                    requests: 1,
+                    successful_requests: 1,
+                    failed_requests: 0,
+                    streaming_requests: 0,
+                    prompt_tokens: 10,
+                    completion_tokens: 20,
+                    total_tokens: 30,
+                    known_token_requests: 1,
+                    estimated_cost_usd: None,
+                },
+            }],
+            by_vendor: Vec::new(),
+            by_outcome: Vec::new(),
+        };
+
+        let rendered = render_usage_report(&view, UsageReportFormat::Json)
+            .expect("usage report should render as JSON");
+        let json: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+
+        assert_eq!(json["available"], true);
+        assert_eq!(json["window"]["period"], "day");
+        assert_eq!(json["totals"]["requests"], 1);
+        assert_eq!(json["by_model"][0]["key"], "gpt-4o");
+        assert!(json.get("by_vendor").is_some());
+        assert!(json.get("by_outcome").is_some());
     }
 
     #[test]
@@ -447,6 +815,10 @@ mod tests {
                 chat_rate_limit_max_requests,
                 chat_rate_limit_window_seconds,
                 chat_idempotency_replay_window_seconds,
+                upstream_max_buffered_attempts,
+                upstream_failure_cooldown_seconds,
+                upstream_retry_backoff_milliseconds,
+                upstream_max_concurrent_requests,
             } => {
                 assert_eq!(host, Some("0.0.0.0".to_string()));
                 assert_eq!(port, Some(9999));
@@ -461,6 +833,10 @@ mod tests {
                 assert_eq!(chat_rate_limit_max_requests, Some(32));
                 assert_eq!(chat_rate_limit_window_seconds, Some(33));
                 assert_eq!(chat_idempotency_replay_window_seconds, Some(3600));
+                assert_eq!(upstream_max_buffered_attempts, None);
+                assert_eq!(upstream_failure_cooldown_seconds, None);
+                assert_eq!(upstream_retry_backoff_milliseconds, None);
+                assert_eq!(upstream_max_concurrent_requests, None);
             }
             _ => panic!("expected serve command"),
         }
@@ -537,6 +913,10 @@ mod tests {
             chat_rate_limit_max_requests: None,
             chat_rate_limit_window_seconds: None,
             chat_idempotency_replay_window_seconds: None,
+            upstream_max_buffered_attempts: None,
+            upstream_failure_cooldown_seconds: None,
+            upstream_retry_backoff_milliseconds: None,
+            upstream_max_concurrent_requests: None,
         };
 
         let serve = build_serve_config(serve_overrides.clone(), Some(config_path.as_path()), &env)
@@ -590,6 +970,10 @@ mod tests {
                 chat_rate_limit_max_requests: Some(77),
                 chat_rate_limit_window_seconds: Some(66),
                 chat_idempotency_replay_window_seconds: Some(7200),
+                upstream_max_buffered_attempts: None,
+                upstream_failure_cooldown_seconds: None,
+                upstream_retry_backoff_milliseconds: None,
+                upstream_max_concurrent_requests: None,
             },
             None,
             &env,
@@ -644,6 +1028,10 @@ mod tests {
                 chat_rate_limit_max_requests: None,
                 chat_rate_limit_window_seconds: None,
                 chat_idempotency_replay_window_seconds: None,
+                upstream_max_buffered_attempts: None,
+                upstream_failure_cooldown_seconds: None,
+                upstream_retry_backoff_milliseconds: None,
+                upstream_max_concurrent_requests: None,
             },
             Some(config_path.as_path()),
             &env,
@@ -692,6 +1080,10 @@ mod tests {
                 chat_rate_limit_max_requests: None,
                 chat_rate_limit_window_seconds: None,
                 chat_idempotency_replay_window_seconds: None,
+                upstream_max_buffered_attempts: None,
+                upstream_failure_cooldown_seconds: None,
+                upstream_retry_backoff_milliseconds: None,
+                upstream_max_concurrent_requests: None,
             },
             Some(config_path.as_path()),
             &env,
@@ -706,6 +1098,95 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn usage_report_command_outputs_json_without_leaking_config_secret() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let db_path = temp_dir.path().join("usage-command.db");
+        let config_path = temp_dir.path().join("rook.toml");
+        std::fs::write(
+            &config_path,
+            format!(
+                r#"
+                db_path = "{}"
+
+                [inbound_auth]
+                enabled = true
+                bearer_token = "super-secret-usage-token"
+                "#,
+                db_path.display()
+            ),
+        )
+        .expect("config file should be written");
+
+        let registry = RookRegistry::open(db_path.to_str().unwrap())
+            .await
+            .expect("registry should open temp db");
+        registry
+            .usage()
+            .record(rook::db::usage::StoredUsageEvent {
+                id: "usage-command-one".to_string(),
+                occurred_at: Utc::now(),
+                request_id: Some("req-usage-command".to_string()),
+                logical_model: "gpt-4o-mini".to_string(),
+                vendor: "open_ai".to_string(),
+                account_id: Some("account-id".to_string()),
+                account_label: "primary".to_string(),
+                stream: false,
+                outcome: "success".to_string(),
+                status_code: 200,
+                latency_ms: 24,
+                prompt_tokens: Some(3),
+                completion_tokens: Some(4),
+                total_tokens: Some(7),
+                cost_usd: None,
+                currency: None,
+                provider_request_id: None,
+            })
+            .await
+            .expect("usage event should be recorded");
+        drop(registry);
+
+        let lines = capture_output();
+        let output = Arc::clone(&lines);
+        let env = std::collections::HashMap::from([(
+            "XDG_CONFIG_HOME".to_string(),
+            temp_dir.path().to_string_lossy().to_string(),
+        )]);
+        let rook_config_dir = temp_dir.path().join("rook");
+        std::fs::create_dir_all(&rook_config_dir).expect("rook config dir should exist");
+        std::fs::copy(&config_path, rook_config_dir.join("config.toml"))
+            .expect("default config should be installed");
+
+        run_cli_with_tui_runner_output_and_env(
+            Cli {
+                command: Commands::Usage {
+                    action: UsageCommands::Report {
+                        period: UsageSummaryPeriod::Day,
+                        limit: Some(10),
+                        format: UsageReportFormat::Json,
+                    },
+                },
+            },
+            |_registry, _dashboard_url| async move { Ok(()) },
+            move |line| {
+                output.lock().expect("output lock should work").push(line);
+                Ok(())
+            },
+            &env,
+        )
+        .await
+        .expect("usage report command should succeed");
+
+        let rendered = lines.lock().expect("output lock should work").join("\n");
+        let json: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+
+        assert_eq!(json["available"], true);
+        assert_eq!(json["totals"]["requests"], 1);
+        assert_eq!(json["totals"]["total_tokens"], 7);
+        assert_eq!(json["by_model"][0]["key"], "gpt-4o-mini");
+        assert!(!rendered.contains("super-secret-usage-token"));
+    }
+
+    #[tokio::test]
     async fn doctor_command_outputs_pass_report_for_valid_config() {
         let lines = capture_output();
         let output = Arc::clone(&lines);
@@ -714,7 +1195,7 @@ mod tests {
 
         run_cli_with_tui_runner_output_and_env(
             Cli {
-                command: Commands::Doctor,
+                command: Commands::Doctor { json: false },
             },
             |_registry, _dashboard_url| async move { Ok(()) },
             move |line| {
@@ -737,13 +1218,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn doctor_command_outputs_json_when_requested() {
+        let lines = capture_output();
+        let output = Arc::clone(&lines);
+        let env = std::collections::HashMap::new();
+
+        run_cli_with_tui_runner_output_and_env(
+            Cli {
+                command: Commands::Doctor { json: true },
+            },
+            |_registry, _dashboard_url| async move { Ok(()) },
+            move |line| {
+                output.lock().expect("output lock should work").push(line);
+                Ok(())
+            },
+            &env,
+        )
+        .await
+        .expect("doctor json command should succeed for valid config");
+
+        let joined = lines.lock().expect("output lock should work").join("\n");
+        let parsed: serde_json::Value = serde_json::from_str(&joined).unwrap();
+
+        assert_eq!(parsed["status"], "pass");
+        assert!(parsed["checks"].as_array().unwrap().len() >= 4);
+        assert_eq!(parsed["checks"][0]["name"], "config");
+    }
+
+    #[tokio::test]
     async fn doctor_command_returns_error_on_invalid_effective_config() {
         let env =
             std::collections::HashMap::from([("ROOK_PORT".to_string(), "not-a-port".to_string())]);
 
         let result = run_cli_with_tui_runner_output_and_env(
             Cli {
-                command: Commands::Doctor,
+                command: Commands::Doctor { json: false },
             },
             |_registry, _dashboard_url| async move { Ok(()) },
             |_line| Ok(()),
@@ -766,7 +1275,7 @@ mod tests {
 
         let result = run_cli_with_tui_runner_output_and_env(
             Cli {
-                command: Commands::Doctor,
+                command: Commands::Doctor { json: false },
             },
             |_registry, _dashboard_url| async move { Ok(()) },
             |_line| Ok(()),
@@ -793,7 +1302,7 @@ mod tests {
 
         run_cli_with_tui_runner_output_and_env(
             Cli {
-                command: Commands::Doctor,
+                command: Commands::Doctor { json: false },
             },
             |_registry, _dashboard_url| async move { Ok(()) },
             move |line| {
@@ -881,6 +1390,10 @@ mod tests {
                 chat_rate_limit_max_requests: None,
                 chat_rate_limit_window_seconds: None,
                 chat_idempotency_replay_window_seconds: None,
+                upstream_max_buffered_attempts: None,
+                upstream_failure_cooldown_seconds: None,
+                upstream_retry_backoff_milliseconds: None,
+                upstream_max_concurrent_requests: None,
             },
             None,
             &env,

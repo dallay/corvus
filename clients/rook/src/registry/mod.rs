@@ -1,7 +1,7 @@
 //! Registry — the composition root for Rook's persistence layer.
 //!
 //! [`RookRegistry`] owns a [`SqliteDb`] handle and exposes each domain
-//! service as a concrete `SqliteXxxService` (or `InMemory` for health).
+//! service as a concrete `SqliteXxxService`.
 //!
 //! Consumers (gateway, TUI, dashboard) depend on the service traits via
 //! generic bounds or direct method calls on the concrete types returned here.
@@ -24,9 +24,9 @@
 use crate::db::{DbStartupReadiness, SqliteDb};
 use crate::domain::RookError;
 use crate::services::{
-    account::SqliteAccountService, audit::SqliteAuditService, health::InMemoryHealthService,
+    account::SqliteAccountService, audit::SqliteAuditService, health::SqliteHealthService,
     idempotency::SqliteIdempotencyService, pool::SqlitePoolService, route::SqliteRouteService,
-    settings::SqliteSettingsService,
+    settings::SqliteSettingsService, usage::SqliteUsageService,
 };
 
 /// Composition root — holds all service singletons for a Rook instance.
@@ -40,7 +40,8 @@ pub struct RookRegistry {
     routes: SqliteRouteService,
     settings: SqliteSettingsService,
     idempotency: SqliteIdempotencyService,
-    health: InMemoryHealthService,
+    health: SqliteHealthService,
+    usage: SqliteUsageService,
     #[cfg(test)]
     db: SqliteDb,
 }
@@ -79,7 +80,8 @@ impl RookRegistry {
             routes: SqliteRouteService::new(db.clone()),
             settings: SqliteSettingsService::new(db.clone()),
             idempotency: SqliteIdempotencyService::new(db.clone()),
-            health: InMemoryHealthService::new(),
+            health: SqliteHealthService::new(db.clone()),
+            usage: SqliteUsageService::new(db.clone()),
             #[cfg(test)]
             db,
         }
@@ -124,8 +126,13 @@ impl RookRegistry {
     }
 
     /// Health service — track per-account health state.
-    pub fn health(&self) -> &InMemoryHealthService {
+    pub fn health(&self) -> &SqliteHealthService {
         &self.health
+    }
+
+    /// Usage service — record and summarize gateway request usage.
+    pub fn usage(&self) -> &SqliteUsageService {
+        &self.usage
     }
 }
 
@@ -136,8 +143,8 @@ mod tests {
     use super::*;
     use crate::domain::RookSettings;
     use crate::services::{
-        account::AccountService as _, pool::PoolService as _, route::RouteService as _,
-        settings::SettingsService as _,
+        account::AccountService as _, health::HealthService as _, pool::PoolService as _,
+        route::RouteService as _, settings::SettingsService as _, usage::UsageService as _,
     };
 
     async fn registry() -> RookRegistry {
@@ -184,6 +191,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn registry_usage_append_and_summary_round_trip() {
+        use crate::db::usage::{StoredUsageEvent, UsageSummaryQuery};
+        use chrono::{TimeZone, Utc};
+
+        let r = registry().await;
+        r.usage()
+            .record(StoredUsageEvent {
+                id: "usage-1".to_string(),
+                occurred_at: Utc.with_ymd_and_hms(2026, 5, 3, 12, 0, 0).unwrap(),
+                request_id: Some("req-1".to_string()),
+                logical_model: "gpt-4o".to_string(),
+                vendor: "openai".to_string(),
+                account_id: Some("acct-1".to_string()),
+                account_label: "primary".to_string(),
+                stream: false,
+                outcome: "success".to_string(),
+                status_code: 200,
+                latency_ms: 15,
+                prompt_tokens: Some(10),
+                completion_tokens: Some(20),
+                total_tokens: Some(30),
+                cost_usd: None,
+                currency: None,
+                provider_request_id: None,
+            })
+            .await
+            .unwrap();
+
+        let summary = r
+            .usage()
+            .summary(UsageSummaryQuery {
+                since: Utc.with_ymd_and_hms(2026, 5, 3, 0, 0, 0).unwrap(),
+                until: Utc.with_ymd_and_hms(2026, 5, 4, 0, 0, 0).unwrap(),
+                limit: 10,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(summary.totals.requests, 1);
+        assert_eq!(summary.totals.total_tokens, 30);
+    }
+
+    #[tokio::test]
     async fn registry_audit_append_and_list_round_trip() {
         use crate::db::audit::{AdminAuditListQuery, StoredAdminAuditEvent};
         use crate::services::audit::AuditService as _;
@@ -215,5 +265,45 @@ mod tests {
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "audit-1");
+    }
+
+    #[tokio::test]
+    async fn registry_health_state_survives_reopen() {
+        let dir = tempfile::tempdir().expect("tempdir should be created");
+        let db_path = dir.path().join("rook-health-reopen.db");
+        let db_path = db_path.to_string_lossy().to_string();
+        let account_id = crate::domain::AccountId::generate();
+
+        {
+            let registry = RookRegistry::open(&db_path).await.unwrap();
+            registry
+                .accounts()
+                .create(crate::domain::ProviderAccount {
+                    id: account_id,
+                    display_name: "Health Reopen Account".to_string(),
+                    vendor: crate::domain::ProviderVendor::OpenAi,
+                    api_base_override: None,
+                    api_key: None,
+                    enabled: true,
+                    weight: 100,
+                    priority: 0,
+                    tags: vec![],
+                    capabilities: vec!["chat".to_string()],
+                })
+                .await
+                .unwrap();
+            registry.health().mark_failure(account_id, 9999).await;
+        }
+
+        let reopened = RookRegistry::open(&db_path).await.unwrap();
+        let health = reopened.health().get(account_id).await;
+
+        assert_eq!(
+            health.status,
+            crate::services::health::HealthStatus::Unhealthy
+        );
+        assert_eq!(health.consecutive_failures, 1);
+        assert!(health.cooldown_until.is_some());
+        assert!(!reopened.health().is_available(account_id).await);
     }
 }

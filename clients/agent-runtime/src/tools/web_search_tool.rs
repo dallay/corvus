@@ -3,8 +3,11 @@ use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use regex::Regex;
 use serde_json::json;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
+
+static STRIP_TAGS_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<[^>]+>").expect("strip_tags regex is valid"));
 
 /// Web search tool for searching the internet.
 /// Supports multiple providers: DuckDuckGo (free), Brave (requires API key).
@@ -182,8 +185,7 @@ fn decode_ddg_redirect_url(raw_url: &str) -> String {
 }
 
 fn strip_tags(content: &str) -> String {
-    let re = Regex::new(r"<[^>]+>").unwrap();
-    re.replace_all(content, "").to_string()
+    STRIP_TAGS_RE.replace_all(content, "").to_string()
 }
 
 #[async_trait]

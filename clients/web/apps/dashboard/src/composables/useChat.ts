@@ -95,6 +95,17 @@ function createSessionId(): string {
     return crypto.randomUUID();
   }
 
+  // Fallback: generate a UUID v4 using cryptographically secure random bytes
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    // Set UUID v4 version and variant bits
+    bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+    bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+
   return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -611,20 +622,21 @@ export function useChat(
 
       const processLine = (line: string, state: StreamEventState): void => {
         const result = consumeStreamLine(line, state, fallbackMessage);
-        switch (result.type) {
-          case "chunk":
-            onChunk(result.chunk);
-            break;
-          case "done":
-            doneEvent = result.doneEvent;
-            if (doneEvent.session_id && !isSessionReady.value) {
-              setSessionReady(doneEvent.session_id);
-            }
-            break;
-          case "error":
-            throw new Error(result.message);
-          case "continue":
-            break;
+        if (result.type === "chunk") {
+          onChunk(result.chunk);
+          return;
+        }
+
+        if (result.type === "done") {
+          doneEvent = result.doneEvent;
+          if (doneEvent.session_id && !isSessionReady.value) {
+            setSessionReady(doneEvent.session_id);
+          }
+          return;
+        }
+
+        if (result.type === "error") {
+          throw new Error(result.message);
         }
       };
 

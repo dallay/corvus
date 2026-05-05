@@ -350,6 +350,34 @@ mod tests {
         }
     }
 
+    fn create_core_memory(workspace: &Path, key: &str, content: &str) {
+        let db_dir = workspace.join("memory");
+        fs::create_dir_all(&db_dir).unwrap();
+        let db_path = db_dir.join("brain.db");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             CREATE TABLE IF NOT EXISTS memories (
+                id TEXT PRIMARY KEY,
+                key TEXT NOT NULL UNIQUE,
+                content TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'core',
+                embedding BLOB,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_mem_key ON memories(key);",
+        )
+        .unwrap();
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO memories (id, key, content, category, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'core', ?4, ?5)",
+            params![format!("id-{key}"), key, content, now, now],
+        )
+        .unwrap();
+    }
+
     #[test]
     fn parse_snapshot_basic() {
         let input = r#"# 🧠 Corvus Memory Snapshot
@@ -609,6 +637,66 @@ Rule 3: Protect the user.
         validate_dream_state_snapshot(&restored).unwrap();
 
         assert!(restored.contains("sess-restore"));
+    }
+
+    #[test]
+    fn dream_snapshot_hydration_prevents_duplicate_retrigger_after_restore() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path();
+        create_core_memory(workspace, "identity", "I am a restored runtime");
+
+        crate::memory::dream::record_session_completion(workspace, "sess-roundtrip").unwrap();
+        let report = crate::memory::dream::run_now(
+            workspace,
+            crate::memory::dream::DreamTriggerReason::Manual,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(report.sessions_processed, 1);
+        assert_eq!(
+            report.session_reports[0].artifact_refs,
+            vec!["dream/session/sess-roundtrip".to_string()]
+        );
+
+        let exported = export_snapshot(workspace).unwrap();
+        assert_eq!(exported, 1);
+
+        let exported_state =
+            fs::read_to_string(workspace.join(DREAM_SNAPSHOT_STATE_FILENAME)).unwrap();
+        let exported_json: serde_json::Value = serde_json::from_str(&exported_state).unwrap();
+        assert_eq!(
+            exported_json["completed_sessions"][0]["artifact_refs"],
+            serde_json::json!(["dream/session/sess-roundtrip"])
+        );
+
+        fs::remove_dir_all(workspace.join("state")).unwrap();
+        fs::remove_file(workspace.join("memory").join("brain.db")).unwrap();
+        assert!(should_hydrate(workspace));
+
+        let hydrated = hydrate_from_snapshot(workspace).unwrap();
+        assert_eq!(hydrated, 1);
+
+        assert_eq!(
+            crate::memory::dream::dream_eligibility(workspace, "sess-roundtrip").unwrap(),
+            crate::memory::dream::DreamEligibility::AlreadyConsolidated
+        );
+        assert!(crate::memory::dream::run_if_triggered(workspace)
+            .unwrap()
+            .is_none());
+
+        let replayed =
+            crate::memory::dream::record_session_completion(workspace, "sess-roundtrip").unwrap();
+        assert_eq!(
+            replayed.status,
+            crate::memory::dream::DreamSessionStatus::Completed
+        );
+        assert_eq!(
+            replayed.artifact_refs,
+            vec!["dream/session/sess-roundtrip".to_string()]
+        );
+        assert!(crate::memory::dream::run_if_triggered(workspace)
+            .unwrap()
+            .is_none());
     }
 
     #[test]

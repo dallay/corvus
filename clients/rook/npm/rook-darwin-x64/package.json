@@ -1,6 +1,6 @@
 {
   "name": "@dallay/rook-darwin-x64",
-  "version": "3.6.2",
+  "version": "3.8.0",
   "description": "Rook CLI for macOS x64",
   "license": "Apache-2.0",
   "os": [

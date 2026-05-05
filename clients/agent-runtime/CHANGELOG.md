@@ -1,5 +1,134 @@
 # Changelog
 
+## [3.9.0](https://github.com/dallay/corvus/compare/corvus-runtime-v3.8.0...corvus-runtime-v3.9.0) (2026-05-05)
+
+
+### Features
+
+* **runtime:** implement core memory creation and snapshot hydration tests ([a316126](https://github.com/dallay/corvus/commit/a316126b644c50837fe218432b963de411c14862))
+
+## [3.8.0](https://github.com/dallay/corvus/compare/corvus-runtime-v3.7.0...corvus-runtime-v3.8.0) (2026-05-05)
+
+
+### Features
+
+* **agent-runtime:** add dream system consolidation ([4820d2b](https://github.com/dallay/corvus/commit/4820d2b700d6f17c630ee38686af26fff18cde48))
+* **agent-runtime:** add dream system consolidation ([d0170ab](https://github.com/dallay/corvus/commit/d0170ab61309a462a7c708844efce2572e217d09))
+* **agent-runtime:** add session inspect and list commands ([bac9596](https://github.com/dallay/corvus/commit/bac95961d8e08fa9685b0931ac65a6c19f546a22))
+* **agent-runtime:** add session inspect and list commands ([768a5df](https://github.com/dallay/corvus/commit/768a5dfda6aa155e0af33b87adcf3a1232bf424b))
+* **agent-runtime:** add task tools and session discoverability ([8758858](https://github.com/dallay/corvus/commit/8758858e5c5a14d58c3eb46f0c13fa8088c8fcae))
+* **agent-runtime:** expose track 4 orchestration lifecycle state ([7b2c679](https://github.com/dallay/corvus/commit/7b2c679c49e08b6f46a691d344fd4553253ffad8))
+* **agent-runtime:** expose track 4 orchestration lifecycle state ([1928463](https://github.com/dallay/corvus/commit/192846366f347c84296e44775a6e78fafdabfc20))
+* **agent-runtime:** publish tooling parity aliases ([c741afc](https://github.com/dallay/corvus/commit/c741afce6da0cc8b019e8674a23177207f6ddc50))
+* **ci:** enhance URL validation in HttpGetTool and improve version parsing ([41b69f1](https://github.com/dallay/corvus/commit/41b69f1e4258d474f3d30a8599faa65d39b2e20b))
+* **coordinator:** add foundational components for coordinator functionality and update timeout durations ([6961e8c](https://github.com/dallay/corvus/commit/6961e8c40b42611012f4d65474d192790ce0a563))
+* **coordinator:** complete track 4 slice 1 foundations ([753cd53](https://github.com/dallay/corvus/commit/753cd53d2650d121c5a80cfeff4e8dbc88431faf))
+* Enhance workflow permissions, fix detekt alerts, and add Rook dashboard ([e43fc1a](https://github.com/dallay/corvus/commit/e43fc1a9a5b1c0c6ce53ef102832df1ddad1c713))
+* implement supervised child lifecycle for Track 4 Slice 2 ([92d591c](https://github.com/dallay/corvus/commit/92d591c1168ba0e1a0833d7a1d6cb52c6b21f250))
+* **orchestration:** add mailbox-backed slice 3 delivery ([0f811dc](https://github.com/dallay/corvus/commit/0f811dcfc71bc8bbc871be13fba6ef6a2b88a51c))
+* **orchestration:** add mailbox-backed slice 3 delivery ([1a566eb](https://github.com/dallay/corvus/commit/1a566ebeb9261eaaa59312bc251ffda8f939f1d1))
+* **orchestration:** supervised child lifecycle tools and coordinator (Slice 2) ([5c8e23b](https://github.com/dallay/corvus/commit/5c8e23bf192e2bef6e0df3d2656ced9c059dd1ba))
+* Persist Rook provider account health state ([930700f](https://github.com/dallay/corvus/commit/930700f7752b4a78f6fb52cd12198080d7b67216))
+* **rook:** add embedded operator dashboard flows ([c51c8c1](https://github.com/dallay/corvus/commit/c51c8c1b2b09a79207271bb95d8568e4e17b3a86))
+* **rook:** document operational health probes ([133d341](https://github.com/dallay/corvus/commit/133d341c6341b4270c33b3ccdf631bb29802e2f3))
+* **rook:** implement routing engine with strategy dispatch and fallback chains ([d634ae1](https://github.com/dallay/corvus/commit/d634ae16e3a95cece392695c3804a4a1f28be45c))
+* **runtime:** add dream hooks for generated sessions ([d200610](https://github.com/dallay/corvus/commit/d20061008cf2e38832b50488a32793bff0baa3eb))
+* **runtime:** add slash command registry core ([d89056c](https://github.com/dallay/corvus/commit/d89056c761ae29b8c1b59eb55b93c04e8e8a70a6))
+* **runtime:** add slash command registry core ([3310f7e](https://github.com/dallay/corvus/commit/3310f7e4fb595e807d4aebd284548e171934a51a))
+* **runtime:** complete orchestration parity contract ([2e34682](https://github.com/dallay/corvus/commit/2e34682d34021e31220f7fc1a0412b6b2709f4a0))
+* **tools:** implement alias resolution for search, fetch, and task tools ([c2cb49e](https://github.com/dallay/corvus/commit/c2cb49e27c93354deb406d583d31d34d964d6843))
+
+
+### Bug Fixes
+
+* address PR [#602](https://github.com/dallay/corvus/issues/602) inline review comments ([687bb84](https://github.com/dallay/corvus/commit/687bb847225b5b2e9ba51feec828c14a616c3ed2))
+* **agent-runtime:** address Dream review follow-ups ([f1e7c7d](https://github.com/dallay/corvus/commit/f1e7c7d32c30c402eedbf49342257fc203905509))
+* **agent-runtime:** block on Dream completion lock ([a1354f5](https://github.com/dallay/corvus/commit/a1354f5d19b0c90346d105c8687fe53d5c5a8e50))
+* **agent-runtime:** box handled session command success ([4665653](https://github.com/dallay/corvus/commit/46656535623426dfec71b6b62bf2379d21a486ae))
+* **agent-runtime:** carry escalation state through child lifecycle ([06d4dce](https://github.com/dallay/corvus/commit/06d4dce10c159b6b4d60eb25e9bf821960e02ed1))
+* **agent-runtime:** enforce slash command caller permissions ([d83d3ca](https://github.com/dallay/corvus/commit/d83d3caec28fdbf3c9c418f25a785ba4b6e51fcb))
+* **agent-runtime:** enforce slash command caller permissions ([01107fa](https://github.com/dallay/corvus/commit/01107fa9bf8029d2dbd4f9dff68a91afab5c8477))
+* **agent-runtime:** import hmac key init in webhook test ([89f5448](https://github.com/dallay/corvus/commit/89f544874127ba81c9f5824346523c7b51ab7285))
+* **agent-runtime:** reduce session command clippy footprint ([ce64ee1](https://github.com/dallay/corvus/commit/ce64ee1d93a6fa380982ab36b639597e41601e6b))
+* **agent-runtime:** restore rust hashing and hmac checks ([61d0049](https://github.com/dallay/corvus/commit/61d0049d4e810291edb77b3c021534baef558fca))
+* **agent-runtime:** satisfy slash permission lint ([280ab35](https://github.com/dallay/corvus/commit/280ab350fa8dbdd38db88449c76af21d7d147b8c))
+* **agent-runtime:** stabilize blocked coordinator inspection narrative ([83a43f5](https://github.com/dallay/corvus/commit/83a43f5e42e3948ecc084c0c86f60089b2018795))
+* **agent-runtime:** stabilize blocked coordinator inspection narrative ([56ff071](https://github.com/dallay/corvus/commit/56ff07115fafd77c8c7a159f5b85f13b4dd45f84))
+* **agent-runtime:** structure blocked child escalation state ([460803e](https://github.com/dallay/corvus/commit/460803e5b869bcacd37a96ca417908174e7d9824))
+* **agent-runtime:** tighten Dream validation and recovery ([2dec988](https://github.com/dallay/corvus/commit/2dec98880ef8693b080ba4ec98ef79dc7a2b784d))
+* **agent-runtime:** unblock pre-push clippy checks ([09d1936](https://github.com/dallay/corvus/commit/09d1936ad89cbe8da95a796133cf812a0048b356))
+* apply CodeRabbit auto-fixes ([360176f](https://github.com/dallay/corvus/commit/360176f590093b30b792d7b5cd42e9437451222d))
+* **build-logic:** avoid config-cache lock check failure ([ddc0cdf](https://github.com/dallay/corvus/commit/ddc0cdf2169b103dffa2b5a82dc9a180a34cac55))
+* **cerebro:** align MCP contract with implemented surface ([c8f3f69](https://github.com/dallay/corvus/commit/c8f3f69776d022043dbc9f8c1744794d72ed4234))
+* **cerebro:** align MCP contract with implemented surface ([5eba3c5](https://github.com/dallay/corvus/commit/5eba3c52e5510c828f3dcab046f527893d72b88e))
+* **cerebro:** harden production readiness ([725b3ea](https://github.com/dallay/corvus/commit/725b3ea56852214212ef0f7ea89114b005a875a6))
+* **cerebro:** update Makefile and Docker paths from modules/cerebro to clients/cerebro ([27c4a1b](https://github.com/dallay/corvus/commit/27c4a1b732cdd47d766cd7deb97b0a2085dfd31d)), closes [#699](https://github.com/dallay/corvus/issues/699)
+* **code-scanning:** resolve naming and gradle style alerts ([2e206ce](https://github.com/dallay/corvus/commit/2e206ceb5ca51157ba176f3b0f0ad4b53179da21))
+* correct Duration::from_mins usage, refactor announcement helpers, and fix Vue edge cases ([7efc729](https://github.com/dallay/corvus/commit/7efc729709cac677396c2da6fec5055cf33319ca))
+* **deps:** restore compatibility for consolidated dependency updates ([7d406a2](https://github.com/dallay/corvus/commit/7d406a2540fa43a77201388f324500903b7ec174))
+* **firmware:** remove vulnerable xmas-elf dependency ([9d90878](https://github.com/dallay/corvus/commit/9d90878ed5d51c7860ce8657201acfe23ee7ee50))
+* fix TOCTOU in from_path and add security tests ([fcbae94](https://github.com/dallay/corvus/commit/fcbae94084aaa120e850d5b627419a399a71b102))
+* reject absolute paths in Telegram attachment resolver to prevent path traversal ([fbc8026](https://github.com/dallay/corvus/commit/fbc802613440e58680a2cde30fbec53078907b1b))
+* reject absolute paths in Telegram attachment resolver to prevent path traversal ([8907055](https://github.com/dallay/corvus/commit/89070554e28794d9f83260b9bee8502f94cf404e))
+* **release:** update artifact upload action version and improve release component resolution ([a7b3138](https://github.com/dallay/corvus/commit/a7b31389bde0bda696be3d0b7b3af6e66e0d8cda))
+* replace non-existent Duration::from_mins, refactor Vue announcement helpers, and fix edge cases ([37d5a96](https://github.com/dallay/corvus/commit/37d5a969195f77d6c0af781db6f31ce3ef474643))
+* rook 583 apply ([721302f](https://github.com/dallay/corvus/commit/721302f09b8967fb7926a86c3c485cbedc4e4a66))
+* **rook:** clean up merge conflict files, re-apply fixes ([192cdb3](https://github.com/dallay/corvus/commit/192cdb3b7ade06ab2911042e870d7260eda6fdc4))
+* **runtime:** address verified review regressions ([5d16d9f](https://github.com/dallay/corvus/commit/5d16d9f9b89d08785dd7b7dda97b6d1f4cadd482))
+* **runtime:** allow staged dream re-exports ([7732cad](https://github.com/dallay/corvus/commit/7732cad7758f5d3482ff915716aa9f82d5f252e6))
+* **runtime:** satisfy orchestration clippy gates ([a170a86](https://github.com/dallay/corvus/commit/a170a8604858daef5ca564796fc30aa74d788352))
+* **runtime:** satisfy orchestration lint gates ([4ec0078](https://github.com/dallay/corvus/commit/4ec007806c17d2190ae701c2bac07a339ebf850a))
+* **runtime:** satisfy slash registry clippy check ([50b471a](https://github.com/dallay/corvus/commit/50b471ab3f1dec43975ab8b42a3ed4099cd2d17e))
+* **rust:** format observability security alert cleanup ([82fbb73](https://github.com/dallay/corvus/commit/82fbb7372aa22c24ab199c7449c08feca0dbd9b3))
+* **security:** add CSP headers, harden Vite dev server, and fix weak RNG fallback ([a3da395](https://github.com/dallay/corvus/commit/a3da395762290a648bccf2dbd688a07fec10786b))
+* **security:** block URL-encoded policy bypasses ([cdc34be](https://github.com/dallay/corvus/commit/cdc34bec398371d30931e3b54fb2a854ec946c90))
+* **security:** block URL-encoded policy bypasses ([9efd810](https://github.com/dallay/corvus/commit/9efd81037697e4c9286f213005bbac67b8fa6e97))
+* **security:** complete test constant extraction in webhook security tests ([28c219e](https://github.com/dallay/corvus/commit/28c219e7794c844d080042080c8b2cf768f8c8ba))
+* **security:** format encoded bypass coverage ([31226ae](https://github.com/dallay/corvus/commit/31226aefb049ca4801077ed365aaf07821174451))
+* **security:** harden package manager command and argument validation ([63bc62b](https://github.com/dallay/corvus/commit/63bc62b94e40aa07fdd8dc512ace2d8e93c76616))
+* **security:** harden package manager command and argument validation ([9bf7c89](https://github.com/dallay/corvus/commit/9bf7c8987b226a03a77432b2e3736fb15b6a03f7))
+* **security:** harden path handling for telegram and skills ([e075b2d](https://github.com/dallay/corvus/commit/e075b2d5076d1fe0f837ceaedfd248b7afd7884f))
+* **security:** harden SecurityPolicy against quote-based bypasses ([46203fb](https://github.com/dallay/corvus/commit/46203fbef501ecf151e03b00a4fc997bd4193ff3))
+* **security:** harden SecurityPolicy against quote-based bypasses (SONAR:SEC-001) ([a70ec1e](https://github.com/dallay/corvus/commit/a70ec1e1b8cc3ef88f9e07eda85dd6d1576df69f))
+* **security:** neutralize critical code scanning alerts ([0d33552](https://github.com/dallay/corvus/commit/0d335522d0f46bcfb49a50423f10578e67dbb1ef))
+* **security:** reject quoted direct paths ([f497653](https://github.com/dallay/corvus/commit/f4976535087bcc04af096b67c1207018e6fc3c45))
+* **security:** remediate semgrep findings for secrets and shell IFS tampering ([020db43](https://github.com/dallay/corvus/commit/020db43a7270a293c0321b2e420103e8cff16636))
+* **security:** resolve code scanning hard-coded cryptographic value alerts ([e6d31cf](https://github.com/dallay/corvus/commit/e6d31cf5fd1fc37829100b7fee6949e2a561a1c6))
+* **security:** resolve code scanning hard-coded cryptographic value alerts ([82c7e0e](https://github.com/dallay/corvus/commit/82c7e0e308b5b5b854ce6702cdc584cc6e64ebea))
+* **security:** validate raw paths before normalization ([f31a3b8](https://github.com/dallay/corvus/commit/f31a3b876e5ea74f1f9703533543b395bfb28d07))
+* **tooling:** add local sonar review workflow ([70fee4e](https://github.com/dallay/corvus/commit/70fee4e2d27bcfd4a2a0d33d97ad993f1dd13c56))
+* **tooling:** add local sonar review workflow ([929695b](https://github.com/dallay/corvus/commit/929695b58b13000809e0233a197243fd22e514cb))
+* **tooling:** address review follow-ups ([cb6da04](https://github.com/dallay/corvus/commit/cb6da0404a471b88b93c0a9439ef4103236ac014))
+* use unique temp filename in from_path test to avoid parallel collisions ([b820b7a](https://github.com/dallay/corvus/commit/b820b7a60b8095c05a621540bd4132e590bc4fac))
+* verify findings from track-4-slice-1 verify-report ([0ef9b53](https://github.com/dallay/corvus/commit/0ef9b53bd2f9412f5eee55b623d6db7d5cc97b91))
+
+## [0.3.0](https://github.com/dallay/corvus/compare/corvus-runtime-v0.2.2...corvus-runtime-v0.3.0) (2026-05-04)
+
+
+### Features
+
+* **ci:** enhance URL validation in HttpGetTool and improve version parsing ([41b69f1](https://github.com/dallay/corvus/commit/41b69f1e4258d474f3d30a8599faa65d39b2e20b))
+* Persist Rook provider account health state ([930700f](https://github.com/dallay/corvus/commit/930700f7752b4a78f6fb52cd12198080d7b67216))
+* **rook:** document operational health probes ([133d341](https://github.com/dallay/corvus/commit/133d341c6341b4270c33b3ccdf631bb29802e2f3))
+
+
+### Bug Fixes
+
+* **agent-runtime:** enforce slash command caller permissions ([d83d3ca](https://github.com/dallay/corvus/commit/d83d3caec28fdbf3c9c418f25a785ba4b6e51fcb))
+* **agent-runtime:** enforce slash command caller permissions ([01107fa](https://github.com/dallay/corvus/commit/01107fa9bf8029d2dbd4f9dff68a91afab5c8477))
+* **agent-runtime:** satisfy slash permission lint ([280ab35](https://github.com/dallay/corvus/commit/280ab350fa8dbdd38db88449c76af21d7d147b8c))
+* apply CodeRabbit auto-fixes ([360176f](https://github.com/dallay/corvus/commit/360176f590093b30b792d7b5cd42e9437451222d))
+* **firmware:** remove vulnerable xmas-elf dependency ([9d90878](https://github.com/dallay/corvus/commit/9d90878ed5d51c7860ce8657201acfe23ee7ee50))
+* reject absolute paths in Telegram attachment resolver to prevent path traversal ([fbc8026](https://github.com/dallay/corvus/commit/fbc802613440e58680a2cde30fbec53078907b1b))
+* reject absolute paths in Telegram attachment resolver to prevent path traversal ([8907055](https://github.com/dallay/corvus/commit/89070554e28794d9f83260b9bee8502f94cf404e))
+* **security:** add CSP headers, harden Vite dev server, and fix weak RNG fallback ([a3da395](https://github.com/dallay/corvus/commit/a3da395762290a648bccf2dbd688a07fec10786b))
+* **security:** harden package manager command and argument validation ([63bc62b](https://github.com/dallay/corvus/commit/63bc62b94e40aa07fdd8dc512ace2d8e93c76616))
+* **security:** harden package manager command and argument validation ([9bf7c89](https://github.com/dallay/corvus/commit/9bf7c8987b226a03a77432b2e3736fb15b6a03f7))
+* **security:** harden SecurityPolicy against quote-based bypasses ([46203fb](https://github.com/dallay/corvus/commit/46203fbef501ecf151e03b00a4fc997bd4193ff3))
+* **security:** harden SecurityPolicy against quote-based bypasses (SONAR:SEC-001) ([a70ec1e](https://github.com/dallay/corvus/commit/a70ec1e1b8cc3ef88f9e07eda85dd6d1576df69f))
+* **security:** reject quoted direct paths ([f497653](https://github.com/dallay/corvus/commit/f4976535087bcc04af096b67c1207018e6fc3c45))
+* **security:** validate raw paths before normalization ([f31a3b8](https://github.com/dallay/corvus/commit/f31a3b876e5ea74f1f9703533543b395bfb28d07))
+
 ## [0.2.2](https://github.com/dallay/corvus/compare/corvus-runtime-v0.2.1...corvus-runtime-v0.2.2) (2026-05-01)
 
 

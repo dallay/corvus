@@ -2,24 +2,27 @@ use crate::admin::{
     types::{
         AccountView, AddPoolMemberRequest, AdminErrorResponse, AuditEventView,
         CreateAccountRequest, CreatePoolRequest, CreateRouteRequest, HealthAccountView,
-        HealthSummaryView, ListAuditEventsQuery, PoolView, RouteView, SettingsView,
-        UpdateAccountRequest, UpdatePoolRequest, UpdateRouteRequest, UpdateSettingsRequest,
-        UsageStatusView,
+        HealthSummaryView, ListAuditEventsQuery, OperatorRuntimeView, OperatorStatusView, PoolView,
+        RouteView, SettingsView, UpdateAccountRequest, UpdatePoolRequest, UpdateRouteRequest,
+        UpdateSettingsRequest, UsageAggregateView, UsageGroupView, UsageSummaryPeriod,
+        UsageSummaryView, UsageSummaryWindowView,
     },
     AdminState,
 };
 use crate::db::audit::{AdminAuditListQuery, StoredAdminAuditEvent};
+use crate::db::usage::{UsageAggregate, UsageGroupAggregate, UsageSummaryQuery};
 use crate::domain::{ProviderAccount, ProviderPool, RookError};
 use crate::health::{HealthResponse, ReadinessResponse};
 use crate::registry::RookRegistry;
 use crate::services::{
     account::AccountService as _, audit::AuditService as _, health::HealthService as _,
     pool::PoolService as _, route::RouteService as _, settings::SettingsService as _,
+    usage::UsageService as _,
 };
 use axum::{
     extract::Json as ExtractJson,
     extract::{
-        rejection::{JsonRejection, PathRejection},
+        rejection::{JsonRejection, PathRejection, QueryRejection},
         Path, Query, State,
     },
     http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
@@ -34,6 +37,14 @@ use uuid::Uuid;
 type AdminJson<T> = Result<Json<T>, (StatusCode, Json<AdminErrorResponse>)>;
 type AdminCreated<T> = Result<(StatusCode, Json<T>), (StatusCode, Json<AdminErrorResponse>)>;
 type AdminEmpty = Result<StatusCode, (StatusCode, Json<AdminErrorResponse>)>;
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GetUsageQuery {
+    #[serde(default)]
+    pub period: UsageSummaryPeriod,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
 
 fn bad_request(message: impl Into<String>) -> (StatusCode, Json<AdminErrorResponse>) {
     (
@@ -238,12 +249,110 @@ pub async fn handle_ready_health(
     (status, Json(readiness))
 }
 
-pub async fn handle_get_usage() -> Json<UsageStatusView> {
-    Json(UsageStatusView::placeholder())
+pub async fn handle_operator_status(
+    State(state): State<AdminState>,
+) -> Result<(StatusCode, Json<OperatorStatusView>), (StatusCode, Json<AdminErrorResponse>)> {
+    let readiness = state.startup.readiness();
+    let status_code = match readiness.status {
+        crate::health::HealthStatus::Fail => StatusCode::SERVICE_UNAVAILABLE,
+        crate::health::HealthStatus::Ok | crate::health::HealthStatus::Degraded => StatusCode::OK,
+    };
+    let status = match readiness.status {
+        crate::health::HealthStatus::Ok => "ok",
+        crate::health::HealthStatus::Degraded => "degraded",
+        crate::health::HealthStatus::Fail => "fail",
+    }
+    .to_string();
+
+    let provider_health = build_health_summary_view(&state.registry).await;
+
+    Ok((
+        status_code,
+        Json(OperatorStatusView {
+            status,
+            startup: readiness,
+            provider_health,
+            runtime: OperatorRuntimeView {
+                metrics_enabled: true,
+                usage_accounting_enabled: true,
+            },
+        }),
+    ))
+}
+
+pub async fn handle_get_usage(
+    State(state): State<AdminState>,
+    query: Result<Query<GetUsageQuery>, QueryRejection>,
+) -> Result<Json<UsageSummaryView>, (StatusCode, Json<AdminErrorResponse>)> {
+    let Query(query) = query.map_err(|rejection| {
+        error!(error = %rejection, "admin usage query extraction failed");
+        bad_request("invalid usage query parameters")
+    })?;
+    let now = Utc::now();
+    let since = usage_window_start(query.period.clone(), now);
+    let limit = query.limit.unwrap_or(10).clamp(1, 100);
+    let summary = state
+        .registry
+        .usage()
+        .summary(UsageSummaryQuery {
+            since,
+            until: now,
+            limit,
+        })
+        .await
+        .map_err(classify_rook_error)?;
+
+    Ok(Json(UsageSummaryView {
+        available: true,
+        window: UsageSummaryWindowView {
+            period: query.period,
+            since,
+            until: now,
+        },
+        totals: aggregate_view(summary.totals),
+        by_model: group_views(summary.by_model),
+        by_vendor: group_views(summary.by_vendor),
+        by_outcome: group_views(summary.by_outcome),
+    }))
+}
+
+fn usage_window_start(
+    period: UsageSummaryPeriod,
+    now: chrono::DateTime<Utc>,
+) -> chrono::DateTime<Utc> {
+    match period {
+        UsageSummaryPeriod::Hour => now - chrono::Duration::hours(1),
+        UsageSummaryPeriod::Day => now - chrono::Duration::days(1),
+        UsageSummaryPeriod::Month => now - chrono::Duration::days(30),
+    }
+}
+
+fn aggregate_view(aggregate: UsageAggregate) -> UsageAggregateView {
+    UsageAggregateView {
+        requests: aggregate.requests,
+        successful_requests: aggregate.successful_requests,
+        failed_requests: aggregate.failed_requests,
+        streaming_requests: aggregate.streaming_requests,
+        prompt_tokens: aggregate.prompt_tokens,
+        completion_tokens: aggregate.completion_tokens,
+        total_tokens: aggregate.total_tokens,
+        known_token_requests: aggregate.known_token_requests,
+        estimated_cost_usd: aggregate.estimated_cost_usd,
+    }
+}
+
+fn group_views(groups: Vec<UsageGroupAggregate>) -> Vec<UsageGroupView> {
+    groups
+        .into_iter()
+        .map(|group| UsageGroupView {
+            key: group.key,
+            aggregate: aggregate_view(group.aggregate),
+        })
+        .collect()
 }
 
 pub async fn handle_get_metrics(State(state): State<AdminState>) -> Response {
-    match state.observability.render_prometheus() {
+    match render_metrics_with_provider_health(&state).await {
         Ok(body) => (
             StatusCode::OK,
             [(
@@ -259,6 +368,53 @@ pub async fn handle_get_metrics(State(state): State<AdminState>) -> Response {
             error!(error = %error, "failed to render metrics");
             internal_error_response().into_response()
         }
+    }
+}
+
+async fn render_metrics_with_provider_health(state: &AdminState) -> Result<String, String> {
+    let mut body = state.observability.render_prometheus()?;
+    append_provider_health_metrics(&mut body, &state.registry).await;
+    Ok(body)
+}
+
+async fn append_provider_health_metrics(body: &mut String, registry: &RookRegistry) {
+    body.push_str("# HELP rook_provider_account_health Provider account health state gauge partitioned by vendor, opaque account, and status.\n");
+    body.push_str("# TYPE rook_provider_account_health gauge\n");
+    body.push_str("# HELP rook_provider_account_cooldown_active Provider account cooldown activity as a gauge partitioned by vendor and account.\n");
+    body.push_str("# TYPE rook_provider_account_cooldown_active gauge\n");
+
+    for account in registry.accounts().list().await {
+        let health = registry.health().get(account.id).await;
+        let vendor = crate::observability::normalize_vendor_label(&account.vendor);
+        let account_label = provider_health_account_label(account.id);
+        let status = provider_health_status_label(&health.status);
+        body.push_str(&format!(
+            "rook_provider_account_health{{vendor=\"{}\",account=\"{}\",status=\"{}\"}} 1\n",
+            vendor, account_label, status
+        ));
+        let cooldown_active = health
+            .cooldown_until
+            .is_some_and(|cooldown_until| chrono::Utc::now() < cooldown_until);
+        body.push_str(&format!(
+            "rook_provider_account_cooldown_active{{vendor=\"{}\",account=\"{}\"}} {}\n",
+            vendor,
+            account_label,
+            if cooldown_active { 1 } else { 0 }
+        ));
+    }
+}
+
+fn provider_health_account_label(account_id: crate::domain::AccountId) -> String {
+    crate::observability::normalize_account_label(Some(&format!("acct_{}", account_id)))
+        .into_owned()
+}
+
+fn provider_health_status_label(status: &crate::services::health::HealthStatus) -> &'static str {
+    match status {
+        crate::services::health::HealthStatus::Healthy => "healthy",
+        crate::services::health::HealthStatus::Degraded => "degraded",
+        crate::services::health::HealthStatus::Unhealthy => "unhealthy",
+        crate::services::health::HealthStatus::Unknown => "unknown",
     }
 }
 
