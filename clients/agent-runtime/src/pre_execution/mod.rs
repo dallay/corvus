@@ -107,6 +107,22 @@ mod tests {
     };
     use async_trait::async_trait;
 
+    fn assert_same_ingress_decision(left: IngressDecision, right: IngressDecision, context: &str) {
+        match (left, right) {
+            (IngressDecision::Continue, IngressDecision::Continue) => {}
+            (IngressDecision::Blocking(left), IngressDecision::Blocking(right)) => {
+                assert_eq!(left, right, "{context}");
+            }
+            (
+                IngressDecision::SessionCommand { outcome: left },
+                IngressDecision::SessionCommand { outcome: right },
+            ) => {
+                assert_eq!(left, right, "{context}");
+            }
+            (left, right) => panic!("{context}: left={left:?}, right={right:?}"),
+        }
+    }
+
     struct IngressMemory;
 
     #[async_trait]
@@ -522,6 +538,411 @@ mod tests {
             }
             other => panic!("expected /tools session command interception, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn session_command_regression_registry_freezes_current_session_commands() {
+        let registry = crate::session_commands::default_registry();
+        let descriptors = registry
+            .iter()
+            .map(|descriptor| {
+                (
+                    descriptor.canonical_name,
+                    descriptor.aliases,
+                    descriptor.argument_shape.clone(),
+                    descriptor.requirements.capabilities,
+                    descriptor.requirements.permissions,
+                    descriptor.requirements.backends,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            descriptors,
+            vec![
+                (
+                    "/tools",
+                    &[] as &[&str],
+                    crate::session_commands::SlashCommandArgumentShape::None,
+                    &[] as &[crate::session_commands::CommandCapability],
+                    &[] as &[crate::session_commands::CommandPermission],
+                    &[] as &[crate::session_commands::CommandBackend],
+                ),
+                (
+                    "/resume",
+                    &["/continue"] as &[&str],
+                    crate::session_commands::SlashCommandArgumentShape::OptionalTargetThenText,
+                    &[crate::session_commands::CommandCapability::SessionLifecycle]
+                        as &[crate::session_commands::CommandCapability],
+                    &[
+                        crate::session_commands::CommandPermission::RequiresCallerScope,
+                        crate::session_commands::CommandPermission::RequiresResumableSessionVisibility,
+                    ] as &[crate::session_commands::CommandPermission],
+                    &[crate::session_commands::CommandBackend::SqliteSlashSessions]
+                        as &[crate::session_commands::CommandBackend],
+                ),
+                (
+                    "/suspend",
+                    &[] as &[&str],
+                    crate::session_commands::SlashCommandArgumentShape::None,
+                    &[crate::session_commands::CommandCapability::SessionLifecycle]
+                        as &[crate::session_commands::CommandCapability],
+                    &[] as &[crate::session_commands::CommandPermission],
+                    &[crate::session_commands::CommandBackend::SqliteSlashSessions]
+                        as &[crate::session_commands::CommandBackend],
+                ),
+                (
+                    "/tldr",
+                    &[] as &[&str],
+                    crate::session_commands::SlashCommandArgumentShape::None,
+                    &[crate::session_commands::CommandCapability::SessionSummary]
+                        as &[crate::session_commands::CommandCapability],
+                    &[] as &[crate::session_commands::CommandPermission],
+                    &[crate::session_commands::CommandBackend::SqliteSlashSessions]
+                        as &[crate::session_commands::CommandBackend],
+                ),
+                (
+                    "/compact",
+                    &[] as &[&str],
+                    crate::session_commands::SlashCommandArgumentShape::OptionalText,
+                    &[crate::session_commands::CommandCapability::SessionSummary]
+                        as &[crate::session_commands::CommandCapability],
+                    &[] as &[crate::session_commands::CommandPermission],
+                    &[crate::session_commands::CommandBackend::SqliteSlashSessions]
+                        as &[crate::session_commands::CommandBackend],
+                ),
+                (
+                    "/session",
+                    &[] as &[&str],
+                    crate::session_commands::SlashCommandArgumentShape::OptionalText,
+                    &[crate::session_commands::CommandCapability::SessionRead]
+                        as &[crate::session_commands::CommandCapability],
+                    &[] as &[crate::session_commands::CommandPermission],
+                    &[] as &[crate::session_commands::CommandBackend],
+                ),
+                (
+                    "/model",
+                    &[] as &[&str],
+                    crate::session_commands::SlashCommandArgumentShape::OptionalText,
+                    &[crate::session_commands::CommandCapability::SettingsRead]
+                        as &[crate::session_commands::CommandCapability],
+                    &[] as &[crate::session_commands::CommandPermission],
+                    &[] as &[crate::session_commands::CommandBackend],
+                ),
+                (
+                    "/provider",
+                    &[] as &[&str],
+                    crate::session_commands::SlashCommandArgumentShape::OptionalText,
+                    &[crate::session_commands::CommandCapability::SettingsRead]
+                        as &[crate::session_commands::CommandCapability],
+                    &[] as &[crate::session_commands::CommandPermission],
+                    &[] as &[crate::session_commands::CommandBackend],
+                ),
+                (
+                    "/temperature",
+                    &[] as &[&str],
+                    crate::session_commands::SlashCommandArgumentShape::None,
+                    &[crate::session_commands::CommandCapability::SettingsRead]
+                        as &[crate::session_commands::CommandCapability],
+                    &[] as &[crate::session_commands::CommandPermission],
+                    &[] as &[crate::session_commands::CommandBackend],
+                ),
+                (
+                    "/mcp",
+                    &[] as &[&str],
+                    crate::session_commands::SlashCommandArgumentShape::RequiredText,
+                    &[crate::session_commands::CommandCapability::McpManagement]
+                        as &[crate::session_commands::CommandCapability],
+                    &[] as &[crate::session_commands::CommandPermission],
+                    &[] as &[crate::session_commands::CommandBackend],
+                ),
+                (
+                    "/tool",
+                    &[] as &[&str],
+                    crate::session_commands::SlashCommandArgumentShape::RequiredText,
+                    &[crate::session_commands::CommandCapability::ToolManagement]
+                        as &[crate::session_commands::CommandCapability],
+                    &[] as &[crate::session_commands::CommandPermission],
+                    &[] as &[crate::session_commands::CommandBackend],
+                ),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn session_command_regression_invalid_inputs_have_normalized_failures() {
+        let cases = [
+            (
+                "/tools extra",
+                "/tools",
+                SessionCommandFailureKind::InvalidArguments,
+                "invalid slash command usage for /tools: this command does not accept trailing arguments",
+            ),
+            (
+                "/mcp",
+                "/mcp",
+                SessionCommandFailureKind::InvalidArguments,
+                "invalid slash command usage for /mcp: a subcommand argument is required",
+            ),
+            (
+                "/tool toggle shell",
+                "/tool",
+                SessionCommandFailureKind::InvalidArguments,
+                "Unknown /tool subcommand: 'toggle'. Use enable or disable.",
+            ),
+            (
+                "/session archive",
+                "/session",
+                SessionCommandFailureKind::InvalidArguments,
+                "Unknown /session subcommand: 'archive'. Usage: /session, /session status, /session inspect, or /session list",
+            ),
+        ];
+
+        for (prompt, command, kind, message) in cases {
+            let decision = evaluate_ingress(
+                &IngressMemory,
+                &[],
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                prompt,
+                false,
+            )
+            .await;
+
+            match decision {
+                IngressDecision::SessionCommand {
+                    outcome: SessionCommandOutcome::Failure(failure),
+                } => {
+                    assert_eq!(failure.command, command, "command drift for {prompt}");
+                    assert_eq!(failure.kind, kind, "failure kind drift for {prompt}");
+                    assert_eq!(failure.message, message, "message drift for {prompt}");
+                    if message.starts_with("invalid slash command usage") {
+                        assert_eq!(failure.session_id, None, "argument-shape failures stay pre-context");
+                    } else {
+                        assert_eq!(failure.session_id, Some("session-1".to_string()));
+                    }
+                }
+                other => panic!("prompt {prompt} should fail as session command, got {other:?}"),
+            }
+        }
+
+        assert!(matches!(
+            evaluate_ingress(
+                &IngressMemory,
+                &[],
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                "/unknown",
+                false,
+            )
+            .await,
+            IngressDecision::Continue
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_command_regression_cli_gateway_transport_parity() {
+        let tools = vec![SessionCommandToolEntry {
+            name: "shell".to_string(),
+            description: "Execute shell commands".to_string(),
+            source_kind: SessionCommandToolSourceKind::Native,
+            source_label: None,
+            aliases: vec![],
+        }];
+        let prompts = [
+            "/tools",
+            "/session",
+            "/session list",
+            "/model gpt-4o",
+            "/provider openai",
+            "/temperature",
+            "/mcp list",
+            "/mcp add local-server",
+            "/tool enable shell",
+            "/tool disable shell",
+            "/tool toggle shell",
+            "/resume",
+        ];
+
+        for prompt in prompts {
+            let cli = evaluate_ingress(
+                &IngressMemory,
+                &tools,
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                prompt,
+                false,
+            )
+            .await;
+            let gateway = evaluate_ingress(
+                &IngressMemory,
+                &tools,
+                CommandContext::for_gateway_http(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                prompt,
+                false,
+            )
+            .await;
+
+            assert_same_ingress_decision(cli, gateway, &format!("transport parity drift for {prompt}"));
+        }
+    }
+
+    #[tokio::test]
+    async fn session_command_regression_plan_mode_keeps_slash_command_path() {
+        let prompts = ["/tools", "/session", "/model planning-model", "/mcp list"];
+
+        for prompt in prompts {
+            let standard = evaluate_ingress(
+                &IngressMemory,
+                &[],
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Standard,
+                    None,
+                ),
+                prompt,
+                false,
+            )
+            .await;
+            let plan = evaluate_ingress(
+                &IngressMemory,
+                &[],
+                CommandContext::for_cli(
+                    "session-1",
+                    CommandSessionSource::Existing,
+                    ExecutionMode::Plan,
+                    None,
+                ),
+                prompt,
+                false,
+            )
+            .await;
+
+            assert_same_ingress_decision(
+                standard,
+                plan,
+                &format!("plan mode changed slash behavior for {prompt}"),
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn session_command_regression_authz_and_ownership_enforcement_is_transport_stable() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let memory = crate::memory::SqliteMemory::new(temp_dir.path()).unwrap();
+        memory
+            .upsert_session("session-target", Some("owner-scope"))
+            .await
+            .unwrap();
+        let snapshot = memory
+            .create_session_snapshot(
+                "session-target",
+                crate::memory::SessionSnapshotKind::Compact,
+                serde_json::json!({
+                    "preview": "resume me",
+                    "summary": "resume me",
+                    "resume_context": "resume me",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+        memory
+            .apply_session_state_patch(crate::memory::SessionStatePatch {
+                session_id: "session-target".to_string(),
+                lifecycle: Some(crate::memory::SlashSessionLifecycle::Suspended),
+                latest_tldr_snapshot_id: crate::memory::SessionFieldPatch::Keep,
+                latest_compact_snapshot_id: crate::memory::SessionFieldPatch::Set(snapshot.id),
+                pending_hydration_snapshot_id: crate::memory::SessionFieldPatch::Clear,
+                suspended_at: crate::memory::SessionFieldPatch::Set("now".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let missing_scope = evaluate_ingress(
+            &memory,
+            &[],
+            CommandContext::for_gateway_http(
+                "session-control",
+                CommandSessionSource::Explicit,
+                ExecutionMode::Standard,
+                None,
+            ),
+            "/resume session-target",
+            false,
+        )
+        .await;
+        assert!(matches!(
+            missing_scope,
+            IngressDecision::SessionCommand {
+                outcome: SessionCommandOutcome::Failure(SessionCommandFailure {
+                    command: "/resume",
+                    kind: SessionCommandFailureKind::MissingCallerScope,
+                    ..
+                })
+            }
+        ));
+
+        let cli_wrong_owner = evaluate_ingress(
+            &memory,
+            &[],
+            CommandContext::for_cli(
+                "session-control",
+                CommandSessionSource::Explicit,
+                ExecutionMode::Standard,
+                Some("other-scope".to_string()),
+            ),
+            "/resume session-target",
+            false,
+        )
+        .await;
+        let gateway_wrong_owner = evaluate_ingress(
+            &memory,
+            &[],
+            CommandContext::for_gateway_http(
+                "session-control",
+                CommandSessionSource::Explicit,
+                ExecutionMode::Standard,
+                Some("other-scope".to_string()),
+            ),
+            "/resume session-target",
+            false,
+        )
+        .await;
+
+        assert_same_ingress_decision(
+            cli_wrong_owner.clone(),
+            gateway_wrong_owner,
+            "ownership failure differs by transport",
+        );
+        assert!(matches!(
+            cli_wrong_owner,
+            IngressDecision::SessionCommand {
+                outcome: SessionCommandOutcome::Failure(SessionCommandFailure {
+                    command: "/resume",
+                    kind: SessionCommandFailureKind::PermissionDenied,
+                    ..
+                })
+            }
+        ));
     }
 
     #[test]
