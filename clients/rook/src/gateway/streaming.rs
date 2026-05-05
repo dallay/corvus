@@ -260,7 +260,10 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    use super::{upstream_event_stream_with_completion, OpenAiSseParseError, OpenAiSseParser};
+    use super::{
+        normalize_openai_sse_bytes, text_event_stream, upstream_event_stream,
+        upstream_event_stream_with_completion, OpenAiSseParseError, OpenAiSseParser,
+    };
 
     #[test]
     fn parser_reconstructs_ordered_events_across_split_boundaries() {
@@ -312,6 +315,50 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, OpenAiSseParseError::DuplicateDoneSentinel));
+    }
+
+    #[test]
+    fn normalize_openai_sse_bytes_keeps_events_through_single_done() {
+        let (rendered, complete) = normalize_openai_sse_bytes(
+            b"data: {\"id\":\"chunk-1\"}\n\ndata: {\"id\":\"chunk-2\"}\n\ndata: [DONE]\n\ndata: ignored\n\n",
+        );
+
+        assert!(complete);
+        assert_eq!(
+            rendered,
+            "data: {\"id\":\"chunk-1\"}\n\ndata: {\"id\":\"chunk-2\"}\n\ndata: [DONE]\n\n"
+        );
+    }
+
+    #[test]
+    fn normalize_openai_sse_bytes_reports_incomplete_on_malformed_frame() {
+        let (malformed, malformed_complete) = normalize_openai_sse_bytes(b"event: message\n\n");
+
+        assert_eq!(malformed, "");
+        assert!(!malformed_complete);
+    }
+
+    #[tokio::test]
+    async fn text_event_stream_emits_normalized_payloads() {
+        let events = text_event_stream("data: first\n\ndata: second\n\n".to_string())
+            .collect::<Vec<_>>()
+            .await;
+
+        assert_eq!(events.len(), 2);
+        assert!(events.into_iter().all(|event| event.is_ok()));
+    }
+
+    #[tokio::test]
+    async fn upstream_event_stream_emits_pending_events_until_done() {
+        let upstream = stream::iter([
+            Ok::<_, ()>(Bytes::from_static(b"data: first\n\ndata: second")),
+            Ok::<_, ()>(Bytes::from_static(b"\n\ndata: [DONE]\n\ndata: ignored\n\n")),
+        ]);
+
+        let events = upstream_event_stream(upstream).collect::<Vec<_>>().await;
+
+        assert_eq!(events.len(), 3);
+        assert!(events.into_iter().all(|event| event.is_ok()));
     }
 
     #[tokio::test]
