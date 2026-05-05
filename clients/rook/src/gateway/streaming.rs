@@ -329,4 +329,36 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(completion_count.load(Ordering::SeqCst), 1);
     }
+
+    #[tokio::test]
+    async fn completion_runs_when_upstream_errors_once() {
+        let completion_count = Arc::new(AtomicUsize::new(0));
+        let completion_count_for_callback = Arc::clone(&completion_count);
+        let upstream = stream::iter([Err::<Bytes, _>("upstream failed")]);
+
+        let events = upstream_event_stream_with_completion(upstream, move || async move {
+            completion_count_for_callback.fetch_add(1, Ordering::SeqCst);
+        })
+        .collect::<Vec<_>>()
+        .await;
+
+        assert_eq!(events.len(), 0);
+        assert_eq!(completion_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn completion_runs_on_parse_error_once() {
+        let completion_count = Arc::new(AtomicUsize::new(0));
+        let completion_count_for_callback = Arc::clone(&completion_count);
+        let upstream = stream::iter([Ok::<_, ()>(Bytes::from_static(b"event: message\n\n"))]);
+
+        let events = upstream_event_stream_with_completion(upstream, move || async move {
+            completion_count_for_callback.fetch_add(1, Ordering::SeqCst);
+        })
+        .collect::<Vec<_>>()
+        .await;
+
+        assert_eq!(events.len(), 0);
+        assert_eq!(completion_count.load(Ordering::SeqCst), 1);
+    }
 }

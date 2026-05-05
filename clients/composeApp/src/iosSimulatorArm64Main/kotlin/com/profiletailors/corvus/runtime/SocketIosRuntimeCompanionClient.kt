@@ -53,6 +53,12 @@ private fun htons(value: UShort): UShort {
   return ((bytes shr BYTE_SHIFT) or ((bytes and BYTE_MASK) shl BYTE_SHIFT)).toUShort()
 }
 
+private fun htonl(value: UInt): UInt =
+  ((value and 0xFFu) shl IPV4_SHIFT_24) or
+    ((value and 0xFF00u) shl BYTE_SHIFT) or
+    ((value shr BYTE_SHIFT) and 0xFF00u) or
+    ((value shr IPV4_SHIFT_24) and 0xFFu)
+
 private fun parseIpv4Address(host: String): UInt? {
   val bytes = host.split('.').map { it.toIntOrNull() }
   val validBytes = bytes.filterNotNull()
@@ -65,13 +71,13 @@ private fun parseIpv4Address(host: String): UInt? {
     return null
   }
 
-  val firstOctet = validBytes[IPV4_FIRST_OCTET].toUInt() shl IPV4_SHIFT_24
-  val secondOctet = validBytes[IPV4_SECOND_OCTET].toUInt() shl IPV4_SHIFT_16
-  val thirdOctet = validBytes[IPV4_THIRD_OCTET].toUInt() shl BYTE_SHIFT
-  val fourthOctet = validBytes[IPV4_FOURTH_OCTET].toUInt()
-  val address = firstOctet or secondOctet or thirdOctet or fourthOctet
+  val hostOrderAddress =
+    (validBytes[IPV4_FIRST_OCTET].toUInt() shl IPV4_SHIFT_24) or
+      (validBytes[IPV4_SECOND_OCTET].toUInt() shl IPV4_SHIFT_16) or
+      (validBytes[IPV4_THIRD_OCTET].toUInt() shl BYTE_SHIFT) or
+      validBytes[IPV4_FOURTH_OCTET].toUInt()
 
-  return address.takeUnless { it == INVALID_IPV4_ADDRESS }
+  return htonl(hostOrderAddress).takeUnless { it == INVALID_IPV4_ADDRESS }
 }
 
 actual data class IosRuntimeCompanionConfig

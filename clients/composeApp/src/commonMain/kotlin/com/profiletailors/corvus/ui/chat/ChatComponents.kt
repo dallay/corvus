@@ -507,7 +507,11 @@ private fun sessionHistoryItem(session: RuntimeSession, isActive: Boolean, onSwi
       verticalAlignment = Alignment.CenterVertically,
     ) {
       sessionHistoryItemLabel(session = session, style = style, modifier = Modifier.weight(1f))
-      sessionHistoryItemAction(isActive = isActive, onSwitch = onSwitch)
+      sessionHistoryItemAction(
+        isActive = isActive,
+        sessionLabel = session.title ?: truncateSessionId(session.id.value),
+        onSwitch = onSwitch,
+      )
     }
   }
 }
@@ -561,13 +565,18 @@ private fun sessionHistoryItemLabel(
 }
 
 @Composable
-private fun sessionHistoryItemAction(isActive: Boolean, onSwitch: () -> Unit) {
+private fun sessionHistoryItemAction(
+  isActive: Boolean,
+  sessionLabel: String,
+  onSwitch: () -> Unit,
+) {
   if (isActive) return
 
   OutlinedButton(
     onClick = onSwitch,
     shape = RoundedCornerShape(10.dp),
     colors = ButtonDefaults.outlinedButtonColors(contentColor = CorvusTheme.colors.glowCyan),
+    modifier = Modifier.semantics { contentDescription = "Open $sessionLabel" },
   ) {
     Text(text = "Open", style = MaterialTheme.typography.labelMedium)
   }
