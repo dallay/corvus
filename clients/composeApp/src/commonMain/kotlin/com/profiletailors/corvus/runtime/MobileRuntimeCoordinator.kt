@@ -255,6 +255,9 @@ class MobileRuntimeCoordinator(
       if (event is RuntimeEvent.ApprovalPending) {
         pendingApproval = event.request
       }
+
+      // RuntimeEvent.Failure is handled by not adding to assistantMessages (via
+      // assistantMessageTextOrNull returning null)
     }
     state =
       state.copy(messages = state.messages + assistantMessages, pendingApproval = pendingApproval)
@@ -265,7 +268,6 @@ private fun RuntimeEvent.assistantMessageTextOrNull(): String? =
   when (this) {
     is RuntimeEvent.AssistantChunk -> text
     is RuntimeEvent.AssistantMessage -> text
-    is RuntimeEvent.Failure -> message
     else -> null
   }
 

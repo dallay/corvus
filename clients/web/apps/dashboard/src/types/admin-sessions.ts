@@ -8,13 +8,13 @@ export interface AdminSessionView {
 }
 
 export interface AdminSessionDetail extends AdminSessionView {
-  metadata?: unknown;
+  metadata?: unknown | null;
   memory_summary: Record<string, number>;
 }
 
 export interface AdminSessionDetailResponse {
   session: AdminSessionView & {
-    metadata?: unknown;
+    metadata?: unknown | null;
   };
   memory_summary: Record<string, number>;
 }

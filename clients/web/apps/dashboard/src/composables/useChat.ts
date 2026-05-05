@@ -120,10 +120,11 @@ function parseApprovalErrorType(payload: unknown): string | null {
 
   const response = payload as ApprovalErrorPayload;
   const numericCode = typeof response.code === "number" ? response.code.toString() : null;
+  // Check response.type first (e.g., "approval_required") before numericCode (e.g., "403")
   const topLevelType =
-    nonEmptyString(response.code) ??
-    numericCode ??
     nonEmptyString(response.type) ??
+    numericCode ??
+    nonEmptyString(response.code) ??
     nonEmptyString(response.tool) ??
     nonEmptyString(response.reason) ??
     nonEmptyString(response.error);

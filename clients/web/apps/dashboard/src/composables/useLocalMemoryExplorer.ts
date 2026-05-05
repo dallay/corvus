@@ -107,8 +107,9 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
     const grouped = new Map<string, AdminMemoryEntry[]>();
     for (const entry of groupSource) {
       const key = toSessionKey(entry.session_id);
-      const groupEntries = grouped.get(key) ?? [];
-      if (!grouped.has(key)) {
+      let groupEntries = grouped.get(key);
+      if (!groupEntries) {
+        groupEntries = [];
         grouped.set(key, groupEntries);
       }
       groupEntries.push(entry);
@@ -172,8 +173,9 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
     const grouped = new Map<string, AdminMemoryEntry[]>();
     for (const entry of clusterSource) {
       const groupKey = `${toSessionKey(entry.session_id)}::${entry.category}`;
-      const groupEntries = grouped.get(groupKey) ?? [];
-      if (!grouped.has(groupKey)) {
+      let groupEntries = grouped.get(groupKey);
+      if (!groupEntries) {
+        groupEntries = [];
         grouped.set(groupKey, groupEntries);
       }
       groupEntries.push(entry);

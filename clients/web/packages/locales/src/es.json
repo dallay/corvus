@@ -293,7 +293,8 @@
     "enabled": "Habilitado",
     "secretStatus": "Secret actual: {status}",
     "statusConfigured": "configurado",
-    "statusNotConfigured": "no configurado"
+    "statusNotConfigured": "no configurado",
+    "errorFixBeforeSave": "Por favor, corrija el siguiente error antes de guardar."
   },
   "webSearch": {
     "enabled": "Habilitado",

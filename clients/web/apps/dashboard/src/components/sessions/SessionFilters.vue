@@ -13,20 +13,21 @@ const emit = defineEmits<{
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 type SessionStatusFilter = "all" | Exclude<SessionStatusEmitValue, undefined>;
-type SessionSort = SessionSortEmitValue;
 
 const status = ref<SessionStatusFilter>("all");
-const sort = ref<SessionSort>("last_activity");
+const sort = ref<SessionSortEmitValue>("last_activity");
 
 const VALID_STATUSES = new Set<SessionStatusFilter>(["all", "active", "ended"]);
-const VALID_SORTS = new Set<SessionSort>(["last_activity", "started_at"]);
+const VALID_SORTS = new Set<SessionSortEmitValue>(["last_activity", "started_at"]);
 
 function sanitizeStatus(value: string): SessionStatusFilter {
   return VALID_STATUSES.has(value as SessionStatusFilter) ? (value as SessionStatusFilter) : "all";
 }
 
-function sanitizeSort(value: string): SessionSort {
-  return VALID_SORTS.has(value as SessionSort) ? (value as SessionSort) : "last_activity";
+function sanitizeSort(value: string): SessionSortEmitValue {
+  return VALID_SORTS.has(value as SessionSortEmitValue)
+    ? (value as SessionSortEmitValue)
+    : "last_activity";
 }
 
 function onStatusChange(event?: Event) {

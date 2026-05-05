@@ -298,6 +298,10 @@ async fn handle_buffered_route_error(
     error: impl std::fmt::Display,
     last_error: Option<BufferedAttemptError>,
 ) -> Response {
+    // Always log and record the failure before potentially returning early
+    record_upstream_failure(state, &UpstreamMetricContext::unrouted(), "route_rejected");
+    tracing::warn!(model = %request.model, error = %error, "routing failed");
+
     if let Some(previous_error) = last_error {
         let retryable = should_retry_buffered_upstream_error(&previous_error.0);
         return finalize_buffered_upstream_error(
@@ -310,8 +314,6 @@ async fn handle_buffered_route_error(
         .await;
     }
 
-    record_upstream_failure(state, &UpstreamMetricContext::unrouted(), "route_rejected");
-    tracing::warn!(model = %request.model, error = %error, "routing failed");
     record_usage(
         state,
         UsageRecordInput {

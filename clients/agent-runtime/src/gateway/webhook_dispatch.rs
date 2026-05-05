@@ -510,7 +510,15 @@ fn map_policy_blocked_turn_result(
                 },
             )
         }
-        _ => map_canonical_result(request, model, CanonicalWebhookResult::Error),
+        _ => {
+            tracing::warn!(
+                session_id = %request.session_id,
+                model = %model,
+                payload = ?policy_blocked,
+                "policy_blocked parse failed"
+            );
+            map_canonical_result(request, model, CanonicalWebhookResult::Error)
+        }
     }
 }
 
@@ -525,7 +533,15 @@ fn map_approval_required_turn_result(
             model,
             CanonicalWebhookResult::ApprovalRequired { tool, reason },
         ),
-        None => map_canonical_result(request, model, CanonicalWebhookResult::Error),
+        None => {
+            tracing::warn!(
+                session_id = %request.session_id,
+                model = %model,
+                payload = ?approval_required,
+                "approval_required parse failed"
+            );
+            map_canonical_result(request, model, CanonicalWebhookResult::Error)
+        }
     }
 }
 
@@ -551,6 +567,12 @@ fn map_agent_turn_error(
         );
     }
 
+    tracing::error!(
+        session_id = %request.session_id,
+        model = %model,
+        error = %error,
+        "unexpected agent turn error"
+    );
     map_canonical_result(request, model, CanonicalWebhookResult::Error)
 }
 

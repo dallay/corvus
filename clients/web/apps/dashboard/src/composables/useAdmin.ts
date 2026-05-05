@@ -225,6 +225,10 @@ export function useAdmin(
         signal: controller.signal,
       });
       const text = await res.text();
+      // Handle 204 No Content and empty responses before parsing JSON
+      if (res.status === 204 || !text.trim()) {
+        return null as T;
+      }
       const payload = parseJsonPayload<T | AdminCerebroActionError>(
         text,
         `Invalid Cerebro response: HTTP ${res.status}`

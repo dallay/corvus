@@ -49,8 +49,19 @@ export class RookApiClient implements RookApi {
   private readonly bearerToken: string;
 
   constructor(baseUrl: string, bearerToken: string) {
-    this.baseUrl = trimTrailingSlashes(baseUrl.trim());
-    this.bearerToken = bearerToken.trim();
+    const trimmedBaseUrl = trimTrailingSlashes(baseUrl.trim());
+    const trimmedToken = bearerToken.trim();
+
+    if (!trimmedBaseUrl) {
+      throw new TypeError("baseUrl is required and cannot be empty");
+    }
+
+    if (!trimmedToken) {
+      throw new TypeError("bearerToken is required and cannot be empty");
+    }
+
+    this.baseUrl = trimmedBaseUrl;
+    this.bearerToken = trimmedToken;
   }
 
   listAccounts(): Promise<AccountView[]> {

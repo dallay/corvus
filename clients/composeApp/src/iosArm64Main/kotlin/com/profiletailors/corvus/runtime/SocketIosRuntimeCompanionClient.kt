@@ -77,7 +77,7 @@ private fun parseIpv4Address(host: String): UInt? {
       (validBytes[IPV4_THIRD_OCTET].toUInt() shl BYTE_SHIFT) or
       validBytes[IPV4_FOURTH_OCTET].toUInt()
 
-  return htonl(hostOrderAddress).takeUnless { it == INVALID_IPV4_ADDRESS }
+  return htonl(hostOrderAddress)
 }
 
 actual data class IosRuntimeCompanionConfig
@@ -195,7 +195,14 @@ actual constructor(private val config: IosRuntimeCompanionConfig) : IosRuntimeCo
       val addr = alloc<sockaddr_in>()
       addr.sin_family = AF_INET.convert()
       addr.sin_port = htons(config.port.toUShort())
-      addr.sin_addr.s_addr = parseIpv4Address(config.host) ?: return null
+      // Connection policy: reject 0.0.0.0 (invalid/unreachable) at call site
+      // format/bounds parsing is done by parseIpv4Address; policy validation is caller's
+      // responsibility
+      val ipv4Addr = parseIpv4Address(config.host)
+      if (ipv4Addr == null || ipv4Addr == 0u) {
+        return null
+      }
+      addr.sin_addr.s_addr = ipv4Addr
 
       if (connect(sockfd, addr.ptr.reinterpret(), sizeOf<sockaddr_in>().convert()) < 0) {
         return null

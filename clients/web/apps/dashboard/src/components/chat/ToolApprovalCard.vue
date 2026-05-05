@@ -48,9 +48,9 @@ function handleReject(id: string): void {
     class="tool-approval-card"
     data-testid="tool-approval"
   >
+    <legend class="tool-name" data-testid="tool-name">{{ toolName }}</legend>
     <div class="tool-approval-header">
       <span class="tool-icon">🔧</span>
-      <legend class="tool-name" data-testid="tool-name">{{ toolName }}</legend>
     </div>
     <p :id="`tool-approval-reason-${approvalId}`" class="tool-reason" data-testid="tool-reason">{{ reason }}</p>
     <div class="tool-approval-actions">

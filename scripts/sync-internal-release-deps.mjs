@@ -11,7 +11,8 @@ const rawArgs = process.argv.slice(2);
 
 for (const arg of rawArgs) {
   if (!allowedArgs.has(arg)) {
-    throw new Error(`Unsupported argument: ${arg}`);
+    process.stderr.write(`Unsupported argument: ${arg}\n`);
+    process.exit(1);
   }
 }
 
