@@ -635,13 +635,18 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use serde_json::{json, Value};
     use std::sync::Arc;
+    use std::time::Instant;
     use tower::util::ServiceExt;
 
+    use super::{
+        handle_buffered_route_error, should_retry_buffered_upstream_error, UpstreamMetricContext,
+    };
     use crate::domain::{
         AccountId, ModelRoute, PoolId, ProviderAccount, ProviderPool, ProviderVendor, RouteId,
         SelectionStrategy,
     };
-    use crate::gateway::types::STREAM_CONTENT_TYPE;
+    use crate::gateway::types::{ChatCompletionRequest, STREAM_CONTENT_TYPE};
+    use crate::gateway::upstream::UpstreamError;
     use crate::gateway::{build_router, GatewayState};
     use crate::registry::RookRegistry;
     use crate::routing::RoutingEngine;
@@ -699,7 +704,7 @@ mod tests {
         }
     }
 
-    async fn test_app() -> (axum::Router, RookRegistry) {
+    async fn test_state() -> (GatewayState, RookRegistry) {
         let registry = RookRegistry::open_in_memory().await.unwrap();
         let engine = RoutingEngine::new(registry.clone());
         let client = reqwest::Client::builder()
@@ -721,6 +726,11 @@ mod tests {
             resilience_policy,
             upstream_concurrency,
         };
+        (state, registry)
+    }
+
+    async fn test_app() -> (axum::Router, RookRegistry) {
+        let (state, registry) = test_state().await;
         (build_router(state), registry)
     }
 
@@ -998,6 +1008,49 @@ mod tests {
         assert_eq!(summary.totals.failed_requests, 1);
         assert_eq!(summary.by_vendor[0].key, "unrouted");
         assert_eq!(summary.by_outcome[0].key, "route_rejected");
+    }
+
+    #[tokio::test]
+    async fn buffered_route_error_with_last_error_records_route_rejected_and_retry_outcome() {
+        let (state, _registry) = test_state().await;
+        let account_id = AccountId::generate();
+        let prior_error = UpstreamError::Timeout {
+            message: "upstream timed out".to_string(),
+        };
+        let expected_retryable = should_retry_buffered_upstream_error(&prior_error);
+        let request = ChatCompletionRequest {
+            model: "missing-model".to_string(),
+            messages: vec![],
+            temperature: None,
+            top_p: None,
+            n: None,
+            stop: None,
+            max_tokens: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            user: None,
+            stream: Some(false),
+            extra: Default::default(),
+        };
+
+        let response = handle_buffered_route_error(
+            &state,
+            &request,
+            Instant::now(),
+            "routing failed",
+            Some((prior_error, UpstreamMetricContext::unrouted(), account_id)),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+        let metrics = state.observability.render_prometheus().unwrap();
+        assert!(metrics.contains(
+            "rook_upstream_failures_total{vendor=\"unrouted\",account=\"unrouted\",model=\"unrouted\",outcome=\"route_rejected\"} 1"
+        ));
+        assert!(expected_retryable);
+        assert!(metrics.contains(
+            "rook_upstream_retry_outcomes_total{vendor=\"unrouted\",account=\"unrouted\",model=\"unrouted\",outcome=\"retry_exhausted\"} 1"
+        ));
     }
 
     #[tokio::test]

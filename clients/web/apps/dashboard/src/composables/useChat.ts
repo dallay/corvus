@@ -119,24 +119,19 @@ function parseApprovalErrorType(payload: unknown): string | null {
   }
 
   const response = payload as ApprovalErrorPayload;
+  const nestedError = response.error && typeof response.error === "object" ? response.error : null;
   const numericCode = typeof response.code === "number" ? response.code.toString() : null;
-  // Check response.type first (e.g., "approval_required") before numericCode (e.g., "403")
   const topLevelType =
     nonEmptyString(response.type) ??
+    nonEmptyString(nestedError?.type) ??
+    nonEmptyString(nestedError?.code) ??
     numericCode ??
     nonEmptyString(response.code) ??
     nonEmptyString(response.tool) ??
     nonEmptyString(response.reason) ??
     nonEmptyString(response.error);
-  if (topLevelType) {
-    return topLevelType;
-  }
 
-  if (!response.error || typeof response.error !== "object") {
-    return null;
-  }
-
-  return nonEmptyString(response.error.code) ?? nonEmptyString(response.error.type);
+  return topLevelType ?? null;
 }
 
 async function readJsonPayload(response: Response): Promise<unknown> {

@@ -199,7 +199,7 @@ actual constructor(private val config: IosRuntimeCompanionConfig) : IosRuntimeCo
       // format/bounds parsing is done by parseIpv4Address; policy validation is caller's
       // responsibility
       val ipv4Addr = parseIpv4Address(config.host)
-      if (ipv4Addr == null || ipv4Addr == 0u) {
+      if (ipv4Addr == null || ipv4Addr == INVALID_IPV4_ADDRESS) {
         return null
       }
       addr.sin_addr.s_addr = ipv4Addr

@@ -225,9 +225,12 @@ export function useAdmin(
         signal: controller.signal,
       });
       const text = await res.text();
-      // Handle 204 No Content and empty responses before parsing JSON
-      if (res.status === 204 || !text.trim()) {
+      // Handle 204 No Content and empty successful responses before parsing JSON
+      if (res.status === 204 || (res.ok && !text.trim())) {
         return null as T;
+      }
+      if (!text.trim()) {
+        throw new Error(`HTTP ${res.status}`);
       }
       const payload = parseJsonPayload<T | AdminCerebroActionError>(
         text,

@@ -50,7 +50,7 @@ function handleReject(id: string): void {
     data-testid="tool-approval"
     role="group"
   >
-    <legend id="`tool-approval-title-${approvalId}`" class="tool-name" data-testid="tool-name">{{ toolName }}</legend>
+    <legend :id="`tool-approval-title-${approvalId}`" class="tool-name" data-testid="tool-name">{{ toolName }}</legend>
     <div class="tool-approval-header">
       <span class="tool-icon">🔧</span>
     </div>

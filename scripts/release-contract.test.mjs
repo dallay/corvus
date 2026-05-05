@@ -522,7 +522,7 @@ test("sync-cargo-lockfiles commit step stages all rewritten manifests and lockfi
 test("archived verify report keeps blank line after each scenario heading", () => {
   const verifyReport = readText("openspec/changes/archive/2026-04-29-release-internal-dependency-sync/verify-report.md");
 
-  assert.doesNotMatch(verifyReport, /^#### Scenario: [^\n]*\n- /m);
+  assert.doesNotMatch(verifyReport, /^#### Scenario: [^\n]*\n[^\n]/m);
 });
 
 test("archived openspec state reflects completed apply and verify phases", () => {
@@ -1154,8 +1154,10 @@ test("cargo publish contract keeps local cerebro path and release version aligne
   const cerebroToml = readText("clients/cerebro/Cargo.toml");
   const expectedDependency = `cerebro = { version = "${releaseVersion}", path = "../../clients/cerebro" }`;
 
+  const packageStanza = cerebroToml.match(/^\[package\]\n(?<body>(?:(?!^\[).*(?:\n|$))*)/m)?.groups?.body ?? "";
+
   assert.ok(cargoToml.includes(expectedDependency));
-  assert.ok(cerebroToml.split("\n").includes(`version = "${releaseVersion}"`));
+  assert.match(packageStanza, new RegExp(`^version = "${releaseVersion}"$`, "m"));
 });
 
 test("rust lockfiles stay valid for --locked release commands", (t) => {

@@ -200,7 +200,7 @@ fn try_load_skills_from_directory(workspace_dir: &Path, skills_dir: &Path) -> Op
             .filter_map(|entry| match entry {
                 Ok(entry) => load_skill_entry(entry, &canonical_skills_dir),
                 Err(e) => {
-                    tracing::warn!(error = %e, "failed to read directory entry");
+                    tracing::warn!(dir = %canonical_skills_dir.display(), error = %e, "failed to read directory entry");
                     None
                 }
             })

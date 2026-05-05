@@ -514,7 +514,9 @@ fn map_policy_blocked_turn_result(
             tracing::warn!(
                 session_id = %request.session_id,
                 model = %model,
-                payload = ?policy_blocked,
+                payload_keys = ?policy_blocked
+                    .as_object()
+                    .map(|object| object.keys().cloned().collect::<Vec<_>>()),
                 "policy_blocked parse failed"
             );
             map_canonical_result(request, model, CanonicalWebhookResult::Error)
@@ -537,7 +539,9 @@ fn map_approval_required_turn_result(
             tracing::warn!(
                 session_id = %request.session_id,
                 model = %model,
-                payload = ?approval_required,
+                payload_keys = ?approval_required
+                    .as_object()
+                    .map(|object| object.keys().cloned().collect::<Vec<_>>()),
                 "approval_required parse failed"
             );
             map_canonical_result(request, model, CanonicalWebhookResult::Error)

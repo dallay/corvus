@@ -30,7 +30,8 @@ if (wantsHelp) {
 }
 
 if (!mode) {
-  throw new Error("Exactly one of --check or --write must be provided");
+  process.stderr.write("Missing mode: exactly one of --check or --write must be provided\n");
+  process.exit(1);
 }
 
 function resolveMode(wantsWrite, wantsCheck) {
@@ -152,7 +153,12 @@ function resolveManifestRelativeClientTarget(manifestPath, dependencyPath) {
 
 function findOwningComponentId(targetPath) {
   for (const [componentId, component] of componentEntries) {
-    if (component.ownedPaths.some((ownedPath) => targetPath === ownedPath.slice(0, -1))) {
+    if (
+      component.ownedPaths.some((ownedPath) => {
+        const normalizedOwnedPath = ownedPath.endsWith("/") ? ownedPath.slice(0, -1) : ownedPath;
+        return targetPath === normalizedOwnedPath;
+      })
+    ) {
       return componentId;
     }
   }
@@ -184,7 +190,6 @@ for (const [manifestPath, manifestText] of manifestTexts.entries()) {
 
     if (!managedEdges.has(edgeKey(manifestPath, dependency.dependencyName))) {
       const message = `unmanaged-internal-release-edge: ${manifestPath} declares ${dependency.dependencyName} -> ${dependency.path} without internalReleaseDependencies coverage`;
-      changes.push(message);
       throw new Error(message);
     }
   }
@@ -217,7 +222,7 @@ for (const edge of graph.internalReleaseDependencies) {
     }
 
     const updatedBlock = updateVersionInBlock(dependencyBlock, expectedVersion);
-    writeText(edge.manifestPath, downstreamText.replace(dependencyBlock, updatedBlock));
+    writeText(edge.manifestPath, downstreamText.replaceAll(dependencyBlock, updatedBlock));
     changes.push(`${edge.dependentComponent} -> ${edge.upstreamComponent}: ${actualVersion} -> ${expectedVersion}`);
     rewrites += 1;
     continue;
