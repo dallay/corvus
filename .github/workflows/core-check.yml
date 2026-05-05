@@ -59,19 +59,17 @@ jobs:
       - name: 🔧 Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: 🦀 Setup Rust toolchain
+      - name: 🦀 Verify Rust toolchain
         shell: bash
         run: |
-          if command -v cargo >/dev/null 2>&1; then
-            cargo --version
-            rustc --version
-            exit 0
+          if ! command -v cargo >/dev/null 2>&1; then
+            echo "Rust is expected to be preinstalled on the GitHub-hosted runner." >&2
+            echo "Install it through a pinned, verified setup action before this step if the runner image changes." >&2
+            exit 1
           fi
 
-          curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain stable
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          "$HOME/.cargo/bin/cargo" --version
-          "$HOME/.cargo/bin/rustc" --version
+          cargo --version
+          rustc --version
 
       - name: ✅ Run core checks
         shell: bash

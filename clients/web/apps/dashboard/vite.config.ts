@@ -12,6 +12,12 @@ const isTestMode = isPlaywrightFsAllowMode();
 export default defineConfig({
   plugins: [vue()],
   server: {
+    headers: {
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+      "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    },
     fs: {
       // Only allow full repo access in test mode; otherwise use minimal paths
       allow: isTestMode

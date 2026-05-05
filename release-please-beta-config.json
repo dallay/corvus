@@ -16,6 +16,11 @@
           "jsonpath": "$.package.version"
         },
         {
+          "type": "toml",
+          "path": "clients/agent-runtime/crates/corvus-traits/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
           "type": "json",
           "path": "clients/agent-runtime/npm/corvus/package.json",
           "jsonpath": "$.version"
@@ -97,6 +102,11 @@
           "type": "toml",
           "path": "clients/rook/Cargo.toml",
           "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "clients/rook/Cargo.toml",
+          "jsonpath": "$.dependencies['corvus-traits'].version"
         },
         {
           "type": "json",

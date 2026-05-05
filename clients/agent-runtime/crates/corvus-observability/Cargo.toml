@@ -1,6 +1,6 @@
 [package]
 name = "corvus-observability"
-version = "0.2.2"
+version = "3.9.0"
 edition = "2021"
 authors = ["theonlyhennygod"]
 license = "Apache-2.0"

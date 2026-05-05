@@ -3,6 +3,7 @@ use futures_util::stream;
 use futures_util::{Stream, StreamExt};
 use std::collections::VecDeque;
 use std::convert::Infallible;
+use std::future::Future;
 
 use crate::gateway::types::STREAM_DONE_SENTINEL;
 
@@ -120,37 +121,81 @@ pub fn upstream_event_stream<S, E>(
 where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
 {
+    upstream_event_stream_with_completion(upstream, || async {})
+}
+
+pub fn upstream_event_stream_with_completion<S, E, F, Fut>(
+    upstream: S,
+    on_complete: F,
+) -> impl Stream<Item = Result<axum::response::sse::Event, Infallible>>
+where
+    S: Stream<Item = Result<Bytes, E>> + Unpin,
+    F: FnOnce() -> Fut + Unpin,
+    Fut: Future<Output = ()>,
+{
     stream::unfold(
         (
             OpenAiSseParser::default(),
             upstream,
             VecDeque::<String>::new(),
             false,
+            Some(on_complete),
         ),
-        |(mut parser, mut upstream, mut pending, terminated)| async move {
+        |(mut parser, mut upstream, mut pending, terminated, mut on_complete)| async move {
             if terminated {
+                run_completion_once(on_complete.take()).await;
                 return None;
             }
 
             loop {
-                if let Some(payload) = pending.pop_front() {
-                    let is_done = payload == STREAM_DONE_SENTINEL;
-                    let event = axum::response::sse::Event::default().data(payload);
-                    return Some((Ok(event), (parser, upstream, pending, is_done)));
+                if let Some(next) = pop_pending_event(&mut pending) {
+                    let (event, is_done) = next;
+                    return Some((Ok(event), (parser, upstream, pending, is_done, on_complete)));
                 }
 
-                match upstream.next().await {
-                    Some(Ok(chunk)) => match parser.push(&chunk) {
-                        Ok(payloads) => {
-                            pending.extend(payloads);
-                        }
-                        Err(_) => return None,
-                    },
-                    Some(Err(_)) | None => return None,
+                if !extend_pending_from_upstream(&mut parser, &mut upstream, &mut pending).await {
+                    return None;
                 }
             }
         },
     )
+}
+
+async fn run_completion_once<F, Fut>(on_complete: Option<F>)
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = ()>,
+{
+    if let Some(on_complete) = on_complete {
+        on_complete().await;
+    }
+}
+
+fn pop_pending_event(pending: &mut VecDeque<String>) -> Option<(axum::response::sse::Event, bool)> {
+    let payload = pending.pop_front()?;
+    let is_done = payload == STREAM_DONE_SENTINEL;
+    let event = axum::response::sse::Event::default().data(payload);
+    Some((event, is_done))
+}
+
+async fn extend_pending_from_upstream<S, E>(
+    parser: &mut OpenAiSseParser,
+    upstream: &mut S,
+    pending: &mut VecDeque<String>,
+) -> bool
+where
+    S: Stream<Item = Result<Bytes, E>> + Unpin,
+{
+    match upstream.next().await {
+        Some(Ok(chunk)) => match parser.push(&chunk) {
+            Ok(payloads) => {
+                pending.extend(payloads);
+                true
+            }
+            Err(_) => false,
+        },
+        Some(Err(_)) | None => false,
+    }
 }
 
 #[cfg(test)]

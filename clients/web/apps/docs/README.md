@@ -1,3 +1,5 @@
+# Docs
+
 [Astro](https://astro.build/) + [Starlight](https://starlight.astro.build/) docs site.
 
 ```bash

@@ -52,6 +52,7 @@ fn classify_session_command_failure(kind: SessionCommandFailureKind) -> SessionC
             SessionCommandFailureClass::PermissionDenied
         }
         SessionCommandFailureKind::UnsupportedBackend
+        | SessionCommandFailureKind::UnknownCommand
         | SessionCommandFailureKind::UnknownSession
         | SessionCommandFailureKind::InvalidState
         | SessionCommandFailureKind::MissingSnapshot
