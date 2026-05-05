@@ -3871,6 +3871,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn explicit_session_completion_does_not_record_or_trigger_dream() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let workspace = tmp.path().to_path_buf();
+        let mem = Arc::new(crate::memory::SqliteMemory::new(&workspace).unwrap());
+        end_session_for_test(
+            &(mem.clone() as Arc<dyn crate::memory::Memory>),
+            "sess-explicit",
+        )
+        .await;
+
+        let mut config = Config::default();
+        config.workspace_dir = workspace.clone();
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            cost_tracker: None,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_mins(5), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        finalize_generated_session_if_needed(
+            &state,
+            "sess-explicit",
+            webhook_dispatch::WebhookSessionSource::Explicit,
+        )
+        .await;
+
+        assert_eq!(
+            crate::memory::dream_eligibility(&workspace, "sess-explicit").unwrap(),
+            crate::memory::DreamEligibility::NotCompleted
+        );
+        assert!(crate::memory::run_dream_if_triggered(&workspace)
+            .unwrap()
+            .is_none());
+        assert!(!workspace.join("MEMORY.md").exists());
+        assert!(!workspace.join("state").join("dream_state.json").exists());
+    }
+
+    #[tokio::test]
     async fn generated_session_completion_blocks_dream_without_recorded_completion() {
         let tmp = tempfile::TempDir::new().unwrap();
         let workspace = tmp.path().to_path_buf();
