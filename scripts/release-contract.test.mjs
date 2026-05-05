@@ -21,10 +21,6 @@ function readText(path) {
   return fs.readFileSync(path, "utf8");
 }
 
-function escapeRegex(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function assertIncludesAll(text, patterns, label) {
   for (const pattern of patterns) {
     assert.match(text, pattern, `${label} is missing ${pattern}`);
@@ -114,15 +110,13 @@ function resolveConfiguredExecutableCandidates(configuredPath) {
     return [];
   }
 
-  if (path.isAbsolute(configuredPath)) {
-    return isTrustedExecutablePath(configuredPath) ? [configuredPath] : [];
+  const trimmedPath = configuredPath.trim();
+
+  if (trimmedPath.includes(path.sep) || trimmedPath.includes("/")) {
+    return path.isAbsolute(trimmedPath) && isTrustedExecutablePath(trimmedPath) ? [trimmedPath] : [];
   }
 
-  if (configuredPath.includes(path.sep) || configuredPath.includes("/")) {
-    return [];
-  }
-
-  return trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, configuredPath));
+  return trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, trimmedPath));
 }
 
 function resolveExecutable(executableName) {
@@ -145,6 +139,7 @@ function resolveExecutable(executableName) {
       fs.accessSync(candidatePath, fs.constants.X_OK);
       return true;
     } catch {
+      // Missing or inaccessible candidate executables are expected while probing trusted paths.
       return false;
     }
   });
@@ -422,7 +417,7 @@ test("sync-cargo-lockfiles commit step stages all rewritten manifests and lockfi
 test("archived verify report keeps blank line after each scenario heading", () => {
   const verifyReport = readText("openspec/changes/archive/2026-04-29-release-internal-dependency-sync/verify-report.md");
 
-  assert.doesNotMatch(verifyReport, /^#### Scenario: .*\n- /m);
+  assert.doesNotMatch(verifyReport, /^#### Scenario: [^\n]*\n- /m);
 });
 
 test("archived openspec state reflects completed apply and verify phases", () => {
@@ -684,15 +679,29 @@ function getExecFileSyncFailure(fn) {
   try {
     fn();
   } catch (error) {
-    const combinedMessage = [error.message, error.stderr, error.stdout]
+    const failure = error instanceof Error ? error : new Error(String(error));
+    const combinedMessage = [failure.message, failure.stderr, failure.stdout]
       .filter(Boolean)
       .map(String)
       .join("\n");
-    error.combinedMessage = combinedMessage;
-    return error;
+    return {
+      error: failure,
+      combinedMessage,
+    };
   }
 
   throw new Error("Expected command to fail");
+}
+
+function resolveRepoPath(relativePath) {
+  const resolvedPath = path.resolve(process.cwd(), relativePath);
+  const relativeToRepo = path.relative(process.cwd(), resolvedPath);
+
+  if (relativeToRepo.startsWith("..") || path.isAbsolute(relativeToRepo)) {
+    throw new Error(`Refusing to execute outside repository: ${relativePath}`);
+  }
+
+  return resolvedPath;
 }
 
 test("affected components validator accepts publishable component payloads", () => {
@@ -997,8 +1006,8 @@ test("release workflows encode release-please-owned stable and beta governance",
       /Release context/,
       /scripts\/validate-affected-components\.mjs/,
       /scripts\/resolve-release-context\.mjs/,
-      /RELEASE_CONTEXT_OUTPUT: \$\{\{ runner\.temp \}\}\/release-context\.json/,
-      /VALIDATION_OUTPUT: \$\{\{ runner\.temp \}\}\/affected-components\.json/,
+      new RegExp(String.raw`RELEASE_CONTEXT_OUTPUT: \$\{\{ runner\.temp \}\}/release-context\.json`),
+      new RegExp(String.raw`VALIDATION_OUTPUT: \$\{\{ runner\.temp \}\}/affected-components\.json`),
     ],
     "publish workflow",
   );
@@ -1038,14 +1047,10 @@ test("release workflows encode release-please-owned stable and beta governance",
 test("cargo publish contract keeps local cerebro path and release version aligned", () => {
   const cargoToml = readText("clients/agent-runtime/Cargo.toml");
   const cerebroToml = readText("clients/cerebro/Cargo.toml");
+  const expectedDependency = `cerebro = { version = "${releaseVersion}", path = "../../clients/cerebro" }`;
 
-  assert.match(
-    cargoToml,
-    new RegExp(
-      `cerebro = \\{ version = "${escapeRegex(releaseVersion)}", path = "\\.\\.\\/\\.\\.\\/clients\\/cerebro" \\}`,
-    ),
-  );
-  assert.match(cerebroToml, new RegExp(`^version = "${escapeRegex(releaseVersion)}"$`, "m"));
+  assert.ok(cargoToml.includes(expectedDependency));
+  assert.ok(cerebroToml.split("\n").includes(`version = "${releaseVersion}"`));
 });
 
 test("rust lockfiles stay valid for --locked release commands", (t) => {
@@ -1058,9 +1063,11 @@ test("rust lockfiles stay valid for --locked release commands", (t) => {
   }
 
   for (const cwd of ["clients/agent-runtime", "clients/cerebro"]) {
+    const cargoCwd = resolveRepoPath(cwd);
+
     try {
       execFileSync(cargoExecutable, ["metadata", "--locked", "--format-version", "1"], {
-        cwd,
+        cwd: cargoCwd,
         stdio: "pipe",
         maxBuffer: 1024 * 1024 * 32,
       });
@@ -1090,7 +1097,7 @@ test("release docs, changelog, and CI maps describe one stable contract", () => 
     );
     assert.doesNotMatch(
       doc,
-      /_publish\.yml.*(creates|owns).*(GitHub Release|release notes)/i,
+      /_publish\.yml[^\n]*(creates|owns)[^\n]*(GitHub Release|release notes)/i,
       `${path} still grants _publish ownership of canonical release notes`,
     );
   }

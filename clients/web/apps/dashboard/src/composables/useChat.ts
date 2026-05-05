@@ -119,9 +119,10 @@ function parseApprovalErrorType(payload: unknown): string | null {
   }
 
   const response = payload as ApprovalErrorPayload;
+  const numericCode = typeof response.code === "number" ? response.code.toString() : null;
   const topLevelType =
     nonEmptyString(response.code) ??
-    (typeof response.code === "number" ? response.code.toString() : null) ??
+    numericCode ??
     nonEmptyString(response.type) ??
     nonEmptyString(response.tool) ??
     nonEmptyString(response.reason) ??

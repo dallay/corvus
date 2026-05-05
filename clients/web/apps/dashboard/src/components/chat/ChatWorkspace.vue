@@ -32,6 +32,8 @@ interface Message {
 
 const MAX_PROMPT_LENGTH = 500;
 const modelName = "Corvus Agent";
+const STORED_MESSAGE_STATUSES = new Set<MessageStatus>(["streaming", "complete", "error"]);
+const STORED_MESSAGE_ROLES = new Set<Role>(["assistant", "user"]);
 
 const props = defineProps<{
   config: ReturnType<typeof useConfig>;
@@ -106,21 +108,51 @@ async function focusPromptInput(): Promise<void> {
   promptInputRef.value?.focus();
 }
 
+function updateMessage(messageId: number, patch: Partial<Message>): void {
+  const messageIndex = messages.value.findIndex((item) => item.id === messageId);
+  if (messageIndex >= 0) {
+    messages.value[messageIndex] = {
+      ...messages.value[messageIndex],
+      ...patch,
+    };
+  }
+}
+
 function updateAssistantMessage(
   messageId: number,
   content: string,
   status?: MessageStatus,
   recalledMemoryKeys?: string[]
 ): void {
-  const messageIndex = messages.value.findIndex((item) => item.id === messageId);
-  if (messageIndex >= 0) {
-    messages.value[messageIndex] = {
-      ...messages.value[messageIndex],
-      content,
-      status,
-      ...(recalledMemoryKeys != null && { recalledMemoryKeys }),
-    };
+  updateMessage(messageId, {
+    content,
+    status,
+    ...(recalledMemoryKeys != null && { recalledMemoryKeys }),
+  });
+}
+
+function isStoredMessage(value: unknown): value is Message {
+  if (value === null || typeof value !== "object") {
+    return false;
   }
+
+  const message = value as Record<string, unknown>;
+  const id = message.id;
+  return (
+    typeof id === "number" &&
+    Number.isInteger(id) &&
+    Number.isFinite(id) &&
+    STORED_MESSAGE_ROLES.has(message.role as Role) &&
+    typeof message.content === "string" &&
+    (message.status === undefined ||
+      STORED_MESSAGE_STATUSES.has(message.status as MessageStatus)) &&
+    (message.approvalId === undefined || typeof message.approvalId === "string") &&
+    (message.toolName === undefined || typeof message.toolName === "string") &&
+    (message.reason === undefined || typeof message.reason === "string") &&
+    (message.recalledMemoryKeys === undefined ||
+      (Array.isArray(message.recalledMemoryKeys) &&
+        message.recalledMemoryKeys.every((key) => typeof key === "string")))
+  );
 }
 
 async function beginSession(preferResume: boolean): Promise<void> {
@@ -143,7 +175,6 @@ async function createFreshSession(): Promise<void> {
   await beginSession(false);
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function startNewSession(): Promise<void> {
   await createFreshSession();
 }
@@ -155,7 +186,7 @@ async function resumeSession(): Promise<void> {
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function handleSidebarNewChat(): Promise<void> {
-  await createFreshSession();
+  await startNewSession();
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -303,32 +334,8 @@ function restoreMessages(): void {
       resetMessagesForSession();
       return;
     }
-    const validStatuses = new Set<MessageStatus>(["streaming", "complete", "error"]);
-    const validRoles = new Set<Role>(["assistant", "user"]);
-    const isValidMessage = (value: unknown): value is Message => {
-      if (value === null || typeof value !== "object") {
-        return false;
-      }
 
-      const message = value as Record<string, unknown>;
-      const id = message.id;
-      return (
-        typeof id === "number" &&
-        Number.isInteger(id) &&
-        Number.isFinite(id) &&
-        validRoles.has(message.role as Role) &&
-        typeof message.content === "string" &&
-        (message.status === undefined || validStatuses.has(message.status as MessageStatus)) &&
-        (message.approvalId === undefined || typeof message.approvalId === "string") &&
-        (message.toolName === undefined || typeof message.toolName === "string") &&
-        (message.reason === undefined || typeof message.reason === "string") &&
-        (message.recalledMemoryKeys === undefined ||
-          (Array.isArray(message.recalledMemoryKeys) &&
-            message.recalledMemoryKeys.every((k) => typeof k === "string")))
-      );
-    };
-
-    if (parsed.every(isValidMessage)) {
+    if (parsed.every(isStoredMessage)) {
       messages.value = parsed;
       messageIdCounter = parsed.length > 0 ? Math.max(...parsed.map((m) => m.id)) + 1 : 1;
     } else {
@@ -342,15 +349,14 @@ function restoreMessages(): void {
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleApprove(approvalId: string): void {
   // Phase 5B stub: full round-trip will be wired in a follow-up.
-  const idx = messages.value.findIndex((m) => m.approvalId === approvalId);
-  if (idx >= 0) {
-    messages.value[idx] = {
-      ...messages.value[idx],
+  const message = messages.value.find((item) => item.approvalId === approvalId);
+  if (message) {
+    updateMessage(message.id, {
       content: t("chat.approve"),
       approvalId: undefined,
       toolName: undefined,
       reason: undefined,
-    };
+    });
     queueApprovalAnnouncement(t("chat.approve"));
     void focusPromptInput();
   }
@@ -359,15 +365,14 @@ function handleApprove(approvalId: string): void {
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleReject(approvalId: string): void {
   // Phase 5B stub: full round-trip will be wired in a follow-up.
-  const idx = messages.value.findIndex((m) => m.approvalId === approvalId);
-  if (idx >= 0) {
-    messages.value[idx] = {
-      ...messages.value[idx],
+  const message = messages.value.find((item) => item.approvalId === approvalId);
+  if (message) {
+    updateMessage(message.id, {
       content: t("chat.reject"),
       approvalId: undefined,
       toolName: undefined,
       reason: undefined,
-    };
+    });
     queueApprovalAnnouncement(t("chat.reject"));
     void focusPromptInput();
   }

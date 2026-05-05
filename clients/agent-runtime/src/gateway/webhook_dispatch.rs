@@ -466,58 +466,92 @@ pub(crate) async fn execute(
         .turn_with_context(&request.message, turn_context_for_request(&request))
         .await
     {
-        Ok(result) => {
-            if let Some(policy_blocked) = result.policy_blocked.as_ref() {
-                match policy_denial_from_value(policy_blocked) {
-                    Some((code, tool, reason))
-                        if code == crate::security::PLAN_MODE_BLOCKED_CODE =>
-                    {
-                        map_canonical_result(
-                            &request,
-                            model,
-                            CanonicalWebhookResult::PlanModeBlocked {
-                                tool,
-                                reason,
-                                execution_mode: result.execution_mode,
-                            },
-                        )
-                    }
-                    _ => map_canonical_result(&request, model, CanonicalWebhookResult::Error),
-                }
-            } else if let Some(approval_required) = result.approval_required.as_ref() {
-                match approval_denial_from_value(approval_required) {
-                    Some((_code, tool, reason)) => map_canonical_result(
-                        &request,
-                        model,
-                        CanonicalWebhookResult::ApprovalRequired { tool, reason },
-                    ),
-                    None => map_canonical_result(&request, model, CanonicalWebhookResult::Error),
-                }
-            } else {
-                map_canonical_result(&request, model, CanonicalWebhookResult::Agent(result))
-            }
-        }
-        Err(error) => {
-            if let Some(crate::agent::AgentExecutionError::CostBudgetExceeded {
-                current_usd,
-                limit_usd,
-                period,
-            }) = error.downcast_ref::<crate::agent::AgentExecutionError>()
-            {
-                map_canonical_result(
-                    &request,
-                    model,
-                    CanonicalWebhookResult::BudgetExceeded {
-                        current_usd: *current_usd,
-                        limit_usd: *limit_usd,
-                        period: *period,
-                    },
-                )
-            } else {
-                map_canonical_result(&request, model, CanonicalWebhookResult::Error)
-            }
-        }
+        Ok(result) => map_agent_turn_result(&request, model, result),
+        Err(error) => map_agent_turn_error(&request, model, error),
     }
+}
+
+fn map_agent_turn_result(
+    request: &WebhookTurnRequest,
+    model: &str,
+    result: AgentTurnResult,
+) -> WebhookTurnResult {
+    if let Some(policy_blocked) = result.policy_blocked.as_ref() {
+        return map_policy_blocked_turn_result(
+            request,
+            model,
+            result.execution_mode,
+            policy_blocked,
+        );
+    }
+
+    if let Some(approval_required) = result.approval_required.as_ref() {
+        return map_approval_required_turn_result(request, model, approval_required);
+    }
+
+    map_canonical_result(request, model, CanonicalWebhookResult::Agent(result))
+}
+
+fn map_policy_blocked_turn_result(
+    request: &WebhookTurnRequest,
+    model: &str,
+    execution_mode: ExecutionMode,
+    policy_blocked: &serde_json::Value,
+) -> WebhookTurnResult {
+    match policy_denial_from_value(policy_blocked) {
+        Some((code, tool, reason)) if code == crate::security::PLAN_MODE_BLOCKED_CODE => {
+            map_canonical_result(
+                request,
+                model,
+                CanonicalWebhookResult::PlanModeBlocked {
+                    tool,
+                    reason,
+                    execution_mode,
+                },
+            )
+        }
+        _ => map_canonical_result(request, model, CanonicalWebhookResult::Error),
+    }
+}
+
+fn map_approval_required_turn_result(
+    request: &WebhookTurnRequest,
+    model: &str,
+    approval_required: &serde_json::Value,
+) -> WebhookTurnResult {
+    match approval_denial_from_value(approval_required) {
+        Some((_code, tool, reason)) => map_canonical_result(
+            request,
+            model,
+            CanonicalWebhookResult::ApprovalRequired { tool, reason },
+        ),
+        None => map_canonical_result(request, model, CanonicalWebhookResult::Error),
+    }
+}
+
+fn map_agent_turn_error(
+    request: &WebhookTurnRequest,
+    model: &str,
+    error: anyhow::Error,
+) -> WebhookTurnResult {
+    if let Some(crate::agent::AgentExecutionError::CostBudgetExceeded {
+        current_usd,
+        limit_usd,
+        period,
+    }) = error.downcast_ref::<crate::agent::AgentExecutionError>()
+    {
+        return map_canonical_result(
+            request,
+            model,
+            CanonicalWebhookResult::BudgetExceeded {
+                current_usd: *current_usd,
+                limit_usd: *limit_usd,
+                period: *period,
+            },
+        );
+    }
+
+    map_canonical_result(request, model, CanonicalWebhookResult::Error)
 }
 
 #[allow(clippy::result_large_err)]
@@ -867,33 +901,7 @@ mod tests {
         model: &str,
         result: AgentTurnResult,
     ) -> WebhookTurnResult {
-        if let Some(policy_blocked) = result.policy_blocked.as_ref() {
-            match policy_denial_from_value(policy_blocked) {
-                Some((code, tool, reason)) if code == crate::security::PLAN_MODE_BLOCKED_CODE => {
-                    map_canonical_result(
-                        request,
-                        model,
-                        CanonicalWebhookResult::PlanModeBlocked {
-                            tool,
-                            reason,
-                            execution_mode: result.execution_mode,
-                        },
-                    )
-                }
-                _ => map_canonical_result(request, model, CanonicalWebhookResult::Error),
-            }
-        } else if let Some(approval_required) = result.approval_required.as_ref() {
-            match approval_denial_from_value(approval_required) {
-                Some((_code, tool, reason)) => map_canonical_result(
-                    request,
-                    model,
-                    CanonicalWebhookResult::ApprovalRequired { tool, reason },
-                ),
-                None => map_canonical_result(request, model, CanonicalWebhookResult::Error),
-            }
-        } else {
-            map_canonical_result(request, model, CanonicalWebhookResult::Agent(result))
-        }
+        map_agent_turn_result(request, model, result)
     }
 
     #[test]

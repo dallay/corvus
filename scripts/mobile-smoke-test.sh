@@ -34,10 +34,25 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-log_info() { local message="$1"; echo -e "${CYAN}[INFO]${NC} ${message}"; }
-log_success() { local message="$1"; echo -e "${GREEN}[✓]${NC} ${message}"; }
-log_warn() { local message="$1"; echo -e "${YELLOW}[⚠]${NC} ${message}"; }
-log_error() { local message="$1"; echo -e "${RED}[✗]${NC} ${message}"; }
+log_info() {
+  local message="$1"
+  printf "%b[INFO]%b %s\n" "$CYAN" "$NC" "$message"
+}
+
+log_success() {
+  local message="$1"
+  printf "%b[✓]%b %s\n" "$GREEN" "$NC" "$message"
+}
+
+log_warn() {
+  local message="$1"
+  printf "%b[⚠]%b %s\n" "$YELLOW" "$NC" "$message"
+}
+
+log_error() {
+  local message="$1"
+  printf "%b[✗]%b %s\n" "$RED" "$NC" "$message"
+}
 
 check_common_prerequisites() {
   log_info "Checking common prerequisites..."

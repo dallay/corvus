@@ -12,7 +12,7 @@ export function validateAffectedComponents({
   }
 
   if (!Array.isArray(parsed)) {
-    throw new TypeError(`Invalid AFFECTED_COMPONENTS payload: ${affectedComponentsRaw}`);
+    throw new TypeError("Invalid AFFECTED_COMPONENTS payload: expected a JSON array");
   }
 
   const graph = loadReleaseComponents();

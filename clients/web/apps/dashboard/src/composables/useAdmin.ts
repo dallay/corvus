@@ -80,6 +80,14 @@ function isNormalizedCerebroError(value: unknown): value is AdminCerebroActionEr
   );
 }
 
+function parseJsonPayload<T>(text: string, fallbackMessage: string): T {
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(fallbackMessage);
+  }
+}
+
 export function useAdmin(
   gatewayUrl: (path: string) => string,
   authHeaders: () => Record<string, string>
@@ -193,7 +201,7 @@ export function useAdmin(
         return undefined as T;
       }
 
-      return JSON.parse(text) as T;
+      return parseJsonPayload<T>(text, "Invalid JSON response from gateway");
     } finally {
       clearTimeout(timeoutId);
       setLoading(bucket, false);
@@ -216,7 +224,11 @@ export function useAdmin(
         headers: buildHeaders(init),
         signal: controller.signal,
       });
-      const payload = (await res.json()) as T | AdminCerebroActionError;
+      const text = await res.text();
+      const payload = parseJsonPayload<T | AdminCerebroActionError>(
+        text,
+        `Invalid Cerebro response: HTTP ${res.status}`
+      );
       if (res.ok) {
         return payload as T;
       }
@@ -443,7 +455,8 @@ export function useAdmin(
       path = "/web/admin/cerebro/sessions/start";
     } else {
       const encodedSessionId = encodeURIComponent(sessionId ?? "");
-      path = `/web/admin/cerebro/sessions/${encodedSessionId}/${tool === "mem_session_end" ? "end" : "summary"}`;
+      const actionPath = tool === "mem_session_end" ? "end" : "summary";
+      path = `/web/admin/cerebro/sessions/${encodedSessionId}/${actionPath}`;
     }
     const response = await fetchCerebroJson<AdminCerebroActionSuccess>("cerebroAction", path, {
       method: "POST",

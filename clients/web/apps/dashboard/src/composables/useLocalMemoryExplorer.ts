@@ -91,7 +91,7 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
   const loadedEntries = ref(0);
   const totalEntries = ref(0);
 
-  const visibleEntries = computed(() => {
+  const selectedEntries = computed(() => {
     const activeSelection = selection.value;
 
     return [...entries.value]
@@ -99,11 +99,10 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
       .filter((entry) => matchesSelection(entry, activeSelection));
   });
 
+  const visibleEntries = computed(() => selectedEntries.value);
+
   const timelineGroups = computed<LocalMemoryTimelineGroup[]>(() => {
-    const activeSelection = selection.value;
-    const groupSource = [...entries.value]
-      .sort(compareEntries)
-      .filter((entry) => matchesSelection(entry, activeSelection));
+    const groupSource = selectedEntries.value;
 
     const grouped = new Map<string, AdminMemoryEntry[]>();
     for (const entry of groupSource) {
@@ -168,10 +167,7 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
   });
 
   const relationshipClusters = computed<LocalMemoryRelationshipCluster[]>(() => {
-    const activeSelection = selection.value;
-    const clusterSource = [...entries.value]
-      .sort(compareEntries)
-      .filter((entry) => matchesSelection(entry, activeSelection));
+    const clusterSource = selectedEntries.value;
 
     const grouped = new Map<string, AdminMemoryEntry[]>();
     for (const entry of clusterSource) {

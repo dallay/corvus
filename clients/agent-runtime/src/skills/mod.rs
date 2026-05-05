@@ -182,19 +182,19 @@ fn load_workspace_skills(workspace_dir: &Path) -> Vec<Skill> {
 }
 
 fn load_skills_from_directory(workspace_dir: &Path, skills_dir: &Path) -> Vec<Skill> {
-    let Some(canonical_skills_dir) = canonical_skills_dir_in_workspace(workspace_dir, skills_dir)
-    else {
-        return Vec::new();
-    };
+    try_load_skills_from_directory(workspace_dir, skills_dir).unwrap_or_default()
+}
 
-    let Ok(entries) = std::fs::read_dir(&canonical_skills_dir) else {
-        return Vec::new();
-    };
+fn try_load_skills_from_directory(workspace_dir: &Path, skills_dir: &Path) -> Option<Vec<Skill>> {
+    let canonical_skills_dir = canonical_skills_dir_in_workspace(workspace_dir, skills_dir)?;
+    let entries = std::fs::read_dir(&canonical_skills_dir).ok()?;
 
-    entries
-        .flatten()
-        .filter_map(|entry| load_skill_entry(entry, &canonical_skills_dir))
-        .collect()
+    Some(
+        entries
+            .flatten()
+            .filter_map(|entry| load_skill_entry(entry, &canonical_skills_dir))
+            .collect(),
+    )
 }
 
 fn canonical_skills_dir_in_workspace(workspace_dir: &Path, skills_dir: &Path) -> Option<PathBuf> {

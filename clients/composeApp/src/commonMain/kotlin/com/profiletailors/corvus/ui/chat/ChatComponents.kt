@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -448,44 +449,59 @@ fun SessionHistoryPanel(
         modifier = Modifier.fillMaxSize().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
-        item {
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Text(
-              text = "Session History",
-              style = MaterialTheme.typography.titleLarge,
-              fontWeight = FontWeight.Bold,
-              color = MaterialTheme.colorScheme.onSurface,
-            )
-            GradientButton(text = "New Session", onClick = onNewSession)
-          }
-        }
-
-        if (sessions.isEmpty()) {
-          item {
-            Text(
-              text = "No past sessions. Start a new session to begin.",
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(top = 8.dp),
-            )
-          }
-        } else {
-          itemsIndexed(items = sessions, key = { _, s -> s.id.value }) { _, session ->
-            sessionHistoryItem(
-              session = session,
-              isActive = session.id.value == activeSessionId,
-              onSwitch = { onSwitchSession(session.id.value) },
-            )
-          }
-        }
-
+        sessionHistoryHeader(onNewSession = onNewSession)
+        sessionHistoryItems(
+          sessions = sessions,
+          activeSessionId = activeSessionId,
+          onSwitchSession = onSwitchSession,
+        )
         item { Spacer(modifier = Modifier.height(32.dp)) }
       }
     }
+  }
+}
+
+private fun LazyListScope.sessionHistoryHeader(onNewSession: () -> Unit) {
+  item {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(
+        text = "Session History",
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurface,
+      )
+      GradientButton(text = "New Session", onClick = onNewSession)
+    }
+  }
+}
+
+private fun LazyListScope.sessionHistoryItems(
+  sessions: List<RuntimeSession>,
+  activeSessionId: String?,
+  onSwitchSession: (String) -> Unit,
+) {
+  if (sessions.isEmpty()) {
+    item {
+      Text(
+        text = "No past sessions. Start a new session to begin.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 8.dp),
+      )
+    }
+    return
+  }
+
+  itemsIndexed(items = sessions, key = { _, session -> session.id.value }) { _, session ->
+    sessionHistoryItem(
+      session = session,
+      isActive = session.id.value == activeSessionId,
+      onSwitch = { onSwitchSession(session.id.value) },
+    )
   }
 }
 

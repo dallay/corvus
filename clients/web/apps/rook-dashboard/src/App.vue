@@ -32,6 +32,17 @@ const connectedClient = ref<RookApi | null>(null);
 /* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 const client = computed<RookApi | null>(() => connectedClient.value);
 
+/* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
+const navItems: Array<{ route: RookRoute; label: string }> = [
+  { route: "overview", label: "Overview" },
+  { route: "accounts", label: "Providers & accounts" },
+  { route: "pools", label: "Pools" },
+  { route: "routes", label: "Routes" },
+  { route: "health", label: "Health" },
+  { route: "usage", label: "Usage" },
+  { route: "settings", label: "Settings" },
+];
+
 function refreshConnectedClient() {
   if (!isConnected.value || !isConfigured.value) {
     connectedClient.value = null;
@@ -114,8 +125,8 @@ onBeforeUnmount(() => {
           <input v-model="bearerToken" placeholder="rook-admin-token" type="password" />
         </label>
         <p class="session-copy">
-          Session values stay in <code>sessionStorage</code> only. The dashboard never persists or
-          re-renders stored provider API keys.
+          The base URL stays in <code>sessionStorage</code>. The bearer token stays memory-only, and
+          the dashboard never persists or re-renders stored provider API keys.
         </p>
         <div class="form-actions">
           <button
@@ -139,26 +150,14 @@ onBeforeUnmount(() => {
     </header>
 
     <nav class="nav-card" aria-label="Rook dashboard navigation">
-      <button :class="['nav-button', { active: route === 'overview' }]" type="button" @click="navigate('overview')">
-        Overview
-      </button>
-      <button :class="['nav-button', { active: route === 'accounts' }]" type="button" @click="navigate('accounts')">
-        Providers &amp; accounts
-      </button>
-      <button :class="['nav-button', { active: route === 'pools' }]" type="button" @click="navigate('pools')">
-        Pools
-      </button>
-      <button :class="['nav-button', { active: route === 'routes' }]" type="button" @click="navigate('routes')">
-        Routes
-      </button>
-      <button :class="['nav-button', { active: route === 'health' }]" type="button" @click="navigate('health')">
-        Health
-      </button>
-      <button :class="['nav-button', { active: route === 'usage' }]" type="button" @click="navigate('usage')">
-        Usage
-      </button>
-      <button :class="['nav-button', { active: route === 'settings' }]" type="button" @click="navigate('settings')">
-        Settings
+      <button
+        v-for="item in navItems"
+        :key="item.route"
+        :class="['nav-button', { active: route === item.route }]"
+        type="button"
+        @click="navigate(item.route)"
+      >
+        {{ item.label }}
       </button>
       <div class="deferred-card">
         <strong>Deferred areas</strong>

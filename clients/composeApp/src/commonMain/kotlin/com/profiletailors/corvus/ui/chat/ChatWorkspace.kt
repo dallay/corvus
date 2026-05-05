@@ -143,6 +143,9 @@ object ChatWorkspaceDefaults {
     )
 }
 
+@Suppress(
+  "LongParameterList"
+) // Composable API groups content, bridge actions, callbacks, modifier, and state.
 @Composable
 fun ChatWorkspace(
   content: ChatWorkspaceContent,

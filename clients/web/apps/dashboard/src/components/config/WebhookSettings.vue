@@ -27,7 +27,11 @@ function resolveWebhookSecretInput(): HTMLInputElement | null {
     return element;
   }
 
-  const input = element?.querySelector?.("input");
+  if (!element) {
+    return null;
+  }
+
+  const input = element.querySelector("input");
   return input instanceof HTMLInputElement ? input : null;
 }
 

@@ -2,15 +2,18 @@
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+type SessionStatusEmitValue = "active" | "ended" | undefined;
+type SessionSortEmitValue = "last_activity" | "started_at";
+
 const emit = defineEmits<{
-  (e: "update:status", value: "active" | "ended" | undefined): void;
-  (e: "update:sort", value: "last_activity" | "started_at"): void;
+  (e: "update:status", value: SessionStatusEmitValue): void;
+  (e: "update:sort", value: SessionSortEmitValue): void;
 }>();
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
-type SessionStatusFilter = "all" | "active" | "ended";
-type SessionSort = "last_activity" | "started_at";
+type SessionStatusFilter = "all" | Exclude<SessionStatusEmitValue, undefined>;
+type SessionSort = SessionSortEmitValue;
 
 const status = ref<SessionStatusFilter>("all");
 const sort = ref<SessionSort>("last_activity");

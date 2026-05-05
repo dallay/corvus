@@ -6,7 +6,16 @@ import process from "node:process";
 import { loadReleaseComponents } from "./release-components.mjs";
 
 const repoRoot = process.cwd();
-const argv = new Set(process.argv.slice(2));
+const allowedArgs = new Set(["--help", "--write", "--check"]);
+const rawArgs = process.argv.slice(2);
+
+for (const arg of rawArgs) {
+  if (!allowedArgs.has(arg)) {
+    throw new Error(`Unsupported argument: ${arg}`);
+  }
+}
+
+const argv = new Set(rawArgs);
 const wantsHelp = argv.has("--help");
 const wantsWrite = argv.has("--write");
 const wantsCheck = argv.has("--check");
@@ -98,7 +107,9 @@ function resolveVersionBySelector(manifestText, manifestPath, versionSelector) {
 
   const parts = versionSelector.split(".");
   if (parts.length !== 3 || parts[0] !== "dependencies" || parts[2] !== "version") {
-    throw new Error(`upstream-version-unresolvable: unsupported versionSelector ${versionSelector} for ${manifestPath}`);
+    throw new Error(
+      `upstream-version-unresolvable: unsupported versionSelector ${versionSelector} for ${manifestPath}`,
+    );
   }
 
   const dependencyName = parts[1];
