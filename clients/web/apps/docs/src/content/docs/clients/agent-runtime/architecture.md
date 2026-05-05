@@ -202,6 +202,27 @@ and gateway-specific channel hooks. This keeps channel key normalization, suppor
 validation, and constructor wiring in one place instead of reimplementing `match` blocks across the
 runtime.
 
+### Slash Commands
+
+Slash commands are a runtime-owned ingress capability under `session_commands/`. The core abstraction
+is `SlashCommandRegistry`, which stores `SlashCommandRegistration` values made from a discoverable
+`SlashCommandDescriptor` and a `SlashCommandHandler` implementation.
+
+The layering is intentionally narrow:
+
+- ingress surfaces such as CLI, gateway, webhooks, and channels pass raw user text to the registry;
+- `SessionCommandParser` only identifies slash-shaped input and preserves the raw argument text;
+- `SlashCommandRegistry` owns canonical-name lookup, alias lookup, duplicate detection, metadata
+  discovery, argument-shape validation, requirement checks, and handler dispatch;
+- command handlers delegate behavior to `SessionCommandService`, which owns access to memory,
+  settings, tool snapshots, and other runtime state.
+
+New slash commands should extend the platform by adding a descriptor and handler, then registering
+that pair in the registry builder. Do not add new per-ingress `match` statements for command names:
+if a command is reachable by users, it should be discoverable through registry metadata and dispatched
+through the central registry entrypoint. Follow-up work can move additional command families into the
+same extension point without changing ingress routing.
+
 ### Memory
 
 The memory system (`memory/`) is one of the most differentiating components of the Agent Runtime.
