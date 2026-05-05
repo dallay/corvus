@@ -44,11 +44,13 @@ function handleReject(id: string): void {
 
 <template>
   <fieldset
+    :aria-labelledby="`tool-approval-title-${approvalId}`"
     :aria-describedby="`tool-approval-reason-${approvalId}`"
     class="tool-approval-card"
     data-testid="tool-approval"
+    role="group"
   >
-    <legend class="tool-name" data-testid="tool-name">{{ toolName }}</legend>
+    <legend id="`tool-approval-title-${approvalId}`" class="tool-name" data-testid="tool-name">{{ toolName }}</legend>
     <div class="tool-approval-header">
       <span class="tool-icon">🔧</span>
     </div>
