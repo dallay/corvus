@@ -1,6 +1,6 @@
 {
   "name": "@dallay/corvus-darwin-arm64",
-  "version": "3.7.0",
+  "version": "3.8.0",
   "description": "Corvus runtime CLI for macOS Apple Silicon (ARM64)",
   "license": "Apache-2.0",
   "os": [

@@ -1,6 +1,6 @@
 {
   "name": "@dallay/rook-linux-arm64",
-  "version": "3.7.0",
+  "version": "3.8.0",
   "description": "Rook CLI for Linux arm64",
   "license": "Apache-2.0",
   "os": [
