@@ -20,8 +20,12 @@ import SettingsPage from "./features/settings/SettingsPage.vue";
 /* biome-ignore lint/correctness/noUnusedImports: used in Vue template */
 import UsagePage from "./features/usage/UsagePage.vue";
 
+function getLocation(): Location | null {
+  return typeof globalThis.location === "object" ? globalThis.location : null;
+}
+
 const { baseUrl, bearerToken, isConfigured } = useRookSession();
-const route = ref<RookRoute>(normalizeHashRoute(window.location.hash));
+const route = ref<RookRoute>(normalizeHashRoute(getLocation()?.hash ?? ""));
 const isConnected = ref(false);
 const connectedClient = ref<RookApi | null>(null);
 
@@ -56,27 +60,35 @@ watch([baseUrl, bearerToken], () => {
 });
 
 function handleHashChange() {
-  route.value = normalizeHashRoute(window.location.hash);
+  route.value = normalizeHashRoute(getLocation()?.hash ?? "");
 }
 
 /* biome-ignore lint/correctness/noUnusedVariables: used in Vue template */
 function navigate(nextRoute: RookRoute) {
-  window.location.hash = toHashRoute(nextRoute);
+  const location = getLocation();
+  if (location) {
+    location.hash = toHashRoute(nextRoute);
+  }
 }
 
 onMounted(() => {
-  if (!window.location.hash) {
-    window.location.hash = toHashRoute("overview");
+  const location = getLocation();
+  if (location && !location.hash) {
+    location.hash = toHashRoute("overview");
   }
 
   isConnected.value = isConfigured.value;
   refreshConnectedClient();
 
-  window.addEventListener("hashchange", handleHashChange);
+  if (typeof globalThis.addEventListener === "function") {
+    globalThis.addEventListener("hashchange", handleHashChange);
+  }
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener("hashchange", handleHashChange);
+  if (typeof globalThis.removeEventListener === "function") {
+    globalThis.removeEventListener("hashchange", handleHashChange);
+  }
 });
 </script>
 

@@ -3,6 +3,7 @@ use futures_util::stream;
 use futures_util::{Stream, StreamExt};
 use std::collections::VecDeque;
 use std::convert::Infallible;
+use std::fmt::Debug;
 use std::future::Future;
 
 use crate::gateway::types::STREAM_DONE_SENTINEL;
@@ -120,6 +121,7 @@ pub fn upstream_event_stream<S, E>(
 ) -> impl Stream<Item = Result<axum::response::sse::Event, Infallible>>
 where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
+    E: Debug,
 {
     upstream_event_stream_with_completion(upstream, || async {})
 }
@@ -130,35 +132,80 @@ pub fn upstream_event_stream_with_completion<S, E, F, Fut>(
 ) -> impl Stream<Item = Result<axum::response::sse::Event, Infallible>>
 where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
+    E: Debug,
     F: FnOnce() -> Fut + Unpin,
     Fut: Future<Output = ()>,
 {
-    stream::unfold(
-        (
-            OpenAiSseParser::default(),
+    let state = UpstreamEventStreamState::new(upstream, on_complete);
+    stream::unfold(state, next_upstream_event)
+}
+
+struct UpstreamEventStreamState<S, F> {
+    parser: OpenAiSseParser,
+    upstream: S,
+    pending: VecDeque<String>,
+    terminated: bool,
+    on_complete: Option<F>,
+}
+
+impl<S, F> UpstreamEventStreamState<S, F> {
+    fn new(upstream: S, on_complete: F) -> Self {
+        Self {
+            parser: OpenAiSseParser::default(),
             upstream,
-            VecDeque::<String>::new(),
-            false,
-            Some(on_complete),
-        ),
-        |(mut parser, mut upstream, mut pending, terminated, mut on_complete)| async move {
-            if terminated {
-                run_completion_once(on_complete.take()).await;
-                return None;
-            }
+            pending: VecDeque::new(),
+            terminated: false,
+            on_complete: Some(on_complete),
+        }
+    }
+}
 
-            loop {
-                if let Some(next) = pop_pending_event(&mut pending) {
-                    let (event, is_done) = next;
-                    return Some((Ok(event), (parser, upstream, pending, is_done, on_complete)));
-                }
+async fn next_upstream_event<S, E, F, Fut>(
+    mut state: UpstreamEventStreamState<S, F>,
+) -> Option<(
+    Result<axum::response::sse::Event, Infallible>,
+    UpstreamEventStreamState<S, F>,
+)>
+where
+    S: Stream<Item = Result<Bytes, E>> + Unpin,
+    E: Debug,
+    F: FnOnce() -> Fut + Unpin,
+    Fut: Future<Output = ()>,
+{
+    if state.terminated {
+        run_completion_once(state.on_complete.take()).await;
+        return None;
+    }
 
-                if !extend_pending_from_upstream(&mut parser, &mut upstream, &mut pending).await {
-                    return None;
-                }
-            }
-        },
-    )
+    match next_pending_or_upstream_event(&mut state).await {
+        Some(event) => Some((Ok(event), state)),
+        None => {
+            run_completion_once(state.on_complete.take()).await;
+            None
+        }
+    }
+}
+
+async fn next_pending_or_upstream_event<S, E, F>(
+    state: &mut UpstreamEventStreamState<S, F>,
+) -> Option<axum::response::sse::Event>
+where
+    S: Stream<Item = Result<Bytes, E>> + Unpin,
+    E: Debug,
+{
+    loop {
+        if let Some(next) = pop_pending_event(&mut state.pending) {
+            let (event, is_done) = next;
+            state.terminated = is_done;
+            return Some(event);
+        }
+
+        if !extend_pending_from_upstream(&mut state.parser, &mut state.upstream, &mut state.pending)
+            .await
+        {
+            return None;
+        }
+    }
 }
 
 async fn run_completion_once<F, Fut>(on_complete: Option<F>)
@@ -185,6 +232,7 @@ async fn extend_pending_from_upstream<S, E>(
 ) -> bool
 where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
+    E: Debug,
 {
     match upstream.next().await {
         Some(Ok(chunk)) => match parser.push(&chunk) {
@@ -192,17 +240,30 @@ where
                 pending.extend(payloads);
                 true
             }
-            Err(_) => false,
+            Err(error) => {
+                tracing::warn!(?error, "failed to parse upstream SSE frame");
+                false
+            }
         },
-        Some(Err(_)) | None => false,
+        Some(Err(error)) => {
+            tracing::warn!(?error, "upstream SSE stream returned an error");
+            false
+        }
+        None => false,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
+    use futures_util::{stream, StreamExt};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
-    use super::{OpenAiSseParseError, OpenAiSseParser};
+    use super::{
+        normalize_openai_sse_bytes, text_event_stream, upstream_event_stream,
+        upstream_event_stream_with_completion, OpenAiSseParseError, OpenAiSseParser,
+    };
 
     #[test]
     fn parser_reconstructs_ordered_events_across_split_boundaries() {
@@ -254,5 +315,97 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, OpenAiSseParseError::DuplicateDoneSentinel));
+    }
+
+    #[test]
+    fn normalize_openai_sse_bytes_keeps_events_through_single_done() {
+        let (rendered, complete) = normalize_openai_sse_bytes(
+            b"data: {\"id\":\"chunk-1\"}\n\ndata: {\"id\":\"chunk-2\"}\n\ndata: [DONE]\n\ndata: ignored\n\n",
+        );
+
+        assert!(complete);
+        assert_eq!(
+            rendered,
+            "data: {\"id\":\"chunk-1\"}\n\ndata: {\"id\":\"chunk-2\"}\n\ndata: [DONE]\n\n"
+        );
+    }
+
+    #[test]
+    fn normalize_openai_sse_bytes_reports_incomplete_on_malformed_frame() {
+        let (malformed, malformed_complete) = normalize_openai_sse_bytes(b"event: message\n\n");
+
+        assert_eq!(malformed, "");
+        assert!(!malformed_complete);
+    }
+
+    #[tokio::test]
+    async fn text_event_stream_emits_normalized_payloads() {
+        let events = text_event_stream("data: first\n\ndata: second\n\n".to_string())
+            .collect::<Vec<_>>()
+            .await;
+
+        assert_eq!(events.len(), 2);
+        assert!(events.into_iter().all(|event| event.is_ok()));
+    }
+
+    #[tokio::test]
+    async fn upstream_event_stream_emits_pending_events_until_done() {
+        let upstream = stream::iter([
+            Ok::<_, ()>(Bytes::from_static(b"data: first\n\ndata: second")),
+            Ok::<_, ()>(Bytes::from_static(b"\n\ndata: [DONE]\n\ndata: ignored\n\n")),
+        ]);
+
+        let events = upstream_event_stream(upstream).collect::<Vec<_>>().await;
+
+        assert_eq!(events.len(), 3);
+        assert!(events.into_iter().all(|event| event.is_ok()));
+    }
+
+    #[tokio::test]
+    async fn completion_runs_when_upstream_ends_without_done() {
+        let completion_count = Arc::new(AtomicUsize::new(0));
+        let completion_count_for_callback = Arc::clone(&completion_count);
+        let upstream = stream::iter([Ok::<_, ()>(Bytes::from_static(b"data: chunk\n\n"))]);
+
+        let events = upstream_event_stream_with_completion(upstream, move || async move {
+            completion_count_for_callback.fetch_add(1, Ordering::SeqCst);
+        })
+        .collect::<Vec<_>>()
+        .await;
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(completion_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn completion_runs_when_upstream_errors_once() {
+        let completion_count = Arc::new(AtomicUsize::new(0));
+        let completion_count_for_callback = Arc::clone(&completion_count);
+        let upstream = stream::iter([Err::<Bytes, _>("upstream failed")]);
+
+        let events = upstream_event_stream_with_completion(upstream, move || async move {
+            completion_count_for_callback.fetch_add(1, Ordering::SeqCst);
+        })
+        .collect::<Vec<_>>()
+        .await;
+
+        assert_eq!(events.len(), 0);
+        assert_eq!(completion_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn completion_runs_on_parse_error_once() {
+        let completion_count = Arc::new(AtomicUsize::new(0));
+        let completion_count_for_callback = Arc::clone(&completion_count);
+        let upstream = stream::iter([Ok::<_, ()>(Bytes::from_static(b"event: message\n\n"))]);
+
+        let events = upstream_event_stream_with_completion(upstream, move || async move {
+            completion_count_for_callback.fetch_add(1, Ordering::SeqCst);
+        })
+        .collect::<Vec<_>>()
+        .await;
+
+        assert_eq!(events.len(), 0);
+        assert_eq!(completion_count.load(Ordering::SeqCst), 1);
     }
 }

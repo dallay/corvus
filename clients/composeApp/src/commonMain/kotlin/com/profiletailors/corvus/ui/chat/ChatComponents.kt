@@ -1,3 +1,8 @@
+@file:Suppress(
+  "FunctionNaming",
+  "TooManyFunctions",
+) // Session history and chat component helpers intentionally share this UI slice.
+
 package com.profiletailors.corvus.ui.chat
 
 import androidx.compose.animation.animateColorAsState
@@ -486,14 +491,12 @@ fun SessionHistoryPanel(
 
 @Composable
 private fun sessionHistoryItem(session: RuntimeSession, isActive: Boolean, onSwitch: () -> Unit) {
-  val corvusColors = CorvusTheme.colors
-  val borderColor =
-    if (isActive) corvusColors.glowCyan.copy(alpha = 0.6f) else corvusColors.glassOverlay
+  val style = sessionHistoryItemStyle(isActive)
 
   Surface(
     shape = RoundedCornerShape(14.dp),
-    color = if (isActive) corvusColors.glowCyan.copy(alpha = 0.08f) else corvusColors.glassSurface,
-    border = BorderStroke(1.dp, borderColor),
+    color = style.surfaceColor,
+    border = BorderStroke(1.dp, style.borderColor),
   ) {
     Row(
       modifier =
@@ -503,32 +506,79 @@ private fun sessionHistoryItem(session: RuntimeSession, isActive: Boolean, onSwi
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      Column(modifier = Modifier.weight(1f)) {
-        Text(
-          text = session.title ?: truncateSessionId(session.id.value),
-          style = MaterialTheme.typography.bodyMedium,
-          fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-          color = if (isActive) corvusColors.glowCyan else MaterialTheme.colorScheme.onSurface,
-        )
-        if (isActive) {
-          Text(
-            text = "Active",
-            style = MaterialTheme.typography.labelSmall,
-            color = corvusColors.glowCyan.copy(alpha = 0.8f),
-          )
-        }
-      }
-
-      if (!isActive) {
-        OutlinedButton(
-          onClick = onSwitch,
-          shape = RoundedCornerShape(10.dp),
-          colors = ButtonDefaults.outlinedButtonColors(contentColor = corvusColors.glowCyan),
-        ) {
-          Text(text = "Open", style = MaterialTheme.typography.labelMedium)
-        }
-      }
+      sessionHistoryItemLabel(session = session, style = style, modifier = Modifier.weight(1f))
+      sessionHistoryItemAction(
+        isActive = isActive,
+        sessionLabel = session.title ?: truncateSessionId(session.id.value),
+        onSwitch = onSwitch,
+      )
     }
+  }
+}
+
+@Immutable
+private data class SessionHistoryItemStyle(
+  val surfaceColor: Color,
+  val borderColor: Color,
+  val titleColor: Color,
+  val titleWeight: FontWeight,
+  val activeLabelColor: Color,
+  val showActiveLabel: Boolean,
+)
+
+@Composable
+private fun sessionHistoryItemStyle(isActive: Boolean): SessionHistoryItemStyle {
+  val corvusColors = CorvusTheme.colors
+  return SessionHistoryItemStyle(
+    surfaceColor =
+      if (isActive) corvusColors.glowCyan.copy(alpha = 0.08f) else corvusColors.glassSurface,
+    borderColor =
+      if (isActive) corvusColors.glowCyan.copy(alpha = 0.6f) else corvusColors.glassOverlay,
+    titleColor = if (isActive) corvusColors.glowCyan else MaterialTheme.colorScheme.onSurface,
+    titleWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+    activeLabelColor = corvusColors.glowCyan.copy(alpha = 0.8f),
+    showActiveLabel = isActive,
+  )
+}
+
+@Composable
+private fun sessionHistoryItemLabel(
+  session: RuntimeSession,
+  style: SessionHistoryItemStyle,
+  modifier: Modifier = Modifier,
+) {
+  Column(modifier = modifier) {
+    Text(
+      text = session.title ?: truncateSessionId(session.id.value),
+      style = MaterialTheme.typography.bodyMedium,
+      fontWeight = style.titleWeight,
+      color = style.titleColor,
+    )
+    if (style.showActiveLabel) {
+      Text(
+        text = "Active",
+        style = MaterialTheme.typography.labelSmall,
+        color = style.activeLabelColor,
+      )
+    }
+  }
+}
+
+@Composable
+private fun sessionHistoryItemAction(
+  isActive: Boolean,
+  sessionLabel: String,
+  onSwitch: () -> Unit,
+) {
+  if (isActive) return
+
+  OutlinedButton(
+    onClick = onSwitch,
+    shape = RoundedCornerShape(10.dp),
+    colors = ButtonDefaults.outlinedButtonColors(contentColor = CorvusTheme.colors.glowCyan),
+    modifier = Modifier.semantics { contentDescription = "Open $sessionLabel" },
+  ) {
+    Text(text = "Open", style = MaterialTheme.typography.labelMedium)
   }
 }
 

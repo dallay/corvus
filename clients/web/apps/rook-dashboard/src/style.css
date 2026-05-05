@@ -292,12 +292,12 @@ input {
 }
 
 .state-banner.info {
-  background: rgb(14 165 233 / 18%);
+  background: #063246;
   color: #e0f7ff;
 }
 
 .state-banner.danger {
-  background: rgb(239 68 68 / 18%);
+  background: #4a0f13;
   color: #ffe0e0;
 }
 

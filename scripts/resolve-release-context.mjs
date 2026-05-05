@@ -16,11 +16,11 @@ function parseAffectedComponentsOverride(affectedComponentsRaw, graph) {
   try {
     parsed = JSON.parse(affectedComponentsRaw);
   } catch (error) {
-    throw new Error(`Invalid AFFECTED_COMPONENTS payload: ${affectedComponentsRaw}`, { cause: error });
+    throw new SyntaxError(`Invalid AFFECTED_COMPONENTS JSON: ${affectedComponentsRaw}`, { cause: error });
   }
 
   if (!Array.isArray(parsed)) {
-    throw new Error(`Invalid AFFECTED_COMPONENTS payload: ${affectedComponentsRaw}`);
+    throw new TypeError(`Invalid AFFECTED_COMPONENTS payload: ${affectedComponentsRaw}`);
   }
 
   const knownComponents = new Set(Object.keys(graph.components));
@@ -33,7 +33,7 @@ function parseAffectedComponentsOverride(affectedComponentsRaw, graph) {
 }
 
 function parseVersionSuffix(versionSuffix) {
-  const match = /^([0-9]+)\.([0-9]+)\.([0-9]+)(?:-beta\.([0-9]+))?$/.exec(versionSuffix);
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/.exec(versionSuffix);
 
   if (!match) {
     return null;

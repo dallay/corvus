@@ -109,18 +109,25 @@ function isTrustedExecutablePath(candidatePath) {
   });
 }
 
+function resolveConfiguredExecutableCandidates(configuredPath) {
+  if (typeof configuredPath !== "string" || !configuredPath.trim()) {
+    return [];
+  }
+
+  if (path.isAbsolute(configuredPath)) {
+    return isTrustedExecutablePath(configuredPath) ? [configuredPath] : [];
+  }
+
+  if (configuredPath.includes(path.sep) || configuredPath.includes("/")) {
+    return [];
+  }
+
+  return trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, configuredPath));
+}
+
 function resolveExecutable(executableName) {
   const configuredPath = process.env[executableName.toUpperCase()];
-  const configuredCandidates =
-    typeof configuredPath === "string" && configuredPath.trim()
-      ? path.isAbsolute(configuredPath)
-        ? isTrustedExecutablePath(configuredPath)
-          ? [configuredPath]
-          : []
-        : !configuredPath.includes(path.sep) && !configuredPath.includes("/")
-          ? trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, configuredPath))
-          : []
-      : [];
+  const configuredCandidates = resolveConfiguredExecutableCandidates(configuredPath);
   const candidatePaths = [
     ...configuredCandidates,
     ...trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, executableName)),
@@ -422,8 +429,8 @@ test("archived openspec state reflects completed apply and verify phases", () =>
   const state = readText("openspec/changes/archive/2026-04-29-release-internal-dependency-sync/state.yaml");
 
   assert.match(state, /^status: completed$/m);
-  assert.match(state, /^  apply:\n    status: completed$/m);
-  assert.match(state, /^  verify:\n    status: completed$/m);
+  assert.match(state, /^  apply:\n {4}status: completed$/m);
+  assert.match(state, /^  verify:\n {4}status: completed$/m);
 });
 
 test("archived verify report no longer instructs archive retry", () => {
@@ -679,7 +686,7 @@ function getExecFileSyncFailure(fn) {
   } catch (error) {
     const combinedMessage = [error.message, error.stderr, error.stdout]
       .filter(Boolean)
-      .map((value) => String(value))
+      .map(String)
       .join("\n");
     error.combinedMessage = combinedMessage;
     return error;
@@ -717,7 +724,7 @@ test("release tag resolver rejects invalid release body overrides", () => {
 test("affected components validator rejects invalid JSON", () => {
   const error = getExecFileSyncFailure(() => runAffectedComponentsValidator("not-json"));
 
-  assert.match(error.combinedMessage, /Invalid AFFECTED_COMPONENTS payload: not-json/);
+  assert.match(error.combinedMessage, /Invalid AFFECTED_COMPONENTS JSON: not-json/);
 });
 
 test("affected components validator rejects empty arrays", () => {
@@ -998,7 +1005,7 @@ test("release workflows encode release-please-owned stable and beta governance",
   assert.doesNotMatch(
     publishWorkflow,
     /output\.write\(f"\{key\}=\{'true' if value else 'false'\}\\\\n"\)/,
-    "component flag outputs must use real newlines, not literal \\n text",
+    String.raw`component flag outputs must use real newlines, not literal \n text`,
   );
 
   assertIncludesAll(

@@ -179,7 +179,7 @@ export class RookApiClient implements RookApi {
       headers: {
         Authorization: `Bearer ${this.bearerToken.trim()}`,
         "Content-Type": "application/json",
-        ...(init?.headers ?? {}),
+        ...init?.headers,
       },
     });
 

@@ -123,6 +123,14 @@ data class ChatWorkspaceContent(
   val showSessionHistory: Boolean = false,
 )
 
+@Stable
+data class ChatWorkspaceCallbacks(
+  val onSendMessage: (String) -> Unit,
+  val onQueryChange: (String) -> Unit,
+  val onShowConfigChange: (Boolean) -> Unit,
+  val onShowSessionHistoryChange: (Boolean) -> Unit,
+)
+
 object ChatWorkspaceDefaults {
   const val DefaultAgentName = "Corvus"
 
@@ -139,10 +147,7 @@ object ChatWorkspaceDefaults {
 fun ChatWorkspace(
   content: ChatWorkspaceContent,
   bridgeActions: BridgeActions,
-  onSendMessage: (String) -> Unit,
-  onQueryChange: (String) -> Unit,
-  onShowConfigChange: (Boolean) -> Unit,
-  onShowSessionHistoryChange: (Boolean) -> Unit,
+  callbacks: ChatWorkspaceCallbacks,
   modifier: Modifier = Modifier,
   state: ChatWorkspaceState = ChatWorkspaceDefaults.state(),
 ) {
@@ -155,8 +160,8 @@ fun ChatWorkspace(
   fun sendMessage(prompt: String) {
     if (!bridgeState.isChatReady) return
     if (prompt.trim().isBlank()) return
-    onSendMessage(prompt)
-    onQueryChange("")
+    callbacks.onSendMessage(prompt)
+    callbacks.onQueryChange("")
   }
 
   val displayMessages =
@@ -172,18 +177,17 @@ fun ChatWorkspace(
     remember(
       bridgeState,
       bridgeActions,
-      onSendMessage,
-      onQueryChange,
+      callbacks,
       content.showConfig,
       content.showSessionHistory,
-      onShowConfigChange,
-      onShowSessionHistoryChange,
     ) {
       ChatWorkspaceActions(
-        onQueryChange = onQueryChange,
+        onQueryChange = callbacks.onQueryChange,
         onSend = ::sendMessage,
-        onToggleConfig = { onShowConfigChange(!content.showConfig) },
-        onToggleSessionHistory = { onShowSessionHistoryChange(!content.showSessionHistory) },
+        onToggleConfig = { callbacks.onShowConfigChange(!content.showConfig) },
+        onToggleSessionHistory = {
+          callbacks.onShowSessionHistoryChange(!content.showSessionHistory)
+        },
         bridge = bridgeActions,
       )
     }

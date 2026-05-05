@@ -182,75 +182,92 @@ fn load_workspace_skills(workspace_dir: &Path) -> Vec<Skill> {
 }
 
 fn load_skills_from_directory(workspace_dir: &Path, skills_dir: &Path) -> Vec<Skill> {
-    if !skills_dir.exists() {
+    let Some(canonical_skills_dir) = canonical_skills_dir_in_workspace(workspace_dir, skills_dir)
+    else {
         return Vec::new();
+    };
+
+    let Ok(entries) = std::fs::read_dir(&canonical_skills_dir) else {
+        return Vec::new();
+    };
+
+    entries
+        .flatten()
+        .filter_map(|entry| load_skill_entry(entry, &canonical_skills_dir))
+        .collect()
+}
+
+fn canonical_skills_dir_in_workspace(workspace_dir: &Path, skills_dir: &Path) -> Option<PathBuf> {
+    if !skills_dir.exists() {
+        return None;
     }
 
-    let mut skills = Vec::new();
+    let canonical_workspace = workspace_dir.canonicalize().ok()?;
+    let canonical_skills_dir = skills_dir.canonicalize().ok()?;
 
-    let canonical_workspace = match workspace_dir.canonicalize() {
-        Ok(path) => path,
-        Err(_) => return skills,
-    };
-    let canonical_skills_dir = match skills_dir.canonicalize() {
-        Ok(path) => path,
-        Err(_) => return skills,
-    };
-
-    if !canonical_skills_dir.starts_with(&canonical_workspace) {
+    if canonical_skills_dir.starts_with(&canonical_workspace) {
+        Some(canonical_skills_dir)
+    } else {
         tracing::warn!(
             "skills directory '{}' escapes workspace '{}'; skipping load",
             canonical_skills_dir.display(),
             canonical_workspace.display(),
         );
-        return skills;
+        None
+    }
+}
+
+fn load_skill_entry(entry: std::fs::DirEntry, canonical_skills_dir: &Path) -> Option<Skill> {
+    let path = entry.path();
+    if !path.is_dir() {
+        return None;
     }
 
-    let Ok(entries) = std::fs::read_dir(&canonical_skills_dir) else {
-        return skills;
-    };
+    let canonical_skill_dir = canonical_skill_dir_in_root(&path, canonical_skills_dir)?;
+    warn_if_invalid_skill_name(&entry);
+    load_skill_from_canonical_dir(&canonical_skill_dir)
+}
 
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-
-        let canonical_skill_dir = match path.canonicalize() {
-            Ok(path) => path,
-            Err(_) => continue,
-        };
-        if !canonical_skill_dir.starts_with(&canonical_skills_dir) {
-            tracing::warn!(
-                "skill directory '{}' escapes skills root '{}'; skipping",
-                canonical_skill_dir.display(),
-                canonical_skills_dir.display(),
-            );
-            continue;
-        }
-
-        // Validate directory name per Agent Skills standard (warn only for backward compat)
-        let dir_name = entry.file_name().to_string_lossy().to_string();
-        if let Err(err) = validation::validate_skill_name(&dir_name) {
-            tracing::warn!("skill '{}' has invalid name: {err}", dir_name);
-        }
-
-        let md_path = canonical_skill_dir.join("SKILL.md");
-
-        if md_path.exists() {
-            if let Ok(skill) = load_skill_md(&md_path, &canonical_skill_dir) {
-                skills.push(skill);
-            }
-        } else if canonical_skill_dir.join("SKILL.toml").exists() {
-            tracing::warn!(
-                "Skill directory '{}' contains only SKILL.toml which is no longer supported. \
-                 Create a SKILL.md file with YAML frontmatter instead. Skipping.",
-                canonical_skill_dir.display(),
-            );
-        }
+fn canonical_skill_dir_in_root(path: &Path, canonical_skills_dir: &Path) -> Option<PathBuf> {
+    let canonical_skill_dir = path.canonicalize().ok()?;
+    if canonical_skill_dir.starts_with(canonical_skills_dir) {
+        Some(canonical_skill_dir)
+    } else {
+        tracing::warn!(
+            "skill directory '{}' escapes skills root '{}'; skipping",
+            canonical_skill_dir.display(),
+            canonical_skills_dir.display(),
+        );
+        None
     }
+}
 
-    skills
+fn warn_if_invalid_skill_name(entry: &std::fs::DirEntry) {
+    let dir_name = entry.file_name().to_string_lossy().to_string();
+    if let Err(err) = validation::validate_skill_name(&dir_name) {
+        tracing::warn!("skill '{}' has invalid name: {err}", dir_name);
+    }
+}
+
+fn load_skill_from_canonical_dir(canonical_skill_dir: &Path) -> Option<Skill> {
+    let md_path = canonical_skill_dir.join("SKILL.md");
+
+    if md_path.exists() {
+        load_skill_md(&md_path, canonical_skill_dir).ok()
+    } else {
+        warn_if_legacy_skill_toml_only(canonical_skill_dir);
+        None
+    }
+}
+
+fn warn_if_legacy_skill_toml_only(canonical_skill_dir: &Path) {
+    if canonical_skill_dir.join("SKILL.toml").exists() {
+        tracing::warn!(
+            "Skill directory '{}' contains only SKILL.toml which is no longer supported. \
+             Create a SKILL.md file with YAML frontmatter instead. Skipping.",
+            canonical_skill_dir.display(),
+        );
+    }
 }
 
 /// Load a skill from a SKILL.md file

@@ -23,11 +23,12 @@ function resolveWebhookSecretInput(): HTMLInputElement | null {
   }
 
   const element = webhookSecretInputRef.value?.$el;
-  return element instanceof HTMLInputElement
-    ? element
-    : element?.querySelector?.("input") instanceof HTMLInputElement
-      ? element.querySelector("input")
-      : null;
+  if (element instanceof HTMLInputElement) {
+    return element;
+  }
+
+  const input = element?.querySelector?.("input");
+  return input instanceof HTMLInputElement ? input : null;
 }
 
 const localError = computed(() => {

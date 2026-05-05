@@ -128,7 +128,9 @@ export function useAdmin(
     loading.value = Object.values(loadingBuckets.value).some(Boolean);
   }
 
-  function buildUrl(path: string, params?: Record<string, string | number | undefined>): string {
+  type BuildUrlParams = Record<string, string | number | undefined>;
+
+  function buildUrl(path: string, params?: BuildUrlParams): string {
     let url: URL;
     try {
       url = new URL(gatewayUrl(path));
@@ -436,12 +438,13 @@ export function useAdmin(
       throw new Error(message);
     }
 
-    const path =
-      tool === "mem_session_start"
-        ? "/web/admin/cerebro/sessions/start"
-        : tool === "mem_session_end"
-          ? `/web/admin/cerebro/sessions/${encodeURIComponent(sessionId ?? "")}/end`
-          : `/web/admin/cerebro/sessions/${encodeURIComponent(sessionId ?? "")}/summary`;
+    let path: string;
+    if (tool === "mem_session_start") {
+      path = "/web/admin/cerebro/sessions/start";
+    } else {
+      const encodedSessionId = encodeURIComponent(sessionId ?? "");
+      path = `/web/admin/cerebro/sessions/${encodedSessionId}/${tool === "mem_session_end" ? "end" : "summary"}`;
+    }
     const response = await fetchCerebroJson<AdminCerebroActionSuccess>("cerebroAction", path, {
       method: "POST",
       body: JSON.stringify(payload),

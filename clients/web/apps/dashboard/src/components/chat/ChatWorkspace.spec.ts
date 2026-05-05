@@ -226,7 +226,7 @@ describe("ChatWorkspace", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("session-2");
-    expect(wrapper.findAll('[role="status"]')[0]?.text()).toContain("session-2");
+    expect(wrapper.findAll("output")[0]?.text()).toContain("session-2");
     expect(document.activeElement).toBe(wrapper.get("#chat-prompt-input").element);
   });
 
@@ -268,8 +268,8 @@ describe("ChatWorkspace", () => {
     await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
     await flushPromises();
 
-    const statusRegions = wrapper.findAll('[role="status"]');
-    expect(statusRegions[1]?.text()).toContain(translatedText("chat.approve"));
+    const liveOutputs = wrapper.findAll("output");
+    expect(liveOutputs[1]?.text()).toContain(translatedText("chat.approve"));
     expect(document.activeElement).toBe(wrapper.get("#chat-prompt-input").element);
   });
 

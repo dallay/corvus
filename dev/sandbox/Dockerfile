@@ -8,7 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # - Core: curl, git, vim, build-essential (gcc, make)
 # - Python: python3, pip
 # - Network: ping, dnsutils
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     dnsutils \

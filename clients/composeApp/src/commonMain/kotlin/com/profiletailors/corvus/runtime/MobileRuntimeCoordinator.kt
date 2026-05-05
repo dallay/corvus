@@ -248,16 +248,13 @@ class MobileRuntimeCoordinator(
     val assistantMessages = mutableListOf<ChatMessage>()
     var pendingApproval: RuntimeApprovalRequest? = state.pendingApproval
     result.events.forEach { event ->
-      when (event) {
-        is RuntimeEvent.AssistantChunk ->
+      val assistantText = event.assistantTextOrNull()
+      when {
+        assistantText != null ->
           assistantMessages +=
-            assistantChatMessage(state.messages.size, event.text, assistantMessages.size)
-        is RuntimeEvent.AssistantMessage ->
-          assistantMessages +=
-            assistantChatMessage(state.messages.size, event.text, assistantMessages.size)
-
-        is RuntimeEvent.ApprovalPending -> pendingApproval = event.request
-        is RuntimeEvent.Failure ->
+            assistantChatMessage(state.messages.size, assistantText, assistantMessages.size)
+        event is RuntimeEvent.ApprovalPending -> pendingApproval = event.request
+        event is RuntimeEvent.Failure ->
           assistantMessages +=
             assistantChatMessage(state.messages.size, event.message, assistantMessages.size)
       }
@@ -266,6 +263,13 @@ class MobileRuntimeCoordinator(
       state.copy(messages = state.messages + assistantMessages, pendingApproval = pendingApproval)
   }
 }
+
+private fun RuntimeEvent.assistantTextOrNull(): String? =
+  when (this) {
+    is RuntimeEvent.AssistantChunk -> text
+    is RuntimeEvent.AssistantMessage -> text
+    else -> null
+  }
 
 private fun assistantChatMessage(currentSize: Int, text: String, offset: Int): ChatMessage =
   ChatMessage(
