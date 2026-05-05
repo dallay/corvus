@@ -33,12 +33,15 @@ private const val UNIT_SEPARATOR = '\u001f'
 
 // Receive buffer size in bytes
 private const val SOCKET_BUFFER_SIZE = 65_536
+private const val BYTE_SHIFT = 8
+private const val BYTE_MASK = 0xFF
+private const val MILLIS_PER_SECOND = 1000
 
 // Helper function to convert host byte order to network byte order (big-endian)
 @OptIn(ExperimentalForeignApi::class)
 private fun htons(value: UShort): UShort {
   val bytes = value.toInt()
-  return ((bytes shr 8) or ((bytes and 0xFF) shl 8)).toUShort()
+  return ((bytes shr BYTE_SHIFT) or ((bytes and BYTE_MASK) shl BYTE_SHIFT)).toUShort()
 }
 
 actual data class IosRuntimeCompanionConfig
@@ -148,8 +151,8 @@ actual constructor(private val config: IosRuntimeCompanionConfig) : IosRuntimeCo
 
       // Apply send/receive timeouts
       val tv = alloc<timeval>()
-      tv.tv_sec = (config.timeoutMs / 1000).convert()
-      tv.tv_usec = ((config.timeoutMs % 1000).toInt() * 1000).convert()
+      tv.tv_sec = (config.timeoutMs / MILLIS_PER_SECOND).convert()
+      tv.tv_usec = ((config.timeoutMs % MILLIS_PER_SECOND).toInt() * MILLIS_PER_SECOND).convert()
       setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, tv.ptr, sizeOf<timeval>().convert())
       setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, tv.ptr, sizeOf<timeval>().convert())
 

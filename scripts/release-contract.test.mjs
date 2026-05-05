@@ -724,7 +724,7 @@ test("release tag resolver rejects invalid release body overrides", () => {
 test("affected components validator rejects invalid JSON", () => {
   const error = getExecFileSyncFailure(() => runAffectedComponentsValidator("not-json"));
 
-  assert.match(error.combinedMessage, /Invalid AFFECTED_COMPONENTS payload: not-json/);
+  assert.match(error.combinedMessage, /Invalid AFFECTED_COMPONENTS JSON: not-json/);
 });
 
 test("affected components validator rejects empty arrays", () => {

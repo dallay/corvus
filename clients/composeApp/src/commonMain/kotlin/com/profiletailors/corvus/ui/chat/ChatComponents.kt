@@ -1,5 +1,6 @@
 @file:Suppress(
-  "TooManyFunctions"
+  "FunctionNaming",
+  "TooManyFunctions",
 ) // Session history and chat component helpers intentionally share this UI slice.
 
 package com.profiletailors.corvus.ui.chat

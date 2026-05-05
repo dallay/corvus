@@ -20,6 +20,10 @@ import SettingsPage from "./features/settings/SettingsPage.vue";
 /* biome-ignore lint/correctness/noUnusedImports: used in Vue template */
 import UsagePage from "./features/usage/UsagePage.vue";
 
+function getLocation(): Location | null {
+  return typeof globalThis.location === "object" ? globalThis.location : null;
+}
+
 const { baseUrl, bearerToken, isConfigured } = useRookSession();
 const route = ref<RookRoute>(normalizeHashRoute(getLocation()?.hash ?? ""));
 const isConnected = ref(false);
@@ -54,10 +58,6 @@ watch([baseUrl, bearerToken], () => {
     refreshConnectedClient();
   }
 });
-
-function getLocation(): Location | null {
-  return typeof globalThis.location === "object" ? globalThis.location : null;
-}
 
 function handleHashChange() {
   route.value = normalizeHashRoute(getLocation()?.hash ?? "");

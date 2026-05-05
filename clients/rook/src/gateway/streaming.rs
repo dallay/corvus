@@ -3,6 +3,7 @@ use futures_util::stream;
 use futures_util::{Stream, StreamExt};
 use std::collections::VecDeque;
 use std::convert::Infallible;
+use std::fmt::Debug;
 use std::future::Future;
 
 use crate::gateway::types::STREAM_DONE_SENTINEL;
@@ -120,6 +121,7 @@ pub fn upstream_event_stream<S, E>(
 ) -> impl Stream<Item = Result<axum::response::sse::Event, Infallible>>
 where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
+    E: Debug,
 {
     upstream_event_stream_with_completion(upstream, || async {})
 }
@@ -130,6 +132,7 @@ pub fn upstream_event_stream_with_completion<S, E, F, Fut>(
 ) -> impl Stream<Item = Result<axum::response::sse::Event, Infallible>>
 where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
+    E: Debug,
     F: FnOnce() -> Fut + Unpin,
     Fut: Future<Output = ()>,
 {
@@ -165,6 +168,7 @@ async fn next_upstream_event<S, E, F, Fut>(
 )>
 where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
+    E: Debug,
     F: FnOnce() -> Fut + Unpin,
     Fut: Future<Output = ()>,
 {
@@ -187,6 +191,7 @@ async fn next_pending_or_upstream_event<S, E, F>(
 ) -> Option<axum::response::sse::Event>
 where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
+    E: Debug,
 {
     loop {
         if let Some(next) = pop_pending_event(&mut state.pending) {
@@ -227,6 +232,7 @@ async fn extend_pending_from_upstream<S, E>(
 ) -> bool
 where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
+    E: Debug,
 {
     match upstream.next().await {
         Some(Ok(chunk)) => match parser.push(&chunk) {
@@ -234,9 +240,16 @@ where
                 pending.extend(payloads);
                 true
             }
-            Err(_) => false,
+            Err(error) => {
+                tracing::warn!(?error, "failed to parse upstream SSE frame");
+                false
+            }
         },
-        Some(Err(_)) | None => false,
+        Some(Err(error)) => {
+            tracing::warn!(?error, "upstream SSE stream returned an error");
+            false
+        }
+        None => false,
     }
 }
 
