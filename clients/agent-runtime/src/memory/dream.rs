@@ -201,7 +201,7 @@ pub fn run_now(
     let mut merged_lines = extract_memory_lines(&existing);
     for file in &recent_signal_files {
         let content = fs::read_to_string(file)?;
-        for line in extract_memory_lines(&content) {
+        for line in extract_distilled_memory_lines(&content) {
             let normalized = normalize_relative_dates(&line, &mut normalized_dates);
             merged_lines.push(normalized);
         }
@@ -458,6 +458,16 @@ fn extract_memory_lines(content: &str) -> Vec<String> {
         .map(str::trim)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .map(|line| line.trim_start_matches("- ").trim().to_string())
+        .collect()
+}
+
+fn extract_distilled_memory_lines(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("- "))
+        .map(|line| line.trim_start_matches("- ").trim().to_string())
+        .filter(|line| !line.is_empty())
         .collect()
 }
 
@@ -838,6 +848,30 @@ mod tests {
         assert!(report.duplicates_removed >= 1);
         assert!(memory.contains("on "));
         assert!(memory.contains("Dream summary for completed session sess-123"));
+    }
+
+    #[test]
+    fn dream_persists_distilled_daily_signals_not_raw_session_transcript() {
+        let tmp = TempDir::new().unwrap();
+        record_session_completion(tmp.path(), "sess-distilled").unwrap();
+        fs::create_dir_all(tmp.path().join("memory")).unwrap();
+        fs::write(
+            tmp.path().join("memory").join("2026-04-23.md"),
+            "# Daily Log\n\n- User prefers distilled memory\n\nRaw transcript: user said the secret phrase swordfish\nassistant replied with implementation details\n",
+        )
+        .unwrap();
+
+        let report = run_now(tmp.path(), DreamTriggerReason::Manual)
+            .unwrap()
+            .unwrap();
+        let memory = fs::read_to_string(tmp.path().join("MEMORY.md")).unwrap();
+
+        assert_eq!(report.sessions_processed, 1);
+        assert!(memory.contains("- User prefers distilled memory"));
+        assert!(memory.contains("- Dream summary for completed session sess-distilled"));
+        assert!(!memory.contains("Raw transcript"));
+        assert!(!memory.contains("secret phrase swordfish"));
+        assert!(!memory.contains("assistant replied with implementation details"));
     }
 
     #[test]
