@@ -622,20 +622,21 @@ export function useChat(
 
       const processLine = (line: string, state: StreamEventState): void => {
         const result = consumeStreamLine(line, state, fallbackMessage);
-        switch (result.type) {
-          case "chunk":
-            onChunk(result.chunk);
-            break;
-          case "done":
-            doneEvent = result.doneEvent;
-            if (doneEvent.session_id && !isSessionReady.value) {
-              setSessionReady(doneEvent.session_id);
-            }
-            break;
-          case "error":
-            throw new Error(result.message);
-          case "continue":
-            break;
+        if (result.type === "chunk") {
+          onChunk(result.chunk);
+          return;
+        }
+
+        if (result.type === "done") {
+          doneEvent = result.doneEvent;
+          if (doneEvent.session_id && !isSessionReady.value) {
+            setSessionReady(doneEvent.session_id);
+          }
+          return;
+        }
+
+        if (result.type === "error") {
+          throw new Error(result.message);
         }
       };
 

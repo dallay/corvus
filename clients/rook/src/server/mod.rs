@@ -50,6 +50,8 @@ pub struct ServerConfig {
     pub rate_limits: RateLimitConfig,
     /// Route-local idempotency config for chat completions.
     pub idempotency: IdempotencyConfig,
+    /// Upstream retry, cooldown, and concurrency policy for gateway traffic.
+    pub upstream_resilience: crate::gateway::UpstreamResiliencePolicy,
 }
 
 impl Default for ServerConfig {
@@ -63,6 +65,7 @@ impl Default for ServerConfig {
             transport: TransportConfig::default(),
             rate_limits: RateLimitConfig::default(),
             idempotency: IdempotencyConfig::default(),
+            upstream_resilience: crate::gateway::UpstreamResiliencePolicy::default(),
         }
     }
 }
@@ -168,11 +171,39 @@ async fn build_app_with_registry_and_startup_state(
         .build()
         .map_err(|e| RookError::Gateway(format!("failed to build HTTP client: {e}")))?;
 
-    let observability = Arc::new(Observability::bootstrap());
-    let resilience_policy = crate::gateway::UpstreamResiliencePolicy::default();
+    // Validate upstream resilience config before using it to build gateway state.
+    let policy = &config.upstream_resilience;
+    if policy.max_buffered_attempts == 0 {
+        return Err(RookError::Config(
+            "upstream_resilience.max_buffered_attempts must be at least 1".to_string(),
+        ));
+    }
+    if policy.failure_cooldown.as_secs() == 0 {
+        return Err(RookError::Config(
+            "upstream_resilience.failure_cooldown_seconds must be at least 1".to_string(),
+        ));
+    }
+    if policy.retry_backoff.as_millis() == 0 {
+        return Err(RookError::Config(
+            "upstream_resilience.retry_backoff_milliseconds must be at least 1".to_string(),
+        ));
+    }
+    if policy.max_concurrent_upstream_requests == 0 {
+        return Err(RookError::Config(
+            "upstream_resilience.max_concurrent_upstream_requests must be at least 1".to_string(),
+        ));
+    }
+    if policy.max_concurrent_upstream_requests > crate::config::MAX_CONCURRENT_UPSTREAM_REQUESTS {
+        return Err(RookError::Config(format!(
+            "upstream_resilience.max_concurrent_upstream_requests must be at most {}",
+            crate::config::MAX_CONCURRENT_UPSTREAM_REQUESTS
+        )));
+    }
+    let resilience_policy = config.upstream_resilience.clone();
     let upstream_concurrency = crate::gateway::UpstreamConcurrency::new(
         resilience_policy.max_concurrent_upstream_requests,
     );
+    let observability = Arc::new(Observability::bootstrap());
     let gateway_state = GatewayState {
         registry: registry.clone(),
         engine,
@@ -390,7 +421,8 @@ mod tests {
     };
     use crate::services::idempotency::{IdempotencyService, SharedIdempotencyService};
     use crate::services::{
-        account::AccountService as _, pool::PoolService as _, route::RouteService as _,
+        account::AccountService as _, health::HealthService as _, pool::PoolService as _,
+        route::RouteService as _,
     };
     use axum::body::{to_bytes, Body};
     use axum::extract::State;
@@ -487,6 +519,7 @@ mod tests {
                 },
             },
             idempotency: IdempotencyConfig::default(),
+            upstream_resilience: crate::gateway::UpstreamResiliencePolicy::default(),
         }
     }
 
@@ -660,6 +693,79 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn build_app_uses_configured_upstream_resilience_policy() {
+        use axum::{routing::post, Json, Router};
+        use std::net::SocketAddr;
+
+        async fn error_handler() -> (StatusCode, Json<serde_json::Value>) {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "boom"})),
+            )
+        }
+
+        let upstream = Router::new().route("/v1/chat/completions", post(error_handler));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let _server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let account_id = seed_route(
+            &registry,
+            "gpt-4o-resilience",
+            ProviderVendor::OpenAi,
+            Some(format!("http://{addr}")),
+            Some("sk-test".to_string()),
+        )
+        .await;
+        let config = ServerConfig {
+            upstream_resilience: crate::gateway::UpstreamResiliencePolicy {
+                max_buffered_attempts: 1,
+                failure_cooldown: std::time::Duration::from_secs(5),
+                retry_backoff: std::time::Duration::from_millis(1),
+                max_concurrent_upstream_requests: 1,
+            },
+            ..ServerConfig::default()
+        };
+
+        let app = build_app_with_registry(config, registry.clone())
+            .await
+            .unwrap();
+
+        let first_response = tower::ServiceExt::oneshot(
+            app.clone(),
+            axum::http::Request::post("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"model":"gpt-4o-resilience","messages":[],"stream":false}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(first_response.status(), axum::http::StatusCode::BAD_GATEWAY);
+        assert!(!registry.health().is_available(account_id).await);
+
+        let second_response = tower::ServiceExt::oneshot(
+            app,
+            axum::http::Request::post("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"model":"gpt-4o-resilience","messages":[],"stream":false}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            second_response.status(),
+            axum::http::StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
     #[test]
     fn server_config_default_values() {
         let cfg = ServerConfig::default();
@@ -700,6 +806,7 @@ mod tests {
                 },
             },
             idempotency: IdempotencyConfig::default(),
+            upstream_resilience: crate::gateway::UpstreamResiliencePolicy::default(),
         };
         assert_eq!(cfg.socket_addr(), "0.0.0.0:8080");
         assert!(cfg.enable_tui);
@@ -722,6 +829,7 @@ mod tests {
                     transport: TransportConfig::default(),
                     rate_limits: RateLimitConfig::default(),
                     idempotency: IdempotencyConfig::default(),
+                    upstream_resilience: crate::gateway::UpstreamResiliencePolicy::default(),
                 },
                 move |_registry, dashboard_url, shutdown| {
                     let calls_for_runner = calls_for_runner.clone();
@@ -1646,7 +1754,7 @@ mod tests {
             tokio::spawn(async move { axum::serve(error_listener, error_upstream).await.unwrap() });
 
         let registry = RookRegistry::open_in_memory().await.unwrap();
-        seed_route(
+        let ok_account_id = seed_route(
             &registry,
             "gpt-4o-ok",
             ProviderVendor::OpenAi,
@@ -1654,7 +1762,7 @@ mod tests {
             Some("sk-ok".to_string()),
         )
         .await;
-        seed_route(
+        let error_account_id = seed_route(
             &registry,
             "gpt-4o-error",
             ProviderVendor::OpenAi,
@@ -1662,7 +1770,7 @@ mod tests {
             Some("sk-error".to_string()),
         )
         .await;
-        seed_route_with_display_name(
+        let secret_account_id = seed_route_with_display_name(
             &registry,
             "gpt-4o-secret-account",
             ProviderVendor::OpenAi,
@@ -1671,7 +1779,7 @@ mod tests {
             Some("sk-secret".to_string()),
         )
         .await;
-        seed_route(
+        let misconfigured_account_id = seed_route(
             &registry,
             "gpt-4o-misconfigured",
             ProviderVendor::OpenAi,
@@ -1679,7 +1787,7 @@ mod tests {
             Some("   ".to_string()),
         )
         .await;
-        seed_route(
+        let network_account_id = seed_route(
             &registry,
             "gpt-4o-network",
             ProviderVendor::OpenAi,
@@ -1802,23 +1910,45 @@ mod tests {
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
-        assert!(!text.contains("rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-ok\",outcome=\"success\"}"));
-        assert!(text.contains(
-            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-error\",outcome=\"http_error\"} 1"
-        ));
-        assert!(text.contains(
-            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-misconfigured\",outcome=\"account_misconfigured\"} 1"
-        ));
-        assert!(text.contains(
-            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-network\",outcome=\"network_error\"} 1"
-        ));
+        let ok_account_label = format!("acct_{}", ok_account_id);
+        let error_account_label = format!("acct_{}", error_account_id);
+        let misconfigured_account_label = format!("acct_{}", misconfigured_account_id);
+        let network_account_label = format!("acct_{}", network_account_id);
+        let secret_account_label = format!("acct_{}", secret_account_id);
+        assert!(!text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-ok\",outcome=\"success\"}}",
+            ok_account_label
+        )));
+        assert!(text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-error\",outcome=\"http_error\"}} 1",
+            error_account_label
+        )));
+        assert!(text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-misconfigured\",outcome=\"account_misconfigured\"}} 1",
+            misconfigured_account_label
+        )));
+        assert!(text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-network\",outcome=\"network_error\"}} 1",
+            network_account_label
+        )));
         assert!(text.contains(
             "rook_upstream_failures_total{vendor=\"unrouted\",account=\"unrouted\",model=\"unrouted\",outcome=\"route_rejected\"} 1"
         ));
-        assert!(text.contains(
-            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"unlabeled\",model=\"gpt-4o-secret-account\",outcome=\"network_error\"} 1"
-        ));
+        assert!(text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-secret-account\",outcome=\"network_error\"}} 1",
+            secret_account_label
+        )));
+        assert!(text.contains("rook_provider_account_health{vendor=\"open_ai\",account=\"acct_"));
+        assert!(text.contains("status=\"healthy\"} 1"));
+        assert!(text.contains("status=\"unhealthy\"} 1"));
+        assert!(text
+            .contains("rook_provider_account_cooldown_active{vendor=\"open_ai\",account=\"acct_"));
         assert!(!text.contains("Bearer sk-secret"));
+        assert!(!text
+            .contains("rook_provider_account_health{vendor=\"open_ai\",account=\"test-account\""));
+        assert!(!text.contains(
+            "rook_provider_account_cooldown_active{vendor=\"open_ai\",account=\"test-account\""
+        ));
         assert!(!text.contains("account=\"bearer_sk-secret\""));
     }
 

@@ -67,6 +67,10 @@ private const val BUTTON_SHADOW_ALPHA = 0.3f
 private const val ACTIVE_STATUS_GLOW_ALPHA = 0.6f
 private const val INACTIVE_STATUS_GLOW_ALPHA = 0.2f
 private const val SESSION_ID_TRUNCATE_LENGTH = 8
+private const val CLOCK_RADIUS_RATIO = 0.85f
+private const val CLOCK_STROKE_WIDTH_RATIO = 0.1f
+private const val CLOCK_HAND_LENGTH_CLOCK_RATIO = 0.55f
+private const val CLOCK_HAND_LENGTH_MINUTE_RATIO = 0.7f
 
 @Immutable data class ChatMessage(val id: Int, val role: ChatRole, val content: String)
 
@@ -286,6 +290,7 @@ fun StatusIndicator(active: Boolean, label: String, modifier: Modifier = Modifie
   }
 }
 
+@Suppress("LongParameterList") // ChatHeader needs all UI state for display
 @Composable
 fun ChatHeader(
   modelName: String,
@@ -321,7 +326,7 @@ fun ChatHeader(
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       if (bridgeState.isChatReady) {
-        SessionHistoryToggleButton(
+        sessionHistoryToggleButton(
           showSessionHistory = showSessionHistory,
           iconBackgroundBrush = iconBackgroundBrush,
           corvusColors = corvusColors,
@@ -348,7 +353,7 @@ fun ChatHeader(
 }
 
 @Composable
-private fun SessionHistoryToggleButton(
+private fun sessionHistoryToggleButton(
   showSessionHistory: Boolean,
   iconBackgroundBrush: Brush,
   corvusColors: CorvusColorPalette,
@@ -368,7 +373,7 @@ private fun SessionHistoryToggleButton(
         .shadow(4.dp, CircleShape)
         .background(brush = background, shape = CircleShape),
   ) {
-    HistoryIcon(
+    historyIcon(
       tint = Color.White,
       contentDescription = SESSION_HISTORY_CONTENT_DESCRIPTION,
       modifier = Modifier.size(22.dp),
@@ -377,7 +382,7 @@ private fun SessionHistoryToggleButton(
 }
 
 @Composable
-private fun HistoryIcon(tint: Color, contentDescription: String?, modifier: Modifier = Modifier) {
+private fun historyIcon(tint: Color, contentDescription: String?, modifier: Modifier = Modifier) {
   val semanticsModifier =
     if (contentDescription != null) {
       modifier.then(Modifier.semantics { this.contentDescription = contentDescription })
@@ -387,16 +392,16 @@ private fun HistoryIcon(tint: Color, contentDescription: String?, modifier: Modi
   Canvas(modifier = semanticsModifier) {
     val cx = size.width / 2f
     val cy = size.height / 2f
-    val r = size.minDimension / 2f * 0.85f
-    val strokeWidth = size.minDimension * 0.1f
+    val r = size.minDimension / 2f * CLOCK_RADIUS_RATIO
+    val strokeWidth = size.minDimension * CLOCK_STROKE_WIDTH_RATIO
     drawCircle(
       color = tint,
       radius = r,
       center = Offset(cx, cy),
       style = Stroke(width = strokeWidth),
     )
-    val handLengthClock = r * 0.55f
-    val handLengthMinute = r * 0.7f
+    val handLengthClock = r * CLOCK_HAND_LENGTH_CLOCK_RATIO
+    val handLengthMinute = r * CLOCK_HAND_LENGTH_MINUTE_RATIO
     drawLine(
       color = tint,
       start = Offset(cx, cy),
@@ -465,7 +470,7 @@ fun SessionHistoryPanel(
           }
         } else {
           itemsIndexed(items = sessions, key = { _, s -> s.id.value }) { _, session ->
-            SessionHistoryItem(
+            sessionHistoryItem(
               session = session,
               isActive = session.id.value == activeSessionId,
               onSwitch = { onSwitchSession(session.id.value) },
@@ -480,7 +485,7 @@ fun SessionHistoryPanel(
 }
 
 @Composable
-private fun SessionHistoryItem(session: RuntimeSession, isActive: Boolean, onSwitch: () -> Unit) {
+private fun sessionHistoryItem(session: RuntimeSession, isActive: Boolean, onSwitch: () -> Unit) {
   val corvusColors = CorvusTheme.colors
   val borderColor =
     if (isActive) corvusColors.glowCyan.copy(alpha = 0.6f) else corvusColors.glassOverlay

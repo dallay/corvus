@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct UpstreamResiliencePolicy {
     pub max_buffered_attempts: usize,
     pub failure_cooldown: Duration,
