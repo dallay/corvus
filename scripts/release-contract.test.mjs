@@ -76,6 +76,30 @@ function runInternalReleaseSyncFailure(args = [], options = {}) {
   }
 }
 
+function runReleaseNpmManifestSync(args = [], options = {}) {
+  return execFileSync("node", ["scripts/sync-release-npm-manifests.mjs", ...args], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      ...options.env,
+    },
+  });
+}
+
+function runReleaseNpmManifestSyncFailure(args = [], options = {}) {
+  try {
+    runReleaseNpmManifestSync(args, options);
+    throw new Error(`Expected npm manifest sync script to fail for args: ${args.join(" ")}`);
+  } catch (error) {
+    if (error?.status === 0) {
+      throw error;
+    }
+    return `${error.stdout ?? ""}${error.stderr ?? ""}`;
+  }
+}
+
 function withPatchedFile(filePath, transform, callback) {
   const original = readText(filePath);
   const updated = transform(original);
@@ -204,6 +228,85 @@ test("internal release dependency sync supports write mode flag", () => {
 
   assert.match(help, /--check/);
   assert.match(help, /--write/);
+});
+
+test("release npm manifest sync supports write mode and manifest flags", () => {
+  const help = runReleaseNpmManifestSync(["--help"]);
+
+  assert.match(help, /--check/);
+  assert.match(help, /--write/);
+  assert.match(help, /--manifest/);
+});
+
+test("release npm manifest sync check fails when release-please manifest is ahead of npm packages", () => {
+  withPatchedFile("clients/agent-runtime/npm/corvus/package.json", (text) => text.replaceAll("3.9.1", "3.9.0"), () => {
+    withPatchedFile("clients/rook/npm/rook/package.json", (text) => text.replaceAll("3.8.1", "3.8.0"), () => {
+      const output = runReleaseNpmManifestSyncFailure(["--check", "--manifest", ".release-please-manifest.json"]);
+
+      assert.match(output, /release-npm-version-drift:/);
+      assert.match(output, /clients\/agent-runtime\/npm\/corvus\/package\.json version 3\.9\.0 -> 3\.9\.1/);
+      assert.match(output, /clients\/rook\/npm\/rook\/package\.json version 3\.8\.0 -> 3\.8\.1/);
+    });
+  });
+});
+
+test("release npm manifest sync write mode aligns package and optional dependency versions", () => {
+  const packagePaths = [
+    "clients/agent-runtime/npm/corvus/package.json",
+    "clients/agent-runtime/npm/corvus-darwin-x64/package.json",
+    "clients/agent-runtime/npm/corvus-darwin-arm64/package.json",
+    "clients/agent-runtime/npm/corvus-linux-x64/package.json",
+    "clients/agent-runtime/npm/corvus-linux-arm64/package.json",
+    "clients/agent-runtime/npm/corvus-windows-x64/package.json",
+    "clients/rook/npm/rook/package.json",
+    "clients/rook/npm/rook-darwin-x64/package.json",
+    "clients/rook/npm/rook-darwin-arm64/package.json",
+    "clients/rook/npm/rook-linux-x64/package.json",
+    "clients/rook/npm/rook-linux-arm64/package.json",
+    "clients/rook/npm/rook-windows-x64/package.json",
+  ];
+  const originals = new Map(packagePaths.map((packagePath) => [packagePath, readText(packagePath)]));
+
+  try {
+    fs.writeFileSync(
+      "clients/agent-runtime/npm/corvus/package.json",
+      readText("clients/agent-runtime/npm/corvus/package.json").replaceAll("3.9.1", "3.9.0"),
+      "utf8",
+    );
+    fs.writeFileSync(
+      "clients/rook/npm/rook/package.json",
+      readText("clients/rook/npm/rook/package.json").replaceAll("3.8.1", "3.8.0"),
+      "utf8",
+    );
+
+    const output = runReleaseNpmManifestSync(["--write", "--manifest", ".release-please-manifest.json"]);
+
+    assert.match(output, /Release npm manifest updates were written successfully/);
+    for (const packagePath of packagePaths.filter((entry) => entry.startsWith("clients/agent-runtime/"))) {
+      assert.equal(readJson(packagePath).version, "3.9.1");
+    }
+    for (const packagePath of packagePaths.filter((entry) => entry.startsWith("clients/rook/"))) {
+      assert.equal(readJson(packagePath).version, "3.8.1");
+    }
+    assert.deepEqual(Object.values(readJson("clients/agent-runtime/npm/corvus/package.json").optionalDependencies), [
+      "3.9.1",
+      "3.9.1",
+      "3.9.1",
+      "3.9.1",
+      "3.9.1",
+    ]);
+    assert.deepEqual(Object.values(readJson("clients/rook/npm/rook/package.json").optionalDependencies), [
+      "3.8.1",
+      "3.8.1",
+      "3.8.1",
+      "3.8.1",
+      "3.8.1",
+    ]);
+  } finally {
+    for (const [packagePath, original] of originals) {
+      fs.writeFileSync(packagePath, original, "utf8");
+    }
+  }
 });
 
 test("internal release dependency sync write mode is idempotent on aligned manifests", () => {
@@ -349,38 +452,40 @@ test("pull-request checks validate internal release dependency sync before Cargo
   );
 });
 
-test("stable release workflow normalizes and persists internal dependency sync after release-please", () => {
+test("stable release workflow normalizes and persists release manifests after release-please", () => {
   const workflow = readText(".github/workflows/release-please.yml");
 
   assertContainsInOrder(
     workflow,
     [
       "- name: 🤖 Run release-please",
-      "- name: 🔁 Sync internal release dependencies",
+      "- name: 🔁 Sync release manifests",
       "node scripts/sync-internal-release-deps.mjs --write",
-      "- name: 💾 Commit synced internal release dependencies",
+      "node scripts/sync-release-npm-manifests.mjs --write --manifest .release-please-manifest.json",
+      "- name: 💾 Commit synced release manifests",
       "SKIP_GIT_HOOKS: \"1\"",
-      "git add clients/agent-runtime/Cargo.toml clients/cerebro/Cargo.toml",
-      "git commit -m \"chore: sync internal release dependencies\"",
+      "git add clients/agent-runtime/Cargo.toml clients/cerebro/Cargo.toml clients/agent-runtime/npm/*/package.json clients/rook/npm/*/package.json",
+      "git commit -m \"chore: sync release manifests\"",
       "git push",
     ],
     "release-please.yml",
   );
 });
 
-test("beta release workflow normalizes and persists internal dependency sync after release-please", () => {
+test("beta release workflow normalizes and persists release manifests after release-please", () => {
   const workflow = readText(".github/workflows/release-please-beta.yml");
 
   assertContainsInOrder(
     workflow,
     [
       "- name: 🤖 Run release-please",
-      "- name: 🔁 Sync internal release dependencies",
+      "- name: 🔁 Sync release manifests",
       "node scripts/sync-internal-release-deps.mjs --write",
-      "- name: 💾 Commit synced internal release dependencies",
+      "node scripts/sync-release-npm-manifests.mjs --write --manifest .release-please-beta-manifest.json",
+      "- name: 💾 Commit synced release manifests",
       "SKIP_GIT_HOOKS: \"1\"",
-      "git add clients/agent-runtime/Cargo.toml clients/cerebro/Cargo.toml",
-      "git commit -m \"chore: sync internal release dependencies\"",
+      "git add clients/agent-runtime/Cargo.toml clients/cerebro/Cargo.toml clients/agent-runtime/npm/*/package.json clients/rook/npm/*/package.json",
+      "git commit -m \"chore: sync release manifests\"",
       "git push",
     ],
     "release-please-beta.yml",

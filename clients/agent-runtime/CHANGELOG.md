@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.9.2](https://github.com/dallay/corvus/compare/corvus-runtime-v3.9.1...corvus-runtime-v3.9.2) (2026-05-05)
+
+
+### Bug Fixes
+
+* **release:** add npm manifest sync post release-please ([a4ee895](https://github.com/dallay/corvus/commit/a4ee895140b0d511040d3282bc50bb1de1bd0666))
+
 ## [3.9.1](https://github.com/dallay/corvus/compare/corvus-runtime-v3.9.0...corvus-runtime-v3.9.1) (2026-05-05)
 
 

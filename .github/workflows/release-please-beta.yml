@@ -88,23 +88,24 @@ jobs:
           target-branch: beta
           fork: false
 
-      - name: 🔁 Sync internal release dependencies
+      - name: 🔁 Sync release manifests
         run: |
           set -euo pipefail
           node scripts/sync-internal-release-deps.mjs --write
+          node scripts/sync-release-npm-manifests.mjs --write --manifest .release-please-beta-manifest.json
 
-      - name: 💾 Commit synced internal release dependencies
+      - name: 💾 Commit synced release manifests
         env:
           SKIP_GIT_HOOKS: "1"
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add clients/agent-runtime/Cargo.toml clients/cerebro/Cargo.toml
+          git add clients/agent-runtime/Cargo.toml clients/cerebro/Cargo.toml clients/agent-runtime/npm/*/package.json clients/rook/npm/*/package.json
           if git diff --cached --quiet; then
-            echo "Internal release dependencies are already synchronized"
+            echo "Release manifests are already synchronized"
           else
-            git commit -m "chore: sync internal release dependencies"
+            git commit -m "chore: sync release manifests"
             git push
           fi
 
