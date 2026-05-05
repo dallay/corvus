@@ -16,6 +16,7 @@ import com.profiletailors.corvus.runtime.RuntimeSessionId
 import com.profiletailors.corvus.runtime.rememberPlatformRuntimeDependencies
 import com.profiletailors.corvus.ui.chat.BridgeActions
 import com.profiletailors.corvus.ui.chat.ChatWorkspace
+import com.profiletailors.corvus.ui.chat.ChatWorkspaceCallbacks
 import com.profiletailors.corvus.ui.chat.ChatWorkspaceContent
 import com.profiletailors.corvus.ui.chat.ChatWorkspaceDefaults
 import com.profiletailors.corvus.ui.chat.MobileBridgeSnapshot
@@ -152,16 +153,19 @@ private fun AppChatContent(platform: Platform, bindings: ChatBindings) {
         onApprove = bindings.onApprove,
         onDeny = bindings.onDeny,
       ),
-    onSendMessage = bindings.onSendMessage,
-    onQueryChange = { query = it },
-    onShowConfigChange = { value ->
-      showConfig = value
-      if (value) showSessionHistory = false
-    },
-    onShowSessionHistoryChange = { value ->
-      showSessionHistory = value
-      if (value) showConfig = false
-    },
+    callbacks =
+      ChatWorkspaceCallbacks(
+        onSendMessage = bindings.onSendMessage,
+        onQueryChange = { query = it },
+        onShowConfigChange = { value ->
+          showConfig = value
+          if (value) showSessionHistory = false
+        },
+        onShowSessionHistoryChange = { value ->
+          showSessionHistory = value
+          if (value) showConfig = false
+        },
+      ),
   )
 }
 

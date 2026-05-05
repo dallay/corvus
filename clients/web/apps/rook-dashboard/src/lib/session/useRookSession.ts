@@ -22,23 +22,23 @@ export function useRookSession() {
 }
 
 function readValue(key: string): string {
-  if (typeof window === "undefined") {
+  if (typeof globalThis.window === "undefined") {
     return "";
   }
 
-  return window.sessionStorage.getItem(key) ?? "";
+  return globalThis.window.sessionStorage.getItem(key) ?? "";
 }
 
 function writeValue(key: string, value: string): void {
-  if (typeof window === "undefined") {
+  if (typeof globalThis.window === "undefined") {
     return;
   }
 
   const trimmed = value.trim();
   if (!trimmed) {
-    window.sessionStorage.removeItem(key);
+    globalThis.window.sessionStorage.removeItem(key);
     return;
   }
 
-  window.sessionStorage.setItem(key, trimmed);
+  globalThis.window.sessionStorage.setItem(key, trimmed);
 }

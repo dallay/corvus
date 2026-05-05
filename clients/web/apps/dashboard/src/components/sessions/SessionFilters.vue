@@ -9,18 +9,21 @@ const emit = defineEmits<{
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
-const status = ref<"all" | "active" | "ended">("all");
-const sort = ref<"last_activity" | "started_at">("last_activity");
+type SessionStatusFilter = "all" | "active" | "ended";
+type SessionSort = "last_activity" | "started_at";
 
-const VALID_STATUSES = new Set(["all", "active", "ended"]);
-const VALID_SORTS = new Set(["last_activity", "started_at"]);
+const status = ref<SessionStatusFilter>("all");
+const sort = ref<SessionSort>("last_activity");
 
-function sanitizeStatus(value: string): "all" | "active" | "ended" {
-  return VALID_STATUSES.has(value) ? (value as "all" | "active" | "ended") : "all";
+const VALID_STATUSES = new Set<string>(["all", "active", "ended"]);
+const VALID_SORTS = new Set<string>(["last_activity", "started_at"]);
+
+function sanitizeStatus(value: string): SessionStatusFilter {
+  return VALID_STATUSES.has(value) ? (value as SessionStatusFilter) : "all";
 }
 
-function sanitizeSort(value: string): "last_activity" | "started_at" {
-  return VALID_SORTS.has(value) ? (value as "last_activity" | "started_at") : "last_activity";
+function sanitizeSort(value: string): SessionSort {
+  return VALID_SORTS.has(value) ? (value as SessionSort) : "last_activity";
 }
 
 function onStatusChange(event?: Event) {

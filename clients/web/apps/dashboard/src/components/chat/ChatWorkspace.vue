@@ -137,11 +137,15 @@ async function beginSession(preferResume: boolean): Promise<void> {
   await focusPromptInput();
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
-async function startNewSession(): Promise<void> {
+async function createFreshSession(): Promise<void> {
   persistMessages();
   chat.clearSession();
   await beginSession(false);
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+async function startNewSession(): Promise<void> {
+  await createFreshSession();
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -151,9 +155,7 @@ async function resumeSession(): Promise<void> {
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function handleSidebarNewChat(): Promise<void> {
-  persistMessages();
-  chat.clearSession();
-  await beginSession(false);
+  await createFreshSession();
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -301,8 +303,8 @@ function restoreMessages(): void {
       resetMessagesForSession();
       return;
     }
-    const validStatuses: MessageStatus[] = ["streaming", "complete", "error"];
-    const validRoles: Role[] = ["assistant", "user"];
+    const validStatuses = new Set<MessageStatus>(["streaming", "complete", "error"]);
+    const validRoles = new Set<Role>(["assistant", "user"]);
     const isValidMessage = (value: unknown): value is Message => {
       if (value === null || typeof value !== "object") {
         return false;
@@ -314,9 +316,9 @@ function restoreMessages(): void {
         typeof id === "number" &&
         Number.isInteger(id) &&
         Number.isFinite(id) &&
-        validRoles.includes(message.role as Role) &&
+        validRoles.has(message.role as Role) &&
         typeof message.content === "string" &&
-        (message.status === undefined || validStatuses.includes(message.status as MessageStatus)) &&
+        (message.status === undefined || validStatuses.has(message.status as MessageStatus)) &&
         (message.approvalId === undefined || typeof message.approvalId === "string") &&
         (message.toolName === undefined || typeof message.toolName === "string") &&
         (message.reason === undefined || typeof message.reason === "string") &&
@@ -475,12 +477,12 @@ onUnmounted(() => {
           @toggle-collapse="sidebarCollapsed = !sidebarCollapsed"
         />
         <div class="chat-viewport">
-          <div aria-atomic="true" aria-live="polite" class="sr-only" role="status">
+          <output aria-atomic="true" aria-live="polite" class="sr-only">
             {{ sessionAnnouncement }}
-          </div>
-          <div aria-atomic="true" aria-live="polite" class="sr-only" role="status">
+          </output>
+          <output aria-atomic="true" aria-live="polite" class="sr-only">
             {{ approvalAnnouncement }}
-          </div>
+          </output>
           <div ref="chatContainer" class="chat-messages">
             <div class="chat-messages-inner">
               <template v-for="message in messages" :key="message.id">

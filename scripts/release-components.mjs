@@ -26,9 +26,7 @@ function validateStringArray(value, label) {
 }
 
 function validateInternalReleaseDependencyShape(edge, index) {
-  if (!edge || typeof edge !== "object" || Array.isArray(edge)) {
-    throw new Error(`internalReleaseDependencies[${index}] must be an object`);
-  }
+  validateObject(edge, `internalReleaseDependencies[${index}] must be an object`);
 
   for (const field of REQUIRED_INTERNAL_DEPENDENCY_FIELDS) {
     if (typeof edge[field] !== "string" || edge[field].length === 0) {
@@ -68,25 +66,21 @@ function validateInternalReleaseDependencies(graph) {
   }
 }
 
+function validateObject(value, message) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(message);
+  }
+}
+
 function validateGraphShape(graph) {
-  if (!graph || typeof graph !== "object" || Array.isArray(graph)) {
-    throw new TypeError("release component graph must be an object");
-  }
-
-  if (!graph.components || typeof graph.components !== "object" || Array.isArray(graph.components)) {
-    throw new Error("release component graph must define a components object");
-  }
-
-  if (!graph.sharedInfraPaths || typeof graph.sharedInfraPaths !== "object" || Array.isArray(graph.sharedInfraPaths)) {
-    throw new Error("release component graph must define a sharedInfraPaths object");
-  }
+  validateObject(graph, "release component graph must be an object");
+  validateObject(graph.components, "release component graph must define a components object");
+  validateObject(graph.sharedInfraPaths, "release component graph must define a sharedInfraPaths object");
 }
 
 function validateComponent(graph, componentId) {
   const component = graph.components[componentId];
-  if (!component || typeof component !== "object" || Array.isArray(component)) {
-    throw new Error(`component ${componentId} must be an object`);
-  }
+  validateObject(component, `component ${componentId} must be an object`);
 
   if (!VALID_PUBLISH_POLICIES.has(component.publishPolicy)) {
     throw new Error(`component ${componentId} has unsupported publishPolicy ${component.publishPolicy}`);

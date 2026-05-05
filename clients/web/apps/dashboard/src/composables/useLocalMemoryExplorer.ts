@@ -118,7 +118,7 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
     return [...grouped.entries()]
       .map(([_groupKey, groupEntries]) => {
         const firstEntry = groupEntries[0];
-        const lastEntry = groupEntries[groupEntries.length - 1];
+        const lastEntry = groupEntries.at(-1);
         const sessionId = groupEntries[0]?.session_id ?? null;
         const categories = groupEntries.reduce<Record<string, number>>((accumulator, entry) => {
           accumulator[entry.category] = (accumulator[entry.category] ?? 0) + 1;

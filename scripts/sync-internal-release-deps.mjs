@@ -6,9 +6,11 @@ import process from "node:process";
 import { loadReleaseComponents } from "./release-components.mjs";
 
 const repoRoot = process.cwd();
-const argv = process.argv.slice(2);
-const wantsHelp = argv.includes("--help");
-const mode = argv.includes("--write") ? "write" : argv.includes("--check") ? "check" : null;
+const argv = new Set(process.argv.slice(2));
+const wantsHelp = argv.has("--help");
+const wantsWrite = argv.has("--write");
+const wantsCheck = argv.has("--check");
+const mode = resolveMode(wantsWrite, wantsCheck);
 
 if (wantsHelp) {
   process.stdout.write("Usage: node scripts/sync-internal-release-deps.mjs [--check|--write]\n");
@@ -17,8 +19,16 @@ if (wantsHelp) {
   process.exit(0);
 }
 
-if (!mode || (argv.includes("--check") && argv.includes("--write"))) {
+if (!mode) {
   throw new Error("Exactly one of --check or --write must be provided");
+}
+
+function resolveMode(wantsWrite, wantsCheck) {
+  if (wantsWrite === wantsCheck) {
+    return null;
+  }
+
+  return wantsWrite ? "write" : "check";
 }
 
 function resolvePath(relativePath) {
@@ -98,7 +108,7 @@ function resolveVersionBySelector(manifestText, manifestPath, versionSelector) {
 
 function collectInternalPathDependencies(manifestText) {
   const dependencies = [];
-  const dependencyRegex = /^([A-Za-z0-9_-]+)\s*=\s*\{([^\n]*path\s*=\s*"([^\"]+)"[^\n]*)\}$/gm;
+  const dependencyRegex = /^([A-Za-z0-9_-]+)\s*=\s*\{([^\n]*path\s*=\s*"([^"]+)"[^\n]*)\}$/gm;
 
   for (const match of manifestText.matchAll(dependencyRegex)) {
     if (!match[2].includes("version")) {

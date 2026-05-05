@@ -133,32 +133,70 @@ where
     F: FnOnce() -> Fut + Unpin,
     Fut: Future<Output = ()>,
 {
-    stream::unfold(
-        (
-            OpenAiSseParser::default(),
+    let state = UpstreamEventStreamState::new(upstream, on_complete);
+    stream::unfold(state, next_upstream_event)
+}
+
+struct UpstreamEventStreamState<S, F> {
+    parser: OpenAiSseParser,
+    upstream: S,
+    pending: VecDeque<String>,
+    terminated: bool,
+    on_complete: Option<F>,
+}
+
+impl<S, F> UpstreamEventStreamState<S, F> {
+    fn new(upstream: S, on_complete: F) -> Self {
+        Self {
+            parser: OpenAiSseParser::default(),
             upstream,
-            VecDeque::<String>::new(),
-            false,
-            Some(on_complete),
-        ),
-        |(mut parser, mut upstream, mut pending, terminated, mut on_complete)| async move {
-            if terminated {
-                run_completion_once(on_complete.take()).await;
-                return None;
-            }
+            pending: VecDeque::new(),
+            terminated: false,
+            on_complete: Some(on_complete),
+        }
+    }
+}
 
-            loop {
-                if let Some(next) = pop_pending_event(&mut pending) {
-                    let (event, is_done) = next;
-                    return Some((Ok(event), (parser, upstream, pending, is_done, on_complete)));
-                }
+async fn next_upstream_event<S, E, F, Fut>(
+    mut state: UpstreamEventStreamState<S, F>,
+) -> Option<(
+    Result<axum::response::sse::Event, Infallible>,
+    UpstreamEventStreamState<S, F>,
+)>
+where
+    S: Stream<Item = Result<Bytes, E>> + Unpin,
+    F: FnOnce() -> Fut + Unpin,
+    Fut: Future<Output = ()>,
+{
+    if state.terminated {
+        run_completion_once(state.on_complete.take()).await;
+        return None;
+    }
 
-                if !extend_pending_from_upstream(&mut parser, &mut upstream, &mut pending).await {
-                    return None;
-                }
-            }
-        },
-    )
+    next_pending_or_upstream_event(&mut state)
+        .await
+        .map(|event| (Ok(event), state))
+}
+
+async fn next_pending_or_upstream_event<S, E, F>(
+    state: &mut UpstreamEventStreamState<S, F>,
+) -> Option<axum::response::sse::Event>
+where
+    S: Stream<Item = Result<Bytes, E>> + Unpin,
+{
+    loop {
+        if let Some(next) = pop_pending_event(&mut state.pending) {
+            let (event, is_done) = next;
+            state.terminated = is_done;
+            return Some(event);
+        }
+
+        if !extend_pending_from_upstream(&mut state.parser, &mut state.upstream, &mut state.pending)
+            .await
+        {
+            return None;
+        }
+    }
 }
 
 async fn run_completion_once<F, Fut>(on_complete: Option<F>)

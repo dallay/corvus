@@ -259,7 +259,13 @@ onMounted(() => load());
 .select-btn {
   min-height: 32px;
   min-width: 32px;
-  padding: 6px 12px;
+  padding: 2px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-size: 11px;
 }
 
 .pagination button:disabled {
@@ -274,16 +280,6 @@ onMounted(() => load());
 
 .action-cell {
   text-align: right;
-}
-
-.select-btn {
-  padding: 2px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  font-size: 11px;
 }
 
 .select-btn:hover {

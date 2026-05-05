@@ -65,9 +65,9 @@ const expanded = ref(false);
           </svg>
           <span>{{ t("chat.memoryRecalled") }}</span>
         </button>
-        <div v-if="expanded" class="memory-recall-detail" role="region" :aria-label="t('chat.memoryRecallLabel')">
+        <section v-if="expanded" class="memory-recall-detail" :aria-label="t('chat.memoryRecallLabel')">
           <p class="memory-recall-detail-hint">{{ t("chat.memoryRecallHint") }}</p>
-        </div>
+        </section>
       </div>
     </div>
 

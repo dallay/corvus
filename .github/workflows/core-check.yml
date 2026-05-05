@@ -56,18 +56,38 @@ jobs:
           gradle-version: wrapper
           cache-read-only: false
 
+      - name: 🧭 Resolve Rust channel
+        id: rust-channel
+        shell: python
+        run: |
+          import os
+          import pathlib
+          import tomllib
+
+          toolchain_file = pathlib.Path("clients/agent-runtime/rust-toolchain.toml")
+          data = tomllib.loads(toolchain_file.read_text(encoding="utf-8"))
+          channel = data.get("toolchain", {}).get("channel")
+
+          if not channel:
+              raise SystemExit(
+                  "Failed to resolve [toolchain].channel from "
+                  "clients/agent-runtime/rust-toolchain.toml",
+              )
+
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"channel={channel}\n")
+
+      - name: 🦀 Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
+        with:
+          toolchain: ${{ steps.rust-channel.outputs.channel }}
+
       - name: 🔧 Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
       - name: 🦀 Verify Rust toolchain
         shell: bash
         run: |
-          if ! command -v cargo >/dev/null 2>&1; then
-            echo "Rust is expected to be preinstalled on the GitHub-hosted runner." >&2
-            echo "Install it through a pinned, verified setup action before this step if the runner image changes." >&2
-            exit 1
-          fi
-
           cargo --version
           rustc --version
 

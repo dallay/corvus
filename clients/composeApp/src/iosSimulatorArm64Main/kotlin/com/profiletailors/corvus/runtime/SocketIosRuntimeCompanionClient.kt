@@ -42,7 +42,7 @@ private fun htons(value: UShort): UShort {
 
 // Helper function to convert IPv4 address string to binary form
 @OptIn(ExperimentalForeignApi::class)
-private fun inet_pton(host: String): UInt {
+private fun inetPton(host: String): UInt {
   val parts = host.split('.')
   if (parts.size != 4) return 0u
 
@@ -170,7 +170,7 @@ actual constructor(private val config: IosRuntimeCompanionConfig) : IosRuntimeCo
       val addr = alloc<sockaddr_in>()
       addr.sin_family = AF_INET.convert()
       addr.sin_port = htons(config.port.toUShort())
-      addr.sin_addr.s_addr = inet_pton(config.host)
+      addr.sin_addr.s_addr = inetPton(config.host)
 
       if (connect(sockfd, addr.ptr.reinterpret(), sizeOf<sockaddr_in>().convert()) < 0) {
         return null
