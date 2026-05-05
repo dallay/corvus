@@ -173,9 +173,13 @@ where
         return None;
     }
 
-    next_pending_or_upstream_event(&mut state)
-        .await
-        .map(|event| (Ok(event), state))
+    match next_pending_or_upstream_event(&mut state).await {
+        Some(event) => Some((Ok(event), state)),
+        None => {
+            run_completion_once(state.on_complete.take()).await;
+            None
+        }
+    }
 }
 
 async fn next_pending_or_upstream_event<S, E, F>(
@@ -239,8 +243,11 @@ where
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
+    use futures_util::{stream, StreamExt};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
-    use super::{OpenAiSseParseError, OpenAiSseParser};
+    use super::{upstream_event_stream_with_completion, OpenAiSseParseError, OpenAiSseParser};
 
     #[test]
     fn parser_reconstructs_ordered_events_across_split_boundaries() {
@@ -292,5 +299,21 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, OpenAiSseParseError::DuplicateDoneSentinel));
+    }
+
+    #[tokio::test]
+    async fn completion_runs_when_upstream_ends_without_done() {
+        let completion_count = Arc::new(AtomicUsize::new(0));
+        let completion_count_for_callback = Arc::clone(&completion_count);
+        let upstream = stream::iter([Ok::<_, ()>(Bytes::from_static(b"data: chunk\n\n"))]);
+
+        let events = upstream_event_stream_with_completion(upstream, move || async move {
+            completion_count_for_callback.fetch_add(1, Ordering::SeqCst);
+        })
+        .collect::<Vec<_>>()
+        .await;
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(completion_count.load(Ordering::SeqCst), 1);
     }
 }

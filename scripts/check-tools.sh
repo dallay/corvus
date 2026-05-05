@@ -20,7 +20,6 @@ echo "--------------------------------------"
 
 # Results tracking
 FAILED=0
-STATUS_FORMAT="  %-12s [%s%s%s] %s\n"
 
 # print_status <name> <result> <info>
 #
@@ -44,11 +43,11 @@ print_status() {
   local info="$3"
 
   case "$res" in
-    0) printf "$STATUS_FORMAT" "$name" "$GREEN" "✅" "$RESET" "$info" ;;
-    1) printf "$STATUS_FORMAT" "$name" "$RED" "❌" "$RESET" "${RED}${info}${RESET}" ; return 1 ;;
-    2) printf "$STATUS_FORMAT" "$name" "$YELLOW" "⚠️" "$RESET" "${YELLOW}${info}${RESET}" ;;
+    0) printf "  %-12s [%s%s%s] %s\n" "$name" "$GREEN" "✅" "$RESET" "$info" ;;
+    1) printf "  %-12s [%s%s%s] %s\n" "$name" "$RED" "❌" "$RESET" "${RED}${info}${RESET}" ; return 1 ;;
+    2) printf "  %-12s [%s%s%s] %s\n" "$name" "$YELLOW" "⚠️" "$RESET" "${YELLOW}${info}${RESET}" ;;
     *)
-      printf "$STATUS_FORMAT" "$name" "$RED" "❌" "$RESET" "${RED}Unknown status code: $res${RESET}"
+      printf "  %-12s [%s%s%s] %s\n" "$name" "$RED" "❌" "$RESET" "${RED}Unknown status code: $res${RESET}"
       return 1
       ;;
   esac

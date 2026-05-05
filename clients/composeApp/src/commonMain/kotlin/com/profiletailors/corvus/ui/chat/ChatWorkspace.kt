@@ -123,6 +123,7 @@ data class ChatWorkspaceContent(
   val showSessionHistory: Boolean = false,
 )
 
+@Stable
 data class ChatWorkspaceCallbacks(
   val onSendMessage: (String) -> Unit,
   val onQueryChange: (String) -> Unit,

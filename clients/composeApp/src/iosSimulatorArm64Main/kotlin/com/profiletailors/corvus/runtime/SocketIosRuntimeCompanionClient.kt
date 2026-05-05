@@ -32,6 +32,13 @@ private const val UNIT_SEPARATOR = '\u001f'
 
 // Receive buffer size in bytes
 private const val SOCKET_BUFFER_SIZE = 65_536
+private const val IPV4_PART_COUNT = 4
+private const val IPV4_BYTE_MIN = 0
+private const val IPV4_BYTE_MAX = 255
+private const val IPV4_SHIFT_24 = 24
+private const val IPV4_SHIFT_16 = 16
+private const val IPV4_SHIFT_8 = 8
+private const val INVALID_IPV4_ADDRESS = 0u
 
 // Helper function to convert host byte order to network byte order (big-endian)
 @OptIn(ExperimentalForeignApi::class)
@@ -44,15 +51,25 @@ private fun htons(value: UShort): UShort {
 @OptIn(ExperimentalForeignApi::class)
 private fun inetPton(host: String): UInt {
   val parts = host.split('.')
-  if (parts.size != 4) return 0u
+  val parsedBytes = parts.map { it.toIntOrNull() }
+  val bytes = parsedBytes.filterNotNull()
+  val isValidAddress =
+    parts.size == IPV4_PART_COUNT &&
+      parsedBytes.size == IPV4_PART_COUNT &&
+      bytes.size == IPV4_PART_COUNT &&
+      bytes.all { it in IPV4_BYTE_MIN..IPV4_BYTE_MAX }
 
-  val bytes = parts.mapNotNull { it.toIntOrNull() }
-  if (bytes.size != 4 || bytes.any { it < 0 || it > 255 }) return 0u
+  val result =
+    if (isValidAddress) {
+      ((bytes[0].toUInt() shl IPV4_SHIFT_24) or
+        (bytes[1].toUInt() shl IPV4_SHIFT_16) or
+        (bytes[2].toUInt() shl IPV4_SHIFT_8) or
+        bytes[3].toUInt())
+    } else {
+      INVALID_IPV4_ADDRESS
+    }
 
-  return ((bytes[0].toUInt() shl 24) or
-    (bytes[1].toUInt() shl 16) or
-    (bytes[2].toUInt() shl 8) or
-    bytes[3].toUInt())
+  return result
 }
 
 actual data class IosRuntimeCompanionConfig
@@ -170,7 +187,11 @@ actual constructor(private val config: IosRuntimeCompanionConfig) : IosRuntimeCo
       val addr = alloc<sockaddr_in>()
       addr.sin_family = AF_INET.convert()
       addr.sin_port = htons(config.port.toUShort())
-      addr.sin_addr.s_addr = inetPton(config.host)
+      val networkAddress = inetPton(config.host)
+      if (networkAddress == INVALID_IPV4_ADDRESS) {
+        return null
+      }
+      addr.sin_addr.s_addr = networkAddress
 
       if (connect(sockfd, addr.ptr.reinterpret(), sizeOf<sockaddr_in>().convert()) < 0) {
         return null

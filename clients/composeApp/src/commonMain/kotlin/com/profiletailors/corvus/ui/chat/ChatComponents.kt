@@ -1,3 +1,7 @@
+@file:Suppress(
+  "TooManyFunctions"
+) // Session history and chat component helpers intentionally share this UI slice.
+
 package com.profiletailors.corvus.ui.chat
 
 import androidx.compose.animation.animateColorAsState
@@ -507,6 +511,7 @@ private fun sessionHistoryItem(session: RuntimeSession, isActive: Boolean, onSwi
   }
 }
 
+@Immutable
 private data class SessionHistoryItemStyle(
   val surfaceColor: Color,
   val borderColor: Color,

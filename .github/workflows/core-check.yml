@@ -10,6 +10,7 @@ on:
       - "modules/agent-core-kmp/**"
       - "gradle/**"
       - "settings.gradle.kts"
+      - "clients/agent-runtime/rust-toolchain.toml"
       - ".github/workflows/core-check.yml"
     tags:
       - "!**"
@@ -24,6 +25,7 @@ on:
       - "modules/agent-core-kmp/**"
       - "gradle/**"
       - "settings.gradle.kts"
+      - "clients/agent-runtime/rust-toolchain.toml"
       - ".github/workflows/core-check.yml"
   workflow_dispatch:
 

@@ -22,23 +22,39 @@ export function useRookSession() {
 }
 
 function readValue(key: string): string {
-  if (typeof globalThis.window === "undefined") {
-    return "";
-  }
-
-  return globalThis.window.sessionStorage.getItem(key) ?? "";
+  return safeGetSessionItem(key);
 }
 
 function writeValue(key: string, value: string): void {
-  if (typeof globalThis.window === "undefined") {
-    return;
-  }
-
   const trimmed = value.trim();
   if (!trimmed) {
-    globalThis.window.sessionStorage.removeItem(key);
+    safeRemoveSessionItem(key);
     return;
   }
 
-  globalThis.window.sessionStorage.setItem(key, trimmed);
+  safeSetSessionItem(key, trimmed);
+}
+
+function safeGetSessionItem(key: string): string {
+  try {
+    return globalThis.window?.sessionStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function safeSetSessionItem(key: string, value: string): void {
+  try {
+    globalThis.window?.sessionStorage.setItem(key, value);
+  } catch {
+    // Storage can be unavailable in private, SSR, or restricted contexts.
+  }
+}
+
+function safeRemoveSessionItem(key: string): void {
+  try {
+    globalThis.window?.sessionStorage.removeItem(key);
+  } catch {
+    // Storage can be unavailable in private, SSR, or restricted contexts.
+  }
 }

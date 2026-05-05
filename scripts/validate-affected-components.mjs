@@ -8,7 +8,7 @@ export function validateAffectedComponents({
   try {
     parsed = JSON.parse(affectedComponentsRaw);
   } catch (error) {
-    throw new Error(`Invalid AFFECTED_COMPONENTS payload: ${affectedComponentsRaw}`, { cause: error });
+    throw new TypeError(`Invalid AFFECTED_COMPONENTS payload: ${affectedComponentsRaw}`, { cause: error });
   }
 
   if (!Array.isArray(parsed)) {

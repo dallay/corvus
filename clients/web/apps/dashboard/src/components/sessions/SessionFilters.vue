@@ -15,15 +15,15 @@ type SessionSort = "last_activity" | "started_at";
 const status = ref<SessionStatusFilter>("all");
 const sort = ref<SessionSort>("last_activity");
 
-const VALID_STATUSES = new Set<string>(["all", "active", "ended"]);
-const VALID_SORTS = new Set<string>(["last_activity", "started_at"]);
+const VALID_STATUSES = new Set<SessionStatusFilter>(["all", "active", "ended"]);
+const VALID_SORTS = new Set<SessionSort>(["last_activity", "started_at"]);
 
 function sanitizeStatus(value: string): SessionStatusFilter {
-  return VALID_STATUSES.has(value) ? (value as SessionStatusFilter) : "all";
+  return VALID_STATUSES.has(value as SessionStatusFilter) ? (value as SessionStatusFilter) : "all";
 }
 
 function sanitizeSort(value: string): SessionSort {
-  return VALID_SORTS.has(value) ? (value as SessionSort) : "last_activity";
+  return VALID_SORTS.has(value as SessionSort) ? (value as SessionSort) : "last_activity";
 }
 
 function onStatusChange(event?: Event) {

@@ -20,6 +20,7 @@ import platform.posix.SO_RCVTIMEO
 import platform.posix.SO_SNDTIMEO
 import platform.posix.close
 import platform.posix.connect
+import platform.posix.inet_pton
 import platform.posix.recv
 import platform.posix.send
 import platform.posix.setsockopt
@@ -38,21 +39,6 @@ private const val SOCKET_BUFFER_SIZE = 65_536
 private fun htons(value: UShort): UShort {
   val bytes = value.toInt()
   return ((bytes shr 8) or ((bytes and 0xFF) shl 8)).toUShort()
-}
-
-// Helper function to convert IPv4 address string to binary form
-@OptIn(ExperimentalForeignApi::class)
-private fun inetPton(host: String): UInt {
-  val parts = host.split('.')
-  if (parts.size != 4) return 0u
-
-  val bytes = parts.mapNotNull { it.toIntOrNull() }
-  if (bytes.size != 4 || bytes.any { it < 0 || it > 255 }) return 0u
-
-  return ((bytes[0].toUInt() shl 24) or
-    (bytes[1].toUInt() shl 16) or
-    (bytes[2].toUInt() shl 8) or
-    bytes[3].toUInt())
 }
 
 actual data class IosRuntimeCompanionConfig
@@ -170,7 +156,9 @@ actual constructor(private val config: IosRuntimeCompanionConfig) : IosRuntimeCo
       val addr = alloc<sockaddr_in>()
       addr.sin_family = AF_INET.convert()
       addr.sin_port = htons(config.port.toUShort())
-      addr.sin_addr.s_addr = inetPton(config.host)
+      if (inet_pton(AF_INET, config.host, addr.sin_addr.ptr) != 1) {
+        return null
+      }
 
       if (connect(sockfd, addr.ptr.reinterpret(), sizeOf<sockaddr_in>().convert()) < 0) {
         return null
