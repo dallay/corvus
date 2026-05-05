@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.9.1](https://github.com/dallay/corvus/compare/corvus-runtime-v3.9.0...corvus-runtime-v3.9.1) (2026-05-05)
+
+
+### Bug Fixes
+
+* remediate sonar quality issues ([56da8f1](https://github.com/dallay/corvus/commit/56da8f1d15db7c45f3cb29e95952284289a8541d))
+
 ## [3.9.0](https://github.com/dallay/corvus/compare/corvus-runtime-v3.8.0...corvus-runtime-v3.9.0) (2026-05-05)
 
 

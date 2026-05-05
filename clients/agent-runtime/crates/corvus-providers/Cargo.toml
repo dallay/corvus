@@ -1,6 +1,6 @@
 [package]
 name = "corvus-providers"
-version = "3.9.0"
+version = "3.9.1"
 edition = "2021"
 authors = ["theonlyhennygod"]
 license = "Apache-2.0"
