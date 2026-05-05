@@ -2262,12 +2262,7 @@ mod tests {
 #[test]
 fn test_package_manager_risk_hardening() {
     let mut p = SecurityPolicy::default();
-    p.allowed_commands = vec![
-        "npm".into(),
-        "pnpm".into(),
-        "yarn".into(),
-        "cargo".into(),
-    ];
+    p.allowed_commands = vec!["npm".into(), "pnpm".into(), "yarn".into(), "cargo".into()];
 
     // is_args_safe hardening
     assert!(!p.is_command_allowed("npm config set editor malicious"));
@@ -2275,10 +2270,16 @@ fn test_package_manager_risk_hardening() {
     assert!(!p.is_command_allowed("yarn set version berry"));
 
     // is_medium_risk_command hardening (npm)
-    assert_eq!(p.command_risk_level("npm run build"), CommandRiskLevel::Medium);
+    assert_eq!(
+        p.command_risk_level("npm run build"),
+        CommandRiskLevel::Medium
+    );
     assert_eq!(p.command_risk_level("npm test"), CommandRiskLevel::Medium);
     assert_eq!(p.command_risk_level("npm t"), CommandRiskLevel::Medium);
-    assert_eq!(p.command_risk_level("pnpm run-script start"), CommandRiskLevel::Medium);
+    assert_eq!(
+        p.command_risk_level("pnpm run-script start"),
+        CommandRiskLevel::Medium
+    );
     assert_eq!(p.command_risk_level("yarn it"), CommandRiskLevel::Medium);
 
     // is_medium_risk_command hardening (cargo)
