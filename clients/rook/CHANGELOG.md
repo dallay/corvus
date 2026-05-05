@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.2.0](https://github.com/dallay/corvus/compare/rook-v0.1.0...rook-v0.2.0) (2026-05-04)
+
+
+### Features
+
+* Persist Rook provider account health state ([930700f](https://github.com/dallay/corvus/commit/930700f7752b4a78f6fb52cd12198080d7b67216))
+* **rook:** add gateway usage accounting ([8381b6b](https://github.com/dallay/corvus/commit/8381b6bee983f3aaf4c20928aa3db4a7eb03aae7))
+* **rook:** add gateway usage accounting ([a786870](https://github.com/dallay/corvus/commit/a78687065858f2d2bff1d03381fc8afd9b57c45d))
+* **rook:** add principal-aware rate limiting ([038a96e](https://github.com/dallay/corvus/commit/038a96ef3226069bfe3415da8c5744fbf323db45))
+* **rook:** add principal-aware rate limiting with pruning ([8bd0024](https://github.com/dallay/corvus/commit/8bd0024caf2fc84111cb9268f1d224ab8df37b51))
+* **rook:** add production readiness operations ([2ae73ba](https://github.com/dallay/corvus/commit/2ae73ba36f2a2db0d94a98f31292bf45c143c0cc))
+* **rook:** add production readiness operations ([4ea27bd](https://github.com/dallay/corvus/commit/4ea27bde0ceea9417838ce83c486e7aae3988f0c))
+* **rook:** add upstream resilience controls ([5e11013](https://github.com/dallay/corvus/commit/5e1101318473c7ec8296927fa411e5befbdb5c4a))
+* **rook:** add upstream resilience controls ([5978f5a](https://github.com/dallay/corvus/commit/5978f5a8b499e78132ebdc7b8b540d1ea8234796))
+* **rook:** document operational health probes ([133d341](https://github.com/dallay/corvus/commit/133d341c6341b4270c33b3ccdf631bb29802e2f3))
+* **rook:** document operational health probes ([4672c6b](https://github.com/dallay/corvus/commit/4672c6ba09b401ae8b18223430b75a17b245d0b8))
+* **rook:** persist provider account health state ([0932893](https://github.com/dallay/corvus/commit/0932893e221918ae2fd2e49561ff152204c4afd0))
+
+
+### Bug Fixes
+
+* address sonar quality findings ([ea6dd3a](https://github.com/dallay/corvus/commit/ea6dd3ad623bd0ddff4be93a80c8bdb5d5545251))
+* address sonar quality findings ([7c73d95](https://github.com/dallay/corvus/commit/7c73d95419c492e9cfe242e339dea4a3622bb15e))
+* resolve detekt code scanning alerts in ChatComponents, MobileRuntimeCoordinator ([1eb6a9e](https://github.com/dallay/corvus/commit/1eb6a9e56810a51fd8bfb6ad9d52371b114ebe0a))
+* **rook:** address production readiness review ([b152a04](https://github.com/dallay/corvus/commit/b152a04d6e1aa613a5a4d8a8d7f50d1b9cdb524e))
+* **rook:** address usage accounting review feedback ([a532f60](https://github.com/dallay/corvus/commit/a532f601463c07ab18c1debf57328fcf291c12b2))
+* **security:** reject quoted direct paths ([f497653](https://github.com/dallay/corvus/commit/f4976535087bcc04af096b67c1207018e6fc3c45))
+
 ## 0.1.0 (2026-04-29)
 
 
