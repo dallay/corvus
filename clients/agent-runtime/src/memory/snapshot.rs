@@ -378,6 +378,15 @@ mod tests {
         .unwrap();
     }
 
+    fn dream_summary_count(workspace: &Path, session_id: &str) -> usize {
+        let expected = format!("- Dream summary for completed session {session_id}");
+        fs::read_to_string(workspace.join("MEMORY.md"))
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| line.trim() == expected)
+            .count()
+    }
+
     #[test]
     fn parse_snapshot_basic() {
         let input = r#"# 🧠 Corvus Memory Snapshot
@@ -645,18 +654,27 @@ Rule 3: Protect the user.
         let workspace = tmp.path();
         create_core_memory(workspace, "identity", "I am a restored runtime");
 
-        crate::memory::dream::record_session_completion(workspace, "sess-roundtrip").unwrap();
-        let report = crate::memory::dream::run_now(
+        let first_record =
+            crate::memory::dream::record_session_completion(workspace, "sess-roundtrip").unwrap();
+        assert_eq!(
+            first_record.status,
+            crate::memory::dream::DreamSessionStatus::Pending
+        );
+        assert!(first_record.artifact_refs.is_empty());
+
+        let pre_export_report = crate::memory::dream::run_now(
             workspace,
             crate::memory::dream::DreamTriggerReason::Manual,
         )
         .unwrap()
         .unwrap();
-        assert_eq!(report.sessions_processed, 1);
+        assert_eq!(pre_export_report.sessions_processed, 1);
+        assert_eq!(pre_export_report.session_reports.len(), 1);
         assert_eq!(
-            report.session_reports[0].artifact_refs,
+            pre_export_report.session_reports[0].artifact_refs,
             vec!["dream/session/sess-roundtrip".to_string()]
         );
+        assert_eq!(dream_summary_count(workspace, "sess-roundtrip"), 1);
 
         let exported = export_snapshot(workspace).unwrap();
         assert_eq!(exported, 1);
@@ -665,7 +683,15 @@ Rule 3: Protect the user.
             fs::read_to_string(workspace.join(DREAM_SNAPSHOT_STATE_FILENAME)).unwrap();
         let exported_json: serde_json::Value = serde_json::from_str(&exported_state).unwrap();
         assert_eq!(
+            exported_json["completed_sessions"][0]["status"],
+            serde_json::json!("completed")
+        );
+        assert_eq!(
             exported_json["completed_sessions"][0]["artifact_refs"],
+            serde_json::json!(["dream/session/sess-roundtrip"])
+        );
+        assert_eq!(
+            exported_json["last_report"]["session_reports"][0]["artifact_refs"],
             serde_json::json!(["dream/session/sess-roundtrip"])
         );
 
@@ -675,14 +701,33 @@ Rule 3: Protect the user.
 
         let hydrated = hydrate_from_snapshot(workspace).unwrap();
         assert_eq!(hydrated, 1);
+        assert_eq!(dream_summary_count(workspace, "sess-roundtrip"), 1);
+
+        let restored_state =
+            fs::read_to_string(workspace.join("state").join("dream_state.json")).unwrap();
+        let restored_json: serde_json::Value = serde_json::from_str(&restored_state).unwrap();
+        assert_eq!(
+            restored_json["completed_sessions"][0]["artifact_refs"],
+            serde_json::json!(["dream/session/sess-roundtrip"])
+        );
+        assert_eq!(
+            restored_json["last_report"]["session_reports"][0]["artifact_refs"],
+            serde_json::json!(["dream/session/sess-roundtrip"])
+        );
 
         assert_eq!(
             crate::memory::dream::dream_eligibility(workspace, "sess-roundtrip").unwrap(),
             crate::memory::dream::DreamEligibility::AlreadyConsolidated
         );
-        assert!(crate::memory::dream::run_if_triggered(workspace)
-            .unwrap()
-            .is_none());
+        assert!(crate::memory::dream::run_now(
+            workspace,
+            crate::memory::dream::DreamTriggerReason::Manual,
+        )
+        .unwrap()
+        .unwrap()
+        .session_reports
+        .is_empty());
+        assert_eq!(dream_summary_count(workspace, "sess-roundtrip"), 1);
 
         let replayed =
             crate::memory::dream::record_session_completion(workspace, "sess-roundtrip").unwrap();
@@ -697,6 +742,7 @@ Rule 3: Protect the user.
         assert!(crate::memory::dream::run_if_triggered(workspace)
             .unwrap()
             .is_none());
+        assert_eq!(dream_summary_count(workspace, "sess-roundtrip"), 1);
     }
 
     #[test]
