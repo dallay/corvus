@@ -3,7 +3,7 @@ title: Agent Runtime Architecture
 description: Architecture overview of the Rust agent runtime, including subsystem boundaries, design goals, and execution model.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-05
 appliesTo: main
 docType: architecture
 ---
@@ -201,6 +201,27 @@ same registry is reused by channel startup, doctor checks, update notifications,
 and gateway-specific channel hooks. This keeps channel key normalization, supported-channel
 validation, and constructor wiring in one place instead of reimplementing `match` blocks across the
 runtime.
+
+### Slash Commands
+
+Slash commands are a runtime-owned ingress capability under `session_commands/`. The core abstraction
+is `SlashCommandRegistry`, which stores `SlashCommandRegistration` values made from a discoverable
+`SlashCommandDescriptor` and a `SlashCommandHandler` implementation.
+
+The layering is intentionally narrow:
+
+- ingress surfaces such as CLI, gateway, webhooks, and channels pass raw user text to the registry;
+- `SessionCommandParser` only identifies slash-shaped input and preserves the raw argument text;
+- `SlashCommandRegistry` owns canonical-name lookup, alias lookup, duplicate detection, metadata
+  discovery, argument-shape validation, requirement checks, and handler dispatch;
+- command handlers delegate behavior to `SessionCommandService`, which owns access to memory,
+  settings, tool snapshots, and other runtime state.
+
+New slash commands should extend the platform by adding a descriptor and handler, then registering
+that pair in the registry builder. Do not add new per-ingress `match` statements for command names:
+if a command is reachable by users, it should be discoverable through registry metadata and dispatched
+through the central registry entrypoint. Follow-up work can move additional command families into the
+same extension point without changing ingress routing.
 
 ### Memory
 

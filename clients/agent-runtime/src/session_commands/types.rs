@@ -532,6 +532,7 @@ pub struct SessionCommandFailure {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionCommandFailureKind {
     UnsupportedBackend,
+    UnknownCommand,
     UnknownSession,
     InvalidState,
     MissingSnapshot,

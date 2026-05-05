@@ -54,7 +54,10 @@ pub async fn evaluate_ingress(
 ) -> IngressDecision {
     let service = SessionCommandService::with_tool_snapshot(memory, tool_snapshot);
     let session_id = context.session.session_id.clone();
-    if let Some(outcome) = default_registry().dispatch(&service, context, prompt).await {
+    if let Some(outcome) = default_registry()
+        .dispatch_prompt(&service, context, prompt)
+        .await
+    {
         return IngressDecision::SessionCommand { outcome };
     }
 
