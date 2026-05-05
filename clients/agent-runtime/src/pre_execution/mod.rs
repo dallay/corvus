@@ -721,7 +721,10 @@ mod tests {
                     assert_eq!(failure.kind, kind, "failure kind drift for {prompt}");
                     assert_eq!(failure.message, message, "message drift for {prompt}");
                     if message.starts_with("invalid slash command usage") {
-                        assert_eq!(failure.session_id, None, "argument-shape failures stay pre-context");
+                        assert_eq!(
+                            failure.session_id, None,
+                            "argument-shape failures stay pre-context"
+                        );
                     } else {
                         assert_eq!(failure.session_id, Some("session-1".to_string()));
                     }
@@ -800,7 +803,11 @@ mod tests {
             )
             .await;
 
-            assert_same_ingress_decision(cli, gateway, &format!("transport parity drift for {prompt}"));
+            assert_same_ingress_decision(
+                cli,
+                gateway,
+                &format!("transport parity drift for {prompt}"),
+            );
         }
     }
 
