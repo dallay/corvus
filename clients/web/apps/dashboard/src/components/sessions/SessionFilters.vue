@@ -2,28 +2,32 @@
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+type SessionStatusEmitValue = "active" | "ended" | undefined;
+type SessionSortEmitValue = "last_activity" | "started_at";
+
 const emit = defineEmits<{
-  (e: "update:status", value: "active" | "ended" | undefined): void;
-  (e: "update:sort", value: "last_activity" | "started_at"): void;
+  (e: "update:status", value: SessionStatusEmitValue): void;
+  (e: "update:sort", value: SessionSortEmitValue): void;
 }>();
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
-type SessionStatusFilter = "all" | "active" | "ended";
-type SessionSort = "last_activity" | "started_at";
+type SessionStatusFilter = "all" | Exclude<SessionStatusEmitValue, undefined>;
 
 const status = ref<SessionStatusFilter>("all");
-const sort = ref<SessionSort>("last_activity");
+const sort = ref<SessionSortEmitValue>("last_activity");
 
 const VALID_STATUSES = new Set<SessionStatusFilter>(["all", "active", "ended"]);
-const VALID_SORTS = new Set<SessionSort>(["last_activity", "started_at"]);
+const VALID_SORTS = new Set<SessionSortEmitValue>(["last_activity", "started_at"]);
 
 function sanitizeStatus(value: string): SessionStatusFilter {
   return VALID_STATUSES.has(value as SessionStatusFilter) ? (value as SessionStatusFilter) : "all";
 }
 
-function sanitizeSort(value: string): SessionSort {
-  return VALID_SORTS.has(value as SessionSort) ? (value as SessionSort) : "last_activity";
+function sanitizeSort(value: string): SessionSortEmitValue {
+  return VALID_SORTS.has(value as SessionSortEmitValue)
+    ? (value as SessionSortEmitValue)
+    : "last_activity";
 }
 
 function onStatusChange(event?: Event) {

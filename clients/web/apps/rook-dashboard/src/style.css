@@ -292,13 +292,13 @@ input {
 }
 
 .state-banner.info {
-  background: #063246;
-  color: #e0f7ff;
+  background: #042435;
+  color: #f0fbff;
 }
 
 .state-banner.danger {
-  background: #4a0f13;
-  color: #ffe0e0;
+  background: #36090d;
+  color: #fff0f0;
 }
 
 .empty-state {

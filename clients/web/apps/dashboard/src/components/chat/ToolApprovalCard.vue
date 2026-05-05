@@ -43,16 +43,16 @@ function handleReject(id: string): void {
 </script>
 
 <template>
-  <div
-    :aria-describedby="`tool-approval-reason-${approvalId}`"
+  <fieldset
     :aria-labelledby="`tool-approval-title-${approvalId}`"
+    :aria-describedby="`tool-approval-reason-${approvalId}`"
     class="tool-approval-card"
     data-testid="tool-approval"
     role="group"
   >
+    <legend :id="`tool-approval-title-${approvalId}`" class="tool-name" data-testid="tool-name">{{ toolName }}</legend>
     <div class="tool-approval-header">
       <span class="tool-icon">🔧</span>
-      <span :id="`tool-approval-title-${approvalId}`" class="tool-name" data-testid="tool-name">{{ toolName }}</span>
     </div>
     <p :id="`tool-approval-reason-${approvalId}`" class="tool-reason" data-testid="tool-reason">{{ reason }}</p>
     <div class="tool-approval-actions">
@@ -63,7 +63,7 @@ function handleReject(id: string): void {
         {{ $t("chat.reject") }}
       </button>
     </div>
-  </div>
+  </fieldset>
 </template>
 
 <style scoped>
@@ -90,6 +90,7 @@ function handleReject(id: string): void {
 }
 
 .tool-name {
+  padding: 0;
   font-weight: 600;
   font-size: 14px;
   color: var(--corvus-color-text-primary);

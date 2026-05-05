@@ -1,14 +1,12 @@
 import { computed, ref, watch } from "vue";
 
 const BASE_URL_KEY = "rook-dashboard.base-url";
-const TOKEN_KEY = "rook-dashboard.bearer-token";
 
 export function useRookSession() {
   const baseUrl = ref(readValue(BASE_URL_KEY));
-  const bearerToken = ref(readValue(TOKEN_KEY));
+  const bearerToken = ref("");
 
   watch(baseUrl, (value) => writeValue(BASE_URL_KEY, value));
-  watch(bearerToken, (value) => writeValue(TOKEN_KEY, value));
 
   const isConfigured = computed(
     () => baseUrl.value.trim().length > 0 && bearerToken.value.trim().length > 0

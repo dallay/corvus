@@ -228,6 +228,12 @@ pub async fn handle_chat_completions(State(state): State<GatewayState>, body: By
     handle_buffered_chat_completions(&state, request, body, started_at).await
 }
 
+type BufferedAttemptError = (
+    UpstreamError,
+    UpstreamMetricContext,
+    crate::domain::AccountId,
+);
+
 async fn handle_buffered_chat_completions(
     state: &GatewayState,
     request: ChatCompletionRequest,
@@ -236,143 +242,46 @@ async fn handle_buffered_chat_completions(
 ) -> Response {
     let mut attempts = 0usize;
     let max_attempts = state.resilience_policy.max_buffered_attempts.max(1);
-    let mut last_error: Option<(
-        UpstreamError,
-        UpstreamMetricContext,
-        crate::domain::AccountId,
-    )> = None;
+    let mut last_error: Option<BufferedAttemptError> = None;
 
     loop {
         attempts = attempts.saturating_add(1);
         let decision = match state.engine.resolve(&request.model).await {
             Ok(decision) => decision,
             Err(error) => {
-                if let Some((error, metric_context, account_id)) = last_error.take() {
-                    let outcome = classify_upstream_error(&error);
-                    let retryable = should_retry_buffered_upstream_error(&error);
-                    record_upstream_retry_outcome(
-                        state,
-                        &metric_context,
-                        if retryable {
-                            "retry_exhausted"
-                        } else {
-                            "not_retryable"
-                        },
-                    );
-                    let response = map_upstream_error(error);
-                    record_usage(
-                        state,
-                        UsageRecordInput {
-                            started_at,
-                            logical_model: request.model.clone(),
-                            context: metric_context,
-                            account_id: Some(account_id.to_string()),
-                            stream: false,
-                            outcome,
-                            status: response.status(),
-                            tokens: TokenUsageParts::none(),
-                        },
-                    )
+                return handle_buffered_route_error(state, &request, started_at, error, last_error)
                     .await;
-                    return response;
-                }
-
-                record_upstream_failure(
-                    state,
-                    &UpstreamMetricContext::unrouted(),
-                    "route_rejected",
-                );
-                tracing::warn!(model = %request.model, error = %error, "routing failed");
-                record_usage(
-                    state,
-                    UsageRecordInput {
-                        started_at,
-                        logical_model: request.model.clone(),
-                        context: UpstreamMetricContext::unrouted(),
-                        account_id: None,
-                        stream: request.stream.unwrap_or(false),
-                        outcome: "route_rejected",
-                        status: StatusCode::SERVICE_UNAVAILABLE,
-                        tokens: TokenUsageParts::none(),
-                    },
-                )
-                .await;
-                return error_response(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    &error.to_string(),
-                    "server_error",
-                    Some("model_not_found"),
-                );
             }
         };
 
         match proxy_buffered_attempt(state, &request, &body, &decision).await {
             Ok((upstream_response, metric_context, account_id)) => {
-                state.registry.health().mark_success(account_id).await;
-                let tokens = extract_token_usage(&upstream_response.body);
-                record_usage(
+                return buffered_success_response(
                     state,
-                    UsageRecordInput {
-                        started_at,
-                        logical_model: request.model.clone(),
-                        context: metric_context.clone_static(),
-                        account_id: Some(account_id.to_string()),
-                        stream: false,
-                        outcome: "success",
-                        status: upstream_response.status,
-                        tokens,
-                    },
+                    &request,
+                    started_at,
+                    upstream_response,
+                    metric_context,
+                    account_id,
                 )
                 .await;
-
-                let mut response = Response::new(axum::body::Body::from(upstream_response.body));
-                *response.status_mut() = upstream_response.status;
-                response.headers_mut().insert(
-                    header::CONTENT_TYPE,
-                    HeaderValue::from_str(
-                        upstream_response
-                            .content_type
-                            .as_deref()
-                            .unwrap_or("application/json"),
-                    )
-                    .unwrap_or(HeaderValue::from_static("application/json")),
-                );
-                return response;
             }
             Err((error, metric_context, account_id)) => {
+                let retryable = should_retry_buffered_upstream_error(&error);
                 let outcome = classify_upstream_error(&error);
                 record_upstream_failure(state, &metric_context, outcome);
                 mark_account_failure(state, account_id).await;
-
-                let retryable = should_retry_buffered_upstream_error(&error);
                 last_error = Some((error, metric_context.clone_static(), account_id));
+
                 if !retryable || attempts >= max_attempts {
-                    record_upstream_retry_outcome(
+                    return finalize_buffered_upstream_error(
                         state,
-                        &metric_context,
-                        if retryable {
-                            "retry_exhausted"
-                        } else {
-                            "not_retryable"
-                        },
-                    );
-                    let (error, metric_context, account_id) = last_error.take().unwrap();
-                    let response = map_upstream_error(error);
-                    record_usage(
-                        state,
-                        UsageRecordInput {
-                            started_at,
-                            logical_model: request.model.clone(),
-                            context: metric_context,
-                            account_id: Some(account_id.to_string()),
-                            stream: false,
-                            outcome,
-                            status: response.status(),
-                            tokens: TokenUsageParts::none(),
-                        },
+                        &request,
+                        started_at,
+                        last_error.take(),
+                        retryable,
                     )
                     .await;
-                    return response;
                 }
 
                 record_upstream_retry_outcome(state, &metric_context, "retry_scheduled");
@@ -380,6 +289,136 @@ async fn handle_buffered_chat_completions(
             }
         }
     }
+}
+
+async fn handle_buffered_route_error(
+    state: &GatewayState,
+    request: &ChatCompletionRequest,
+    started_at: Instant,
+    error: impl std::fmt::Display,
+    last_error: Option<BufferedAttemptError>,
+) -> Response {
+    // Always log and record the failure before potentially returning early
+    record_upstream_failure(state, &UpstreamMetricContext::unrouted(), "route_rejected");
+    tracing::warn!(model = %request.model, error = %error, "routing failed");
+
+    if let Some(previous_error) = last_error {
+        let retryable = should_retry_buffered_upstream_error(&previous_error.0);
+        return finalize_buffered_upstream_error(
+            state,
+            request,
+            started_at,
+            Some(previous_error),
+            retryable,
+        )
+        .await;
+    }
+
+    record_usage(
+        state,
+        UsageRecordInput {
+            started_at,
+            logical_model: request.model.clone(),
+            context: UpstreamMetricContext::unrouted(),
+            account_id: None,
+            stream: request.stream.unwrap_or(false),
+            outcome: "route_rejected",
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            tokens: TokenUsageParts::none(),
+        },
+    )
+    .await;
+
+    error_response(
+        StatusCode::SERVICE_UNAVAILABLE,
+        &error.to_string(),
+        "server_error",
+        Some("model_not_found"),
+    )
+}
+
+async fn buffered_success_response(
+    state: &GatewayState,
+    request: &ChatCompletionRequest,
+    started_at: Instant,
+    upstream_response: upstream::UpstreamResponse,
+    metric_context: UpstreamMetricContext,
+    account_id: crate::domain::AccountId,
+) -> Response {
+    state.registry.health().mark_success(account_id).await;
+    let tokens = extract_token_usage(&upstream_response.body);
+    record_usage(
+        state,
+        UsageRecordInput {
+            started_at,
+            logical_model: request.model.clone(),
+            context: metric_context.clone_static(),
+            account_id: Some(account_id.to_string()),
+            stream: false,
+            outcome: "success",
+            status: upstream_response.status,
+            tokens,
+        },
+    )
+    .await;
+
+    let mut response = Response::new(axum::body::Body::from(upstream_response.body));
+    *response.status_mut() = upstream_response.status;
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(
+            upstream_response
+                .content_type
+                .as_deref()
+                .unwrap_or("application/json"),
+        )
+        .unwrap_or(HeaderValue::from_static("application/json")),
+    );
+    response
+}
+
+async fn finalize_buffered_upstream_error(
+    state: &GatewayState,
+    request: &ChatCompletionRequest,
+    started_at: Instant,
+    last_error: Option<BufferedAttemptError>,
+    retryable: bool,
+) -> Response {
+    let Some((error, metric_context, account_id)) = last_error else {
+        return error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "upstream request failed without an error context",
+            "server_error",
+            None,
+        );
+    };
+
+    let outcome = classify_upstream_error(&error);
+    record_upstream_retry_outcome(
+        state,
+        &metric_context,
+        if retryable {
+            "retry_exhausted"
+        } else {
+            "not_retryable"
+        },
+    );
+    let response = map_upstream_error(error);
+    record_usage(
+        state,
+        UsageRecordInput {
+            started_at,
+            logical_model: request.model.clone(),
+            context: metric_context,
+            account_id: Some(account_id.to_string()),
+            stream: false,
+            outcome,
+            status: response.status(),
+            tokens: TokenUsageParts::none(),
+        },
+    )
+    .await;
+    response
 }
 
 async fn proxy_buffered_attempt(
@@ -596,13 +635,18 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use serde_json::{json, Value};
     use std::sync::Arc;
+    use std::time::Instant;
     use tower::util::ServiceExt;
 
+    use super::{
+        handle_buffered_route_error, should_retry_buffered_upstream_error, UpstreamMetricContext,
+    };
     use crate::domain::{
         AccountId, ModelRoute, PoolId, ProviderAccount, ProviderPool, ProviderVendor, RouteId,
         SelectionStrategy,
     };
-    use crate::gateway::types::STREAM_CONTENT_TYPE;
+    use crate::gateway::types::{ChatCompletionRequest, STREAM_CONTENT_TYPE};
+    use crate::gateway::upstream::UpstreamError;
     use crate::gateway::{build_router, GatewayState};
     use crate::registry::RookRegistry;
     use crate::routing::RoutingEngine;
@@ -660,7 +704,7 @@ mod tests {
         }
     }
 
-    async fn test_app() -> (axum::Router, RookRegistry) {
+    async fn test_state() -> (GatewayState, RookRegistry) {
         let registry = RookRegistry::open_in_memory().await.unwrap();
         let engine = RoutingEngine::new(registry.clone());
         let client = reqwest::Client::builder()
@@ -682,6 +726,11 @@ mod tests {
             resilience_policy,
             upstream_concurrency,
         };
+        (state, registry)
+    }
+
+    async fn test_app() -> (axum::Router, RookRegistry) {
+        let (state, registry) = test_state().await;
         (build_router(state), registry)
     }
 
@@ -959,6 +1008,49 @@ mod tests {
         assert_eq!(summary.totals.failed_requests, 1);
         assert_eq!(summary.by_vendor[0].key, "unrouted");
         assert_eq!(summary.by_outcome[0].key, "route_rejected");
+    }
+
+    #[tokio::test]
+    async fn buffered_route_error_with_last_error_records_route_rejected_and_retry_outcome() {
+        let (state, _registry) = test_state().await;
+        let account_id = AccountId::generate();
+        let prior_error = UpstreamError::Timeout {
+            message: "upstream timed out".to_string(),
+        };
+        let expected_retryable = should_retry_buffered_upstream_error(&prior_error);
+        let request = ChatCompletionRequest {
+            model: "missing-model".to_string(),
+            messages: vec![],
+            temperature: None,
+            top_p: None,
+            n: None,
+            stop: None,
+            max_tokens: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            user: None,
+            stream: Some(false),
+            extra: Default::default(),
+        };
+
+        let response = handle_buffered_route_error(
+            &state,
+            &request,
+            Instant::now(),
+            "routing failed",
+            Some((prior_error, UpstreamMetricContext::unrouted(), account_id)),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+        let metrics = state.observability.render_prometheus().unwrap();
+        assert!(metrics.contains(
+            "rook_upstream_failures_total{vendor=\"unrouted\",account=\"unrouted\",model=\"unrouted\",outcome=\"route_rejected\"} 1"
+        ));
+        assert!(expected_retryable);
+        assert!(metrics.contains(
+            "rook_upstream_retry_outcomes_total{vendor=\"unrouted\",account=\"unrouted\",model=\"unrouted\",outcome=\"retry_exhausted\"} 1"
+        ));
     }
 
     #[tokio::test]

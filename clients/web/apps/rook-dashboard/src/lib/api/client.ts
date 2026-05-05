@@ -45,10 +45,24 @@ export interface RookApi {
 }
 
 export class RookApiClient implements RookApi {
-  constructor(
-    private readonly baseUrl: string,
-    private readonly bearerToken: string
-  ) {}
+  private readonly baseUrl: string;
+  private readonly bearerToken: string;
+
+  constructor(baseUrl: string, bearerToken: string) {
+    const trimmedBaseUrl = trimTrailingSlashes(baseUrl.trim());
+    const trimmedToken = bearerToken.trim();
+
+    if (!trimmedBaseUrl) {
+      throw new TypeError("baseUrl is required and cannot be empty");
+    }
+
+    if (!trimmedToken) {
+      throw new TypeError("bearerToken is required and cannot be empty");
+    }
+
+    this.baseUrl = trimmedBaseUrl;
+    this.bearerToken = trimmedToken;
+  }
 
   listAccounts(): Promise<AccountView[]> {
     return this.request<AccountView[]>("/api/accounts");
@@ -174,13 +188,16 @@ export class RookApiClient implements RookApi {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(`${trimTrailingSlashes(this.baseUrl)}${path}`, {
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${this.bearerToken}`);
+
+    if (typeof init?.body === "string" && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+
+    const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
-      headers: {
-        Authorization: `Bearer ${this.bearerToken.trim()}`,
-        "Content-Type": "application/json",
-        ...init?.headers,
-      },
+      headers,
     });
 
     if (!response.ok) {

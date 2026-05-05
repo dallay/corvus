@@ -20,7 +20,6 @@ import platform.posix.SO_RCVTIMEO
 import platform.posix.SO_SNDTIMEO
 import platform.posix.close
 import platform.posix.connect
-import platform.posix.inet_pton
 import platform.posix.recv
 import platform.posix.send
 import platform.posix.setsockopt
@@ -36,12 +35,49 @@ private const val SOCKET_BUFFER_SIZE = 65_536
 private const val BYTE_SHIFT = 8
 private const val BYTE_MASK = 0xFF
 private const val MILLIS_PER_SECOND = 1000
+private const val IPV4_PART_COUNT = 4
+private const val IPV4_FIRST_OCTET = 0
+private const val IPV4_SECOND_OCTET = 1
+private const val IPV4_THIRD_OCTET = 2
+private const val IPV4_FOURTH_OCTET = 3
+private const val IPV4_BYTE_MIN = 0
+private const val IPV4_BYTE_MAX = 255
+private const val IPV4_SHIFT_24 = 24
+private const val IPV4_SHIFT_16 = 16
+private const val INVALID_IPV4_ADDRESS = 0u
 
 // Helper function to convert host byte order to network byte order (big-endian)
 @OptIn(ExperimentalForeignApi::class)
 private fun htons(value: UShort): UShort {
   val bytes = value.toInt()
   return ((bytes shr BYTE_SHIFT) or ((bytes and BYTE_MASK) shl BYTE_SHIFT)).toUShort()
+}
+
+private fun htonl(value: UInt): UInt =
+  ((value and 0xFFu) shl IPV4_SHIFT_24) or
+    ((value and 0xFF00u) shl BYTE_SHIFT) or
+    ((value shr BYTE_SHIFT) and 0xFF00u) or
+    ((value shr IPV4_SHIFT_24) and 0xFFu)
+
+private fun parseIpv4Address(host: String): UInt? {
+  val bytes = host.split('.').map { it.toIntOrNull() }
+  val validBytes = bytes.filterNotNull()
+  val isValidAddress =
+    bytes.size == IPV4_PART_COUNT &&
+      validBytes.size == IPV4_PART_COUNT &&
+      validBytes.all { it in IPV4_BYTE_MIN..IPV4_BYTE_MAX }
+
+  if (!isValidAddress) {
+    return null
+  }
+
+  val hostOrderAddress =
+    (validBytes[IPV4_FIRST_OCTET].toUInt() shl IPV4_SHIFT_24) or
+      (validBytes[IPV4_SECOND_OCTET].toUInt() shl IPV4_SHIFT_16) or
+      (validBytes[IPV4_THIRD_OCTET].toUInt() shl BYTE_SHIFT) or
+      validBytes[IPV4_FOURTH_OCTET].toUInt()
+
+  return htonl(hostOrderAddress)
 }
 
 actual data class IosRuntimeCompanionConfig
@@ -159,9 +195,14 @@ actual constructor(private val config: IosRuntimeCompanionConfig) : IosRuntimeCo
       val addr = alloc<sockaddr_in>()
       addr.sin_family = AF_INET.convert()
       addr.sin_port = htons(config.port.toUShort())
-      if (inet_pton(AF_INET, config.host, addr.sin_addr.ptr) != 1) {
+      // Connection policy: reject 0.0.0.0 (invalid/unreachable) at call site
+      // format/bounds parsing is done by parseIpv4Address; policy validation is caller's
+      // responsibility
+      val ipv4Addr = parseIpv4Address(config.host)
+      if (ipv4Addr == null || ipv4Addr == INVALID_IPV4_ADDRESS) {
         return null
       }
+      addr.sin_addr.s_addr = ipv4Addr
 
       if (connect(sockfd, addr.ptr.reinterpret(), sizeOf<sockaddr_in>().convert()) < 0) {
         return null

@@ -91,7 +91,7 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
   const loadedEntries = ref(0);
   const totalEntries = ref(0);
 
-  const visibleEntries = computed(() => {
+  const selectedEntries = computed(() => {
     const activeSelection = selection.value;
 
     return [...entries.value]
@@ -99,17 +99,17 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
       .filter((entry) => matchesSelection(entry, activeSelection));
   });
 
+  const visibleEntries = computed(() => selectedEntries.value);
+
   const timelineGroups = computed<LocalMemoryTimelineGroup[]>(() => {
-    const activeSelection = selection.value;
-    const groupSource = [...entries.value]
-      .sort(compareEntries)
-      .filter((entry) => matchesSelection(entry, activeSelection));
+    const groupSource = selectedEntries.value;
 
     const grouped = new Map<string, AdminMemoryEntry[]>();
     for (const entry of groupSource) {
       const key = toSessionKey(entry.session_id);
-      const groupEntries = grouped.get(key) ?? [];
-      if (!grouped.has(key)) {
+      let groupEntries = grouped.get(key);
+      if (!groupEntries) {
+        groupEntries = [];
         grouped.set(key, groupEntries);
       }
       groupEntries.push(entry);
@@ -168,16 +168,14 @@ export function useLocalMemoryExplorer(api: LocalMemoryExplorerApi) {
   });
 
   const relationshipClusters = computed<LocalMemoryRelationshipCluster[]>(() => {
-    const activeSelection = selection.value;
-    const clusterSource = [...entries.value]
-      .sort(compareEntries)
-      .filter((entry) => matchesSelection(entry, activeSelection));
+    const clusterSource = selectedEntries.value;
 
     const grouped = new Map<string, AdminMemoryEntry[]>();
     for (const entry of clusterSource) {
       const groupKey = `${toSessionKey(entry.session_id)}::${entry.category}`;
-      const groupEntries = grouped.get(groupKey) ?? [];
-      if (!grouped.has(groupKey)) {
+      let groupEntries = grouped.get(groupKey);
+      if (!groupEntries) {
+        groupEntries = [];
         grouped.set(groupKey, groupEntries);
       }
       groupEntries.push(entry);

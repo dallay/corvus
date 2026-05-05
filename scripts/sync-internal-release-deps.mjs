@@ -6,7 +6,17 @@ import process from "node:process";
 import { loadReleaseComponents } from "./release-components.mjs";
 
 const repoRoot = process.cwd();
-const argv = new Set(process.argv.slice(2));
+const allowedArgs = new Set(["--help", "--write", "--check"]);
+const rawArgs = process.argv.slice(2);
+
+for (const arg of rawArgs) {
+  if (!allowedArgs.has(arg)) {
+    process.stderr.write(`Unsupported argument: ${arg}\n`);
+    process.exit(1);
+  }
+}
+
+const argv = new Set(rawArgs);
 const wantsHelp = argv.has("--help");
 const wantsWrite = argv.has("--write");
 const wantsCheck = argv.has("--check");
@@ -20,7 +30,8 @@ if (wantsHelp) {
 }
 
 if (!mode) {
-  throw new Error("Exactly one of --check or --write must be provided");
+  process.stderr.write("Missing mode: exactly one of --check or --write must be provided\n");
+  process.exit(1);
 }
 
 function resolveMode(wantsWrite, wantsCheck) {
@@ -98,7 +109,9 @@ function resolveVersionBySelector(manifestText, manifestPath, versionSelector) {
 
   const parts = versionSelector.split(".");
   if (parts.length !== 3 || parts[0] !== "dependencies" || parts[2] !== "version") {
-    throw new Error(`upstream-version-unresolvable: unsupported versionSelector ${versionSelector} for ${manifestPath}`);
+    throw new Error(
+      `upstream-version-unresolvable: unsupported versionSelector ${versionSelector} for ${manifestPath}`,
+    );
   }
 
   const dependencyName = parts[1];
@@ -140,7 +153,12 @@ function resolveManifestRelativeClientTarget(manifestPath, dependencyPath) {
 
 function findOwningComponentId(targetPath) {
   for (const [componentId, component] of componentEntries) {
-    if (component.ownedPaths.some((ownedPath) => targetPath === ownedPath.slice(0, -1))) {
+    if (
+      component.ownedPaths.some((ownedPath) => {
+        const normalizedOwnedPath = ownedPath.endsWith("/") ? ownedPath.slice(0, -1) : ownedPath;
+        return targetPath === normalizedOwnedPath;
+      })
+    ) {
       return componentId;
     }
   }
@@ -172,7 +190,6 @@ for (const [manifestPath, manifestText] of manifestTexts.entries()) {
 
     if (!managedEdges.has(edgeKey(manifestPath, dependency.dependencyName))) {
       const message = `unmanaged-internal-release-edge: ${manifestPath} declares ${dependency.dependencyName} -> ${dependency.path} without internalReleaseDependencies coverage`;
-      changes.push(message);
       throw new Error(message);
     }
   }
@@ -205,7 +222,7 @@ for (const edge of graph.internalReleaseDependencies) {
     }
 
     const updatedBlock = updateVersionInBlock(dependencyBlock, expectedVersion);
-    writeText(edge.manifestPath, downstreamText.replace(dependencyBlock, updatedBlock));
+    writeText(edge.manifestPath, downstreamText.replaceAll(dependencyBlock, updatedBlock));
     changes.push(`${edge.dependentComponent} -> ${edge.upstreamComponent}: ${actualVersion} -> ${expectedVersion}`);
     rewrites += 1;
     continue;

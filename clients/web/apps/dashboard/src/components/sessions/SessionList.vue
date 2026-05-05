@@ -244,27 +244,25 @@ onMounted(() => load());
   padding: 0 8px;
 }
 
-.pagination button {
-  padding: 4px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  font-size: 12px;
-  min-height: 32px;
-  min-width: 32px;
-}
-
+.pagination button,
 .select-btn {
   min-height: 32px;
   min-width: 32px;
-  padding: 2px 10px;
   border: 1px solid var(--color-border);
-  border-radius: 6px;
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
   cursor: pointer;
+}
+
+.pagination button {
+  padding: 4px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.select-btn {
+  padding: 2px 10px;
+  border-radius: 6px;
   font-size: 11px;
 }
 

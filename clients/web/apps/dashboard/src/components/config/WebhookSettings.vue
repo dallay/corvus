@@ -27,7 +27,11 @@ function resolveWebhookSecretInput(): HTMLInputElement | null {
     return element;
   }
 
-  const input = element?.querySelector?.("input");
+  if (!element) {
+    return null;
+  }
+
+  const input = element.querySelector("input");
   return input instanceof HTMLInputElement ? input : null;
 }
 
@@ -79,7 +83,7 @@ function focusWebhookSecretField(): void {
       tabindex="-1"
     >
       <p id="webhook-error-summary-title" class="error-summary-title">
-        Please fix the following error before saving.
+        {{ $t("webhook.errorFixBeforeSave") }}
       </p>
       <button class="error-summary-link" type="button" @click="focusWebhookSecretField">
         {{ $t("auth.emptyWebhookSecret") }}

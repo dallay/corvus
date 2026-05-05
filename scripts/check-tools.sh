@@ -47,7 +47,8 @@ print_status() {
     1) printf "  %-12s [%s%s%s] %s\n" "$name" "$RED" "❌" "$RESET" "${RED}${info}${RESET}" ; return 1 ;;
     2) printf "  %-12s [%s%s%s] %s\n" "$name" "$YELLOW" "⚠️" "$RESET" "${YELLOW}${info}${RESET}" ;;
     *)
-      printf "  %-12s [%s%s%s] %s\n" "$name" "$RED" "❌" "$RESET" "${RED}Unknown status code: $res${RESET}"
+      local unknown_message="Unknown status code: ${res}"
+      printf "  %-12s [%s%s%s] %s\n" "$name" "$RED" "❌" "$RESET" "${RED}${unknown_message}${RESET}"
       return 1
       ;;
   esac

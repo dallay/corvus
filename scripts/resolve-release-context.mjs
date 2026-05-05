@@ -1,6 +1,8 @@
 import { loadReleaseComponents } from "./release-components.mjs";
 import { getPublishableComponentIds, sortStrings } from "./release-scope-utils.mjs";
 
+const VERSION_SUFFIX_PATTERN = /^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:-beta\.(?<betaNumber>\d+))?$/u;
+
 function parseBoolean(value, name) {
   if (value === "true") {
     return true;
@@ -20,7 +22,7 @@ function parseAffectedComponentsOverride(affectedComponentsRaw, graph) {
   }
 
   if (!Array.isArray(parsed)) {
-    throw new TypeError(`Invalid AFFECTED_COMPONENTS payload: ${affectedComponentsRaw}`);
+    throw new TypeError("Invalid AFFECTED_COMPONENTS payload: expected a JSON array");
   }
 
   const knownComponents = new Set(Object.keys(graph.components));
@@ -33,13 +35,13 @@ function parseAffectedComponentsOverride(affectedComponentsRaw, graph) {
 }
 
 function parseVersionSuffix(versionSuffix) {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/.exec(versionSuffix);
+  const match = VERSION_SUFFIX_PATTERN.exec(versionSuffix);
 
-  if (!match) {
+  if (!match?.groups) {
     return null;
   }
 
-  const [, major, minor, patch, betaNumber] = match;
+  const { major, minor, patch, betaNumber } = match.groups;
   return {
     major,
     minor,

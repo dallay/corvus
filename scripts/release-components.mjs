@@ -60,10 +60,10 @@ function validateInternalReleaseDependencies(graph) {
     throw new Error("release component graph must define an internalReleaseDependencies array");
   }
 
-  for (const [index, edge] of graph.internalReleaseDependencies.entries()) {
+  graph.internalReleaseDependencies.forEach((edge, index) => {
     validateInternalReleaseDependencyShape(edge, index);
     validateInternalReleaseDependencyReferences(graph, edge, index);
-  }
+  });
 }
 
 function validateObject(value, message) {
@@ -78,6 +78,21 @@ function validateGraphShape(graph) {
   validateObject(graph.sharedInfraPaths, "release component graph must define a sharedInfraPaths object");
 }
 
+function validateComponentDependencies(graph, componentId, dependsOnReleaseOf) {
+  if (!Array.isArray(dependsOnReleaseOf)) {
+    throw new Error(`component ${componentId}.dependsOnReleaseOf must be an array`);
+  }
+
+  for (const dependency of dependsOnReleaseOf) {
+    if (typeof dependency !== "string" || dependency.length === 0) {
+      throw new Error(`component ${componentId} has invalid dependency entry in dependsOnReleaseOf`);
+    }
+    if (!graph.components[dependency]) {
+      throw new Error(`component ${componentId} depends on unknown component ${dependency}`);
+    }
+  }
+}
+
 function validateComponent(graph, componentId) {
   const component = graph.components[componentId];
   validateObject(component, `component ${componentId} must be an object`);
@@ -89,19 +104,7 @@ function validateComponent(graph, componentId) {
   validateStringArray(component.ownedPaths, `${componentId}.ownedPaths`);
   validateStringArray(component.versionSurfaces, `${componentId}.versionSurfaces`);
   validateStringArray(component.releaseChannels, `${componentId}.releaseChannels`);
-
-  if (!Array.isArray(component.dependsOnReleaseOf)) {
-    throw new Error(`component ${componentId}.dependsOnReleaseOf must be an array`);
-  }
-
-  for (const dependency of component.dependsOnReleaseOf) {
-    if (typeof dependency !== "string" || dependency.length === 0) {
-      throw new Error(`component ${componentId} has invalid dependency entry`);
-    }
-    if (!graph.components[dependency]) {
-      throw new Error(`component ${componentId} depends on unknown component ${dependency}`);
-    }
-  }
+  validateComponentDependencies(graph, componentId, component.dependsOnReleaseOf);
 }
 
 function validateSharedInfraPath(graph, sharedPath, componentIdsForPath) {
