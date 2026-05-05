@@ -54,7 +54,10 @@ pub async fn evaluate_ingress(
 ) -> IngressDecision {
     let service = SessionCommandService::with_tool_snapshot(memory, tool_snapshot);
     let session_id = context.session.session_id.clone();
-    if let Some(outcome) = default_registry().dispatch(&service, context, prompt).await {
+    if let Some(outcome) = default_registry()
+        .dispatch_prompt(&service, context, prompt)
+        .await
+    {
         return IngressDecision::SessionCommand { outcome };
     }
 
@@ -271,6 +274,19 @@ mod tests {
                                 ..
                             })
                         ));
+                    } else if prompt == "/resume" {
+                        assert_eq!(
+                            outcome,
+                            SessionCommandOutcome::Failure(
+                                crate::session_commands::SessionCommandFailure {
+                                    command: "/resume",
+                                    kind: SessionCommandFailureKind::MissingCallerScope,
+                                    session_id: Some("session-1".to_string()),
+                                    message: "permission denied: caller scope unavailable"
+                                        .to_string(),
+                                }
+                            )
+                        );
                     } else {
                         assert_eq!(
                             outcome,

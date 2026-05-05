@@ -23,6 +23,7 @@ pub struct Observability {
     rate_limit_outcomes_total: Family<RateLimitOutcomeLabels, Counter>,
     idempotency_outcomes_total: Family<IdempotencyLabels, Counter>,
     upstream_failures_total: Family<UpstreamFailureLabels, Counter>,
+    upstream_retry_outcomes_total: Family<UpstreamRetryLabels, Counter>,
 }
 
 impl Observability {
@@ -67,6 +68,13 @@ impl Observability {
             upstream_failures_total.clone(),
         );
 
+        let upstream_retry_outcomes_total = Family::<UpstreamRetryLabels, Counter>::default();
+        registry.register(
+            "rook_upstream_retry_outcomes",
+            "Total buffered upstream retry decisions partitioned by vendor, account, model, and outcome.",
+            upstream_retry_outcomes_total.clone(),
+        );
+
         Self {
             registry: Arc::new(Mutex::new(registry)),
             http_requests_total,
@@ -74,6 +82,7 @@ impl Observability {
             rate_limit_outcomes_total,
             idempotency_outcomes_total,
             upstream_failures_total,
+            upstream_retry_outcomes_total,
         }
     }
 
@@ -114,6 +123,12 @@ impl Observability {
     pub fn upstream_failures_total(&self) -> UpstreamFailuresHandle {
         UpstreamFailuresHandle {
             family: self.upstream_failures_total.clone(),
+        }
+    }
+
+    pub fn upstream_retry_outcomes_total(&self) -> UpstreamRetryOutcomesHandle {
+        UpstreamRetryOutcomesHandle {
+            family: self.upstream_retry_outcomes_total.clone(),
         }
     }
 }
@@ -411,6 +426,25 @@ impl IdempotencyLabels {
     }
 }
 
+#[derive(Clone)]
+pub struct UpstreamRetryOutcomesHandle {
+    family: Family<UpstreamRetryLabels, Counter>,
+}
+
+impl UpstreamRetryOutcomesHandle {
+    pub fn inc(
+        &self,
+        vendor: impl Into<Cow<'static, str>>,
+        account: impl Into<Cow<'static, str>>,
+        model: impl Into<Cow<'static, str>>,
+        outcome: impl Into<Cow<'static, str>>,
+    ) {
+        self.family
+            .get_or_create(&UpstreamRetryLabels::new(vendor, account, model, outcome))
+            .inc();
+    }
+}
+
 #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
 pub struct UpstreamFailureLabels {
     vendor: Cow<'static, str>,
@@ -420,6 +454,30 @@ pub struct UpstreamFailureLabels {
 }
 
 impl UpstreamFailureLabels {
+    fn new(
+        vendor: impl Into<Cow<'static, str>>,
+        account: impl Into<Cow<'static, str>>,
+        model: impl Into<Cow<'static, str>>,
+        outcome: impl Into<Cow<'static, str>>,
+    ) -> Self {
+        Self {
+            vendor: vendor.into(),
+            account: account.into(),
+            model: model.into(),
+            outcome: outcome.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
+pub struct UpstreamRetryLabels {
+    vendor: Cow<'static, str>,
+    account: Cow<'static, str>,
+    model: Cow<'static, str>,
+    outcome: Cow<'static, str>,
+}
+
+impl UpstreamRetryLabels {
     fn new(
         vendor: impl Into<Cow<'static, str>>,
         account: impl Into<Cow<'static, str>>,
@@ -451,6 +509,7 @@ mod tests {
         assert!(rendered.contains("# TYPE rook_rate_limit_outcomes counter"));
         assert!(rendered.contains("# TYPE rook_idempotency_outcomes counter"));
         assert!(rendered.contains("# TYPE rook_upstream_failures counter"));
+        assert!(rendered.contains("# TYPE rook_upstream_retry_outcomes counter"));
         assert!(!rendered.contains("_total_total"));
     }
 
@@ -465,6 +524,7 @@ mod tests {
         assert!(!rendered.contains("rook_rate_limit_outcomes_total{"));
         assert!(!rendered.contains("rook_idempotency_outcomes_total{"));
         assert!(!rendered.contains("rook_upstream_failures_total{"));
+        assert!(!rendered.contains("rook_upstream_retry_outcomes_total{"));
     }
 
     #[test]
@@ -483,6 +543,12 @@ mod tests {
         metrics
             .upstream_failures_total()
             .inc("open_ai", "primary_account", "gpt-4o", "http_error");
+        metrics.upstream_retry_outcomes_total().inc(
+            "open_ai",
+            "primary_account",
+            "gpt-4o",
+            "retry_scheduled",
+        );
         metrics
             .http_request_duration_seconds()
             .observe("gateway_v1", "/v1/models", "2xx", 0.125);
@@ -502,6 +568,9 @@ mod tests {
         ));
         assert!(rendered.contains(
             "rook_upstream_failures_total{vendor=\"open_ai\",account=\"primary_account\",model=\"gpt-4o\",outcome=\"http_error\"} 1"
+        ));
+        assert!(rendered.contains(
+            "rook_upstream_retry_outcomes_total{vendor=\"open_ai\",account=\"primary_account\",model=\"gpt-4o\",outcome=\"retry_scheduled\"} 1"
         ));
         assert!(rendered.contains(
             "rook_http_request_duration_seconds_sum{surface=\"gateway_v1\",endpoint=\"/v1/models\",status_class=\"2xx\"} 0.125"

@@ -50,6 +50,8 @@ pub struct ServerConfig {
     pub rate_limits: RateLimitConfig,
     /// Route-local idempotency config for chat completions.
     pub idempotency: IdempotencyConfig,
+    /// Upstream retry, cooldown, and concurrency policy for gateway traffic.
+    pub upstream_resilience: crate::gateway::UpstreamResiliencePolicy,
 }
 
 impl Default for ServerConfig {
@@ -63,6 +65,7 @@ impl Default for ServerConfig {
             transport: TransportConfig::default(),
             rate_limits: RateLimitConfig::default(),
             idempotency: IdempotencyConfig::default(),
+            upstream_resilience: crate::gateway::UpstreamResiliencePolicy::default(),
         }
     }
 }
@@ -168,12 +171,46 @@ async fn build_app_with_registry_and_startup_state(
         .build()
         .map_err(|e| RookError::Gateway(format!("failed to build HTTP client: {e}")))?;
 
+    // Validate upstream resilience config before using it to build gateway state.
+    let policy = &config.upstream_resilience;
+    if policy.max_buffered_attempts == 0 {
+        return Err(RookError::Config(
+            "upstream_resilience.max_buffered_attempts must be at least 1".to_string(),
+        ));
+    }
+    if policy.failure_cooldown.as_secs() == 0 {
+        return Err(RookError::Config(
+            "upstream_resilience.failure_cooldown_seconds must be at least 1".to_string(),
+        ));
+    }
+    if policy.retry_backoff.as_millis() == 0 {
+        return Err(RookError::Config(
+            "upstream_resilience.retry_backoff_milliseconds must be at least 1".to_string(),
+        ));
+    }
+    if policy.max_concurrent_upstream_requests == 0 {
+        return Err(RookError::Config(
+            "upstream_resilience.max_concurrent_upstream_requests must be at least 1".to_string(),
+        ));
+    }
+    if policy.max_concurrent_upstream_requests > crate::config::MAX_CONCURRENT_UPSTREAM_REQUESTS {
+        return Err(RookError::Config(format!(
+            "upstream_resilience.max_concurrent_upstream_requests must be at most {}",
+            crate::config::MAX_CONCURRENT_UPSTREAM_REQUESTS
+        )));
+    }
+    let resilience_policy = config.upstream_resilience.clone();
+    let upstream_concurrency = crate::gateway::UpstreamConcurrency::new(
+        resilience_policy.max_concurrent_upstream_requests,
+    );
     let observability = Arc::new(Observability::bootstrap());
     let gateway_state = GatewayState {
         registry: registry.clone(),
         engine,
         client,
         observability: observability.clone(),
+        resilience_policy,
+        upstream_concurrency,
     };
     let inbound_auth = config.inbound_auth.clone();
     let transport_config = Arc::new(config.transport.clone());
@@ -221,12 +258,12 @@ async fn build_app_with_registry_and_startup_state(
         .merge(
             admin::management_router(admin_state)
                 .layer(middleware::from_fn_with_state(
-                    inbound_auth.clone(),
-                    admin_inbound_auth,
-                ))
-                .layer(middleware::from_fn_with_state(
                     admin_rate_limit,
                     apply_rate_limit,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inbound_auth.clone(),
+                    admin_inbound_auth,
                 )),
         )
         .layer(middleware::from_fn_with_state(
@@ -237,12 +274,12 @@ async fn build_app_with_registry_and_startup_state(
         .merge(
             gateway::build_models_router(gateway_state.clone())
                 .layer(middleware::from_fn_with_state(
-                    inbound_auth.clone(),
-                    gateway_inbound_auth,
-                ))
-                .layer(middleware::from_fn_with_state(
                     models_rate_limit,
                     apply_rate_limit,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inbound_auth.clone(),
+                    gateway_inbound_auth,
                 ))
                 .layer(middleware::from_fn_with_state(
                     gateway_transport.clone(),
@@ -256,12 +293,12 @@ async fn build_app_with_registry_and_startup_state(
                     apply_chat_idempotency,
                 ))
                 .layer(middleware::from_fn_with_state(
-                    inbound_auth,
-                    gateway_inbound_auth,
-                ))
-                .layer(middleware::from_fn_with_state(
                     chat_rate_limit,
                     apply_rate_limit,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inbound_auth,
+                    gateway_inbound_auth,
                 ))
                 .layer(middleware::from_fn_with_state(
                     gateway_transport,
@@ -384,7 +421,8 @@ mod tests {
     };
     use crate::services::idempotency::{IdempotencyService, SharedIdempotencyService};
     use crate::services::{
-        account::AccountService as _, pool::PoolService as _, route::RouteService as _,
+        account::AccountService as _, health::HealthService as _, pool::PoolService as _,
+        route::RouteService as _,
     };
     use axum::body::{to_bytes, Body};
     use axum::extract::State;
@@ -481,6 +519,7 @@ mod tests {
                 },
             },
             idempotency: IdempotencyConfig::default(),
+            upstream_resilience: crate::gateway::UpstreamResiliencePolicy::default(),
         }
     }
 
@@ -654,6 +693,79 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn build_app_uses_configured_upstream_resilience_policy() {
+        use axum::{routing::post, Json, Router};
+        use std::net::SocketAddr;
+
+        async fn error_handler() -> (StatusCode, Json<serde_json::Value>) {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "boom"})),
+            )
+        }
+
+        let upstream = Router::new().route("/v1/chat/completions", post(error_handler));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let _server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let account_id = seed_route(
+            &registry,
+            "gpt-4o-resilience",
+            ProviderVendor::OpenAi,
+            Some(format!("http://{addr}")),
+            Some("sk-test".to_string()),
+        )
+        .await;
+        let config = ServerConfig {
+            upstream_resilience: crate::gateway::UpstreamResiliencePolicy {
+                max_buffered_attempts: 1,
+                failure_cooldown: std::time::Duration::from_secs(5),
+                retry_backoff: std::time::Duration::from_millis(1),
+                max_concurrent_upstream_requests: 1,
+            },
+            ..ServerConfig::default()
+        };
+
+        let app = build_app_with_registry(config, registry.clone())
+            .await
+            .unwrap();
+
+        let first_response = tower::ServiceExt::oneshot(
+            app.clone(),
+            axum::http::Request::post("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"model":"gpt-4o-resilience","messages":[],"stream":false}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(first_response.status(), axum::http::StatusCode::BAD_GATEWAY);
+        assert!(!registry.health().is_available(account_id).await);
+
+        let second_response = tower::ServiceExt::oneshot(
+            app,
+            axum::http::Request::post("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"model":"gpt-4o-resilience","messages":[],"stream":false}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            second_response.status(),
+            axum::http::StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
     #[test]
     fn server_config_default_values() {
         let cfg = ServerConfig::default();
@@ -694,6 +806,7 @@ mod tests {
                 },
             },
             idempotency: IdempotencyConfig::default(),
+            upstream_resilience: crate::gateway::UpstreamResiliencePolicy::default(),
         };
         assert_eq!(cfg.socket_addr(), "0.0.0.0:8080");
         assert!(cfg.enable_tui);
@@ -716,6 +829,7 @@ mod tests {
                     transport: TransportConfig::default(),
                     rate_limits: RateLimitConfig::default(),
                     idempotency: IdempotencyConfig::default(),
+                    upstream_resilience: crate::gateway::UpstreamResiliencePolicy::default(),
                 },
                 move |_registry, dashboard_url, shutdown| {
                     let calls_for_runner = calls_for_runner.clone();
@@ -927,6 +1041,31 @@ mod tests {
         assert_eq!(ready_json["checks"]["config"]["ready"], json!(true));
         assert_eq!(ready_json["checks"]["database"]["ready"], json!(true));
         assert_eq!(ready_json["checks"]["router"]["ready"], json!(true));
+        assert_eq!(ready_json["checks"]["assets"]["ready"], json!(true));
+    }
+
+    #[tokio::test]
+    async fn live_route_stays_ok_when_startup_dependencies_are_not_ready() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
+        let app = build_app_with_registry_and_startup_state(
+            ServerConfig::default(),
+            registry,
+            idempotency_service,
+            Arc::new(StartupDependencyState {
+                config_ready: false,
+                database_ready: false,
+                router_ready: false,
+                assets_ready: false,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let (live_status, live_json) = request_json(app, "/api/health/live").await;
+
+        assert_eq!(live_status, StatusCode::OK);
+        assert_eq!(live_json, json!({ "status": "ok" }));
     }
 
     #[tokio::test]
@@ -951,6 +1090,68 @@ mod tests {
         assert_eq!(ready_status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(ready_json["status"], json!("fail"));
         assert_eq!(ready_json["checks"]["database"]["ready"], json!(false));
+        assert_eq!(
+            ready_json["checks"]["database"]["reason"],
+            json!("database connectivity unavailable")
+        );
+    }
+
+    #[tokio::test]
+    async fn ready_route_returns_service_unavailable_for_config_failure() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
+        let app = build_app_with_registry_and_startup_state(
+            ServerConfig::default(),
+            registry,
+            idempotency_service,
+            Arc::new(StartupDependencyState {
+                config_ready: false,
+                database_ready: true,
+                router_ready: true,
+                assets_ready: true,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let (ready_status, ready_json) = request_json(app, "/api/health/ready").await;
+
+        assert_eq!(ready_status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(ready_json["status"], json!("fail"));
+        assert_eq!(ready_json["checks"]["config"]["ready"], json!(false));
+        assert_eq!(
+            ready_json["checks"]["config"]["reason"],
+            json!("configuration validation failed")
+        );
+    }
+
+    #[tokio::test]
+    async fn ready_route_returns_service_unavailable_for_router_failure() {
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let idempotency_service = SharedIdempotencyService::boxed(registry.idempotency().clone());
+        let app = build_app_with_registry_and_startup_state(
+            ServerConfig::default(),
+            registry,
+            idempotency_service,
+            Arc::new(StartupDependencyState {
+                config_ready: true,
+                database_ready: true,
+                router_ready: false,
+                assets_ready: true,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let (ready_status, ready_json) = request_json(app, "/api/health/ready").await;
+
+        assert_eq!(ready_status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(ready_json["status"], json!("fail"));
+        assert_eq!(ready_json["checks"]["router"]["ready"], json!(false));
+        assert_eq!(
+            ready_json["checks"]["router"]["reason"],
+            json!("routing engine unavailable")
+        );
     }
 
     #[tokio::test]
@@ -975,6 +1176,10 @@ mod tests {
         assert_eq!(ready_status, StatusCode::OK);
         assert_eq!(ready_json["status"], json!("degraded"));
         assert_eq!(ready_json["checks"]["assets"]["ready"], json!(false));
+        assert_eq!(
+            ready_json["checks"]["assets"]["reason"],
+            json!("embedded dashboard assets are missing")
+        );
     }
 
     #[tokio::test]
@@ -1288,7 +1493,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rate_limit_rejections_happen_before_auth_and_dashboard_routes_stay_out_of_scope() {
+    async fn rate_limit_rejections_happen_after_auth_and_dashboard_routes_stay_out_of_scope() {
         let app = build_app_with_registry(
             ServerConfig {
                 inbound_auth: InboundAuthConfig {
@@ -1316,13 +1521,26 @@ mod tests {
             app.clone(),
             axum::http::Method::GET,
             "/v1/models",
-            None,
+            Some("rook-inbound-secret"),
             None,
         )
         .await;
         assert_eq!(limited_models, StatusCode::TOO_MANY_REQUESTS);
         let limited_json: serde_json::Value = serde_json::from_slice(&limited_body).unwrap();
         assert_eq!(limited_json["error"]["code"], json!("rate_limited"));
+
+        let (unauthorized_models, _, unauthorized_body) = request_with_bearer(
+            app.clone(),
+            axum::http::Method::GET,
+            "/v1/models",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(unauthorized_models, StatusCode::UNAUTHORIZED);
+        let unauthorized_json: serde_json::Value =
+            serde_json::from_slice(&unauthorized_body).unwrap();
+        assert_eq!(unauthorized_json["error"]["code"], json!("unauthorized"));
 
         let (dashboard_first, dashboard_body_first) = request_text(app.clone(), "/").await;
         let (dashboard_second, dashboard_body_second) = request_text(app, "/").await;
@@ -1536,7 +1754,7 @@ mod tests {
             tokio::spawn(async move { axum::serve(error_listener, error_upstream).await.unwrap() });
 
         let registry = RookRegistry::open_in_memory().await.unwrap();
-        seed_route(
+        let ok_account_id = seed_route(
             &registry,
             "gpt-4o-ok",
             ProviderVendor::OpenAi,
@@ -1544,7 +1762,7 @@ mod tests {
             Some("sk-ok".to_string()),
         )
         .await;
-        seed_route(
+        let error_account_id = seed_route(
             &registry,
             "gpt-4o-error",
             ProviderVendor::OpenAi,
@@ -1552,7 +1770,7 @@ mod tests {
             Some("sk-error".to_string()),
         )
         .await;
-        seed_route_with_display_name(
+        let secret_account_id = seed_route_with_display_name(
             &registry,
             "gpt-4o-secret-account",
             ProviderVendor::OpenAi,
@@ -1561,7 +1779,7 @@ mod tests {
             Some("sk-secret".to_string()),
         )
         .await;
-        seed_route(
+        let misconfigured_account_id = seed_route(
             &registry,
             "gpt-4o-misconfigured",
             ProviderVendor::OpenAi,
@@ -1569,7 +1787,7 @@ mod tests {
             Some("   ".to_string()),
         )
         .await;
-        seed_route(
+        let network_account_id = seed_route(
             &registry,
             "gpt-4o-network",
             ProviderVendor::OpenAi,
@@ -1692,23 +1910,45 @@ mod tests {
         let (metrics_status, metrics_body) = request_text(app, "/api/metrics").await;
         assert_eq!(metrics_status, StatusCode::OK);
         let text = String::from_utf8(metrics_body).unwrap();
-        assert!(!text.contains("rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-ok\",outcome=\"success\"}"));
-        assert!(text.contains(
-            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-error\",outcome=\"http_error\"} 1"
-        ));
-        assert!(text.contains(
-            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-misconfigured\",outcome=\"account_misconfigured\"} 1"
-        ));
-        assert!(text.contains(
-            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"test-account\",model=\"gpt-4o-network\",outcome=\"network_error\"} 1"
-        ));
+        let ok_account_label = format!("acct_{}", ok_account_id);
+        let error_account_label = format!("acct_{}", error_account_id);
+        let misconfigured_account_label = format!("acct_{}", misconfigured_account_id);
+        let network_account_label = format!("acct_{}", network_account_id);
+        let secret_account_label = format!("acct_{}", secret_account_id);
+        assert!(!text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-ok\",outcome=\"success\"}}",
+            ok_account_label
+        )));
+        assert!(text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-error\",outcome=\"http_error\"}} 1",
+            error_account_label
+        )));
+        assert!(text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-misconfigured\",outcome=\"account_misconfigured\"}} 1",
+            misconfigured_account_label
+        )));
+        assert!(text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-network\",outcome=\"network_error\"}} 1",
+            network_account_label
+        )));
         assert!(text.contains(
             "rook_upstream_failures_total{vendor=\"unrouted\",account=\"unrouted\",model=\"unrouted\",outcome=\"route_rejected\"} 1"
         ));
-        assert!(text.contains(
-            "rook_upstream_failures_total{vendor=\"open_ai\",account=\"unlabeled\",model=\"gpt-4o-secret-account\",outcome=\"network_error\"} 1"
-        ));
+        assert!(text.contains(&format!(
+            "rook_upstream_failures_total{{vendor=\"open_ai\",account=\"{}\",model=\"gpt-4o-secret-account\",outcome=\"network_error\"}} 1",
+            secret_account_label
+        )));
+        assert!(text.contains("rook_provider_account_health{vendor=\"open_ai\",account=\"acct_"));
+        assert!(text.contains("status=\"healthy\"} 1"));
+        assert!(text.contains("status=\"unhealthy\"} 1"));
+        assert!(text
+            .contains("rook_provider_account_cooldown_active{vendor=\"open_ai\",account=\"acct_"));
         assert!(!text.contains("Bearer sk-secret"));
+        assert!(!text
+            .contains("rook_provider_account_health{vendor=\"open_ai\",account=\"test-account\""));
+        assert!(!text.contains(
+            "rook_provider_account_cooldown_active{vendor=\"open_ai\",account=\"test-account\""
+        ));
         assert!(!text.contains("account=\"bearer_sk-secret\""));
     }
 
@@ -2375,13 +2615,9 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json_body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(
-            json_body,
-            json!({
-                "available": false,
-                "reason": "usage accounting is not implemented in M1"
-            })
-        );
+        assert_eq!(json_body["available"], true);
+        assert_eq!(json_body["totals"]["requests"], 0);
+        assert_eq!(json_body["totals"]["total_tokens"], 0);
     }
 
     #[tokio::test]

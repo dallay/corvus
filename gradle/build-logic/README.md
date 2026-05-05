@@ -1,11 +1,11 @@
-### The Convention Plugins
+# Build Logic (Convention Plugins)
 
-- [gradle-project-setup-howto](https://github.com/jjohannes/gradle-project-setup-howto)
-- [organizing_gradle_projects](https://docs.gradle.org/current/userguide/organizing_gradle_projects.html)
+Convention plugins are used to configure each aspect of the build centrally. To keep it structured, plugins are organized into categories: _Build Script_, _Base_, _Check_, _Report_, _Feature_, and _Module_. Below you find all plugins listed. For more details, inspect the corresponding plugin files.
 
-Convention plugins are used to configure each aspect of the build centrally. To keep it structured, we put
-them into four categories: _Base_, _Feature_, _Check_, _Report_. Below you find all plugins listed. For more details,
-inspect the corresponding plugin files.
+Reference:
+
+- [Gradle Project Setup How-To](https://github.com/jjohannes/gradle-project-setup-howto)
+- [Organizing Gradle Projects](https://docs.gradle.org/current/userguide/organizing_gradle_projects.html)
 
 DevSecOps toolchain:
 
@@ -65,6 +65,7 @@ Check plugins are not necessarily needed to build a working software.
 [com.profiletailors.check.format-java.gradle.kts](src/main/kotlin/com.profiletailors.check.format-java.gradle.kts)
 [com.profiletailors.check.format-kotlin.gradle.kts](src/main/kotlin/com.profiletailors.check.format-kotlin.gradle.kts)
 [com.profiletailors.check.format-misc.gradle.kts](src/main/kotlin/com.profiletailors.check.format-misc.gradle.kts)
+[com.profiletailors.check.locking.gradle.kts](src/main/kotlin/com.profiletailors.check.locking.gradle.kts)
 [com.profiletailors.check.quality-check-style.gradle.kts](src/main/kotlin/com.profiletailors.check.quality-check-style.gradle.kts)
 [com.profiletailors.check.quality-detekt.gradle.kts](src/main/kotlin/com.profiletailors.check.quality-detekt.gradle.kts)
 [com.profiletailors.check.quality-nullaway.gradle.kts](src/main/kotlin/com.profiletailors.check.quality-nullaway.gradle.kts)
@@ -110,6 +111,7 @@ _compiling code_ or _testing code_.
 [com.profiletailors.feature.test-fixtures.gradle.kts](src/main/kotlin/com.profiletailors.feature.test-fixtures.gradle.kts)
 [com.profiletailors.feature.use-all-catalog-versions.gradle.kts](src/main/kotlin/com.profiletailors.feature.use-all-catalog-versions.gradle.kts)
 [com.profiletailors.feature.war.gradle.kts](src/main/kotlin/com.profiletailors.feature.war.gradle.kts)
+[com.profiletailors.tools.agentsync.gradle.kts](src/main/kotlin/com.profiletailors.tools.agentsync.gradle.kts)
 [com.profiletailors.tools.check-version.gradle.kts](src/main/kotlin/com.profiletailors.tools.check-version.gradle.kts)
 [com.profiletailors.tools.spring-openapi.gradle.kts](src/main/kotlin/com.profiletailors.tools.spring-openapi.gradle.kts)
 
@@ -134,15 +136,8 @@ And if you add custom tasks and advanced logic, you can add tests for that.
 
 [ConventionPluginTest.kt](src/test/kotlin/com/profiletailors/ConventionPluginTest.kt)
 
-### Continuously build and report using GitHub Actions and Dependabot
+### Continuous Integration with GitHub Actions
 
-- `build.yaml` Configure GitHub to run builds and produce reports (
-  👉[inspect](https://github.com/jjohannes/gradle-project-setup-howto/actions/workflows/build.yaml)). Integrates with:
-  - [Develocity Build Scans](https://gradle.com/scans/gradle/) (👉[inspect](https://scans.gradle.com/s/h3odwhbjjd2qm))
-  - [Gradle Remote Build Cache](https://docs.gradle.com/develocity/bcn/current/)
-  - [Reposilite](https://reposilite.com/) (👉[inspect](https://repo.onepiece.software/#/snapshots))
-  - [Dependency Track](https://dependencytrack.org/)
-- `dependabot.yml` Configure [Dependabot](https://github.com/dependabot) to automatically get
-  version updates (👉[inspect](https://github.com/jjohannes/gradle-project-setup-howto/pulls/app%2Fdependabot))
-
-## Links
+- `pull-request-check-build-logic.yml` validates changes to this module in CI.
+  See [`.github/workflows/`](../../.github/workflows/README.md) for the full workflow reference.
+- [Dependabot](https://github.com/dependabot) keeps plugin and library versions up to date automatically.

@@ -15,6 +15,10 @@ on:
       - fix/**
       - feat/**
       - patch/**
+  merge_group:
+    branches:
+      - main
+      - minor
   workflow_dispatch:
 
 concurrency:
@@ -37,6 +41,7 @@ jobs:
 
       - name: ✏ Validate commit messages
         if: >
+          github.event_name != 'merge_group' &&
           github.event.pull_request.user.login != 'github-actions[bot]' &&
           github.event.pull_request.user.login != 'dependabot[bot]' &&
           github.event.pull_request.user.login != 'renovate[bot]'
@@ -116,6 +121,7 @@ jobs:
 
       - name: 🔒 Check locks
         if: >
+          github.event_name != 'merge_group' &&
           github.event.pull_request.user.login != 'github-actions[bot]' &&
           github.event.pull_request.user.login != 'dependabot[bot]' &&
           github.event.pull_request.user.login != 'renovate[bot]'
@@ -123,6 +129,7 @@ jobs:
 
       - name: 🔍 Check internal release dependency sync
         if: >
+          github.event_name != 'merge_group' &&
           github.event.pull_request.user.login != 'github-actions[bot]' &&
           github.event.pull_request.user.login != 'dependabot[bot]' &&
           github.event.pull_request.user.login != 'renovate[bot]'
@@ -130,6 +137,7 @@ jobs:
 
       - name: 🦀 Check Rust lockfiles are up to date
         if: >
+          github.event_name != 'merge_group' &&
           github.event.pull_request.user.login != 'github-actions[bot]' &&
           github.event.pull_request.user.login != 'dependabot[bot]' &&
           github.event.pull_request.user.login != 'renovate[bot]'
@@ -156,15 +164,15 @@ jobs:
         run: ./gradlew check
 
       - name: 🛠 Generate CycloneDX BOM
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
         run: ./gradlew cyclonedxBom --no-configuration-cache
 
       - name: 📈 Generate Code Coverage Report
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
         run: ./gradlew testCodeCoverageReport testCoverageAllWebApps
 
       - name: 📤 Upload Kotlin/Rust coverage to Codecov
-        if: github.event_name != 'pull_request' && github.actor != 'dependabot[bot]'
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group' && github.actor != 'dependabot[bot]'
         uses: codecov/codecov-action@1af58845a975a7985b0beb0cbe6fbbb71a41dbad # v5.5.3
         with:
           fail_ci_if_error: true
@@ -175,7 +183,7 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: 📤 Upload Web coverage to Codecov
-        if: github.event_name != 'pull_request' && github.actor != 'dependabot[bot]'
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group' && github.actor != 'dependabot[bot]'
         uses: codecov/codecov-action@1af58845a975a7985b0beb0cbe6fbbb71a41dbad # v5.5.3
         with:
           fail_ci_if_error: true

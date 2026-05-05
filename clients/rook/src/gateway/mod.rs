@@ -26,6 +26,44 @@ use crate::observability::Observability;
 use crate::registry::RookRegistry;
 use crate::routing::RoutingEngine;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Semaphore;
+
+#[derive(Debug, Clone)]
+pub struct UpstreamResiliencePolicy {
+    pub max_buffered_attempts: usize,
+    pub failure_cooldown: Duration,
+    pub retry_backoff: Duration,
+    pub max_concurrent_upstream_requests: usize,
+}
+
+impl Default for UpstreamResiliencePolicy {
+    fn default() -> Self {
+        Self {
+            max_buffered_attempts: 3,
+            failure_cooldown: Duration::from_secs(60),
+            retry_backoff: Duration::from_millis(25),
+            max_concurrent_upstream_requests: 64,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct UpstreamConcurrency {
+    semaphore: Arc<Semaphore>,
+}
+
+impl UpstreamConcurrency {
+    pub fn new(max_permits: usize) -> Self {
+        Self {
+            semaphore: Arc::new(Semaphore::new(max_permits.max(1))),
+        }
+    }
+
+    pub fn semaphore(&self) -> Arc<Semaphore> {
+        self.semaphore.clone()
+    }
+}
 
 #[derive(Clone)]
 pub struct GatewayState {
@@ -33,6 +71,8 @@ pub struct GatewayState {
     pub engine: RoutingEngine,
     pub client: reqwest::Client,
     pub observability: Arc<Observability>,
+    pub resilience_policy: UpstreamResiliencePolicy,
+    pub upstream_concurrency: UpstreamConcurrency,
 }
 
 pub fn build_router(state: GatewayState) -> Router {

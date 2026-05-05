@@ -210,6 +210,31 @@ notificaciones de updates, delivery del scheduler y hooks específicos del gatew
 normalización de nombres, la validación de channels soportados y el wiring de constructores viven en
 un solo lugar en vez de repetir bloques `match` por varias partes del runtime.
 
+### Comandos Slash
+
+Los comandos slash son una capacidad de ingreso propia del runtime bajo `session_commands/`. La
+abstracción central es `SlashCommandRegistry`, que almacena valores `SlashCommandRegistration`
+compuestos por un `SlashCommandDescriptor` descubrible y una implementación de `SlashCommandHandler`.
+
+El layering es intencionalmente estrecho:
+
+- las superficies de ingreso como CLI, gateway, webhooks y channels pasan el texto crudo del usuario
+  al registry;
+- `SessionCommandParser` solo identifica entradas con forma slash y preserva el texto crudo de
+  argumentos;
+- `SlashCommandRegistry` se encarga de lookup por nombre canónico, lookup por alias, detección de
+  duplicados, descubrimiento de metadata, validación de forma de argumentos, checks de requisitos y
+  dispatch hacia handlers;
+- los handlers de comandos delegan el comportamiento a `SessionCommandService`, que posee acceso a
+  memoria, settings, snapshots de herramientas y otro estado del runtime.
+
+Los nuevos comandos slash deben extender la plataforma agregando un descriptor y un handler, y luego
+registrando ese par en el builder del registry. No agregues nuevos `match` statements por superficie
+de ingreso para nombres de comandos: si un comando es alcanzable por usuarios, debe ser descubrible a
+través de la metadata del registry y despacharse por el entrypoint central del registry. El trabajo de
+seguimiento puede mover familias adicionales de comandos hacia el mismo punto de extensión sin
+cambiar el routing de ingreso.
+
 ### Memoria
 
 El sistema de memoria (`memory/`) es uno de los componentes más diferenciadores del Agent Runtime. A

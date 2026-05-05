@@ -39,6 +39,8 @@ cargo run -- serve --tui
 Cerebro's bundled container config is for local/demo boot only.
 The bundled Docker config binds `host = "127.0.0.1"` inside the container, so `docker -p` port mapping will not expose the service unless you override the host (for example to `0.0.0.0`) and supply a real `auth_token`.
 
+For the full operator checklist, deployment topology, token rotation procedure, readiness troubleshooting flow, and storage recovery steps, see the [Cerebro Deployment Runbook](../../clients/web/apps/docs/src/content/docs/cerebro/deployment-runbook.md).
+
 For production deployments you must provide explicit configuration for at least:
 - `auth_token`
 - non-placeholder storage credentials

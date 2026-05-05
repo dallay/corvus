@@ -29,6 +29,7 @@ pub fn operational_router(state: AdminState) -> Router {
         .route("/health", get(handlers::handle_health))
         .route("/health/live", get(handlers::handle_live_health))
         .route("/health/ready", get(handlers::handle_ready_health))
+        .route("/status", get(handlers::handle_operator_status))
         .route("/metrics", get(handlers::handle_get_metrics))
         .with_state(state)
 }
@@ -97,7 +98,7 @@ mod tests {
     use crate::registry::RookRegistry;
     use crate::services::{
         account::AccountService as _, health::HealthService as _, pool::PoolService as _,
-        route::RouteService as _, settings::SettingsService as _,
+        route::RouteService as _, settings::SettingsService as _, usage::UsageService as _,
     };
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
@@ -207,8 +208,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn admin_router_preserves_health_and_usage_placeholder() {
+    async fn admin_router_returns_real_usage_summary() {
+        use crate::db::usage::StoredUsageEvent;
+
         let registry = test_api_app().await;
+        registry
+            .usage()
+            .record(StoredUsageEvent {
+                id: "usage-admin-1".to_string(),
+                occurred_at: chrono::Utc::now(),
+                request_id: Some("req-admin-1".to_string()),
+                logical_model: "gpt-4o".to_string(),
+                vendor: "openai".to_string(),
+                account_id: Some("acct-1".to_string()),
+                account_label: "primary".to_string(),
+                stream: false,
+                outcome: "success".to_string(),
+                status_code: 200,
+                latency_ms: 21,
+                prompt_tokens: Some(10),
+                completion_tokens: Some(20),
+                total_tokens: Some(30),
+                cost_usd: None,
+                currency: None,
+                provider_request_id: None,
+            })
+            .await
+            .unwrap();
         let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
 
         let (health_status, health_body) = request_text(app.clone(), "/api/health").await;
@@ -217,13 +243,90 @@ mod tests {
 
         let (usage_status, usage_json) = request_json(app, "/api/usage").await;
         assert_eq!(usage_status, StatusCode::OK);
-        assert_eq!(
-            usage_json,
-            json!({
-                "available": false,
-                "reason": "usage accounting is not implemented in M1"
-            })
-        );
+        assert_eq!(usage_json["available"], true);
+        assert_eq!(usage_json["totals"]["requests"], 1);
+        assert_eq!(usage_json["totals"]["successful_requests"], 1);
+        assert_eq!(usage_json["totals"]["total_tokens"], 30);
+        assert_eq!(usage_json["by_model"][0]["key"], "gpt-4o");
+    }
+
+    #[tokio::test]
+    async fn admin_router_usage_query_errors_use_admin_error_shape() {
+        let registry = test_api_app().await;
+        let app = axum::Router::new().nest("/api", build_router(test_admin_state(registry)));
+
+        let (status, json) = request_json(app, "/api/usage?period=century").await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json["error"]["code"], "bad_request");
+        assert_eq!(json["error"]["message"], "invalid usage query parameters");
+    }
+
+    #[tokio::test]
+    async fn admin_router_status_reports_operator_summary_without_secrets() {
+        let registry = test_api_app().await;
+        let account = make_account("Primary Account", Some("sk-secret"));
+        let account_id = account.id;
+        registry.accounts().create(account).await.unwrap();
+        registry.health().mark_failure(account_id, 60).await;
+
+        let app = build_router(test_admin_state(registry));
+        let (status, body) = request_json(app, "/status").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "ok");
+        assert_eq!(body["startup"]["status"], "ok");
+        assert_eq!(body["startup"]["checks"]["database"]["ready"], true);
+        assert_eq!(body["provider_health"]["total"], 1);
+        assert_eq!(body["provider_health"]["unhealthy"], 1);
+        assert_eq!(body["runtime"]["metrics_enabled"], true);
+        assert_eq!(body["runtime"]["usage_accounting_enabled"], true);
+
+        let rendered = body.to_string();
+        assert!(!rendered.contains("sk-secret"));
+        assert!(!rendered.contains("api_key"));
+    }
+
+    #[tokio::test]
+    async fn admin_router_status_reports_degraded_for_noncritical_startup_degradation() {
+        let registry = test_api_app().await;
+        let app = build_router(test_admin_state_with_startup(
+            registry,
+            crate::health::StartupDependencyState {
+                config_ready: true,
+                database_ready: true,
+                router_ready: true,
+                assets_ready: false,
+            },
+        ));
+
+        let (status, body) = request_json(app, "/status").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "degraded");
+        assert_eq!(body["startup"]["status"], "degraded");
+        assert_eq!(body["startup"]["checks"]["assets"]["ready"], false);
+    }
+
+    #[tokio::test]
+    async fn admin_router_status_reports_fail_for_critical_startup_failure() {
+        let registry = test_api_app().await;
+        let app = build_router(test_admin_state_with_startup(
+            registry,
+            crate::health::StartupDependencyState {
+                config_ready: true,
+                database_ready: false,
+                router_ready: true,
+                assets_ready: true,
+            },
+        ));
+
+        let (status, body) = request_json(app, "/status").await;
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["status"], "fail");
+        assert_eq!(body["startup"]["status"], "fail");
+        assert_eq!(body["startup"]["checks"]["database"]["ready"], false);
     }
 
     #[tokio::test]
