@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.8.2](https://github.com/dallay/corvus/compare/rook-v3.8.1...rook-v3.8.2) (2026-05-05)
+
+
+### Bug Fixes
+
+* **release:** add npm manifest sync post release-please ([a4ee895](https://github.com/dallay/corvus/commit/a4ee895140b0d511040d3282bc50bb1de1bd0666))
+
 ## [3.8.1](https://github.com/dallay/corvus/compare/rook-v3.8.0...rook-v3.8.1) (2026-05-05)
 
 
