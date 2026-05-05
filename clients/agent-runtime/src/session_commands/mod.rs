@@ -1,3 +1,11 @@
+//! Slash command platform for runtime ingress.
+//!
+//! This module owns the runtime slash-command extension point. New slash
+//! commands define a [`SlashCommandDescriptor`] plus a [`SlashCommandHandler`]
+//! and are registered through [`SlashCommandRegistry`]. Ingress surfaces parse
+//! raw prompts, then delegate lookup, alias resolution, requirement checks, and
+//! handler dispatch to the registry instead of matching command names locally.
+
 pub mod parser;
 pub mod registry;
 pub mod service;
