@@ -1095,7 +1095,7 @@ dependencies = [
 
 [[package]]
 name = "corvus"
-version = "0.3.0"
+version = "3.7.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1268,7 +1268,7 @@ dependencies = [
 
 [[package]]
 name = "corvus-traits"
-version = "0.3.0"
+version = "3.7.0"
 dependencies = [
  "anyhow",
  "async-trait",
