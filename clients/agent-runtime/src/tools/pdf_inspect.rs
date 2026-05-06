@@ -276,10 +276,7 @@ mod tests {
     #[tokio::test]
     async fn pdf_inspect_blocks_absolute_path() {
         let tool = PdfInspectTool::new(test_security(std::env::temp_dir()));
-        let result = tool
-            .execute(json!({"path": "/etc/passwd"}))
-            .await
-            .unwrap();
+        let result = tool.execute(json!({"path": "/etc/passwd"})).await.unwrap();
         assert!(!result.success);
         assert!(result.error.as_ref().unwrap().contains("not allowed"));
     }
@@ -291,10 +288,7 @@ mod tests {
         tokio::fs::create_dir_all(&dir).await.unwrap();
 
         let tool = PdfInspectTool::new(test_security(dir.clone()));
-        let result = tool
-            .execute(json!({"path": "nope.pdf"}))
-            .await
-            .unwrap();
+        let result = tool.execute(json!({"path": "nope.pdf"})).await.unwrap();
         assert!(!result.success);
         assert!(result.error.as_ref().unwrap().contains("Failed to resolve"));
 
@@ -308,10 +302,7 @@ mod tests {
         tokio::fs::create_dir_all(&dir).await.unwrap();
 
         let tool = PdfInspectTool::new(test_security_with(dir.clone(), 0));
-        let result = tool
-            .execute(json!({"path": "test.pdf"}))
-            .await
-            .unwrap();
+        let result = tool.execute(json!({"path": "test.pdf"})).await.unwrap();
         assert!(!result.success);
         assert!(result
             .error
@@ -333,10 +324,7 @@ mod tests {
         tokio::fs::write(dir.join("huge.pdf"), &big).await.unwrap();
 
         let tool = PdfInspectTool::new(test_security(dir.clone()));
-        let result = tool
-            .execute(json!({"path": "huge.pdf"}))
-            .await
-            .unwrap();
+        let result = tool.execute(json!({"path": "huge.pdf"})).await.unwrap();
         assert!(!result.success);
         assert!(result.error.as_ref().unwrap().contains("File too large"));
 

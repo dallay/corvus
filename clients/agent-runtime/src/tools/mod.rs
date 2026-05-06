@@ -29,6 +29,8 @@ pub mod memory_forget;
 pub(crate) mod memory_helpers;
 pub mod memory_recall;
 pub mod memory_store;
+#[cfg(feature = "pdf-inspect")]
+pub mod pdf_inspect;
 pub mod pushover;
 pub mod schedule;
 pub mod schema;
@@ -43,8 +45,6 @@ pub mod traits;
 pub(crate) mod url_safety;
 pub mod web_fetch;
 pub mod web_search_tool;
-#[cfg(feature = "pdf-inspect")]
-pub mod pdf_inspect;
 
 pub const PARITY_TOOL_ALIASES: &[(&str, &str)] = &[
     ("Glob", "glob"),
@@ -118,6 +118,8 @@ pub use image_info::ImageInfoTool;
 pub use memory_forget::MemoryForgetTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;
+#[cfg(feature = "pdf-inspect")]
+pub use pdf_inspect::PdfInspectTool;
 pub use pushover::PushoverTool;
 pub use schedule::ScheduleTool;
 #[allow(unused_imports)]
@@ -134,8 +136,6 @@ pub use traits::Tool;
 pub use traits::{ToolResult, ToolSpec};
 pub use web_fetch::WebFetchTool;
 pub use web_search_tool::WebSearchTool;
-#[cfg(feature = "pdf-inspect")]
-pub use pdf_inspect::PdfInspectTool;
 
 use crate::agent::coordinator::SupervisedOrchestrationService;
 use crate::agent::mailbox::{MailboxBackedChildRunner, MailboxWakeupHub, SqliteMailboxStore};
