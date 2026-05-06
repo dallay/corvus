@@ -283,8 +283,18 @@ fn warn_if_legacy_skill_toml_only(canonical_skill_dir: &Path) {
 
 /// Load a skill from a SKILL.md file
 fn load_skill_md(path: &Path, dir: &Path) -> Result<Skill> {
-    let content = std::fs::read_to_string(path)?;
-    let dir_name = dir
+    let canonical_skill_dir = dir.canonicalize()?;
+    let canonical_path = path.canonicalize()?;
+    if !canonical_path.starts_with(&canonical_skill_dir) {
+        anyhow::bail!(
+            "SKILL.md path '{}' escapes skill directory '{}'",
+            canonical_path.display(),
+            canonical_skill_dir.display(),
+        );
+    }
+
+    let content = std::fs::read_to_string(&canonical_path)?;
+    let dir_name = canonical_skill_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
@@ -301,7 +311,7 @@ fn load_skill_md(path: &Path, dir: &Path) -> Result<Skill> {
         tags: fm.tags,
         tools: Vec::new(),
         prompts: vec![content],
-        location: Some(path.to_path_buf()),
+        location: Some(canonical_path),
         trust: trust::SkillTrust::Local,
         origin: trust::SkillOrigin::default(),
         allowed_tools: fm.allowed_tools,
@@ -435,17 +445,61 @@ pub fn init_skills_dir(workspace_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Recursively copy a directory tree.
+/// Recursively copy a directory tree while refusing symlinks that escape the source root.
 fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
+    let canonical_src = src.canonicalize()?;
+    // Only check dest if it already exists - if not, it can't be inside src
+    if dest.exists() {
+        let canonical_dest = dest.canonicalize()?;
+        if canonical_dest.starts_with(&canonical_src) {
+            anyhow::bail!(
+                "Refusing to copy to destination '{}' which is inside source '{}'",
+                canonical_dest.display(),
+                canonical_src.display(),
+            );
+        }
+    }
+    copy_dir_recursive_checked(&canonical_src, &canonical_src, dest)
+}
+
+fn copy_dir_recursive_checked(
+    canonical_root: &Path,
+    canonical_src: &Path,
+    dest: &Path,
+) -> Result<()> {
+    if !canonical_src.starts_with(canonical_root) {
+        anyhow::bail!(
+            "Refusing to copy skill path '{}' because it escapes source root '{}'",
+            canonical_src.display(),
+            canonical_root.display(),
+        );
+    }
+
     std::fs::create_dir_all(dest)?;
-    for entry in std::fs::read_dir(src)? {
+    for entry in std::fs::read_dir(canonical_src)? {
         let entry = entry?;
         let src_path = entry.path();
+        if entry.file_type()?.is_symlink() {
+            anyhow::bail!(
+                "Refusing to copy symlink skill entry '{}'",
+                src_path.display(),
+            );
+        }
+
+        let canonical_entry_path = src_path.canonicalize()?;
+        if !canonical_entry_path.starts_with(canonical_root) {
+            anyhow::bail!(
+                "Refusing to copy skill entry '{}' because it escapes source root '{}'",
+                src_path.display(),
+                canonical_root.display(),
+            );
+        }
+
         let dest_path = dest.join(entry.file_name());
-        if src_path.is_dir() {
-            copy_dir_recursive(&src_path, &dest_path)?;
+        if canonical_entry_path.is_dir() {
+            copy_dir_recursive_checked(canonical_root, &canonical_entry_path, &dest_path)?;
         } else {
-            std::fs::copy(&src_path, &dest_path)?;
+            std::fs::copy(&canonical_entry_path, &dest_path)?;
         }
     }
     Ok(())
@@ -907,9 +961,25 @@ fn clone_official_skill_subdir(repo_url: &str, subdir_path: &str, dest: &Path) -
         );
     }
 
-    let copy_result = copy_dir_recursive(&source_path, dest);
+    let copy_result = copy_dir_atomic(&source_path, dest);
     let _ = std::fs::remove_dir_all(&temp_dir);
     copy_result
+}
+
+fn copy_dir_atomic(src: &Path, dest: &Path) -> Result<()> {
+    let staging_dir = dest.with_extension("staging");
+    let _ = std::fs::remove_dir_all(&staging_dir);
+
+    match copy_dir_recursive(src, &staging_dir) {
+        Ok(()) => {
+            std::fs::rename(&staging_dir, dest)?;
+            Ok(())
+        }
+        Err(err) => {
+            let _ = std::fs::remove_dir_all(&staging_dir);
+            Err(err)
+        }
+    }
 }
 
 /// Run `git clone --depth 1` to a destination directory.
@@ -995,7 +1065,17 @@ fn handle_install_command(
 fn validate_and_parse_skill_md(
     skill_dir: &Path,
 ) -> Result<(frontmatter::SkillFrontmatter, Option<String>)> {
-    let skill_md_path = skill_dir.join("SKILL.md");
+    let canonical_skill_dir = match skill_dir.canonicalize() {
+        Ok(path) => path,
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(skill_dir);
+            anyhow::bail!(
+                "Failed to canonicalize installed skill directory '{}': {error}",
+                skill_dir.display()
+            );
+        }
+    };
+    let skill_md_path = canonical_skill_dir.join("SKILL.md");
 
     if !skill_md_path.exists() {
         let _ = std::fs::remove_dir_all(skill_dir);
@@ -1005,11 +1085,33 @@ fn validate_and_parse_skill_md(
         );
     }
 
-    let content = std::fs::read_to_string(&skill_md_path)?;
+    let canonical_skill_md_path = match skill_md_path.canonicalize() {
+        Ok(path) => path,
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(skill_dir);
+            anyhow::bail!(
+                "Failed to canonicalize SKILL.md path '{}': {error}",
+                skill_md_path.display()
+            );
+        }
+    };
+    if !canonical_skill_md_path.starts_with(&canonical_skill_dir) {
+        let _ = std::fs::remove_dir_all(skill_dir);
+        anyhow::bail!(
+            "SKILL.md path '{}' escapes installed skill directory '{}'",
+            canonical_skill_md_path.display(),
+            canonical_skill_dir.display(),
+        );
+    }
+
+    let content = std::fs::read_to_string(&canonical_skill_md_path)?;
     let fm = frontmatter::parse_frontmatter(&content);
 
     // Abort if frontmatter name doesn't match directory name
-    let dir_name = skill_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let dir_name = canonical_skill_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
     if let Some(ref fm_name) = fm.name {
         if fm_name != dir_name {
             let _ = std::fs::remove_dir_all(skill_dir);
@@ -2077,6 +2179,67 @@ mod tests {
             fs::read_to_string(dst_path.join("sub/nested.txt")).unwrap(),
             "nested"
         );
+    }
+
+    #[test]
+    fn copy_dir_recursive_rejects_symlink_escape() {
+        let src_dir = tempfile::tempdir().unwrap();
+        let outside_dir = tempfile::tempdir().unwrap();
+        let dst_dir = tempfile::tempdir().unwrap();
+        fs::write(outside_dir.path().join("secret.txt"), "secret").unwrap();
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside_dir.path(), src_dir.path().join("escaped")).unwrap();
+
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(outside_dir.path(), src_dir.path().join("escaped"))
+            .unwrap();
+
+        let result = copy_dir_recursive(src_dir.path(), &dst_dir.path().join("copy"));
+        assert!(result.is_err());
+        assert!(!dst_dir.path().join("copy/escaped/secret.txt").exists());
+    }
+
+    #[test]
+    fn copy_dir_recursive_rejects_symlink_loop() {
+        let src_dir = tempfile::tempdir().unwrap();
+        let dst_dir = tempfile::tempdir().unwrap();
+        let dst_path = dst_dir.path().join("copy");
+        fs::write(src_dir.path().join("marker.txt"), "marker").unwrap();
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(src_dir.path(), src_dir.path().join("loop")).unwrap();
+
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(src_dir.path(), src_dir.path().join("loop")).unwrap();
+
+        let result = copy_dir_atomic(src_dir.path(), &dst_path);
+        assert!(result.is_err());
+        assert!(!dst_path.exists());
+        assert!(!dst_path.with_extension("staging").exists());
+    }
+
+    #[test]
+    fn copy_dir_atomic_removes_staging_after_symlink_escape() {
+        let src_dir = tempfile::tempdir().unwrap();
+        let outside_dir = tempfile::tempdir().unwrap();
+        let dst_dir = tempfile::tempdir().unwrap();
+        let dst_path = dst_dir.path().join("copy");
+        let staging_path = dst_path.with_extension("staging");
+        fs::write(outside_dir.path().join("secret.txt"), "secret").unwrap();
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside_dir.path(), src_dir.path().join("escaped")).unwrap();
+
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(outside_dir.path(), src_dir.path().join("escaped"))
+            .unwrap();
+
+        let result = copy_dir_atomic(src_dir.path(), &dst_path);
+
+        assert!(result.is_err());
+        assert!(!dst_path.exists());
+        assert!(!staging_path.exists());
     }
 
     // ── format_tool_names ────────────────────────────────────
