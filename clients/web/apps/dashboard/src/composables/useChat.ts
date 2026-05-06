@@ -74,10 +74,6 @@ type StreamLineResult =
   | { type: "done"; doneEvent: StreamDoneEvent }
   | { type: "error"; message: string };
 
-type StreamReadResult = {
-  doneEvent: StreamDoneEvent | null;
-};
-
 const APPROVAL_REQUIRED_TYPES = new Set(["approval_required", "approval_contract"]);
 
 function createSessionState(
@@ -270,14 +266,16 @@ function applyStreamLineResult(
 async function readStreamEvents(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   fallbackMessage: string,
-  onChunk: (text: string) => void,
-  onDone: (doneEvent: StreamDoneEvent) => void
-): Promise<void> {
+  onChunk: (text: string) => void
+): Promise<StreamDoneEvent | null> {
   const decoder = new TextDecoder();
   const streamEventState: StreamEventState = { currentEvent: "", currentData: "" };
   let buffer = "";
+  let doneEvent: StreamDoneEvent | null = null;
   const processLine = (line: string, state: StreamEventState): void => {
-    applyStreamLineResult(consumeStreamLine(line, state, fallbackMessage), onChunk, onDone);
+    applyStreamLineResult(consumeStreamLine(line, state, fallbackMessage), onChunk, (event) => {
+      doneEvent = event;
+    });
   };
 
   while (true) {
@@ -294,6 +292,8 @@ async function readStreamEvents(
   if (buffer) {
     processStreamBuffer(`${buffer}\n\n`, streamEventState, processLine);
   }
+
+  return doneEvent;
 }
 
 export function useChat(
@@ -431,6 +431,12 @@ export function useChat(
     updateSessionState(createSessionState("session_ready", null, true, true));
     statusMessage.value = t("chat.sessionReady");
     errorMessage.value = "";
+  }
+
+  function applyStreamDoneEvent(doneEvent: StreamDoneEvent): void {
+    if (doneEvent.session_id && !isSessionReady.value) {
+      setSessionReady(doneEvent.session_id);
+    }
   }
 
   function setSessionUnavailable(): void {
@@ -680,23 +686,18 @@ export function useChat(
       }
 
       const fallbackMessage = t("chat.requestError", { text: normalizedMessage });
-      const streamReadResult: StreamReadResult = { doneEvent: null };
-      const handleDoneEvent = (doneEvent: StreamDoneEvent): void => {
-        streamReadResult.doneEvent = doneEvent;
-        if (doneEvent.session_id && !isSessionReady.value) {
-          setSessionReady(doneEvent.session_id);
+      try {
+        const doneEvent = await readStreamEvents(reader, fallbackMessage, onChunk);
+        if (!doneEvent) {
+          throw new Error(fallbackMessage);
         }
-      };
 
-      await readStreamEvents(reader, fallbackMessage, onChunk, handleDoneEvent);
-
-      const { doneEvent } = streamReadResult;
-      if (!doneEvent) {
-        throw new Error(fallbackMessage);
+        applyStreamDoneEvent(doneEvent);
+        statusMessage.value = t("chat.sessionActive", { sessionId: currentSessionId.value });
+        return doneEvent;
+      } finally {
+        reader.releaseLock();
       }
-
-      statusMessage.value = t("chat.sessionActive", { sessionId: currentSessionId.value });
-      return doneEvent;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         throw new Error(t("chat.timeoutError"));

@@ -99,11 +99,13 @@ function expandTransitiveComponents(directComponents, graph, reasons) {
   let changed = true;
 
   while (changed) {
-    changed = Object.entries(graph.components).some(([componentId, component]) =>
-      component.dependsOnReleaseOf.some((dependency) =>
-        addTransitiveComponent(affectedComponents, reasons, componentId, dependency),
-      ),
-    );
+    changed = false;
+
+    for (const [componentId, component] of Object.entries(graph.components)) {
+      for (const dependency of component.dependsOnReleaseOf) {
+        changed = addTransitiveComponent(affectedComponents, reasons, componentId, dependency) || changed;
+      }
+    }
   }
 
   return affectedComponents;

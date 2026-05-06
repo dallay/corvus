@@ -5,9 +5,9 @@ FROM rust:1.95-slim-trixie AS builder
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    clang \
-    libclang-dev \
-    pkg-config \
+    clang=1:19.0-63 \
+    libclang-dev=1:19.0-63 \
+    pkg-config=1.8.1-4 \
     && rm -rf /var/lib/apt/lists/*
 
 # Build from repo context so path dependencies continue to resolve.

@@ -468,6 +468,13 @@ fn copy_dir_recursive_checked(
     for entry in std::fs::read_dir(canonical_src)? {
         let entry = entry?;
         let src_path = entry.path();
+        if entry.file_type()?.is_symlink() {
+            anyhow::bail!(
+                "Refusing to copy symlink skill entry '{}'",
+                src_path.display(),
+            );
+        }
+
         let canonical_entry_path = src_path.canonicalize()?;
         if !canonical_entry_path.starts_with(canonical_root) {
             anyhow::bail!(
@@ -943,9 +950,25 @@ fn clone_official_skill_subdir(repo_url: &str, subdir_path: &str, dest: &Path) -
         );
     }
 
-    let copy_result = copy_dir_recursive(&source_path, dest);
+    let copy_result = copy_dir_atomic(&source_path, dest);
     let _ = std::fs::remove_dir_all(&temp_dir);
     copy_result
+}
+
+fn copy_dir_atomic(src: &Path, dest: &Path) -> Result<()> {
+    let staging_dir = dest.with_extension("staging");
+    let _ = std::fs::remove_dir_all(&staging_dir);
+
+    match copy_dir_recursive(src, &staging_dir) {
+        Ok(()) => {
+            std::fs::rename(&staging_dir, dest)?;
+            Ok(())
+        }
+        Err(err) => {
+            let _ = std::fs::remove_dir_all(&staging_dir);
+            Err(err)
+        }
+    }
 }
 
 /// Run `git clone --depth 1` to a destination directory.
@@ -1031,7 +1054,16 @@ fn handle_install_command(
 fn validate_and_parse_skill_md(
     skill_dir: &Path,
 ) -> Result<(frontmatter::SkillFrontmatter, Option<String>)> {
-    let canonical_skill_dir = skill_dir.canonicalize()?;
+    let canonical_skill_dir = match skill_dir.canonicalize() {
+        Ok(path) => path,
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(skill_dir);
+            anyhow::bail!(
+                "Failed to canonicalize installed skill directory '{}': {error}",
+                skill_dir.display()
+            );
+        }
+    };
     let skill_md_path = canonical_skill_dir.join("SKILL.md");
 
     if !skill_md_path.exists() {
@@ -1042,7 +1074,16 @@ fn validate_and_parse_skill_md(
         );
     }
 
-    let canonical_skill_md_path = skill_md_path.canonicalize()?;
+    let canonical_skill_md_path = match skill_md_path.canonicalize() {
+        Ok(path) => path,
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(skill_dir);
+            anyhow::bail!(
+                "Failed to canonicalize SKILL.md path '{}': {error}",
+                skill_md_path.display()
+            );
+        }
+    };
     if !canonical_skill_md_path.starts_with(&canonical_skill_dir) {
         let _ = std::fs::remove_dir_all(skill_dir);
         anyhow::bail!(
@@ -2146,6 +2187,48 @@ mod tests {
         let result = copy_dir_recursive(src_dir.path(), &dst_dir.path().join("copy"));
         assert!(result.is_err());
         assert!(!dst_dir.path().join("copy/escaped/secret.txt").exists());
+    }
+
+    #[test]
+    fn copy_dir_recursive_rejects_symlink_loop() {
+        let src_dir = tempfile::tempdir().unwrap();
+        let dst_dir = tempfile::tempdir().unwrap();
+        let dst_path = dst_dir.path().join("copy");
+        fs::write(src_dir.path().join("marker.txt"), "marker").unwrap();
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(src_dir.path(), src_dir.path().join("loop")).unwrap();
+
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(src_dir.path(), src_dir.path().join("loop")).unwrap();
+
+        let result = copy_dir_atomic(src_dir.path(), &dst_path);
+        assert!(result.is_err());
+        assert!(!dst_path.exists());
+        assert!(!dst_path.with_extension("staging").exists());
+    }
+
+    #[test]
+    fn copy_dir_atomic_removes_staging_after_symlink_escape() {
+        let src_dir = tempfile::tempdir().unwrap();
+        let outside_dir = tempfile::tempdir().unwrap();
+        let dst_dir = tempfile::tempdir().unwrap();
+        let dst_path = dst_dir.path().join("copy");
+        let staging_path = dst_path.with_extension("staging");
+        fs::write(outside_dir.path().join("secret.txt"), "secret").unwrap();
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside_dir.path(), src_dir.path().join("escaped")).unwrap();
+
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(outside_dir.path(), src_dir.path().join("escaped"))
+            .unwrap();
+
+        let result = copy_dir_atomic(src_dir.path(), &dst_path);
+
+        assert!(result.is_err());
+        assert!(!dst_path.exists());
+        assert!(!staging_path.exists());
     }
 
     // ── format_tool_names ────────────────────────────────────

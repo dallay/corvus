@@ -2517,7 +2517,7 @@ async fn execute_stream_dispatcher(
                 request.server_execution_mode,
                 request.webhook_body.execution_mode,
             ),
-            include_sse_frames: true,
+            include_sse_frames: false,
         },
     )
     .await;

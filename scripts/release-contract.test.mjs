@@ -22,15 +22,16 @@ function readText(path) {
 }
 
 function readTomlSection(text, sectionName) {
-  const sectionHeader = `[${sectionName}]`;
-  const sectionStart = text.indexOf(`${sectionHeader}\n`);
-  if (sectionStart === -1) {
+  const sectionMatch = new RegExp(`^\\[${sectionName}\\]\\r?\\n`, "m").exec(text);
+  if (!sectionMatch) {
     return "";
   }
 
-  const bodyStart = sectionStart + sectionHeader.length + 1;
-  const nextSectionStart = text.indexOf("\n[", bodyStart);
-  return nextSectionStart === -1 ? text.slice(bodyStart) : text.slice(bodyStart, nextSectionStart);
+  const bodyStart = sectionMatch.index + sectionMatch[0].length;
+  const nextSectionMatch = /\r?\n\[/.exec(text.slice(bodyStart));
+  return nextSectionMatch
+    ? text.slice(bodyStart, bodyStart + nextSectionMatch.index)
+    : text.slice(bodyStart);
 }
 
 function assertIncludesAll(text, patterns, label) {
