@@ -3,6 +3,9 @@ use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
 use std::sync::Arc;
+use std::time::Duration;
+
+const PDF_PROCESSING_TIMEOUT: Duration = Duration::from_secs(60);
 
 const MAX_PDF_SIZE_BYTES: u64 = 50 * 1024 * 1024;
 
@@ -118,6 +121,14 @@ impl Tool for PdfInspectTool {
 
         match tokio::fs::metadata(&resolved_path).await {
             Ok(meta) => {
+                if !meta.is_file() {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some("Not a regular file".into()),
+                        structured: None,
+                    });
+                }
                 if meta.len() > MAX_PDF_SIZE_BYTES {
                     return Ok(ToolResult {
                         success: false,
@@ -141,7 +152,7 @@ impl Tool for PdfInspectTool {
         }
 
         let path_clone = resolved_path.clone();
-        let result = tokio::task::spawn_blocking(move || {
+        let task = tokio::task::spawn_blocking(move || {
             if extract_text {
                 pdf_inspector::process_pdf(&path_clone)
             } else {
@@ -150,8 +161,22 @@ impl Tool for PdfInspectTool {
                     pdf_inspector::PdfOptions::detect_only(),
                 )
             }
-        })
-        .await;
+        });
+
+        let result = match tokio::time::timeout(PDF_PROCESSING_TIMEOUT, task).await {
+            Ok(inner) => inner,
+            Err(_) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!(
+                        "PDF processing timed out after {}s",
+                        PDF_PROCESSING_TIMEOUT.as_secs()
+                    )),
+                    structured: None,
+                });
+            }
+        };
 
         match result {
             Ok(Ok(info)) => {
@@ -203,6 +228,7 @@ mod tests {
     use super::*;
     use crate::security::{AutonomyLevel, SecurityPolicy};
     use serde_json::json;
+    use tempfile::TempDir;
 
     fn test_security(workspace: std::path::PathBuf) -> Arc<SecurityPolicy> {
         Arc::new(SecurityPolicy {
@@ -226,13 +252,15 @@ mod tests {
 
     #[test]
     fn pdf_inspect_name() {
-        let tool = PdfInspectTool::new(test_security(std::env::temp_dir()));
+        let dir = TempDir::new().unwrap();
+        let tool = PdfInspectTool::new(test_security(dir.path().to_path_buf()));
         assert_eq!(tool.name(), "pdf_inspect");
     }
 
     #[test]
     fn pdf_inspect_schema_has_path() {
-        let tool = PdfInspectTool::new(test_security(std::env::temp_dir()));
+        let dir = TempDir::new().unwrap();
+        let tool = PdfInspectTool::new(test_security(dir.path().to_path_buf()));
         let schema = tool.parameters_schema();
         assert!(schema["properties"]["path"].is_object());
         assert!(schema["required"]
@@ -243,7 +271,8 @@ mod tests {
 
     #[test]
     fn pdf_inspect_schema_has_extract_text() {
-        let tool = PdfInspectTool::new(test_security(std::env::temp_dir()));
+        let dir = TempDir::new().unwrap();
+        let tool = PdfInspectTool::new(test_security(dir.path().to_path_buf()));
         let schema = tool.parameters_schema();
         assert!(schema["properties"]["extract_text"].is_object());
         assert_eq!(schema["properties"]["extract_text"]["type"], "boolean");
@@ -251,31 +280,28 @@ mod tests {
 
     #[tokio::test]
     async fn pdf_inspect_missing_path_param() {
-        let tool = PdfInspectTool::new(test_security(std::env::temp_dir()));
+        let dir = TempDir::new().unwrap();
+        let tool = PdfInspectTool::new(test_security(dir.path().to_path_buf()));
         let result = tool.execute(json!({})).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn pdf_inspect_blocks_path_traversal() {
-        let dir = std::env::temp_dir().join("corvus_test_pdf_inspect_traversal");
-        let _ = tokio::fs::remove_dir_all(&dir).await;
-        tokio::fs::create_dir_all(&dir).await.unwrap();
-
-        let tool = PdfInspectTool::new(test_security(dir.clone()));
+        let dir = TempDir::new().unwrap();
+        let tool = PdfInspectTool::new(test_security(dir.path().to_path_buf()));
         let result = tool
             .execute(json!({"path": "../../../etc/passwd"}))
             .await
             .unwrap();
         assert!(!result.success);
         assert!(result.error.as_ref().unwrap().contains("not allowed"));
-
-        let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 
     #[tokio::test]
     async fn pdf_inspect_blocks_absolute_path() {
-        let tool = PdfInspectTool::new(test_security(std::env::temp_dir()));
+        let dir = TempDir::new().unwrap();
+        let tool = PdfInspectTool::new(test_security(dir.path().to_path_buf()));
         let result = tool.execute(json!({"path": "/etc/passwd"})).await.unwrap();
         assert!(!result.success);
         assert!(result.error.as_ref().unwrap().contains("not allowed"));
@@ -283,25 +309,17 @@ mod tests {
 
     #[tokio::test]
     async fn pdf_inspect_nonexistent_file() {
-        let dir = std::env::temp_dir().join("corvus_test_pdf_inspect_missing");
-        let _ = tokio::fs::remove_dir_all(&dir).await;
-        tokio::fs::create_dir_all(&dir).await.unwrap();
-
-        let tool = PdfInspectTool::new(test_security(dir.clone()));
+        let dir = TempDir::new().unwrap();
+        let tool = PdfInspectTool::new(test_security(dir.path().to_path_buf()));
         let result = tool.execute(json!({"path": "nope.pdf"})).await.unwrap();
         assert!(!result.success);
         assert!(result.error.as_ref().unwrap().contains("Failed to resolve"));
-
-        let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 
     #[tokio::test]
     async fn pdf_inspect_blocks_when_rate_limited() {
-        let dir = std::env::temp_dir().join("corvus_test_pdf_inspect_rate_limited");
-        let _ = tokio::fs::remove_dir_all(&dir).await;
-        tokio::fs::create_dir_all(&dir).await.unwrap();
-
-        let tool = PdfInspectTool::new(test_security_with(dir.clone(), 0));
+        let dir = TempDir::new().unwrap();
+        let tool = PdfInspectTool::new(test_security_with(dir.path().to_path_buf(), 0));
         let result = tool.execute(json!({"path": "test.pdf"})).await.unwrap();
         assert!(!result.success);
         assert!(result
@@ -309,25 +327,34 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("Rate limit exceeded"));
-
-        let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 
     #[tokio::test]
     async fn pdf_inspect_rejects_oversized_file() {
-        let dir = std::env::temp_dir().join("corvus_test_pdf_inspect_large");
-        let _ = tokio::fs::remove_dir_all(&dir).await;
-        tokio::fs::create_dir_all(&dir).await.unwrap();
-
-        // Create a fake file just over 50 MB
+        let dir = TempDir::new().unwrap();
         let big = vec![b'x'; 50 * 1024 * 1024 + 1];
-        tokio::fs::write(dir.join("huge.pdf"), &big).await.unwrap();
-
-        let tool = PdfInspectTool::new(test_security(dir.clone()));
+        tokio::fs::write(dir.path().join("huge.pdf"), &big)
+            .await
+            .unwrap();
+        let tool = PdfInspectTool::new(test_security(dir.path().to_path_buf()));
         let result = tool.execute(json!({"path": "huge.pdf"})).await.unwrap();
         assert!(!result.success);
         assert!(result.error.as_ref().unwrap().contains("File too large"));
+    }
 
-        let _ = tokio::fs::remove_dir_all(&dir).await;
+    #[tokio::test]
+    async fn pdf_inspect_rejects_directory() {
+        let dir = TempDir::new().unwrap();
+        tokio::fs::create_dir(dir.path().join("subdir"))
+            .await
+            .unwrap();
+        let tool = PdfInspectTool::new(test_security(dir.path().to_path_buf()));
+        let result = tool.execute(json!({"path": "subdir"})).await.unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("Not a regular file"));
     }
 }
