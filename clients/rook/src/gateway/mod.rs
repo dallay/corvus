@@ -22,6 +22,7 @@ use axum::{
     Router,
 };
 
+use crate::config::OperationalConfig;
 use crate::observability::Observability;
 use crate::registry::RookRegistry;
 use crate::routing::RoutingEngine;
@@ -71,6 +72,7 @@ pub struct GatewayState {
     pub engine: RoutingEngine,
     pub client: reqwest::Client,
     pub observability: Arc<Observability>,
+    pub operational: OperationalConfig,
     pub resilience_policy: UpstreamResiliencePolicy,
     pub upstream_concurrency: UpstreamConcurrency,
 }

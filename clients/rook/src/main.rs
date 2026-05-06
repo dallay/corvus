@@ -632,6 +632,7 @@ mod tests {
         .expect("config export should serialize");
 
         assert!(output.contains("\"host\": \"127.0.0.1\""));
+        assert!(output.contains("\"redaction_baseline\": \"always_on\""));
         assert!(output.contains("\"bearer_token\": \"[redacted]\""));
         assert!(!output.contains("super-secret-token"));
     }

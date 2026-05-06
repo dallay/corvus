@@ -50,6 +50,7 @@ pub struct RookConfig {
     pub port: u16,
     pub enable_tui: bool,
     pub db_path: PathBuf,
+    pub operational: OperationalConfig,
     pub inbound_auth: InboundAuthConfig,
     pub transport: TransportConfig,
     pub rate_limits: RateLimitConfig,
@@ -64,6 +65,7 @@ impl Default for RookConfig {
             port: 4141,
             enable_tui: false,
             db_path: PathBuf::from("./rook.db"),
+            operational: OperationalConfig::default(),
             inbound_auth: InboundAuthConfig::default(),
             transport: TransportConfig::default(),
             rate_limits: RateLimitConfig::default(),
@@ -80,11 +82,20 @@ pub struct PartialRookConfig {
     pub port: Option<u16>,
     pub enable_tui: Option<bool>,
     pub db_path: Option<PathBuf>,
+    pub operational: Option<PartialOperationalConfig>,
     pub inbound_auth: Option<PartialInboundAuthConfig>,
+
     pub transport: Option<PartialTransportConfig>,
     pub rate_limits: Option<PartialRateLimitConfig>,
     pub idempotency: Option<PartialIdempotencyConfig>,
     pub upstream_resilience: Option<PartialUpstreamResilienceConfig>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PartialOperationalConfig {
+    pub undercover: Option<bool>,
+    pub debug_diagnostics: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -149,6 +160,13 @@ pub struct PartialIdempotencyConfig {
     pub chat_completions: Option<PartialChatCompletionsIdempotencyConfig>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PartialChatCompletionsIdempotencyConfig {
+    pub enabled: Option<bool>,
+    pub replay_window_seconds: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpstreamResilienceConfig {
     pub max_buffered_attempts: usize,
@@ -207,13 +225,6 @@ pub struct PartialUpstreamResilienceConfig {
     pub failure_cooldown_seconds: Option<u64>,
     pub retry_backoff_milliseconds: Option<u64>,
     pub max_concurrent_upstream_requests: Option<usize>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct PartialChatCompletionsIdempotencyConfig {
-    pub enabled: Option<bool>,
-    pub replay_window_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -331,6 +342,7 @@ impl RookConfig {
             port: self.port,
             enable_tui: self.enable_tui,
             db_path: Some(self.db_path.display().to_string()),
+            operational: self.operational.clone(),
             inbound_auth: self.inbound_auth.clone(),
             transport: self.transport.clone(),
             rate_limits: self.rate_limits.clone(),
@@ -367,6 +379,9 @@ impl PartialRookConfig {
         if let Some(db_path) = self.db_path {
             target.db_path = db_path;
         }
+        if let Some(operational) = self.operational {
+            operational.apply_to(&mut target.operational);
+        }
         if let Some(inbound_auth) = self.inbound_auth {
             inbound_auth.apply_to(&mut target.inbound_auth);
         }
@@ -381,6 +396,17 @@ impl PartialRookConfig {
         }
         if let Some(upstream_resilience) = self.upstream_resilience {
             upstream_resilience.apply_to(&mut target.upstream_resilience);
+        }
+    }
+}
+
+impl PartialOperationalConfig {
+    fn apply_to(self, target: &mut OperationalConfig) {
+        if let Some(undercover) = self.undercover {
+            target.undercover = undercover;
+        }
+        if let Some(debug_diagnostics) = self.debug_diagnostics {
+            target.debug_diagnostics = debug_diagnostics;
         }
     }
 }
@@ -526,6 +552,7 @@ impl CliRookConfigOverlay {
             port: self.port,
             enable_tui: self.enable_tui,
             db_path: self.db_path,
+            operational: None,
             inbound_auth: self.inbound_auth,
             transport: self.transport,
             rate_limits: self.rate_limits,
@@ -556,6 +583,16 @@ fn parse_env_overlay(env: &HashMap<String, String>) -> Result<PartialRookConfig,
             .map(|value| parse_bool_env("ROOK_ENABLE_TUI", value))
             .transpose()?,
         db_path: env.get("ROOK_DB_PATH").map(PathBuf::from),
+        operational: partial_if_any(PartialOperationalConfig {
+            undercover: env
+                .get("ROOK_UNDERCOVER")
+                .map(|value| parse_bool_env("ROOK_UNDERCOVER", value))
+                .transpose()?,
+            debug_diagnostics: env
+                .get("ROOK_DEBUG_DIAGNOSTICS")
+                .map(|value| parse_bool_env("ROOK_DEBUG_DIAGNOSTICS", value))
+                .transpose()?,
+        }),
         inbound_auth: partial_if_any(PartialInboundAuthConfig {
             enabled: env
                 .get("ROOK_INBOUND_AUTH_ENABLED")
@@ -725,6 +762,12 @@ trait PartialOverlay {
     fn is_empty(&self) -> bool;
 }
 
+impl PartialOverlay for PartialOperationalConfig {
+    fn is_empty(&self) -> bool {
+        self.undercover.is_none() && self.debug_diagnostics.is_none()
+    }
+}
+
 impl PartialOverlay for PartialInboundAuthConfig {
     fn is_empty(&self) -> bool {
         self.enabled.is_none() && self.bearer_token.is_none()
@@ -809,11 +852,19 @@ pub struct RookConfigExportView {
     pub port: u16,
     pub enable_tui: bool,
     pub db_path: String,
+    pub operational: OperationalExportView,
     pub inbound_auth: InboundAuthExportView,
     pub transport: TransportExportView,
     pub rate_limits: RateLimitExportView,
     pub idempotency: IdempotencyExportView,
     pub upstream_resilience: UpstreamResilienceConfigExportView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OperationalExportView {
+    pub undercover: bool,
+    pub debug_diagnostics: bool,
+    pub redaction_baseline: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -932,6 +983,7 @@ impl RookConfigExportView {
             port: config.port,
             enable_tui: config.enable_tui,
             db_path: config.db_path.display().to_string(),
+            operational: OperationalExportView::from(&config.operational),
             inbound_auth: InboundAuthExportView {
                 enabled: config.inbound_auth.enabled,
                 bearer_token: if config.inbound_auth.enabled {
@@ -994,6 +1046,33 @@ impl RookConfigExportView {
             upstream_resilience: UpstreamResilienceConfigExportView::from(
                 &config.upstream_resilience,
             ),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperationalConfig {
+    /// Keep secret/payload redaction enabled across diagnostics and operator surfaces.
+    pub undercover: bool,
+    /// Emit extra metadata-only diagnostics for agent/gateway debugging.
+    pub debug_diagnostics: bool,
+}
+
+impl Default for OperationalConfig {
+    fn default() -> Self {
+        Self {
+            undercover: true,
+            debug_diagnostics: false,
+        }
+    }
+}
+
+impl From<&OperationalConfig> for OperationalExportView {
+    fn from(config: &OperationalConfig) -> Self {
+        Self {
+            undercover: config.undercover,
+            debug_diagnostics: config.debug_diagnostics,
+            redaction_baseline: "always_on",
         }
     }
 }
@@ -1455,6 +1534,51 @@ mod tests {
             server.upstream_resilience.max_concurrent_upstream_requests,
             7
         );
+    }
+
+    #[test]
+    fn operational_config_defaults_to_undercover_enabled_and_debug_disabled() {
+        let config = super::RookConfig::default();
+
+        assert!(config.operational.undercover);
+        assert!(!config.operational.debug_diagnostics);
+    }
+
+    #[test]
+    fn operational_config_loads_from_file_and_env() {
+        let from_file = super::RookConfig::from_toml_str(
+            r#"
+[operational]
+undercover = false
+debug_diagnostics = true
+"#,
+        )
+        .expect("operational config should parse");
+        assert!(!from_file.operational.undercover);
+        assert!(from_file.operational.debug_diagnostics);
+
+        let env = std::collections::HashMap::from([
+            ("ROOK_UNDERCOVER".to_string(), "true".to_string()),
+            ("ROOK_DEBUG_DIAGNOSTICS".to_string(), "false".to_string()),
+        ]);
+        let from_env = super::RookConfig::from_sources(Some("[operational]\nundercover = false\ndebug_diagnostics = true\n"), &env)
+            .expect("env operational overrides should parse");
+
+        assert!(from_env.operational.undercover);
+        assert!(!from_env.operational.debug_diagnostics);
+    }
+
+    #[test]
+    fn config_export_view_includes_operational_controls_without_disabling_redaction_baseline() {
+        let mut config = super::RookConfig::default();
+        config.operational.undercover = false;
+        config.operational.debug_diagnostics = true;
+
+        let view = super::RookConfigExportView::from_config(&config);
+
+        assert!(!view.operational.undercover);
+        assert!(view.operational.debug_diagnostics);
+        assert_eq!(view.operational.redaction_baseline, "always_on");
     }
 
     #[test]

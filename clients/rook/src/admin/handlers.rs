@@ -2,10 +2,10 @@ use crate::admin::{
     types::{
         AccountView, AddPoolMemberRequest, AdminErrorResponse, AuditEventView,
         CreateAccountRequest, CreatePoolRequest, CreateRouteRequest, HealthAccountView,
-        HealthSummaryView, ListAuditEventsQuery, OperatorRuntimeView, OperatorStatusView, PoolView,
-        RouteView, SettingsView, UpdateAccountRequest, UpdatePoolRequest, UpdateRouteRequest,
-        UpdateSettingsRequest, UsageAggregateView, UsageGroupView, UsageSummaryPeriod,
-        UsageSummaryView, UsageSummaryWindowView,
+        HealthSummaryView, ListAuditEventsQuery, OperationalStatusView, OperatorRuntimeView,
+        OperatorStatusView, PoolView, RouteView, SettingsView, UpdateAccountRequest,
+        UpdatePoolRequest, UpdateRouteRequest, UpdateSettingsRequest, UsageAggregateView,
+        UsageGroupView, UsageSummaryPeriod, UsageSummaryView, UsageSummaryWindowView,
     },
     AdminState,
 };
@@ -275,6 +275,11 @@ pub async fn handle_operator_status(
             runtime: OperatorRuntimeView {
                 metrics_enabled: true,
                 usage_accounting_enabled: true,
+            },
+            operational: OperationalStatusView {
+                undercover: state.operational.undercover,
+                debug_diagnostics: state.operational.debug_diagnostics,
+                redaction_baseline: "always_on",
             },
         }),
     ))
@@ -962,6 +967,7 @@ mod tests {
                 observability: std::sync::Arc::new(
                     crate::observability::Observability::bootstrap(),
                 ),
+                operational: crate::config::OperationalConfig::default(),
             }),
             req,
         )
