@@ -1,5 +1,26 @@
 # Changelog
 
+## [3.10.0](https://github.com/dallay/corvus/compare/corvus-runtime-v3.9.2...corvus-runtime-v3.10.0) (2026-05-06)
+
+
+### Features
+
+* **tools:** add pdf_inspect tool via pdf-inspector ([cfb9b3d](https://github.com/dallay/corvus/commit/cfb9b3d310333b649f7712a4d7991af3fac65b5b))
+* **tools:** add pdf_inspect tool via pdf-inspector ([7b3eeb6](https://github.com/dallay/corvus/commit/7b3eeb60a93a33653200edcf26813491621faa6f)), closes [#548](https://github.com/dallay/corvus/issues/548)
+
+
+### Bug Fixes
+
+* address remaining SonarCloud maintainability issues ([20ad14a](https://github.com/dallay/corvus/commit/20ad14af2d675397910afc45bb758cd3d89fe973))
+* address remaining SonarCloud review comments ([d5265f3](https://github.com/dallay/corvus/commit/d5265f357bc4f5d985bb8adce37e1e9e58251163))
+* address SonarCloud maintainability issues ([d8a8d32](https://github.com/dallay/corvus/commit/d8a8d320c39245ac5a6bf576b2360a7c7742a7d9))
+* address SonarCloud quality gate issues ([fd854d0](https://github.com/dallay/corvus/commit/fd854d0ddb42d5670567e34d59aea6248ff22dc9))
+* address SonarCloud quality gate issues ([de98462](https://github.com/dallay/corvus/commit/de98462584c8eb3e26e7f47bf3adb4d561ce219a))
+* address SonarCloud review feedback ([a3203d1](https://github.com/dallay/corvus/commit/a3203d1ce3666f45862c9fe6949904c0f497a11c))
+* **agent-runtime:** address pdf-inspect PR review findings ([b34dec4](https://github.com/dallay/corvus/commit/b34dec45bef1b95a09284445735c2ccf3fa208f5))
+* prevent skill symlink path escapes ([58b6877](https://github.com/dallay/corvus/commit/58b687765d7e257e423c504edb446d225881c4b0))
+* update dependencies and improve error handling in various modules ([3237e29](https://github.com/dallay/corvus/commit/3237e29b9216a925568109f9de287417c4c9318c))
+
 ## [3.9.2](https://github.com/dallay/corvus/compare/corvus-runtime-v3.9.1...corvus-runtime-v3.9.2) (2026-05-05)
 
 
