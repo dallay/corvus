@@ -503,6 +503,33 @@ describe("useChat", () => {
     await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow("gateway exploded");
   });
 
+  it("streamMessage falls back to plain-text error message when SSE error is not JSON", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("d3d3d3d3-d3d3-4d3d-8d3d-d3d3d3d3d3d3");
+    const gateway = createReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // Plain-text error (not JSON) - should fall back to raw message
+        controller.enqueue(encoder.encode("event: error\r\ndata: Server timeout error\r\n\r\n"));
+        controller.close();
+      },
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      })
+    );
+
+    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow(
+      "Server timeout error"
+    );
+  });
+
   it("streamMessage throws connectBeforeChat when gateway is not ready", async () => {
     const gateway = createMockGateway();
     const chat = useChat((key: string) => key, gateway);

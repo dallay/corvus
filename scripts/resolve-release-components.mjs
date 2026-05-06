@@ -76,6 +76,31 @@ function classifyPaths(changedFiles, graph) {
   return { directComponents, nonReleasePaths, unmappedPaths, reasons };
 }
 
+function ensureReasonBucket(reasons, componentId) {
+  if (!reasons[componentId]) {
+    reasons[componentId] = [];
+  }
+
+  return reasons[componentId];
+}
+
+function addTransitiveComponent(affectedComponents, reasons, componentId, dependency) {
+  if (!affectedComponents.has(dependency)) {
+    return false;
+  }
+
+  // Always record the reason, even if componentId is already in the set
+  ensureReasonBucket(reasons, componentId).push(`depends-on-release-of:${dependency}`);
+
+  // Only add to affectedComponents if not already present
+  if (!affectedComponents.has(componentId)) {
+    affectedComponents.add(componentId);
+    return true;
+  }
+
+  return false;
+}
+
 function expandTransitiveComponents(directComponents, graph, reasons) {
   const affectedComponents = new Set(directComponents);
   let changed = true;
@@ -85,14 +110,7 @@ function expandTransitiveComponents(directComponents, graph, reasons) {
 
     for (const [componentId, component] of Object.entries(graph.components)) {
       for (const dependency of component.dependsOnReleaseOf) {
-        if (affectedComponents.has(dependency) && !affectedComponents.has(componentId)) {
-          affectedComponents.add(componentId);
-          if (!reasons[componentId]) {
-            reasons[componentId] = [];
-          }
-          reasons[componentId].push(`depends-on-release-of:${dependency}`);
-          changed = true;
-        }
+        changed = addTransitiveComponent(affectedComponents, reasons, componentId, dependency) || changed;
       }
     }
   }

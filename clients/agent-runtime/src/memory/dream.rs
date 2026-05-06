@@ -707,7 +707,8 @@ mod tests {
 
         assert_eq!(first.session_id, second.session_id);
 
-        let first_report = run_if_triggered(tmp.path()).unwrap().unwrap();
+        let first_report = run_if_triggered_after_transient_busy(tmp.path());
+        assert_eq!(first_report.lock_state, DreamLockState::Acquired);
         assert_eq!(first_report.sessions_processed, 1);
 
         let eligibility = dream_eligibility(tmp.path(), "sess-123").unwrap();

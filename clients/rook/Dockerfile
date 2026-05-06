@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
 
-FROM rust:1.95-slim-trixie AS builder
+FROM rust@sha256:81099830a1e1d244607b9a7a30f3ff6ecadc52134a933b4635faba24f52840c9 AS builder
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     libclang-dev \
     pkg-config \
@@ -21,7 +21,7 @@ RUN mkdir -p /rook-data
 
 RUN chown -R 65532:65532 /rook-data
 
-FROM gcr.io/distroless/cc-debian13:nonroot AS release
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:8f960b7fc6a5d6e28bb07f982655925d6206678bd9a6cde2ad00ddb5e2077d78 AS release
 
 COPY --from=builder /app/clients/rook/target/release/rook /usr/local/bin/rook
 COPY --from=prep --chown=65532:65532 /rook-data /rook-data

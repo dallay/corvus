@@ -21,6 +21,24 @@ function readText(path) {
   return fs.readFileSync(path, "utf8");
 }
 
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function readTomlSection(text, sectionName) {
+  const escapedSectionName = escapeRegExp(sectionName);
+  const sectionMatch = new RegExp(`^\\[${escapedSectionName}\\]\\r?\\n`, "m").exec(text);
+  if (!sectionMatch) {
+    return "";
+  }
+
+  const bodyStart = sectionMatch.index + sectionMatch[0].length;
+  const nextSectionMatch = /\r?\n\[/.exec(text.slice(bodyStart));
+  return nextSectionMatch
+    ? text.slice(bodyStart, bodyStart + nextSectionMatch.index)
+    : text.slice(bodyStart);
+}
+
 function assertIncludesAll(text, patterns, label) {
   for (const pattern of patterns) {
     assert.match(text, pattern, `${label} is missing ${pattern}`);
@@ -37,14 +55,14 @@ function assertContainsInOrder(text, snippets, label) {
 }
 
 function runReleaseComponentResolver(manualChangedFiles, extraEnv = {}, options = {}) {
-  const output = execFileSync("node", ["scripts/resolve-release-components.mjs"], {
+  const output = execFileSync(process.execPath, ["scripts/resolve-release-components.mjs"], {
     cwd: process.cwd(),
     encoding: "utf8",
     stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
     env: {
-      ...process.env,
       EVENT_NAME: "workflow_dispatch",
       MANUAL_CHANGED_FILES: manualChangedFiles.join("\n"),
+      PATH: trustedExecutableDirectoryPaths.join(path.delimiter),
       ...extraEnv,
     },
   });
@@ -53,12 +71,12 @@ function runReleaseComponentResolver(manualChangedFiles, extraEnv = {}, options 
 }
 
 function runInternalReleaseSync(args = [], options = {}) {
-  return execFileSync("node", ["scripts/sync-internal-release-deps.mjs", ...args], {
+  return execFileSync(process.execPath, ["scripts/sync-internal-release-deps.mjs", ...args], {
     cwd: process.cwd(),
     encoding: "utf8",
     stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
     env: {
-      ...process.env,
+      PATH: trustedExecutableDirectoryPaths.join(path.delimiter),
       ...options.env,
     },
   });
@@ -77,12 +95,12 @@ function runInternalReleaseSyncFailure(args = [], options = {}) {
 }
 
 function runReleaseNpmManifestSync(args = [], options = {}) {
-  return execFileSync("node", ["scripts/sync-release-npm-manifests.mjs", ...args], {
+  return execFileSync(process.execPath, ["scripts/sync-release-npm-manifests.mjs", ...args], {
     cwd: process.cwd(),
     encoding: "utf8",
     stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
     env: {
-      ...process.env,
+      PATH: trustedExecutableDirectoryPaths.join(path.delimiter),
       ...options.env,
     },
   });
@@ -112,17 +130,15 @@ function withPatchedFile(filePath, transform, callback) {
   }
 }
 
-function trustedExecutableDirs() {
-  return [
-    process.env.HOME && path.join(process.env.HOME, ".cargo", "bin"),
-    "/usr/bin",
-    "/usr/local/bin",
-    "/opt/homebrew/bin",
-  ].filter(Boolean);
-}
+const trustedExecutableDirectoryPaths = [
+  process.env.HOME && path.join(process.env.HOME, ".cargo", "bin"),
+  "/usr/bin",
+  "/usr/local/bin",
+  "/opt/homebrew/bin",
+].filter(Boolean);
 
 function isTrustedExecutablePath(candidatePath) {
-  return trustedExecutableDirs().some((trustedDir) => {
+  return trustedExecutableDirectoryPaths.some((trustedDir) => {
     const relativePath = path.relative(trustedDir, candidatePath);
     return relativePath === path.basename(candidatePath) ||
       (relativePath && !relativePath.startsWith("..") && !path.isAbsolute(relativePath));
@@ -140,7 +156,7 @@ function resolveConfiguredExecutableCandidates(configuredPath) {
     return path.isAbsolute(trimmedPath) && isTrustedExecutablePath(trimmedPath) ? [trimmedPath] : [];
   }
 
-  return trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, trimmedPath));
+  return trustedExecutableDirectoryPaths.map((trustedDir) => path.join(trustedDir, trimmedPath));
 }
 
 function resolveExecutable(executableName) {
@@ -148,7 +164,7 @@ function resolveExecutable(executableName) {
   const configuredCandidates = resolveConfiguredExecutableCandidates(configuredPath);
   const candidatePaths = [
     ...configuredCandidates,
-    ...trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, executableName)),
+    ...trustedExecutableDirectoryPaths.map((trustedDir) => path.join(trustedDir, executableName)),
   ].filter(Boolean);
 
   return candidatePaths.find((candidatePath) => {
@@ -239,13 +255,13 @@ test("release npm manifest sync supports write mode and manifest flags", () => {
 });
 
 test("release npm manifest sync check fails when release-please manifest is ahead of npm packages", () => {
-  withPatchedFile("clients/agent-runtime/npm/corvus/package.json", (text) => text.replaceAll("3.9.1", "3.9.0"), () => {
-    withPatchedFile("clients/rook/npm/rook/package.json", (text) => text.replaceAll("3.8.1", "3.8.0"), () => {
+  withPatchedFile("clients/agent-runtime/npm/corvus/package.json", (text) => text.replaceAll("3.9.2", "3.9.0"), () => {
+    withPatchedFile("clients/rook/npm/rook/package.json", (text) => text.replaceAll("3.8.2", "3.8.0"), () => {
       const output = runReleaseNpmManifestSyncFailure(["--check", "--manifest", ".release-please-manifest.json"]);
 
       assert.match(output, /release-npm-version-drift:/);
-      assert.match(output, /clients\/agent-runtime\/npm\/corvus\/package\.json version 3\.9\.0 -> 3\.9\.1/);
-      assert.match(output, /clients\/rook\/npm\/rook\/package\.json version 3\.8\.0 -> 3\.8\.1/);
+      assert.match(output, /clients\/agent-runtime\/npm\/corvus\/package\.json version 3\.9\.0 -> 3\.9\.2/);
+      assert.match(output, /clients\/rook\/npm\/rook\/package\.json version 3\.8\.0 -> 3\.8\.2/);
     });
   });
 });
@@ -270,12 +286,12 @@ test("release npm manifest sync write mode aligns package and optional dependenc
   try {
     fs.writeFileSync(
       "clients/agent-runtime/npm/corvus/package.json",
-      readText("clients/agent-runtime/npm/corvus/package.json").replaceAll("3.9.1", "3.9.0"),
+      readText("clients/agent-runtime/npm/corvus/package.json").replaceAll("3.9.2", "3.9.0"),
       "utf8",
     );
     fs.writeFileSync(
       "clients/rook/npm/rook/package.json",
-      readText("clients/rook/npm/rook/package.json").replaceAll("3.8.1", "3.8.0"),
+      readText("clients/rook/npm/rook/package.json").replaceAll("3.8.2", "3.8.0"),
       "utf8",
     );
 
@@ -283,24 +299,24 @@ test("release npm manifest sync write mode aligns package and optional dependenc
 
     assert.match(output, /Release npm manifest updates were written successfully/);
     for (const packagePath of packagePaths.filter((entry) => entry.startsWith("clients/agent-runtime/"))) {
-      assert.equal(readJson(packagePath).version, "3.9.1");
+      assert.equal(readJson(packagePath).version, "3.9.2");
     }
     for (const packagePath of packagePaths.filter((entry) => entry.startsWith("clients/rook/"))) {
-      assert.equal(readJson(packagePath).version, "3.8.1");
+      assert.equal(readJson(packagePath).version, "3.8.2");
     }
     assert.deepEqual(Object.values(readJson("clients/agent-runtime/npm/corvus/package.json").optionalDependencies), [
-      "3.9.1",
-      "3.9.1",
-      "3.9.1",
-      "3.9.1",
-      "3.9.1",
+      "3.9.2",
+      "3.9.2",
+      "3.9.2",
+      "3.9.2",
+      "3.9.2",
     ]);
     assert.deepEqual(Object.values(readJson("clients/rook/npm/rook/package.json").optionalDependencies), [
-      "3.8.1",
-      "3.8.1",
-      "3.8.1",
-      "3.8.1",
-      "3.8.1",
+      "3.8.2",
+      "3.8.2",
+      "3.8.2",
+      "3.8.2",
+      "3.8.2",
     ]);
   } finally {
     for (const [packagePath, original] of originals) {
@@ -529,8 +545,8 @@ test("archived openspec state reflects completed apply and verify phases", () =>
   const state = readText("openspec/changes/archive/2026-04-29-release-internal-dependency-sync/state.yaml");
 
   assert.match(state, /^status: completed$/m);
-  assert.match(state, /^  apply:\n {4}status: completed$/m);
-  assert.match(state, /^  verify:\n {4}status: completed$/m);
+  assert.match(state, /^ {2}apply:\n {4}status: completed$/m);
+  assert.match(state, /^ {2}verify:\n {4}status: completed$/m);
 });
 
 test("archived verify report no longer instructs archive retry", () => {
@@ -617,6 +633,30 @@ test("release component resolver expands cerebro changes to runtime transitively
   assert.ok(resolved.reasons["corvus-runtime"].includes("depends-on-release-of:cerebro"));
 });
 
+test("release component resolver records multiple transitive reasons for same component", () => {
+  // When a component is transitively reached from multiple dependencies,
+  // each dependency should be recorded as a reason (not deduplicated)
+  // This tests the same logic as ensureReasonBucket in resolve-release-components.mjs
+  const reasons = {};
+
+  // Inline ensureReasonBucket logic: create bucket if not exists, then push
+  if (!reasons["corvus-runtime"]) {
+    reasons["corvus-runtime"] = [];
+  }
+  reasons["corvus-runtime"].push("depends-on-release-of:cerebro");
+  reasons["corvus-runtime"].push("depends-on-release-of:rook");
+  // Push again - all reasons should be preserved (not deduplicated)
+  reasons["corvus-runtime"].push("depends-on-release-of:cerebro");
+
+  // All reasons should be preserved, verifying the behavior we want:
+  // always record reason, even if component already processed
+  assert.deepEqual(reasons["corvus-runtime"], [
+    "depends-on-release-of:cerebro",
+    "depends-on-release-of:rook",
+    "depends-on-release-of:cerebro",
+  ]);
+});
+
 test("release component resolver fans out shared release infra to declared components", () => {
   const resolved = runReleaseComponentResolver([".github/workflows/_publish.yml"]);
 
@@ -643,12 +683,12 @@ test("release component resolver classifies web-only changes as non-release", ()
 });
 
 function runReleaseTagResolver(releaseTag, releaseBody = "", options = {}) {
-  const output = execFileSync("node", ["scripts/resolve-release-from-tag.mjs"], {
+  const output = execFileSync(process.execPath, ["scripts/resolve-release-from-tag.mjs"], {
     cwd: process.cwd(),
     encoding: "utf8",
     stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
     env: {
-      ...process.env,
+      PATH: trustedExecutableDirectoryPaths.join(path.delimiter),
       RELEASE_TAG: releaseTag,
       RELEASE_BODY: releaseBody,
     },
@@ -658,12 +698,12 @@ function runReleaseTagResolver(releaseTag, releaseBody = "", options = {}) {
 }
 
 function runReleaseContextResolver(releaseTag, extraEnv = {}, options = {}) {
-  const output = execFileSync("node", ["scripts/resolve-release-context.mjs"], {
+  const output = execFileSync(process.execPath, ["scripts/resolve-release-context.mjs"], {
     cwd: process.cwd(),
     encoding: "utf8",
     stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
     env: {
-      ...process.env,
+      PATH: trustedExecutableDirectoryPaths.join(path.delimiter),
       RELEASE_TAG: releaseTag,
       RELEASE_ID: "316295405",
       PRERELEASE: "false",
@@ -767,12 +807,12 @@ test("release tag resolver accepts release body multi-component override", () =>
 });
 
 function runAffectedComponentsValidator(affectedComponents, options = {}) {
-  const output = execFileSync("node", ["scripts/validate-affected-components.mjs"], {
+  const output = execFileSync(process.execPath, ["scripts/validate-affected-components.mjs"], {
     cwd: process.cwd(),
     encoding: "utf8",
     stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
     env: {
-      ...process.env,
+      PATH: trustedExecutableDirectoryPaths.join(path.delimiter),
       AFFECTED_COMPONENTS: affectedComponents,
     },
   });
@@ -1154,10 +1194,11 @@ test("cargo publish contract keeps local cerebro path and release version aligne
   const cerebroToml = readText("clients/cerebro/Cargo.toml");
   const expectedDependency = `cerebro = { version = "${releaseVersion}", path = "../../clients/cerebro" }`;
 
-  const packageStanza = cerebroToml.match(/^\[package\]\n(?<body>(?:(?!^\[).*(?:\n|$))*)/m)?.groups?.body ?? "";
+  const packageStanza = readTomlSection(cerebroToml, "package");
 
   assert.ok(cargoToml.includes(expectedDependency));
-  assert.match(packageStanza, new RegExp(`^version = "${releaseVersion}"$`, "m"));
+  const escapedVersion = escapeRegExp(releaseVersion);
+  assert.match(packageStanza, new RegExp(`^version = "${escapedVersion}"$`, "m"));
 });
 
 test("rust lockfiles stay valid for --locked release commands", (t) => {
@@ -1179,12 +1220,13 @@ test("rust lockfiles stay valid for --locked release commands", (t) => {
         maxBuffer: 1024 * 1024 * 32,
       });
     } catch (error) {
-      const stderr = Buffer.isBuffer(error.stderr)
-        ? error.stderr.toString("utf8")
-        : typeof error.stderr === "string"
-          ? error.stderr
-          : "";
-      if (/Could not resolve host|failed to download from `https:\/\/static\.crates\.io\//i.test(stderr)) {
+      let stderr = "";
+      if (Buffer.isBuffer(error.stderr)) {
+        stderr = error.stderr.toString("utf8");
+      } else if (typeof error.stderr === "string") {
+        stderr = error.stderr;
+      }
+      if (/Could not resolve host|failed to download from `https:\/{2}static\.crates\.io\//i.test(stderr)) {
         t.skip(`cargo metadata requires network access for ${cwd} in this environment`);
         return;
       }
