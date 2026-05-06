@@ -107,6 +107,13 @@ impl Tool for PdfInspectTool {
             }
         }
 
+        // KNOWN LIMITATION: `spawn_blocking` tasks cannot be aborted once started.
+        // `tokio::time::timeout` will stop awaiting the result, but the PDF parse
+        // continues on a blocking thread until it finishes or the process exits.
+        // A pathological PDF can therefore hold a blocking-pool thread past the
+        // timeout window. Cooperative cancellation would require changes to the
+        // upstream `pdf_inspector` crate (e.g. a periodic cancellation flag).
+        // Tracked in: https://github.com/dallay/corvus/issues/XXX
         let path_clone = resolved_path.clone();
         let task = tokio::task::spawn_blocking(move || {
             if extract_text {
