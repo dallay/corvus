@@ -4,7 +4,7 @@ FROM rust:1.95-slim-trixie AS builder
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     libclang-dev \
     pkg-config \

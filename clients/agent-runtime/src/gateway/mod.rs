@@ -2481,6 +2481,124 @@ async fn handle_webhook(
 /// - `chunk`  — partial response text
 /// - `done`   — final metadata (message_id, session_id)
 /// - `error`  — structured error
+enum StreamProcessingOutcome {
+    Success(String, Vec<String>),
+    Error(serde_json::Value),
+}
+
+struct StreamDispatcherRequest<'a> {
+    config: &'a Config,
+    webhook_body: &'a WebhookBody,
+    session_id: &'a str,
+    session_source: webhook_dispatch::WebhookSessionSource,
+    token_hash: Option<String>,
+    message: &'a str,
+    server_execution_mode: ExecutionMode,
+}
+
+async fn execute_stream_dispatcher(
+    state: &AppState,
+    request: StreamDispatcherRequest<'_>,
+) -> StreamProcessingOutcome {
+    log_webhook_runtime_path(request.session_id, true, "stream_dispatcher");
+    let result = webhook_dispatch::execute(
+        request.config,
+        Arc::clone(&state.provider),
+        Arc::clone(&state.mem),
+        Arc::clone(&state.observer),
+        state.cost_tracker.clone(),
+        &state.model,
+        webhook_dispatch::WebhookTurnRequest {
+            session_id: request.session_id.to_string(),
+            session_source: request.session_source,
+            caller_token_hash: request.token_hash,
+            message: request.message.to_string(),
+            execution_mode: resolve_webhook_execution_mode(
+                request.server_execution_mode,
+                request.webhook_body.execution_mode,
+            ),
+            include_sse_frames: true,
+        },
+    )
+    .await;
+    log_webhook_terminal_outcome(
+        request.session_id,
+        "stream_dispatcher",
+        webhook_outcome_label(&result.outcome),
+    );
+    stream_outcome_from_dispatch_result(result)
+}
+
+fn stream_outcome_from_dispatch_result(
+    result: webhook_dispatch::WebhookTurnResult,
+) -> StreamProcessingOutcome {
+    match result.outcome {
+        webhook_dispatch::WebhookTerminalOutcome::Completed
+        | webhook_dispatch::WebhookTerminalOutcome::Fallback => {
+            let text = result
+                .response_text
+                .map(|t| scrub_sensitive_boundary_text(&t))
+                .unwrap_or_default();
+            StreamProcessingOutcome::Success(text, result.tools_called)
+        }
+        webhook_dispatch::WebhookTerminalOutcome::BudgetExceeded {
+            current_usd,
+            limit_usd,
+            period,
+        } => StreamProcessingOutcome::Error(serde_json::json!({
+            "code": "budget_exceeded",
+            "governance_domain": "token_spend",
+            "period": period,
+            "current_usd": current_usd,
+            "limit_usd": limit_usd,
+            "message": format!(
+                "Budget exceeded: ${current_usd:.4} spent against ${limit_usd:.2} {period:?} limit"
+            ),
+        })),
+        webhook_dispatch::WebhookTerminalOutcome::Error => {
+            StreamProcessingOutcome::Error(serde_json::json!({
+                "code": "processing_error",
+                "message": "LLM request failed",
+            }))
+        }
+        webhook_dispatch::WebhookTerminalOutcome::Timeout => {
+            StreamProcessingOutcome::Error(serde_json::json!({
+                "code": "timeout",
+                "message": "Request timed out",
+            }))
+        }
+        webhook_dispatch::WebhookTerminalOutcome::ApprovalRequired { tool, reason } => {
+            StreamProcessingOutcome::Error(serde_json::json!({
+                "code": "approval_required",
+                "tool": tool,
+                "reason": reason,
+                "message": format!("Approval required for tool `{tool}`: {reason}"),
+            }))
+        }
+        webhook_dispatch::WebhookTerminalOutcome::PlanModeBlocked {
+            tool,
+            reason,
+            execution_mode,
+        } => StreamProcessingOutcome::Error(serde_json::json!({
+            "code": "plan_mode_blocked",
+            "tool": tool,
+            "reason": reason,
+            "execution_mode": execution_mode,
+            "message": format!("Plan mode blocked tool `{tool}`: {reason}"),
+        })),
+        webhook_dispatch::WebhookTerminalOutcome::Failed => {
+            let message = result
+                .response_text
+                .map(|t| scrub_sensitive_boundary_text(&t))
+                .unwrap_or_else(|| "session command failed".to_string());
+            StreamProcessingOutcome::Error(serde_json::json!({
+                "code": "session_command_failed",
+                "message": message,
+            }))
+        }
+    }
+}
+
 async fn handle_chat_stream(
     State(state): State<AppState>,
     ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
@@ -2500,11 +2618,6 @@ async fn handle_chat_stream(
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
 
     // ── Process message via existing dispatch ────────────
-    enum StreamProcessingOutcome {
-        Success(String, Vec<String>),
-        Error(serde_json::Value),
-    }
-
     let ingress_context = crate::session_commands::CommandContext::for_gateway_stream(
         &session_id,
         match session_source {
@@ -2541,97 +2654,19 @@ async fn handle_chat_stream(
     }
 
     let stream_outcome = if dispatcher_enabled {
-        log_webhook_runtime_path(&session_id, true, "stream_dispatcher");
-        let result = webhook_dispatch::execute(
-            &config,
-            Arc::clone(&state.provider),
-            Arc::clone(&state.mem),
-            Arc::clone(&state.observer),
-            state.cost_tracker.clone(),
-            &state.model,
-            webhook_dispatch::WebhookTurnRequest {
-                session_id: session_id.clone(),
+        execute_stream_dispatcher(
+            &state,
+            StreamDispatcherRequest {
+                config: &config,
+                webhook_body: &webhook_body,
+                session_id: &session_id,
                 session_source,
-                caller_token_hash: token_hash.clone(),
-                message: message.clone(),
-                execution_mode: resolve_webhook_execution_mode(
-                    server_execution_mode,
-                    webhook_body.execution_mode,
-                ),
-                include_sse_frames: true,
+                token_hash: token_hash.clone(),
+                message,
+                server_execution_mode,
             },
         )
-        .await;
-        log_webhook_terminal_outcome(
-            &session_id,
-            "stream_dispatcher",
-            webhook_outcome_label(&result.outcome),
-        );
-        match result.outcome {
-            webhook_dispatch::WebhookTerminalOutcome::Completed
-            | webhook_dispatch::WebhookTerminalOutcome::Fallback => {
-                let text = result
-                    .response_text
-                    .map(|t| scrub_sensitive_boundary_text(&t))
-                    .unwrap_or_default();
-                StreamProcessingOutcome::Success(text, result.tools_called)
-            }
-            webhook_dispatch::WebhookTerminalOutcome::BudgetExceeded {
-                current_usd,
-                limit_usd,
-                period,
-            } => StreamProcessingOutcome::Error(serde_json::json!({
-                "code": "budget_exceeded",
-                "governance_domain": "token_spend",
-                "period": period,
-                "current_usd": current_usd,
-                "limit_usd": limit_usd,
-                "message": format!(
-                    "Budget exceeded: ${current_usd:.4} spent against ${limit_usd:.2} {period:?} limit"
-                ),
-            })),
-            webhook_dispatch::WebhookTerminalOutcome::Error => {
-                StreamProcessingOutcome::Error(serde_json::json!({
-                    "code": "processing_error",
-                    "message": "LLM request failed",
-                }))
-            }
-            webhook_dispatch::WebhookTerminalOutcome::Timeout => {
-                StreamProcessingOutcome::Error(serde_json::json!({
-                    "code": "timeout",
-                    "message": "Request timed out",
-                }))
-            }
-            webhook_dispatch::WebhookTerminalOutcome::ApprovalRequired { tool, reason } => {
-                StreamProcessingOutcome::Error(serde_json::json!({
-                    "code": "approval_required",
-                    "tool": tool,
-                    "reason": reason,
-                    "message": format!("Approval required for tool `{tool}`: {reason}"),
-                }))
-            }
-            webhook_dispatch::WebhookTerminalOutcome::PlanModeBlocked {
-                tool,
-                reason,
-                execution_mode,
-            } => StreamProcessingOutcome::Error(serde_json::json!({
-                "code": "plan_mode_blocked",
-                "tool": tool,
-                "reason": reason,
-                "execution_mode": execution_mode,
-                "message": format!("Plan mode blocked tool `{tool}`: {reason}"),
-            })),
-            webhook_dispatch::WebhookTerminalOutcome::Failed => {
-                let message = result
-                    .response_text
-                    .map(|t| scrub_sensitive_boundary_text(&t))
-                    .unwrap_or_else(|| "session command failed".to_string());
-                StreamProcessingOutcome::Error(serde_json::json!({
-                    "code": "session_command_failed",
-                    "message": message,
-                }))
-            }
-        }
+        .await
     } else {
         log_webhook_runtime_path(&session_id, false, "stream_legacy");
         // Deny-by-default: reject plan mode when dispatcher is disabled

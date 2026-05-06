@@ -2,12 +2,12 @@ import { loadReleaseComponents } from "./release-components.mjs";
 import { getPublishableComponentIds, sortStrings } from "./release-scope-utils.mjs";
 
 function parseAffectedComponentsOverride(releaseBody) {
-  const match = /(^|\n)affected_components\s*:\s*(.+)$/im.exec(releaseBody);
+  const match = /^affected_components\s*:\s*(.+)$/im.exec(releaseBody);
   if (!match) {
     return [];
   }
 
-  return match[2]
+  return match[1]
     .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean);

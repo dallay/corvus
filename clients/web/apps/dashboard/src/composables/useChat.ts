@@ -74,6 +74,10 @@ type StreamLineResult =
   | { type: "done"; doneEvent: StreamDoneEvent }
   | { type: "error"; message: string };
 
+type StreamReadResult = {
+  doneEvent: StreamDoneEvent | null;
+};
+
 const APPROVAL_REQUIRED_TYPES = new Set(["approval_required", "approval_contract"]);
 
 function createSessionState(
@@ -200,6 +204,13 @@ function consumeStreamLine(
     return { type: "continue" };
   }
 
+  return consumeBufferedStreamEvent(state, fallbackMessage);
+}
+
+function consumeBufferedStreamEvent(
+  state: StreamEventState,
+  fallbackMessage: string
+): StreamLineResult {
   if (!state.currentEvent || !state.currentData) {
     resetStreamEventState(state);
     return { type: "continue" };
@@ -209,6 +220,14 @@ function consumeStreamLine(
   const eventData = state.currentData;
   resetStreamEventState(state);
 
+  return parseStreamEvent(eventName, eventData, fallbackMessage);
+}
+
+function parseStreamEvent(
+  eventName: string,
+  eventData: string,
+  fallbackMessage: string
+): StreamLineResult {
   if (eventName === "chunk") {
     return { type: "chunk", chunk: eventData };
   }
@@ -226,6 +245,55 @@ function consumeStreamLine(
   }
 
   return { type: "continue" };
+}
+
+function applyStreamLineResult(
+  result: StreamLineResult,
+  onChunk: (text: string) => void,
+  onDone: (doneEvent: StreamDoneEvent) => void
+): void {
+  if (result.type === "chunk") {
+    onChunk(result.chunk);
+    return;
+  }
+
+  if (result.type === "done") {
+    onDone(result.doneEvent);
+    return;
+  }
+
+  if (result.type === "error") {
+    throw new Error(result.message);
+  }
+}
+
+async function readStreamEvents(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  fallbackMessage: string,
+  onChunk: (text: string) => void,
+  onDone: (doneEvent: StreamDoneEvent) => void
+): Promise<void> {
+  const decoder = new TextDecoder();
+  const streamEventState: StreamEventState = { currentEvent: "", currentData: "" };
+  let buffer = "";
+  const processLine = (line: string, state: StreamEventState): void => {
+    applyStreamLineResult(consumeStreamLine(line, state, fallbackMessage), onChunk, onDone);
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += normalizeStreamChunk(decoder.decode(value, { stream: true }));
+    buffer = processStreamBuffer(buffer, streamEventState, processLine);
+  }
+
+  buffer += normalizeStreamChunk(decoder.decode());
+  if (buffer) {
+    processStreamBuffer(`${buffer}\n\n`, streamEventState, processLine);
+  }
 }
 
 export function useChat(
@@ -611,45 +679,18 @@ export function useChat(
         throw new Error(t("chat.streamUnavailable"));
       }
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-      const streamEventState: StreamEventState = { currentEvent: "", currentData: "" };
-      let doneEvent: StreamDoneEvent | null = null;
       const fallbackMessage = t("chat.requestError", { text: normalizedMessage });
-
-      const processLine = (line: string, state: StreamEventState): void => {
-        const result = consumeStreamLine(line, state, fallbackMessage);
-        if (result.type === "chunk") {
-          onChunk(result.chunk);
-          return;
-        }
-
-        if (result.type === "done") {
-          doneEvent = result.doneEvent;
-          if (doneEvent.session_id && !isSessionReady.value) {
-            setSessionReady(doneEvent.session_id);
-          }
-          return;
-        }
-
-        if (result.type === "error") {
-          throw new Error(result.message);
+      const streamReadResult: StreamReadResult = { doneEvent: null };
+      const handleDoneEvent = (doneEvent: StreamDoneEvent): void => {
+        streamReadResult.doneEvent = doneEvent;
+        if (doneEvent.session_id && !isSessionReady.value) {
+          setSessionReady(doneEvent.session_id);
         }
       };
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      await readStreamEvents(reader, fallbackMessage, onChunk, handleDoneEvent);
 
-        buffer += normalizeStreamChunk(decoder.decode(value, { stream: true }));
-        buffer = processStreamBuffer(buffer, streamEventState, processLine);
-      }
-
-      buffer += normalizeStreamChunk(decoder.decode());
-      if (buffer) {
-        processStreamBuffer(`${buffer}\n\n`, streamEventState, processLine);
-      }
-
+      const { doneEvent } = streamReadResult;
       if (!doneEvent) {
         throw new Error(fallbackMessage);
       }
