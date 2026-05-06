@@ -570,7 +570,7 @@ async fn handle_streaming_chat_completions(
         Ok(upstream_response) => {
             emit_gateway_debug(
                 state,
-                "upstream_stream_success",
+                "upstream_stream_opened",
                 &request.model,
                 &metric_context,
                 Some("success"),
@@ -1785,11 +1785,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn emit_gateway_debug_is_silent_when_debug_diagnostics_disabled() {
+    async fn debug_diagnostics_enabled_guard_returns_correct_value() {
         use crate::config::OperationalConfig;
 
         // test_state() builds a full GatewayState with default OperationalConfig
-        // (undercover=true, debug_diagnostics=false).
+        // (undercover=false, debug_diagnostics=false).
         let (state, _registry) = test_state().await;
 
         // Confirm the default has debug_diagnostics = false.
@@ -1807,7 +1807,7 @@ mod tests {
         // Confirm the inverse: when enabled, the guard returns true.
         let mut enabled_state = state.clone();
         enabled_state.operational = OperationalConfig {
-            undercover: true,
+            undercover: false,
             debug_diagnostics: true,
         };
         assert!(

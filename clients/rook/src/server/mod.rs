@@ -2691,31 +2691,27 @@ mod tests {
 
     #[tokio::test]
     async fn operational_config_propagates_to_admin_state() {
-        use crate::admin::AdminState;
-        use crate::config::OperationalConfig;
-        use crate::health::StartupDependencyState;
-
-        let operational = OperationalConfig {
-            undercover: false,
-            debug_diagnostics: true,
+        let config = ServerConfig {
+            operational: OperationalConfig {
+                undercover: false,
+                debug_diagnostics: true,
+            },
+            ..ServerConfig::default()
         };
         let registry = RookRegistry::open_in_memory().await.unwrap();
-        let state = AdminState {
-            registry,
-            startup: Arc::new(StartupDependencyState {
-                config_ready: true,
-                database_ready: true,
-                router_ready: true,
-                assets_ready: true,
-            }),
-            observability: Arc::new(Observability::bootstrap()),
-            operational: operational.clone(),
-        };
+        let app = build_app_with_registry(config, registry).await.unwrap();
 
-        assert_eq!(state.operational.undercover, operational.undercover);
+        let (status, json) = request_json(app, "/api/status").await;
+        assert_eq!(status, StatusCode::OK);
+
+        let operational = &json["operational"];
         assert_eq!(
-            state.operational.debug_diagnostics,
-            operational.debug_diagnostics
+            operational["debug_diagnostics"], true,
+            "debug_diagnostics should propagate to /api/status response"
+        );
+        assert_eq!(
+            operational["redaction_baseline"], "always_on",
+            "redaction_baseline should always be always_on"
         );
     }
 }

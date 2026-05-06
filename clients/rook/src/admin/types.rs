@@ -162,7 +162,6 @@ pub struct OperatorRuntimeView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OperationalStatusView {
-    pub undercover: bool,
     pub debug_diagnostics: bool,
     pub redaction_baseline: &'static str,
 }

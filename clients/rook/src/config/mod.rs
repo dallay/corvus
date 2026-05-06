@@ -982,7 +982,11 @@ impl RookConfigExportView {
             host: config.host.clone(),
             port: config.port,
             enable_tui: config.enable_tui,
-            db_path: config.db_path.display().to_string(),
+            db_path: if config.operational.undercover {
+                "<redacted>".to_string()
+            } else {
+                config.db_path.display().to_string()
+            },
             operational: OperationalExportView::from(&config.operational),
             inbound_auth: InboundAuthExportView {
                 enabled: config.inbound_auth.enabled,
@@ -1061,7 +1065,7 @@ pub struct OperationalConfig {
 impl Default for OperationalConfig {
     fn default() -> Self {
         Self {
-            undercover: true,
+            undercover: false,
             debug_diagnostics: false,
         }
     }
@@ -1537,10 +1541,10 @@ mod tests {
     }
 
     #[test]
-    fn operational_config_defaults_to_undercover_enabled_and_debug_disabled() {
+    fn operational_config_defaults_to_undercover_disabled_and_debug_disabled() {
         let config = super::RookConfig::default();
 
-        assert!(config.operational.undercover);
+        assert!(!config.operational.undercover);
         assert!(!config.operational.debug_diagnostics);
     }
 

@@ -277,7 +277,6 @@ pub async fn handle_operator_status(
                 usage_accounting_enabled: true,
             },
             operational: OperationalStatusView {
-                undercover: state.operational.undercover,
                 debug_diagnostics: state.operational.debug_diagnostics,
                 redaction_baseline: "always_on",
             },
