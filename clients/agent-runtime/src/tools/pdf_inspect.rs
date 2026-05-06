@@ -5,7 +5,7 @@ use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 
-const PDF_PROCESSING_TIMEOUT: Duration = Duration::from_secs(60);
+const PDF_PROCESSING_TIMEOUT: Duration = Duration::from_mins(1);
 
 const MAX_PDF_SIZE_BYTES: u64 = 50 * 1024 * 1024;
 
@@ -51,7 +51,8 @@ impl Tool for PdfInspectTool {
                                    Set to false for a fast metadata-only classification."
                 }
             },
-            "required": ["path"]
+            "required": ["path"],
+            "additionalProperties": false
         })
     }
 
@@ -61,10 +62,12 @@ impl Tool for PdfInspectTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
 
-        let extract_text = args
-            .get("extract_text")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let extract_text = match args.get("extract_text") {
+            None => true,
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'extract_text' must be a boolean"))?,
+        };
 
         if self.security.is_rate_limited() {
             return Ok(ToolResult {
@@ -181,11 +184,12 @@ impl Tool for PdfInspectTool {
         match result {
             Ok(Ok(info)) => {
                 let pdf_type = format!("{:?}", info.pdf_type);
-                let pages_needing_ocr = info.pages_needing_ocr.clone();
-                let markdown = info.markdown.clone().unwrap_or_default();
+                let has_markdown = info.markdown.is_some();
+                let pages_needing_ocr = info.pages_needing_ocr;
+                let markdown = info.markdown.unwrap_or_default();
 
                 let output = if extract_text && !markdown.is_empty() {
-                    markdown.clone()
+                    markdown
                 } else {
                     format!(
                         "PDF type: {pdf_type}\nPages: {}\nProcessing time: {}ms",
@@ -203,7 +207,7 @@ impl Tool for PdfInspectTool {
                         "processing_time_ms": info.processing_time_ms,
                         "pages_needing_ocr": pages_needing_ocr,
                         "title": info.title,
-                        "has_markdown": info.markdown.is_some(),
+                        "has_markdown": has_markdown,
                     })),
                 })
             }
