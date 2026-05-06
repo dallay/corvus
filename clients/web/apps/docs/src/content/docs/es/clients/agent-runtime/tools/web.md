@@ -3,7 +3,7 @@ title: Herramientas Web
 description: Referencia para herramientas de navegación web, búsqueda y peticiones HTTP en Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-06
 appliesTo: main
 docType: reference
 ---
@@ -90,8 +90,12 @@ Herramienta de paridad de solo lectura para fetch-and-extract de contenido web p
 
 - **Nivel de Seguridad:** Solo Lectura (Segura).
 - **Ejecución:** Usa el mismo límite de política URL saliente que `http_request` para allowlists de hosts, bloqueo de hosts privados y denegación de redirecciones.
-- **Contrato:** Requiere `url` y `prompt`; devuelve contenido textual extraído, metadatos del estado HTTP y la URL final obtenida.
-- **Límite de alcance:** `WebFetch` sigue siendo la superficie de paridad web de solo lectura. La
-  paridad del ciclo de vida persistente de tareas (`TaskCreate`, `TaskGet`, `TaskList`,
-  `TaskUpdate`, `TaskStop`) ahora se documenta aparte y se mantiene separada del comportamiento
-  web/de búsqueda.
+- **Alias de compatibilidad:** `web_fetch`
+- **Relación nativa:** Utiliza el mismo límite de política de URL de salida que `http_request`, pero sigue siendo una superficie de fetch-and-extract de solo lectura.
+
+### Parámetros
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `url` | `string` | **Requerido.** La URL completa a obtener. |
+| `prompt` | `string` | **Requerido.** Instrucciones orientativas para la extracción. |

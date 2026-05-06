@@ -3,7 +3,7 @@ title: Referencia de la CLI
 description: Guía completa de los comandos y opciones de la CLI del agente Corvus.
 owner: team-platform
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-06
 appliesTo: main
 docType: reference
 ---

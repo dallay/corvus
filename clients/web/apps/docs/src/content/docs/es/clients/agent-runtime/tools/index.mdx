@@ -3,7 +3,7 @@ title: Referencia de Herramientas
 description: Descripción general del sistema de herramientas de Corvus Agent, modelo de seguridad y registro.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-06
 appliesTo: main
 docType: reference
 ---
@@ -18,12 +18,12 @@ El sistema de herramientas se basa en un modelo de seguridad de "denegación por
 
 Las herramientas integradas se organizan en seis categorías principales:
 
-- [**Herramientas Core**](core.md) — Ejecución de comandos del sistema (`shell`), búsqueda nativa en el workspace (`code_search`, `Grep`), descubrimiento de archivos con paridad (`Glob`) y acceso al sistema de archivos del workspace (`file_read`, `file_write`).
+- [**Herramientas Core**](core.md) — Ejecución de comandos del sistema (`shell`), tareas persistentes (`TaskCreate`), búsqueda nativa en el workspace (`code_search`, `Grep`), descubrimiento de archivos con paridad (`Glob`) y acceso al sistema de archivos del workspace (`file_read`, `file_write`).
 - [**Herramientas Web**](web.md) — Navegación web (`browser`), búsqueda (`web_search_tool`), llamadas estructuradas a APIs (`http_request`) y fetch de solo lectura con paridad (`WebFetch`).
 - [**Herramientas de Memoria**](memory.md) — Persistencia a largo plazo y recuperación de hechos y preferencias (`memory_store`, `memory_recall`).
 - [**Herramientas de Automatización**](automation.md) — Delegación multi-agente (`delegate`), integraciones de aplicaciones gestionadas (`composio`), gestión de repositorios Git, tareas programadas (Cron/Schedule) y notificaciones (`pushover`).
 - [**Herramientas Multimedia**](media.md) — Capacidades relacionadas con la visión, incluyendo captura de pantalla y extracción de metadatos de imágenes.
-- [**Herramientas de Hardware**](hardware.md) — Descubrimiento de placas (`hardware_board_info`), introspección de memoria (`hardware_memory_read`) y control de periféricos (`gpio_write`).
+- [**Herramientas de Hardware**](hardware.md) — Descubrimiento de placas (`hardware_board_info`), introspección de memoria (`hardware_memory_read`) y control de periféricos (`gpio_write`, `arduino_upload`).
 
 ## Modelo de Seguridad
 

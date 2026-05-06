@@ -3,7 +3,7 @@ title: Herramientas de Automatización y Utilidades
 description: Referencia para las herramientas de Git, Cron, Programación y Notificaciones en Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-06
 appliesTo: main
 docType: reference
 ---
@@ -136,9 +136,23 @@ Herramientas para gestionar la ejecución autónoma basada en el tiempo. Corvus 
 | `cron_list` | Lista todos los trabajos cron configurados. |
 | `cron_remove` | Elimina un trabajo cron por ID. |
 | `cron_run` | Fuerza la ejecución inmediata de un trabajo. |
-| `cron_runs` | Muestra el historial de ejecuciones recientes de una tarea (requiere `job_id`). |
-| `cron_update` | Parchea la programación o configuración de una tarea existente (requiere `job_id` y `patch`). |
+| `cron_runs` | Muestra el historial de ejecuciones recientes de una tarea. |
+| `cron_update` | Parchea la programación o configuración de una tarea existente. |
 | `schedule` | Herramienta unificada para `create`, `list`, `get`, `cancel`, `pause` y `resume`. |
+
+### Parámetros de `cron_runs`
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `job_id` | `string` | **Requerido.** El identificador único de la tarea cron. |
+| `limit` | `integer` | Número máximo de ejecuciones a devolver (por defecto: 10). |
+
+### Parámetros de `cron_update`
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `job_id` | `string` | **Requerido.** El identificador único de la tarea cron a parchear. |
+| `patch` | `object` | **Requerido.** Objeto JSON con los campos a actualizar (ej. `schedule`, `command`, `enabled`). |
 
 ---
 

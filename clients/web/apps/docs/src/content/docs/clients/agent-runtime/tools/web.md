@@ -3,7 +3,7 @@ title: Web Tools
 description: Reference for web browsing, search, and HTTP request tools in Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-06
 appliesTo: main
 docType: reference
 ---
@@ -90,9 +90,12 @@ Read-only fetch-and-extract parity tool for allowlisted web content.
 
 - **Security Tier:** Read-Only (Safe).
 - **Execution:** Uses the same outbound URL-policy boundary as `http_request` for host allowlists, private-host blocking, and redirect-denial behavior.
-- **Contract:** Requires `url` and `prompt`; returns extracted textual content, HTTP status metadata, and the final fetched URL.
 - **Compatibility alias:** `web_fetch`
 - **Native relationship:** Uses the same outbound URL policy boundary as `http_request`, but remains a read-only fetch-and-extract surface.
-- **Scope boundary:** `WebFetch` remains the read-only web parity surface. Persistent task lifecycle
-  parity (`TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, `TaskStop`) is now documented
-  separately and remains distinct from web/search behavior.
+
+### Parameters
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `url` | `string` | **Required.** The full URL to fetch. |
+| `prompt` | `string` | **Required.** Guiding instructions for extraction. |

@@ -3,7 +3,7 @@ title: Automation & Utility Tools
 description: Reference for Git, Cron, Scheduling, and Notification tools in Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-06
 appliesTo: main
 docType: reference
 ---
@@ -136,9 +136,23 @@ Tools for managing autonomous, time-based execution. Corvus provides both a set 
 | `cron_list` | List all configured cron jobs. |
 | `cron_remove` | Delete a cron job by ID. |
 | `cron_run` | Force-run a job immediately. |
-| `cron_runs` | View recent run history for a job (requires `job_id`). |
-| `cron_update` | Patch an existing job's schedule or configuration (requires `job_id` and `patch`). |
+| `cron_runs` | View recent run history for a job. |
+| `cron_update` | Patch an existing job's schedule or configuration. |
 | `schedule` | Unified tool for `create`, `list`, `get`, `cancel`, `pause`, and `resume`. |
+
+### `cron_runs` Parameters
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `job_id` | `string` | **Required.** The unique identifier of the cron job. |
+| `limit` | `integer` | Maximum number of runs to return (default: 10). |
+
+### `cron_update` Parameters
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `job_id` | `string` | **Required.** The unique identifier of the cron job to patch. |
+| `patch` | `object` | **Required.** JSON object with fields to update (e.g., `schedule`, `command`, `enabled`). |
 
 ---
 

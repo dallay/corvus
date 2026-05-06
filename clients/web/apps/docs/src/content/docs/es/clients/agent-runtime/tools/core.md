@@ -3,7 +3,7 @@ title: Herramientas Core
 description: Referencia para la ejecución de comandos del sistema y herramientas de archivos en Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-06
 appliesTo: main
 docType: reference
 ---
@@ -49,15 +49,83 @@ Herramienta de paridad estilo Claude para búsqueda de contenido, respaldada por
 
 ---
 
-## Límite de paridad de tareas
+## Paridad de gestión de tareas
 
-- **Estado actual:** `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` y `TaskStop` ya forman parte
-  de este slice de paridad como herramientas persistentes de tareas del runtime.
-- **Límite de almacenamiento:** Usan el store SQLite del runtime (`workspace/memory/brain.db`) y
-  solo se exponen cuando el backend de memoria activo es `sqlite`.
-- **No objetivos:** Este slice **no** añade semántica de reapertura, subtareas ni dependencias.
-- **Distinción importante:** `schedule` y `cron_*` siguen siendo capacidades de scheduler, no
-  reemplazos del ciclo de vida de tareas.
+Estas herramientas proporcionan un ciclo de vida de tareas persistente respaldado por el store de memoria SQLite del runtime (`brain.db`). Solo están disponibles cuando el backend de memoria activo es `sqlite`.
+
+### `TaskCreate`
+
+Crea una tarea persistente del runtime con vinculación opcional a una sesión.
+
+- **Nivel de Seguridad:** De Acción (Con riesgo).
+- **Alias de compatibilidad:** `task_create`
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `title` | `string` | **Requerido.** Breve resumen de la tarea. |
+| `description` | `string` | Instrucciones detalladas o contexto opcional. |
+| `priority` | `string` | Prioridad de la tarea: `low`, `medium` o `high`. |
+| `session_id` | `string` | ID opcional para vincular la tarea a una sesión de chat específica. |
+
+---
+
+### `TaskGet`
+
+Obtiene una tarea persistente del runtime mediante su ID único.
+
+- **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Alias de compatibilidad:** `task_get`
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `id` | `string` | **Requerido.** El UUID de la tarea a obtener. |
+
+---
+
+### `TaskList`
+
+Lista las tareas persistentes del runtime con filtros básicos y paginación.
+
+- **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Alias de compatibilidad:** `task_list`
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `status` | `string` | Filtrar por estado: `pending`, `in_progress`, `completed` o `cancelled`. |
+| `priority` | `string` | Filtrar por prioridad: `low`, `medium` o `high`. |
+| `session_id` | `string` | Filtrar por ID de sesión de chat. |
+| `limit` | `integer` | Número máximo de tareas a devolver (por defecto: 10). |
+| `offset` | `integer` | Número de tareas a omitir para la paginación (por defecto: 0). |
+
+---
+
+### `TaskUpdate`
+
+Actualiza los campos mutables de una tarea persistente del runtime.
+
+- **Nivel de Seguridad:** De Acción (Con riesgo).
+- **Alias de compatibilidad:** `task_update`
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `id` | `string` | **Requerido.** El UUID de la tarea a actualizar. |
+| `title` | `string` | Nuevo título para la tarea. |
+| `description` | `string` | Nueva descripción para la tarea. |
+| `priority` | `string` | Nueva prioridad: `low`, `medium` o `high`. |
+| `status` | `string` | Nuevo estado: `pending`, `in_progress`, `completed` o `cancelled`. |
+
+---
+
+### `TaskStop`
+
+Cancela una tarea persistente activa del runtime.
+
+- **Nivel de Seguridad:** De Acción (Con riesgo).
+- **Alias de compatibilidad:** `task_stop`
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `id` | `string` | **Requerido.** El UUID de la tarea a cancelar. |
 
 ---
 

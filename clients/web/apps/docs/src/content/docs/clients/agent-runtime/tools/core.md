@@ -3,7 +3,7 @@ title: Core Tools
 description: Reference for system command execution and filesystem tools in Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-06
 appliesTo: main
 docType: reference
 ---
@@ -63,15 +63,83 @@ Claude-style parity content search backed by the same Corvus search internals us
 
 ---
 
-## Task parity boundary
+## Task management parity
 
-- **Current status:** `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, and `TaskStop` are now part
-  of the tooling-parity slice as persistent runtime task tools.
-- **Storage boundary:** They use the runtime SQLite memory store (`workspace/memory/brain.db`) and
-  are only surfaced when the active memory backend is `sqlite`.
-- **Non-goals:** This slice does **not** add reopen semantics, subtasks, or dependencies.
-- **Important distinction:** `schedule` and `cron_*` remain scheduler capabilities, not task
-  lifecycle replacements.
+These tools provide a persistent task lifecycle backed by the runtime SQLite memory store (`brain.db`). They are only available when the active memory backend is `sqlite`.
+
+### `TaskCreate`
+
+Create a persistent runtime task with optional session linkage.
+
+- **Security Tier:** Action-Bearing (Risk-bearing).
+- **Compatibility alias:** `task_create`
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `title` | `string` | **Required.** Brief summary of the task. |
+| `description` | `string` | Optional detailed instructions or context. |
+| `priority` | `string` | Task priority: `low`, `medium`, or `high`. |
+| `session_id` | `string` | Optional ID to link the task to a specific chat session. |
+
+---
+
+### `TaskGet`
+
+Fetch a persistent runtime task by its unique ID.
+
+- **Security Tier:** Read-Only (Safe).
+- **Compatibility alias:** `task_get`
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | **Required.** The UUID of the task to fetch. |
+
+---
+
+### `TaskList`
+
+List persistent runtime tasks with basic filters and pagination.
+
+- **Security Tier:** Read-Only (Safe).
+- **Compatibility alias:** `task_list`
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `status` | `string` | Filter by status: `pending`, `in_progress`, `completed`, or `cancelled`. |
+| `priority` | `string` | Filter by priority: `low`, `medium`, or `high`. |
+| `session_id` | `string` | Filter by chat session ID. |
+| `limit` | `integer` | Maximum number of tasks to return (default: 10). |
+| `offset` | `integer` | Number of tasks to skip for pagination (default: 0). |
+
+---
+
+### `TaskUpdate`
+
+Update mutable fields on a persistent runtime task.
+
+- **Security Tier:** Action-Bearing (Risk-bearing).
+- **Compatibility alias:** `task_update`
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | **Required.** The UUID of the task to update. |
+| `title` | `string` | New title for the task. |
+| `description` | `string` | New description for the task. |
+| `priority` | `string` | New priority: `low`, `medium`, or `high`. |
+| `status` | `string` | New status: `pending`, `in_progress`, `completed`, or `cancelled`. |
+
+---
+
+### `TaskStop`
+
+Cancel an active persistent runtime task.
+
+- **Security Tier:** Action-Bearing (Risk-bearing).
+- **Compatibility alias:** `task_stop`
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | **Required.** The UUID of the task to cancel. |
 
 ---
 
