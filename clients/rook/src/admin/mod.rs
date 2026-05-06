@@ -1,6 +1,7 @@
 pub mod handlers;
 pub mod types;
 
+use crate::config::OperationalConfig;
 use crate::health::StartupDependencyState;
 use crate::observability::Observability;
 use crate::registry::RookRegistry;
@@ -12,6 +13,7 @@ pub struct AdminState {
     pub registry: RookRegistry,
     pub startup: Arc<StartupDependencyState>,
     pub observability: Arc<Observability>,
+    pub operational: OperationalConfig,
 }
 
 impl FromRef<AdminState> for Arc<StartupDependencyState> {
@@ -156,6 +158,7 @@ mod tests {
             registry,
             startup: std::sync::Arc::new(startup),
             observability: std::sync::Arc::new(crate::observability::Observability::bootstrap()),
+            operational: crate::config::OperationalConfig::default(),
         }
     }
 

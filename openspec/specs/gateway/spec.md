@@ -4118,6 +4118,183 @@ The metrics surface MUST be observable without requiring operator access to appl
 
 ---
 
+### Requirement: Operational Undercover and Redaction Boundary
+
+The gateway domain MUST define an explicit undercover/redaction posture for production operation. The
+posture MUST protect secrets and sensitive user/runtime payloads at every boundary where gateway or
+agent execution state can leave the trusted runtime.
+
+Undercover mode MUST be fail-closed and conservative. When enabled, the system MUST redact or omit at
+minimum:
+
+- provider API keys, bearer tokens, webhook secrets, bridge/session JWTs, and any configured
+  credential values
+- raw user prompts, raw tool input/output payloads, raw media bytes, base64 payloads, and channel
+  media URLs
+- local filesystem paths, connection strings, environment-derived secret values, and provider error
+  bodies that may contain request payloads
+
+The enforcement points MUST include gateway request/response diagnostics, agent-loop events, provider
+request/response logs, tool execution logs, coordination/mailbox diagnostics, admin API responses,
+metrics labels, and startup/doctor output. Metrics MAY expose bounded metadata such as route name,
+provider identifier, model identifier, outcome class, duration, and token/cost totals, but MUST NOT
+place sensitive payloads in labels or samples.
+
+Undercover mode MUST NOT weaken operational observability. The system SHOULD preserve correlation IDs,
+session identifiers after safe normalization, event names, durations, counts, outcome classes, and
+structured failure categories so operators can debug behavior without exposing protected content.
+
+#### Scenario: undercover mode redacts agent execution diagnostics
+
+- GIVEN undercover mode is enabled
+- AND an agent turn includes a user prompt, tool output, provider token, and local path
+- WHEN gateway, provider, tool, or agent-loop diagnostics are emitted
+- THEN diagnostics MUST omit or redact the raw prompt, tool output, token, and local path
+- AND diagnostics MUST still include safe metadata such as event kind, outcome class, duration, and
+  normalized session correlation
+
+#### Scenario: admin and metrics surfaces do not leak protected values
+
+- GIVEN undercover mode is enabled
+- WHEN an operator reads admin configuration, usage, health, or metrics surfaces
+- THEN credential values and raw payloads MUST NOT be returned
+- AND metrics labels MUST use low-cardinality non-sensitive dimensions only
+
+#### Scenario: unsupported redaction boundary fails closed
+
+- GIVEN a runtime path cannot guarantee redaction for a diagnostic payload
+- WHEN undercover mode is enabled
+- THEN the system MUST suppress or replace that payload with a structured redaction marker
+- AND it MUST NOT emit the raw payload as a best-effort fallback
+
+---
+
+### Requirement: Stable Multi-Provider Operational Controls
+
+The gateway domain MUST expose stable runtime and user-facing paths for multi-provider operation so
+operators can configure and inspect provider behavior without depending on internal implementation
+details.
+
+The stable control paths MUST cover:
+
+- default provider and model selection
+- model routes that map user-facing hints or logical models to provider/model targets
+- provider account pools and routing health when account pooling is enabled
+- per-session provider/model overrides through the shared slash-command contract where supported
+- operator diagnostics that explain routing decisions using redacted, non-secret metadata
+
+Multi-provider controls MUST preserve account and credential isolation. Provider account pool members
+MUST remain isolated from one another, credentials MUST be redacted in user-facing and operator-facing
+responses, and provider fallback MUST NOT silently change a request's security boundary or capability
+contract. When a requested provider/model/capability cannot be served, the system MUST return a
+structured unavailable or unsupported outcome rather than silently downgrading to an unrelated route.
+
+#### Scenario: operator inspects provider routing safely
+
+- GIVEN multiple providers, model routes, or account pools are configured
+- WHEN an operator inspects effective routing through stable runtime or admin surfaces
+- THEN the response MUST identify configured provider/model targets and route health using redacted
+  metadata
+- AND the response MUST NOT expose provider credentials or raw upstream request bodies
+
+#### Scenario: session provider override uses stable command path
+
+- GIVEN a session supports shared slash-command handling
+- WHEN a caller invokes the stable provider/model command path for that session
+- THEN the runtime MUST apply or report the active provider/model through the shared command contract
+- AND unsupported providers, unknown models, or unavailable capabilities MUST be reported as
+  structured command/runtime failures
+
+#### Scenario: fallback preserves capability and security boundaries
+
+- GIVEN a primary provider route fails or becomes unhealthy
+- WHEN the runtime considers fallback to another provider or account
+- THEN fallback MUST only select a target that satisfies the same required capability and security
+  constraints
+- AND the runtime MUST NOT silently strip required content, credentials scope, or safety controls to
+  make a fallback succeed
+
+---
+
+### Requirement: Agent Execution Debugging and Logging Workflow
+
+The system MUST provide first-class debugging and logging workflows tied to agent execution across the
+gateway, agent loop, tools, and coordination surfaces.
+
+The debugging workflow MUST expose enough structured information to reconstruct an execution story
+without reading raw sensitive payloads. At minimum, safe diagnostics MUST cover:
+
+- request admission and gateway transport outcome
+- selected provider/model/route and fallback outcome
+- agent-loop lifecycle events including start, completion, failure, and blocked/denied outcomes
+- tool call start/end, duration, and success/failure category
+- coordinator child admission, fan-out/fan-in, cancellation, and terminal outcomes
+- remote bridge admission/transport outcome when remote sessions are involved
+
+Debug output MUST be controllable by explicit operator configuration or logging level and MUST inherit
+the undercover/redaction boundary. Debug workflows MAY include logs, metrics, traces, doctor checks,
+or admin diagnostic responses, but all such surfaces MUST use the same redaction posture.
+
+#### Scenario: agent turn can be debugged end-to-end
+
+- GIVEN debug diagnostics are enabled for a gateway-backed agent turn
+- WHEN the turn completes, fails, or is blocked
+- THEN an operator MUST be able to follow admission, routing, agent-loop, tool, and terminal outcome
+  events through safe correlation metadata
+- AND raw prompts, tool payloads, credentials, and provider request/response bodies MUST remain
+  redacted or omitted
+
+#### Scenario: coordination diagnostics preserve child lifecycle
+
+- GIVEN a coordinator fans work out to one or more child agents
+- WHEN debug diagnostics are enabled
+- THEN diagnostics MUST expose child admission, transport kind, lifecycle transition, cancellation,
+  and terminal aggregate outcome
+- AND mailbox or bridge diagnostics MUST NOT expose raw child prompts, tool payloads, or credentials
+
+#### Scenario: debugging controls document security tradeoffs
+
+- GIVEN an operator enables verbose debugging
+- WHEN the system emits additional diagnostic detail
+- THEN the documentation and runtime behavior MUST make clear that verbose mode increases metadata
+  exposure
+- AND undercover/redaction controls MUST still prevent protected payload and secret disclosure
+
+---
+
+### Requirement: Operational Parity Rollout Boundaries
+
+Operational parity for undercover mode, multi-provider controls, and debugging workflows MUST be
+rolled out with explicit boundaries and security notes.
+
+The rollout documentation MUST describe:
+
+- which ingress surfaces enforce undercover/redaction behavior
+- which provider control paths are stable and which are deferred
+- which debug/logging surfaces are safe for production use
+- how coordination and remote-session diagnostics relate to the multi-agent orchestration and bridge
+  remote-session specifications
+- rollback guidance for disabling verbose diagnostics without disabling safety redaction
+
+The rollout MUST treat security redaction as a safety control, not a debug feature. Disabling verbose
+logging MUST reduce diagnostic volume, but MUST NOT disable baseline secret redaction.
+
+#### Scenario: rollout docs identify supported and deferred surfaces
+
+- GIVEN an operator reads the rollout documentation for operational parity
+- WHEN they configure undercover mode, providers, or debug diagnostics
+- THEN the documentation MUST identify supported ingress and admin surfaces
+- AND deferred or unsupported surfaces MUST be explicitly named rather than implied as supported
+
+#### Scenario: disabling debug does not disable redaction
+
+- GIVEN an operator disables verbose debugging
+- WHEN the runtime continues normal operation
+- THEN baseline secret and payload redaction MUST remain active
+- AND protected values MUST NOT be emitted simply because debug diagnostics are off
+
+---
+
 ### Requirement: Linux Release Binary Startup Smoke Validation
 
 The release workflow for the Linux Cerebro binary MUST execute a startup smoke validation that proves the built release artifact can start the real HTTP and MCP service surface, not merely parse CLI arguments or print help text.

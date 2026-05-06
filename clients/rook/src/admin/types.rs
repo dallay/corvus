@@ -151,12 +151,19 @@ pub struct OperatorStatusView {
     pub startup: crate::health::ReadinessResponse,
     pub provider_health: HealthSummaryView,
     pub runtime: OperatorRuntimeView,
+    pub operational: OperationalStatusView,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OperatorRuntimeView {
     pub metrics_enabled: bool,
     pub usage_accounting_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OperationalStatusView {
+    pub debug_diagnostics: bool,
+    pub redaction_baseline: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

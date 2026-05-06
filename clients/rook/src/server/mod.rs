@@ -6,7 +6,8 @@
 use crate::admin;
 use crate::auth::middleware::{admin_inbound_auth, gateway_inbound_auth};
 use crate::config::{
-    IdempotencyConfig, InboundAuthConfig, RateLimitConfig, RookConfig, TransportConfig,
+    IdempotencyConfig, InboundAuthConfig, OperationalConfig, RateLimitConfig, RookConfig,
+    TransportConfig,
 };
 use crate::dashboard;
 use crate::domain::RookError;
@@ -42,6 +43,8 @@ pub struct ServerConfig {
     pub enable_tui: bool,
     /// Path to the SQLite database file. Defaults to `"./rook.db"`.
     pub db_path: Option<String>,
+    /// Operational safety and debugging controls.
+    pub operational: OperationalConfig,
     /// Inbound auth config for protected `/api/*` and `/v1/*` routes.
     pub inbound_auth: InboundAuthConfig,
     /// Transport middleware baseline config for `/api/*` and `/v1/*`.
@@ -61,6 +64,7 @@ impl Default for ServerConfig {
             port: 4141,
             enable_tui: false,
             db_path: None,
+            operational: OperationalConfig::default(),
             inbound_auth: InboundAuthConfig::default(),
             transport: TransportConfig::default(),
             rate_limits: RateLimitConfig::default(),
@@ -209,6 +213,7 @@ async fn build_app_with_registry_and_startup_state(
         engine,
         client,
         observability: observability.clone(),
+        operational: config.operational.clone(),
         resilience_policy,
         upstream_concurrency,
     };
@@ -249,6 +254,7 @@ async fn build_app_with_registry_and_startup_state(
         registry,
         startup: startup_state,
         observability,
+        operational: config.operational.clone(),
     };
     let admin_router = admin::operational_router(admin_state.clone())
         .layer(middleware::from_fn_with_state(
@@ -499,6 +505,7 @@ mod tests {
             port: 4141,
             enable_tui: false,
             db_path: None,
+            operational: OperationalConfig::default(),
             inbound_auth: InboundAuthConfig {
                 enabled: true,
                 bearer_token: token.map(ToOwned::to_owned),
@@ -789,6 +796,7 @@ mod tests {
             port: 8080,
             enable_tui: true,
             db_path: None,
+            operational: OperationalConfig::default(),
             inbound_auth: InboundAuthConfig::default(),
             transport: TransportConfig::default(),
             rate_limits: RateLimitConfig {
@@ -825,6 +833,7 @@ mod tests {
                     port: 0,
                     enable_tui: true,
                     db_path: None,
+                    operational: OperationalConfig::default(),
                     inbound_auth: InboundAuthConfig::default(),
                     transport: TransportConfig::default(),
                     rate_limits: RateLimitConfig::default(),
@@ -2678,5 +2687,31 @@ mod tests {
         let (asset_status, asset_body) = request_text(app, "/assets/index.html").await;
         assert_eq!(asset_status, StatusCode::OK);
         assert!(String::from_utf8_lossy(&asset_body).contains("Corvus Rook"));
+    }
+
+    #[tokio::test]
+    async fn operational_config_propagates_to_admin_state() {
+        let config = ServerConfig {
+            operational: OperationalConfig {
+                undercover: false,
+                debug_diagnostics: true,
+            },
+            ..ServerConfig::default()
+        };
+        let registry = RookRegistry::open_in_memory().await.unwrap();
+        let app = build_app_with_registry(config, registry).await.unwrap();
+
+        let (status, json) = request_json(app, "/api/status").await;
+        assert_eq!(status, StatusCode::OK);
+
+        let operational = &json["operational"];
+        assert_eq!(
+            operational["debug_diagnostics"], true,
+            "debug_diagnostics should propagate to /api/status response"
+        );
+        assert_eq!(
+            operational["redaction_baseline"], "always_on",
+            "redaction_baseline should always be always_on"
+        );
     }
 }

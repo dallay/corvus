@@ -86,6 +86,33 @@ fn record_upstream_retry_outcome(
     );
 }
 
+fn debug_diagnostics_enabled(state: &GatewayState) -> bool {
+    state.operational.debug_diagnostics
+}
+
+fn emit_gateway_debug(
+    state: &GatewayState,
+    event: &'static str,
+    request_model: &str,
+    context: &UpstreamMetricContext,
+    outcome: Option<&'static str>,
+) {
+    if !debug_diagnostics_enabled(state) {
+        return;
+    }
+
+    tracing::debug!(
+        event,
+        requested_model = %normalize_model_label(Some(request_model)),
+        vendor = %context.vendor,
+        account = %context.account,
+        routed_model = %context.model,
+        outcome = outcome.unwrap_or("none"),
+        redaction_baseline = "always_on",
+        "gateway.debug"
+    );
+}
+
 fn classify_upstream_error(error: &UpstreamError) -> &'static str {
     match error {
         UpstreamError::MissingBaseUrl { .. } | UpstreamError::MissingAuthHeader { .. } => {
@@ -247,7 +274,11 @@ async fn handle_buffered_chat_completions(
     loop {
         attempts = attempts.saturating_add(1);
         let decision = match state.engine.resolve(&request.model).await {
-            Ok(decision) => decision,
+            Ok(decision) => {
+                let context = UpstreamMetricContext::from_decision(&decision);
+                emit_gateway_debug(state, "route_resolved", &request.model, &context, None);
+                decision
+            }
             Err(error) => {
                 return handle_buffered_route_error(state, &request, started_at, error, last_error)
                     .await;
@@ -299,8 +330,10 @@ async fn handle_buffered_route_error(
     last_error: Option<BufferedAttemptError>,
 ) -> Response {
     // Always log and record the failure before potentially returning early
-    record_upstream_failure(state, &UpstreamMetricContext::unrouted(), "route_rejected");
-    tracing::warn!(model = %request.model, error = %error, "routing failed");
+    let unrouted = UpstreamMetricContext::unrouted();
+    record_upstream_failure(state, &unrouted, "route_rejected");
+    emit_gateway_debug(state, "route_rejected", &request.model, &unrouted, Some("route_rejected"));
+    tracing::warn!(model = %normalize_model_label(Some(&request.model)), error = %error, "routing failed");
 
     if let Some(previous_error) = last_error {
         let retryable = should_retry_buffered_upstream_error(&previous_error.0);
@@ -394,6 +427,13 @@ async fn finalize_buffered_upstream_error(
     };
 
     let outcome = classify_upstream_error(&error);
+    emit_gateway_debug(
+        state,
+        "upstream_attempt_terminal",
+        &request.model,
+        &metric_context,
+        Some(outcome),
+    );
     record_upstream_retry_outcome(
         state,
         &metric_context,
@@ -439,7 +479,8 @@ async fn proxy_buffered_attempt(
     ),
 > {
     let metric_context = UpstreamMetricContext::from_decision(decision);
-    tracing::info!(model = %request.model, account_id = %decision.account.id, "proxying chat completion");
+    emit_gateway_debug(state, "upstream_attempt_start", &request.model, &metric_context, None);
+    tracing::info!(model = %normalize_model_label(Some(&request.model)), account_id = %decision.account.id, "proxying chat completion");
 
     let permit = match state.upstream_concurrency.semaphore().acquire_owned().await {
         Ok(permit) => permit,
@@ -459,8 +500,27 @@ async fn proxy_buffered_attempt(
     drop(permit);
 
     result
-        .map(|response| (response, metric_context.clone_static(), decision.account.id))
-        .map_err(|error| (error, metric_context, decision.account.id))
+        .map(|response| {
+            emit_gateway_debug(
+                state,
+                "upstream_attempt_success",
+                &request.model,
+                &metric_context,
+                Some("success"),
+            );
+            (response, metric_context.clone_static(), decision.account.id)
+        })
+        .map_err(|error| {
+            let outcome = classify_upstream_error(&error);
+            emit_gateway_debug(
+                state,
+                "upstream_attempt_failure",
+                &request.model,
+                &metric_context,
+                Some(outcome),
+            );
+            (error, metric_context, decision.account.id)
+        })
 }
 
 async fn handle_streaming_chat_completions(
@@ -470,10 +530,16 @@ async fn handle_streaming_chat_completions(
     started_at: Instant,
 ) -> Response {
     let decision = match state.engine.resolve(&request.model).await {
-        Ok(decision) => decision,
+        Ok(decision) => {
+            let context = UpstreamMetricContext::from_decision(&decision);
+            emit_gateway_debug(state, "route_resolved", &request.model, &context, None);
+            decision
+        }
         Err(error) => {
-            record_upstream_failure(state, &UpstreamMetricContext::unrouted(), "route_rejected");
-            tracing::warn!(model = %request.model, error = %error, "routing failed");
+            let unrouted = UpstreamMetricContext::unrouted();
+            record_upstream_failure(state, &unrouted, "route_rejected");
+            emit_gateway_debug(state, "route_rejected", &request.model, &unrouted, Some("route_rejected"));
+            tracing::warn!(model = %normalize_model_label(Some(&request.model)), error = %error, "routing failed");
             record_usage(
                 state,
                 UsageRecordInput {
@@ -499,8 +565,16 @@ async fn handle_streaming_chat_completions(
 
     let metric_context = UpstreamMetricContext::from_decision(&decision);
     let account_id = decision.account.id;
+    emit_gateway_debug(state, "upstream_stream_start", &request.model, &metric_context, None);
     match upstream::open_chat_completion_stream(&state.client, &decision.account, body).await {
         Ok(upstream_response) => {
+            emit_gateway_debug(
+                state,
+                "upstream_stream_opened",
+                &request.model,
+                &metric_context,
+                Some("success"),
+            );
             state.registry.health().mark_success(account_id).await;
             let completion_state = state.clone();
             let completion_input = UsageRecordInput {
@@ -529,6 +603,13 @@ async fn handle_streaming_chat_completions(
         }
         Err(error) => {
             let outcome = classify_upstream_error(&error);
+            emit_gateway_debug(
+                state,
+                "upstream_stream_failure",
+                &request.model,
+                &metric_context,
+                Some(outcome),
+            );
             record_upstream_failure(state, &metric_context, outcome);
             mark_account_failure(state, account_id).await;
             let response = map_upstream_error(error);
@@ -723,6 +804,7 @@ mod tests {
             engine,
             client,
             observability: Arc::new(crate::observability::Observability::bootstrap()),
+            operational: crate::config::OperationalConfig::default(),
             resilience_policy,
             upstream_concurrency,
         };
@@ -1377,6 +1459,7 @@ mod tests {
             engine,
             client,
             observability: observability.clone(),
+            operational: crate::config::OperationalConfig::default(),
             resilience_policy,
             upstream_concurrency,
         };
@@ -1479,6 +1562,7 @@ mod tests {
             engine,
             client,
             observability: observability.clone(),
+            operational: crate::config::OperationalConfig::default(),
             resilience_policy,
             upstream_concurrency,
         };
@@ -1553,6 +1637,7 @@ mod tests {
             engine,
             client,
             observability: observability.clone(),
+            operational: crate::config::OperationalConfig::default(),
             resilience_policy,
             upstream_concurrency,
         };
@@ -1697,5 +1782,37 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json = serde_json::from_slice::<Value>(&body).unwrap();
         assert_eq!(json, json!({"object":"list","data":[]}));
+    }
+
+    #[tokio::test]
+    async fn debug_diagnostics_enabled_guard_returns_correct_value() {
+        use crate::config::OperationalConfig;
+
+        // test_state() builds a full GatewayState with default OperationalConfig
+        // (undercover=false, debug_diagnostics=false).
+        let (state, _registry) = test_state().await;
+
+        // Confirm the default has debug_diagnostics = false.
+        assert!(
+            !state.operational.debug_diagnostics,
+            "default OperationalConfig should have debug_diagnostics = false"
+        );
+
+        // debug_diagnostics_enabled is the guard used by emit_gateway_debug.
+        assert!(
+            !super::debug_diagnostics_enabled(&state),
+            "debug_diagnostics_enabled should return false when debug_diagnostics = false"
+        );
+
+        // Confirm the inverse: when enabled, the guard returns true.
+        let mut enabled_state = state.clone();
+        enabled_state.operational = OperationalConfig {
+            undercover: false,
+            debug_diagnostics: true,
+        };
+        assert!(
+            super::debug_diagnostics_enabled(&enabled_state),
+            "debug_diagnostics_enabled should return true when debug_diagnostics = true"
+        );
     }
 }
