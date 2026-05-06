@@ -160,6 +160,9 @@ probe-rs = { version = "0.31", optional = true }
 # PDF extraction for datasheet RAG (optional, enable with --features rag-pdf)
 pdf-extract = { version = "0.10", optional = true }
 
+# PDF inspection, classification, and text extraction
+pdf-inspector = { git = "https://github.com/firecrawl/pdf-inspector", optional = true }
+
 # Raspberry Pi GPIO / Landlock (Linux only) — target-specific to avoid compile failure on macOS
 [target.'cfg(target_os = "linux")'.dependencies]
 rppal = { version = "0.22", optional = true }
@@ -192,6 +195,8 @@ landlock = ["sandbox-landlock"]
 probe = ["dep:probe-rs"]
 # rag-pdf = PDF ingestion for datasheet RAG
 rag-pdf = ["dep:pdf-extract"]
+# pdf-inspect = PDF inspection, classification, and text extraction tool
+pdf-inspect = ["dep:pdf-inspector"]
 [profile.release]
 opt-level = "z"      # Optimize for size
 lto = "thin"         # Lower memory use during release builds

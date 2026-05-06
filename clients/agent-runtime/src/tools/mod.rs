@@ -43,6 +43,8 @@ pub mod traits;
 pub(crate) mod url_safety;
 pub mod web_fetch;
 pub mod web_search_tool;
+#[cfg(feature = "pdf-inspect")]
+pub mod pdf_inspect;
 
 pub const PARITY_TOOL_ALIASES: &[(&str, &str)] = &[
     ("Glob", "glob"),
@@ -132,6 +134,8 @@ pub use traits::Tool;
 pub use traits::{ToolResult, ToolSpec};
 pub use web_fetch::WebFetchTool;
 pub use web_search_tool::WebSearchTool;
+#[cfg(feature = "pdf-inspect")]
+pub use pdf_inspect::PdfInspectTool;
 
 use crate::agent::coordinator::SupervisedOrchestrationService;
 use crate::agent::mailbox::{MailboxBackedChildRunner, MailboxWakeupHub, SqliteMailboxStore};
@@ -513,6 +517,10 @@ pub fn all_tools_with_runtime(
     // Vision tools are always available
     tools.push(Box::new(ScreenshotTool::new(security.clone())));
     tools.push(Box::new(ImageInfoTool::new(security.clone())));
+
+    // PDF inspection (optional feature)
+    #[cfg(feature = "pdf-inspect")]
+    tools.push(Box::new(PdfInspectTool::new(security.clone())));
 
     add_composio_tool(&mut tools, security, composio_key, composio_entity_id);
 
