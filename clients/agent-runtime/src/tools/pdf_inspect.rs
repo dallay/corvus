@@ -1,3 +1,4 @@
+use super::security_helpers::{check_and_resolve_path, PathCheckOutcome};
 use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
@@ -69,58 +70,10 @@ impl Tool for PdfInspectTool {
                 .ok_or_else(|| anyhow::anyhow!("'extract_text' must be a boolean"))?,
         };
 
-        if self.security.is_rate_limited() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Rate limit exceeded: too many actions in the last hour".into()),
-                structured: None,
-            });
-        }
-
-        if !self.security.is_path_allowed(path) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Path not allowed by security policy: {path}")),
-                structured: None,
-            });
-        }
-
-        if !self.security.record_action() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Rate limit exceeded: action budget exhausted".into()),
-                structured: None,
-            });
-        }
-
-        let full_path = self.security.workspace_dir.join(path);
-
-        let resolved_path = match tokio::fs::canonicalize(&full_path).await {
-            Ok(p) => p,
-            Err(e) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(format!("Failed to resolve file path: {e}")),
-                    structured: None,
-                });
-            }
+        let resolved_path = match check_and_resolve_path(&self.security, path).await {
+            PathCheckOutcome::Resolved(p) => p,
+            PathCheckOutcome::Rejected(result) => return Ok(result),
         };
-
-        if !self.security.is_resolved_path_allowed(&resolved_path) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!(
-                    "Resolved path escapes workspace: {}",
-                    resolved_path.display()
-                )),
-                structured: None,
-            });
-        }
 
         match tokio::fs::metadata(&resolved_path).await {
             Ok(meta) => {

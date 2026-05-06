@@ -27,6 +27,7 @@ pub mod image_info;
 pub mod mcp;
 pub mod memory_forget;
 pub(crate) mod memory_helpers;
+pub(crate) mod security_helpers;
 pub mod memory_recall;
 pub mod memory_store;
 #[cfg(feature = "pdf-inspect")]
