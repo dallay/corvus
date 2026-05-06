@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/dallay/corvus/compare/cerebro-v0.3.0...cerebro-v0.4.0) (2026-05-06)
+
+
+### Features
+
+* **tools:** add pdf_inspect tool via pdf-inspector ([cfb9b3d](https://github.com/dallay/corvus/commit/cfb9b3d310333b649f7712a4d7991af3fac65b5b))
+
 ## [0.3.0](https://github.com/dallay/corvus/compare/cerebro-v0.2.1...cerebro-v0.3.0) (2026-05-01)
 
 

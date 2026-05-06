@@ -1,5 +1,25 @@
 # Changelog
 
+## [3.9.0](https://github.com/dallay/corvus/compare/rook-v3.8.2...rook-v3.9.0) (2026-05-06)
+
+
+### Features
+
+* **rook:** operational parity – undercover mode, debug diagnostics, multi-provider routing controls ([355cc75](https://github.com/dallay/corvus/commit/355cc7577bcb8d10e30e4a7441770dcab9b00350))
+* **rook:** operational parity – undercover mode, debug diagnostics, multi-provider routing controls ([6ad9a2b](https://github.com/dallay/corvus/commit/6ad9a2b6b3b29725b5e01f81575bef7885c53567)), closes [#538](https://github.com/dallay/corvus/issues/538)
+
+
+### Bug Fixes
+
+* address remaining SonarCloud maintainability issues ([20ad14a](https://github.com/dallay/corvus/commit/20ad14af2d675397910afc45bb758cd3d89fe973))
+* address remaining SonarCloud review comments ([d5265f3](https://github.com/dallay/corvus/commit/d5265f357bc4f5d985bb8adce37e1e9e58251163))
+* address SonarCloud maintainability issues ([d8a8d32](https://github.com/dallay/corvus/commit/d8a8d320c39245ac5a6bf576b2360a7c7742a7d9))
+* address SonarCloud quality gate issues ([fd854d0](https://github.com/dallay/corvus/commit/fd854d0ddb42d5670567e34d59aea6248ff22dc9))
+* address SonarCloud quality gate issues ([de98462](https://github.com/dallay/corvus/commit/de98462584c8eb3e26e7f47bf3adb4d561ce219a))
+* address SonarCloud review feedback ([a3203d1](https://github.com/dallay/corvus/commit/a3203d1ce3666f45862c9fe6949904c0f497a11c))
+* **rook:** address review findings from PR [#792](https://github.com/dallay/corvus/issues/792) ([6daf45c](https://github.com/dallay/corvus/commit/6daf45cc6d291cf5474fa014e62346c305c13425))
+* update dependencies and improve error handling in various modules ([3237e29](https://github.com/dallay/corvus/commit/3237e29b9216a925568109f9de287417c4c9318c))
+
 ## [3.8.2](https://github.com/dallay/corvus/compare/rook-v3.8.1...rook-v3.8.2) (2026-05-05)
 
 
