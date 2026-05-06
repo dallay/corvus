@@ -1,3 +1,4 @@
+use super::security_helpers::{check_and_resolve_path, PathCheckOutcome};
 use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
@@ -46,63 +47,10 @@ impl Tool for FileReadTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
 
-        if self.security.is_rate_limited() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Rate limit exceeded: too many actions in the last hour".into()),
-                structured: None,
-            });
-        }
-
-        // Security check: validate path is within workspace
-        if !self.security.is_path_allowed(path) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Path not allowed by security policy: {path}")),
-                structured: None,
-            });
-        }
-
-        // Record action BEFORE canonicalization so that every non-trivially-rejected
-        // request consumes rate limit budget. This prevents attackers from probing
-        // path existence (via canonicalize errors) without rate limit cost.
-        if !self.security.record_action() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Rate limit exceeded: action budget exhausted".into()),
-                structured: None,
-            });
-        }
-
-        let full_path = self.security.workspace_dir.join(path);
-
-        // Resolve path before reading to block symlink escapes.
-        let resolved_path = match tokio::fs::canonicalize(&full_path).await {
-            Ok(p) => p,
-            Err(e) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(format!("Failed to resolve file path: {e}")),
-                    structured: None,
-                });
-            }
+        let resolved_path = match check_and_resolve_path(&self.security, path).await {
+            PathCheckOutcome::Resolved(p) => p,
+            PathCheckOutcome::Rejected(result) => return Ok(result),
         };
-
-        if !self.security.is_resolved_path_allowed(&resolved_path) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!(
-                    "Resolved path escapes workspace: {}",
-                    resolved_path.display()
-                )),
-                structured: None,
-            });
-        }
 
         // Check file size AFTER canonicalization to prevent TOCTOU symlink bypass
         match tokio::fs::metadata(&resolved_path).await {
