@@ -151,7 +151,10 @@ mod tests {
         match outcome {
             PathCheckOutcome::Rejected(result) => {
                 assert!(!result.success);
-                assert!(result.error.unwrap().contains("Failed to resolve file path"));
+                assert!(result
+                    .error
+                    .unwrap()
+                    .contains("Failed to resolve file path"));
             }
             PathCheckOutcome::Resolved(_) => panic!("expected rejection"),
         }
