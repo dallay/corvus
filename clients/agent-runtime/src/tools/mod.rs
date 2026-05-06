@@ -29,10 +29,13 @@ pub mod memory_forget;
 pub(crate) mod memory_helpers;
 pub mod memory_recall;
 pub mod memory_store;
+#[cfg(feature = "pdf-inspect")]
+pub mod pdf_inspect;
 pub mod pushover;
 pub mod schedule;
 pub mod schema;
 pub mod screenshot;
+pub(crate) mod security_helpers;
 pub mod shell;
 pub mod task_create;
 pub mod task_get;
@@ -116,6 +119,8 @@ pub use image_info::ImageInfoTool;
 pub use memory_forget::MemoryForgetTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;
+#[cfg(feature = "pdf-inspect")]
+pub use pdf_inspect::PdfInspectTool;
 pub use pushover::PushoverTool;
 pub use schedule::ScheduleTool;
 #[allow(unused_imports)]
@@ -513,6 +518,10 @@ pub fn all_tools_with_runtime(
     // Vision tools are always available
     tools.push(Box::new(ScreenshotTool::new(security.clone())));
     tools.push(Box::new(ImageInfoTool::new(security.clone())));
+
+    // PDF inspection (optional feature)
+    #[cfg(feature = "pdf-inspect")]
+    tools.push(Box::new(PdfInspectTool::new(security.clone())));
 
     add_composio_tool(&mut tools, security, composio_key, composio_entity_id);
 
