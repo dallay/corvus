@@ -16,7 +16,7 @@
 * address follow-up review findings ([f55c51b](https://github.com/dallay/corvus/commit/f55c51b238eb508c326337e057271f3cc1f5289f))
 * remediate sonar quality issues ([56da8f1](https://github.com/dallay/corvus/commit/56da8f1d15db7c45f3cb29e95952284289a8541d))
 
-## [3.8.0](https://github.com/dallay/corvus/compare/rook-v3.7.0...rook-v3.8.0) (2026-05-05)
+## [3.8.0](https://github.com/dallay/corvus/compare/rook-v0.2.0...rook-v3.8.0) (2026-05-05)
 
 
 ### Features
