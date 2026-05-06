@@ -85,13 +85,20 @@ function ensureReasonBucket(reasons, componentId) {
 }
 
 function addTransitiveComponent(affectedComponents, reasons, componentId, dependency) {
-  if (!affectedComponents.has(dependency) || affectedComponents.has(componentId)) {
+  if (!affectedComponents.has(dependency)) {
     return false;
   }
 
-  affectedComponents.add(componentId);
+  // Always record the reason, even if componentId is already in the set
   ensureReasonBucket(reasons, componentId).push(`depends-on-release-of:${dependency}`);
-  return true;
+
+  // Only add to affectedComponents if not already present
+  if (!affectedComponents.has(componentId)) {
+    affectedComponents.add(componentId);
+    return true;
+  }
+
+  return false;
 }
 
 function expandTransitiveComponents(directComponents, graph, reasons) {

@@ -2523,7 +2523,7 @@ async fn execute_stream_dispatcher(
     .await;
     log_webhook_terminal_outcome(
         request.session_id,
-        "stream_dispatcher",
+        "dispatcher_agent",
         webhook_outcome_label(&result.outcome),
     );
     stream_outcome_from_dispatch_result(result)

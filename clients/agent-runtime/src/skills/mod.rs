@@ -448,6 +448,17 @@ pub fn init_skills_dir(workspace_dir: &Path) -> Result<()> {
 /// Recursively copy a directory tree while refusing symlinks that escape the source root.
 fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
     let canonical_src = src.canonicalize()?;
+    // Only check dest if it already exists - if not, it can't be inside src
+    if dest.exists() {
+        let canonical_dest = dest.canonicalize()?;
+        if canonical_dest.starts_with(&canonical_src) {
+            anyhow::bail!(
+                "Refusing to copy to destination '{}' which is inside source '{}'",
+                canonical_dest.display(),
+                canonical_src.display(),
+            );
+        }
+    }
     copy_dir_recursive_checked(&canonical_src, &canonical_src, dest)
 }
 

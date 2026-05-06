@@ -21,8 +21,13 @@ function readText(path) {
   return fs.readFileSync(path, "utf8");
 }
 
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function readTomlSection(text, sectionName) {
-  const sectionMatch = new RegExp(`^\\[${sectionName}\\]\\r?\\n`, "m").exec(text);
+  const escapedSectionName = escapeRegExp(sectionName);
+  const sectionMatch = new RegExp(`^\\[${escapedSectionName}\\]\\r?\\n`, "m").exec(text);
   if (!sectionMatch) {
     return "";
   }
@@ -132,12 +137,8 @@ const trustedExecutableDirectoryPaths = [
   "/opt/homebrew/bin",
 ].filter(Boolean);
 
-function trustedExecutableDirs() {
-  return trustedExecutableDirectoryPaths;
-}
-
 function isTrustedExecutablePath(candidatePath) {
-  return trustedExecutableDirs().some((trustedDir) => {
+  return trustedExecutableDirectoryPaths.some((trustedDir) => {
     const relativePath = path.relative(trustedDir, candidatePath);
     return relativePath === path.basename(candidatePath) ||
       (relativePath && !relativePath.startsWith("..") && !path.isAbsolute(relativePath));
@@ -155,7 +156,7 @@ function resolveConfiguredExecutableCandidates(configuredPath) {
     return path.isAbsolute(trimmedPath) && isTrustedExecutablePath(trimmedPath) ? [trimmedPath] : [];
   }
 
-  return trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, trimmedPath));
+  return trustedExecutableDirectoryPaths.map((trustedDir) => path.join(trustedDir, trimmedPath));
 }
 
 function resolveExecutable(executableName) {
@@ -163,7 +164,7 @@ function resolveExecutable(executableName) {
   const configuredCandidates = resolveConfiguredExecutableCandidates(configuredPath);
   const candidatePaths = [
     ...configuredCandidates,
-    ...trustedExecutableDirs().map((trustedDir) => path.join(trustedDir, executableName)),
+    ...trustedExecutableDirectoryPaths.map((trustedDir) => path.join(trustedDir, executableName)),
   ].filter(Boolean);
 
   return candidatePaths.find((candidatePath) => {
@@ -1172,7 +1173,8 @@ test("cargo publish contract keeps local cerebro path and release version aligne
   const packageStanza = readTomlSection(cerebroToml, "package");
 
   assert.ok(cargoToml.includes(expectedDependency));
-  assert.match(packageStanza, new RegExp(`^version = "${releaseVersion}"$`, "m"));
+  const escapedVersion = escapeRegExp(releaseVersion);
+  assert.match(packageStanza, new RegExp(`^version = "${escapedVersion}"$`, "m"));
 });
 
 test("rust lockfiles stay valid for --locked release commands", (t) => {

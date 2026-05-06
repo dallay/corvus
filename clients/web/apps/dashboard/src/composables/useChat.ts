@@ -236,8 +236,19 @@ function parseStreamEvent(
   }
 
   if (eventName === "error") {
-    const errorEvt = parseStreamEventJson<StreamErrorEvent>(eventData, fallbackMessage);
-    return { type: "error", message: errorEvt.message || fallbackMessage };
+    let message = fallbackMessage;
+    try {
+      const errorEvt = parseStreamEventJson<StreamErrorEvent>(eventData, fallbackMessage);
+      if (errorEvt.message) {
+        message = errorEvt.message;
+      }
+    } catch {
+      // Fall back to raw eventData if JSON parsing fails
+      if (eventData.trim()) {
+        message = eventData.trim();
+      }
+    }
+    return { type: "error", message };
   }
 
   return { type: "continue" };
@@ -696,6 +707,8 @@ export function useChat(
         statusMessage.value = t("chat.sessionActive", { sessionId: currentSessionId.value });
         return doneEvent;
       } finally {
+        // Cancel in-flight stream before releasing lock to prevent dangling network reads
+        reader.cancel();
         reader.releaseLock();
       }
     } catch (error) {
