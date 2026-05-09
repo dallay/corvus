@@ -21,7 +21,7 @@ categories = ["command-line-utilities", "api-bindings"]
 clap = { version = "4.5.60", features = ["derive"] }
 
 # Async runtime - feature-optimized for size
-tokio = { version = "1.42", default-features = false, features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync", "process", "io-std", "fs", "signal"] }
+tokio = { version = "1.52", default-features = false, features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync", "process", "io-std", "fs", "signal"] }
 tokio-util = { version = "0.7", default-features = false }
 
 # HTTP client - minimal features
@@ -144,9 +144,9 @@ tower-http = { version = "0.6", default-features = false, features = ["limit", "
 http-body-util = "0.1"
 
 # OpenTelemetry — OTLP trace + metrics export
-opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
-opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
-opentelemetry-otlp = { version = "0.31.1", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-client", "reqwest-rustls-webpki-roots"] }
+opentelemetry = { version = "0.32", default-features = false, features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.32.0", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-client", "reqwest-rustls-webpki-roots"] }
 
 # USB device enumeration (hardware discovery)
 nusb = { version = "0.2", default-features = false, optional = true }
