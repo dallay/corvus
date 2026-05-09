@@ -21,7 +21,7 @@ compose-multiplatform = "1.10.3"
 kotlinx-coroutines = "1.10.2"
 junit-jupiter = "5.14.3"
 material3 = "1.11.0-alpha07"
-netty = "4.2.12.Final"
+netty = "4.2.13.Final"
 protobuf = "4.34.1"
 jackson-tools = "3.1.3"
 
