@@ -36,7 +36,7 @@ subtle = "2"
 surrealdb = { version = "3.0.4", default-features = false, features = ["kv-rocksdb"] }
 toml = { version = "1.1", default-features = false, features = ["parse", "serde"] }
 thiserror = "2.0"
-tokio = { version = "1.42", default-features = false, features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
+tokio = { version = "1.52", default-features = false, features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 tower = { version = "0.5", features = ["timeout", "util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
