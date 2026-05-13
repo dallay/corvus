@@ -3,7 +3,7 @@ title: Memory Tools
 description: Reference for long-term memory persistence and retrieval tools in Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-13
 appliesTo: main
 docType: reference
 ---
@@ -36,6 +36,7 @@ Stores a fact, preference, or note in long-term memory.
 Searches the memory system for relevant information based on a semantic query.
 
 - **Security Tier:** Read-Only (Safe).
+- **Plan Mode:** ✅ Safe for Plan Mode (`--plan`).
 - **Retrieval:** Uses hybrid search (Vector similarity + Keyword BM25) when supported by the backend.
 
 ### Parameters

@@ -3,7 +3,7 @@ title: Tools Reference
 description: Overview of the Corvus Agent tool system, security model, and registration.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-05-06
+lastReviewed: 2026-05-13
 appliesTo: main
 docType: reference
 ---
@@ -20,10 +20,10 @@ Built-in tools are organized into six primary categories:
 
 - [**Core Tools**](core.md) — System command execution (`shell`), persistent tasks (`TaskCreate`), native workspace search (`code_search`, `Grep`), file discovery parity (`Glob`), and workspace filesystem access (`file_read`, `file_write`).
 - [**Web Tools**](web.md) — Web browsing (`browser`), search (`web_search_tool`), structured API calls (`http_request`), and read-only fetch parity (`WebFetch`).
-- [**Memory Tools**](memory.md) — Long-term persistence and retrieval of facts and preferences (`memory_store`, `memory_recall`).
+- [**Memory Tools**](memory.md) — Long-term persistence and retrieval of facts and preferences (`memory_store`, `memory_recall`, `memory_forget`).
 - [**Automation Tools**](automation.md) — Multi-agent delegation (`delegate`), managed app integrations (`composio`), Git repository management, scheduled tasks (Cron/Schedule), and notifications (`pushover`).
-- [**Media Tools**](media.md) — Vision-related capabilities including screen capture and image metadata extraction.
-- [**Hardware Tools**](hardware.md) — Board discovery (`hardware_board_info`), memory introspection (`hardware_memory_read`), and peripheral control (`gpio_write`, `arduino_upload`).
+- [**Media Tools**](media.md) — Vision-related capabilities including screen capture, image metadata extraction (`image_info`), and PDF inspection (`pdf_inspect`).
+- [**Hardware Tools**](hardware.md) — Board discovery (`hardware_board_info`), capabilities (`hardware_capabilities`), memory introspection (`hardware_memory_read`, `hardware_memory_map`), and peripheral control (`gpio_read`, `gpio_write`, `arduino_upload`).
 
 ## Security Model
 
@@ -31,7 +31,7 @@ Every tool execution passes through the `SecurityPolicy` layer. Tools are classi
 
 ### Read-Only (Safe)
 These tools do not modify the system or external state. They are generally allowed even in low-autonomy modes.
-- *Examples:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `hardware_board_info`.
+- *Examples:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `pdf_inspect`, `hardware_board_info`, `hardware_memory_map`, `hardware_capabilities`, `gpio_read`.
 
 ## Claude-style parity mapping
 

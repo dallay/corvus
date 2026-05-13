@@ -113,3 +113,14 @@ All three identified issues have been fixed:
 - Improved `cron_runs` and `cron_update` parameter documentation in `automation.md` (en/es).
 **Validation:** Results of `make docs-check` and `make docs-build` passed (84 pages built).
 **Notes:** Maintaining bilingual parity between root (English) and `es/` directory.
+
+## 2026-05-13 - Tool Documentation Audit & Plan Mode Synchronization - Complete
+
+**Verification:** Cross-referenced tool implementations in `clients/agent-runtime/src/tools/` and `clients/agent-runtime/src/peripherals/` with existing documentation. Verified Plan Mode safety list in `security/policy.rs`.
+**Changes:**
+- Added `pdf_inspect` documentation to `media.md` and `es/media.md` (Read-Only, 50MB limit, requires `pdf-inspect` feature).
+- Updated `index.mdx` and `es/index.mdx` to include missing tools: `pdf_inspect`, `hardware_memory_map`, `hardware_capabilities`, `gpio_read`, and `memory_forget`.
+- Added Plan Mode safety indicators (✅ Safe for Plan Mode) to all 8 safe tools (`code_search`, `Glob`, `Grep`, `file_read`, `web_search_tool`, `WebFetch`, `image_info`, `memory_recall`) across English and Spanish files.
+- Synchronized `lastReviewed` date to 2026-05-13 for all touched files.
+**Validation:** Results of `make docs-web-check` and `make docs-web-build` pending pre-commit.
+**Notes:** 1:1 bilingual parity maintained. `HardwareMemoryMapTool` and `HardwareCapabilitiesTool` were identified as missing from the top-level index despite being implemented.

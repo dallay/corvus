@@ -3,7 +3,7 @@ title: Herramientas Web
 description: Referencia para herramientas de navegación web, búsqueda y peticiones HTTP en Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-05-06
+lastReviewed: 2026-05-13
 appliesTo: main
 docType: reference
 ---
@@ -17,6 +17,7 @@ Las herramientas web permiten a los agentes recuperar información de Internet e
 Realiza una búsqueda web para encontrar información actual, noticias o temas de investigación.
 
 - **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Modo Plan:** ✅ Seguro para el Modo Plan (`--plan`).
 - **Proveedores:**
   - `duckduckgo` (Por defecto): Gratuito, no requiere clave de API.
   - `brave`: Requiere `web_search.brave_api_key`.
@@ -89,6 +90,7 @@ Realiza peticiones HTTP estructuradas (REST/JSON) a APIs externas.
 Herramienta de paridad de solo lectura para fetch-and-extract de contenido web permitido.
 
 - **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Modo Plan:** ✅ Seguro para el Modo Plan (`--plan`).
 - **Ejecución:** Usa el mismo límite de política URL saliente que `http_request` para allowlists de hosts, bloqueo de hosts privados y denegación de redirecciones.
 - **Alias de compatibilidad:** `web_fetch`
 - **Relación nativa:** Utiliza el mismo límite de política de URL de salida que `http_request`, pero sigue siendo una superficie de fetch-and-extract de solo lectura.

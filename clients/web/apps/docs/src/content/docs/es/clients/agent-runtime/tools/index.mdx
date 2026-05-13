@@ -3,7 +3,7 @@ title: Referencia de Herramientas
 description: Descripción general del sistema de herramientas de Corvus Agent, modelo de seguridad y registro.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-05-06
+lastReviewed: 2026-05-13
 appliesTo: main
 docType: reference
 ---
@@ -20,10 +20,10 @@ Las herramientas integradas se organizan en seis categorías principales:
 
 - [**Herramientas Core**](core.md) — Ejecución de comandos del sistema (`shell`), tareas persistentes (`TaskCreate`), búsqueda nativa en el workspace (`code_search`, `Grep`), descubrimiento de archivos con paridad (`Glob`) y acceso al sistema de archivos del workspace (`file_read`, `file_write`).
 - [**Herramientas Web**](web.md) — Navegación web (`browser`), búsqueda (`web_search_tool`), llamadas estructuradas a APIs (`http_request`) y fetch de solo lectura con paridad (`WebFetch`).
-- [**Herramientas de Memoria**](memory.md) — Persistencia a largo plazo y recuperación de hechos y preferencias (`memory_store`, `memory_recall`).
+- [**Herramientas de Memoria**](memory.md) — Persistencia a largo plazo y recuperación de hechos y preferencias (`memory_store`, `memory_recall`, `memory_forget`).
 - [**Herramientas de Automatización**](automation.md) — Delegación multi-agente (`delegate`), integraciones de aplicaciones gestionadas (`composio`), gestión de repositorios Git, tareas programadas (Cron/Schedule) y notificaciones (`pushover`).
-- [**Herramientas Multimedia**](media.md) — Capacidades relacionadas con la visión, incluyendo captura de pantalla y extracción de metadatos de imágenes.
-- [**Herramientas de Hardware**](hardware.md) — Descubrimiento de placas (`hardware_board_info`), introspección de memoria (`hardware_memory_read`) y control de periféricos (`gpio_write`, `arduino_upload`).
+- [**Herramientas Multimedia**](media.md) — Capacidades relacionadas con la visión, incluyendo captura de pantalla, extracción de metadatos de imágenes (`image_info`) e inspección de PDF (`pdf_inspect`).
+- [**Herramientas de Hardware**](hardware.md) — Descubrimiento de placas (`hardware_board_info`), capacidades (`hardware_capabilities`), introspección de memoria (`hardware_memory_read`, `hardware_memory_map`) y control de periféricos (`gpio_read`, `gpio_write`, `arduino_upload`).
 
 ## Modelo de Seguridad
 
@@ -31,7 +31,7 @@ Cada ejecución de herramienta pasa por la capa de `SecurityPolicy`. Las herrami
 
 ### Solo Lectura (Seguras)
 Estas herramientas no modifican el sistema ni el estado externo. Generalmente están permitidas incluso en modos de baja autonomía.
-- *Ejemplos:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `hardware_board_info`.
+- *Ejemplos:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `pdf_inspect`, `hardware_board_info`, `hardware_memory_map`, `hardware_capabilities`, `gpio_read`.
 
 ## Mapeo de paridad estilo Claude
 

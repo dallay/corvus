@@ -3,7 +3,7 @@ title: Herramientas Core
 description: Referencia para la ejecución de comandos del sistema y herramientas de archivos en Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-05-06
+lastReviewed: 2026-05-13
 appliesTo: main
 docType: reference
 ---
@@ -17,6 +17,7 @@ Las herramientas core proporcionan la base para la autonomía del agente, permit
 Busca coincidencias literales o regex dentro del workspace y devuelve tanto salida legible para humanos como datos estructurados de coincidencias.
 
 - **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Modo Plan:** ✅ Seguro para el Modo Plan (`--plan`).
 - **Ejecución:** Herramienta nativa del runtime con reducción opcional de candidatos por índice para consultas literales y verificación obligatoria en vivo sobre el contenido actual.
 - **Limitación actual:** La corrección regex está soportada, pero la reducción de candidatos por índice **no** soporta regex en v1. El planning regex cae en fallback con `query_regex_not_supported` hacia discovery más live verification.
 - **Evidencia de rollout:** Consulta la página dedicada de [`code_search`](code-search.md) para resultados medidos shell-vs-native, etiquetas de fallback y guía de recomendación.
@@ -32,6 +33,7 @@ Consulta la página dedicada de [`code_search`](code-search.md) para el contrato
 Herramienta de paridad estilo Claude para descubrimiento seguro de archivos por patrón dentro del workspace.
 
 - **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Modo Plan:** ✅ Seguro para el Modo Plan (`--plan`).
 - **Ejecución:** Herramienta nativa del runtime respaldada por helpers de metadata del discovery del workspace.
 - **Contrato:** Requiere `pattern`; opcionalmente limita el recorrido con `path` relativo al workspace.
 - **Nota de paridad:** `Glob` es el nombre canónico para superficies de paridad en este slice y se añade sin quitar los nombres nativos existentes.
@@ -43,6 +45,7 @@ Herramienta de paridad estilo Claude para descubrimiento seguro de archivos por 
 Herramienta de paridad estilo Claude para búsqueda de contenido, respaldada por los mismos internals de búsqueda que usa `code_search`.
 
 - **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Modo Plan:** ✅ Seguro para el Modo Plan (`--plan`).
 - **Ejecución:** Herramienta nativa con salidas determinísticas y rutas relativas al workspace.
 - **Contrato:** Soporta `pattern`, `path` opcional, `glob` opcional y `output_mode` con valores `content`, `files_with_matches` o `count`.
 - **Nota de paridad:** `Grep` es canónica para documentación de paridad, mientras `code_search` sigue disponible como contrato nativo retenido.
@@ -156,6 +159,7 @@ Ejecuta un comando de shell arbitrario dentro del directorio del workspace.
 Lee el contenido de un archivo dentro del workspace.
 
 - **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Modo Plan:** ✅ Seguro para el Modo Plan (`--plan`).
 - **Restricciones:**
   - El salto de directorios (path traversal, ej. `../../etc/passwd`) está estrictamente bloqueado.
   - Se rechazan los symlinks que resuelven fuera de los límites del workspace.

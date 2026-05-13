@@ -3,12 +3,30 @@ title: Media Tools
 description: Reference for vision and image-related tools in Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-13
 appliesTo: main
 docType: reference
 ---
 
 Media tools provide the agent with visual capabilities, allowing it to "see" the host environment and process image files.
+
+## `pdf_inspect`
+
+Inspect, classify, and extract text from a PDF file.
+
+- **Security Tier:** Read-Only (Safe).
+- **Execution:** Native runtime tool (requires `pdf-inspect` feature).
+- **Functionality:** Detects whether the PDF is text-based, scanned, image-based, or mixed.
+- **Constraints:** Maximum file size: 50 MB. Timeout: 60 seconds.
+
+### Parameters
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `path` | `string` | **Required.** Relative path to the PDF file within the workspace. |
+| `extract_text` | `boolean` | Whether to extract and convert text to Markdown. Default: `true`. |
+
+---
 
 ## `screenshot`
 
@@ -34,6 +52,7 @@ Captures a screenshot of the current screen or a specific region.
 Extracts metadata from an image file and optionally returns it as base64 for processing by multimodal models.
 
 - **Security Tier:** Read-Only (Safe).
+- **Plan Mode:** ✅ Safe for Plan Mode (`--plan`).
 - **Supported Formats:** PNG, JPEG, GIF, WEBP, BMP.
 - **Metadata Extracted:** Format, dimensions (width/height), and file size.
 - **Constraints:** Path-sandboxed to the workspace; maximum file size 5 MB.
