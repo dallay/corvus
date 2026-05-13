@@ -507,7 +507,8 @@ private fun LazyListScope.sessionHistoryItems(
 
 @Composable
 private fun sessionHistoryItem(session: RuntimeSession, isActive: Boolean, onSwitch: () -> Unit) {
-  val style = sessionHistoryItemStyle(isActive)
+  val corvusColors = CorvusTheme.colors
+  val style = remember(isActive, corvusColors) { sessionHistoryItemStyle(isActive, corvusColors) }
 
   Surface(
     shape = RoundedCornerShape(14.dp),
@@ -542,15 +543,16 @@ private data class SessionHistoryItemStyle(
   val showActiveLabel: Boolean,
 )
 
-@Composable
-private fun sessionHistoryItemStyle(isActive: Boolean): SessionHistoryItemStyle {
-  val corvusColors = CorvusTheme.colors
+private fun sessionHistoryItemStyle(
+  isActive: Boolean,
+  corvusColors: CorvusColorPalette,
+): SessionHistoryItemStyle {
   return SessionHistoryItemStyle(
     surfaceColor =
       if (isActive) corvusColors.glowCyan.copy(alpha = 0.08f) else corvusColors.glassSurface,
     borderColor =
       if (isActive) corvusColors.glowCyan.copy(alpha = 0.6f) else corvusColors.glassOverlay,
-    titleColor = if (isActive) corvusColors.glowCyan else MaterialTheme.colorScheme.onSurface,
+    titleColor = if (isActive) corvusColors.glowCyan else Color.Unspecified,
     titleWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
     activeLabelColor = corvusColors.glowCyan.copy(alpha = 0.8f),
     showActiveLabel = isActive,
@@ -563,12 +565,14 @@ private fun sessionHistoryItemLabel(
   style: SessionHistoryItemStyle,
   modifier: Modifier = Modifier,
 ) {
+  val defaultColor = MaterialTheme.colorScheme.onSurface
+  val titleColor = if (style.titleColor == Color.Unspecified) defaultColor else style.titleColor
   Column(modifier = modifier) {
     Text(
       text = session.title ?: truncateSessionId(session.id.value),
       style = MaterialTheme.typography.bodyMedium,
       fontWeight = style.titleWeight,
-      color = style.titleColor,
+      color = titleColor,
     )
     if (style.showActiveLabel) {
       Text(
@@ -607,14 +611,17 @@ internal fun truncateSessionId(sessionId: String): String =
 
 @Composable
 fun BridgeStatusCard(bridgeState: MobileBridgeUiState, modifier: Modifier = Modifier) {
-  val description = bridgeStateDescription(bridgeState)
-  val recovery = bridgeStateRecovery(bridgeState)
-  val details = buildList {
-    add(description)
-    if (description != recovery) {
-      add(recovery)
+  val details =
+    remember(bridgeState) {
+      val description = bridgeStateDescription(bridgeState)
+      val recovery = bridgeStateRecovery(bridgeState)
+      buildList {
+        add(description)
+        if (description != recovery) {
+          add(recovery)
+        }
+      }
     }
-  }
 
   diagnosticsCard(
     title = onboardingStateLabel(bridgeState.onboardingState),
