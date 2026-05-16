@@ -21,7 +21,7 @@ categories = ["command-line-utilities", "api-bindings"]
 clap = { version = "4.5.60", features = ["derive"] }
 
 # Async runtime - feature-optimized for size
-tokio = { version = "1.42", default-features = false, features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync", "process", "io-std", "fs", "signal"] }
+tokio = { version = "1.52", default-features = false, features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync", "process", "io-std", "fs", "signal"] }
 tokio-util = { version = "0.7", default-features = false }
 
 # HTTP client - minimal features
@@ -130,7 +130,7 @@ const-oid = "0.10"
 x509-cert = { version = "0.2", default-features = false, features = ["pem", "std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["std"] }
 hostname = "0.4.2"
-lettre = { version = "0.11.19", default-features = false, features = ["builder", "smtp-transport", "rustls-tls"] }
+lettre = { version = "0.11.22", default-features = false, features = ["builder", "smtp-transport", "rustls-tls"] }
 mail-parser = "0.11.2"
 rustls = "0.23"
 rustls-pki-types = "1.14.0"
@@ -144,9 +144,9 @@ tower-http = { version = "0.6", default-features = false, features = ["limit", "
 http-body-util = "0.1"
 
 # OpenTelemetry — OTLP trace + metrics export
-opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
-opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
-opentelemetry-otlp = { version = "0.31.1", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-client", "reqwest-rustls-webpki-roots"] }
+opentelemetry = { version = "0.32", default-features = false, features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.32.0", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-client", "reqwest-rustls-webpki-roots"] }
 
 # USB device enumeration (hardware discovery)
 nusb = { version = "0.2", default-features = false, optional = true }
@@ -223,7 +223,7 @@ panic = "abort"
 [dev-dependencies]
 tempfile = "=3.27.0"
 criterion = { version = "=0.8.2", features = ["async_tokio"] }
-wat = "=1.248.0"
+wat = "=1.249.0"
 rcgen = "0.14"
 secrecy = "0.10"
 http = "1.4.0"
