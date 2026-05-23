@@ -31,3 +31,13 @@
 
 **Learning:** `SecurityPolicy` was vulnerable to path validation bypass using nested or partial quotes (e.g., `"/etc"/passwd`, `""/etc/passwd""`). The previous `strip_matching_quotes` only removed outer quotes, leaving internal quotes to disrupt prefix-based forbidden path and absolute path checks.
 **Action:** Implemented `strip_all_quotes` to normalize command arguments and paths by removing all single and double quotes. In `is_path_allowed`, `iterative_url_decode` is still applied before quote stripping so encoded quotes are exposed before later processing.
+
+## 2025-05-23 - Robust Verb Detection in SecurityPolicy
+
+**Learning:**  was using  to identify subcommands, which was easily bypassed or confused by global flags (e.g., ). Simply skipping arguments starting with '-' is insufficient because path-based flag values (like ) can be mistaken for verbs.
+**Action:** Implement a more robust "verb" detection that skips arguments starting with '-' AND ignores arguments that look like paths (containing '/', '\', or '.'). This ensures that subcommands like 'commit' are correctly identified even when preceded by options with complex values.
+
+## 2025-05-23 - Robust Verb Detection in SecurityPolicy
+
+**Learning:** `is_medium_risk_command` was using `args.first()` to identify subcommands, which was easily bypassed or confused by global flags (e.g., `git -C /tmp status`). Simply skipping arguments starting with '-' is insufficient because path-based flag values (like `/tmp`) can be mistaken for verbs.
+**Action:** Implement a more robust "verb" detection that skips arguments starting with '-' AND ignores arguments that look like paths (containing '/', '\', or '.'). This ensures that subcommands like 'commit' are correctly identified even when preceded by options with complex values.

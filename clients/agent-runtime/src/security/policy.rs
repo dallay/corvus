@@ -574,24 +574,33 @@ impl SecurityPolicy {
         let base = base.to_ascii_lowercase();
         match base.as_str() {
             "find" => {
-                // find -exec and find -ok allow arbitrary command execution
-                !args.iter().any(|arg| arg == "-exec" || arg == "-ok")
+                // find -exec and find -ok variants allow arbitrary command execution
+                !args
+                    .iter()
+                    .any(|arg| arg == "-exec" || arg == "-ok" || arg == "-execdir" || arg == "-okdir")
             }
             "git" => {
-                // git config, alias, and -c can be used to set dangerous options
-                // (e.g. git config core.editor "rm -rf /")
+                // git config, alias, -c, and --exec-path can be used to set dangerous options
+                // or execute arbitrary code.
                 !args.iter().any(|arg| {
                     arg == "config"
                         || arg.starts_with("config.")
                         || arg == "alias"
                         || arg.starts_with("alias.")
                         || arg == "-c"
+                        || arg == "--exec-path"
+                        || arg.starts_with("--exec-path=")
                 })
             }
             "npm" | "pnpm" | "yarn" => {
-                // npm config and set can be used to set dangerous options
-                // (e.g. npm config set editor "rm -rf /")
-                !args.iter().any(|arg| arg == "config" || arg == "set")
+                // npm config, set, and -c/--config can be used to set dangerous options
+                !args.iter().any(|arg| {
+                    arg == "config" || arg == "set" || arg == "--config" || arg == "-c"
+                })
+            }
+            "cargo" => {
+                // cargo --config and -c can be used to inject dangerous settings
+                !args.iter().any(|arg| arg == "--config" || arg == "-c")
             }
             _ => true,
         }
@@ -778,12 +787,26 @@ fn contains_high_risk_snippet(segment: &str) -> bool {
 }
 
 fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
+    let verb = args.iter().find(|arg| {
+        !arg.starts_with('-')
+            && !arg.contains('/')
+            && !arg.contains('\\')
+            && !arg.contains('.')
+            && *arg != ".."
+    });
+
     match base {
-        "git" => args.first().is_some_and(|verb| {
+        "git" => verb.is_some_and(|v| {
             matches!(
-                verb.as_str(),
+                v.as_str(),
                 "commit"
                     | "push"
+                    | "pull"
+                    | "fetch"
+                    | "clone"
+                    | "init"
+                    | "remote"
+                    | "submodule"
                     | "reset"
                     | "clean"
                     | "rebase"
@@ -796,9 +819,9 @@ fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
                     | "tag"
             )
         }),
-        "npm" | "pnpm" | "yarn" => args.first().is_some_and(|verb| {
+        "npm" | "pnpm" | "yarn" => verb.is_some_and(|v| {
             matches!(
-                verb.as_str(),
+                v.as_str(),
                 "install"
                     | "add"
                     | "remove"
@@ -811,14 +834,33 @@ fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
                     | "t"
                     | "it"
                     | "cit"
+                    | "init"
+                    | "link"
+                    | "unlink"
             )
         }),
-        "cargo" => args.first().is_some_and(|verb| {
+        "cargo" => verb.is_some_and(|v| {
             matches!(
-                verb.as_str(),
-                "add" | "remove" | "install" | "clean" | "publish" | "run" | "r" | "test" | "t"
+                v.as_str(),
+                "add"
+                    | "remove"
+                    | "install"
+                    | "clean"
+                    | "publish"
+                    | "run"
+                    | "r"
+                    | "test"
+                    | "t"
+                    | "build"
+                    | "b"
+                    | "check"
+                    | "c"
+                    | "update"
+                    | "init"
+                    | "new"
             )
         }),
+        "find" => args.iter().any(|arg| arg == "-delete"),
         "touch" | "mkdir" | "mv" | "cp" | "ln" => true,
         _ => false,
     }
