@@ -56,17 +56,22 @@ fun ChatInputField(props: ChatInputFieldProps, modifier: Modifier = Modifier) {
     }
   val isEnabled = props.enabled && props.value.trim().isNotBlank()
 
+  val borderStroke =
+    remember(corvusColors.glassOverlay) { BorderStroke(1.dp, corvusColors.glassOverlay) }
+  val textFieldModifier = remember { Modifier.fillMaxWidth() }
+  val textStyle = remember { TextStyle(fontFamily = FontFamily.SansSerif) }
+
   Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
     Surface(
       modifier = Modifier.weight(1f),
-      shape = RoundedCornerShape(16.dp),
+      shape = InputFieldShape,
       color = corvusColors.glassSurface,
-      border = BorderStroke(1.dp, corvusColors.glassOverlay),
+      border = borderStroke,
     ) {
       OutlinedTextField(
         value = props.value,
         onValueChange = props.onValueChange,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = textFieldModifier,
         enabled = props.enabled,
         placeholder = {
           Text(text = props.placeholder, color = colors.onSurfaceVariant.copy(alpha = 0.6f))
@@ -81,7 +86,7 @@ fun ChatInputField(props: ChatInputFieldProps, modifier: Modifier = Modifier) {
             disabledTextColor = colors.onSurfaceVariant,
           ),
         maxLines = 4,
-        textStyle = TextStyle(fontFamily = FontFamily.SansSerif),
+        textStyle = textStyle,
       )
     }
 

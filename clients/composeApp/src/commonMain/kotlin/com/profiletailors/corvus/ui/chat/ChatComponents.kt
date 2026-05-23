@@ -64,6 +64,8 @@ internal val ChatPanelShape = RoundedCornerShape(20.dp)
 internal val ConfigPanelShape = RoundedCornerShape(20.dp)
 internal val DiagnosticsCardShape = RoundedCornerShape(16.dp)
 internal val ChatBubbleShape = RoundedCornerShape(18.dp)
+internal val InputFieldShape = RoundedCornerShape(16.dp)
+internal val StatusIndicatorShape = CircleShape
 
 private const val SETTINGS_CONTENT_DESCRIPTION = "Settings"
 private const val SESSION_HISTORY_CONTENT_DESCRIPTION = "Session History"
@@ -103,7 +105,7 @@ fun GlassSurface(modifier: Modifier = Modifier, content: @Composable () -> Unit)
 
   Surface(
     modifier = modifier,
-    shape = RoundedCornerShape(20.dp),
+    shape = ChatPanelShape,
     color = corvusColors.glassSurface,
     tonalElevation = 0.dp,
   ) {
@@ -194,17 +196,18 @@ private fun AvatarWithGlow(corvusColors: CorvusColorPalette) {
   val avatarGradient =
     remember(corvusColors.gradientPrimary) { Brush.linearGradient(corvusColors.gradientPrimary) }
 
-  Box(
-    modifier =
+  val avatarModifier =
+    remember(corvusColors.glowCyan, avatarGradient) {
       Modifier.size(32.dp)
         .shadow(
           elevation = 4.dp,
           shape = CircleShape,
           spotColor = corvusColors.glowCyan.copy(alpha = 0.5f),
         )
-        .background(brush = avatarGradient, shape = CircleShape),
-    contentAlignment = Alignment.Center,
-  ) {
+        .background(brush = avatarGradient, shape = CircleShape)
+    }
+
+  Box(modifier = avatarModifier, contentAlignment = Alignment.Center) {
     Text(
       text = "C",
       style = MaterialTheme.typography.labelMedium,
@@ -235,20 +238,23 @@ private fun ChatBubbleBody(
     remember(bubblePalette) {
       Brush.horizontalGradient(listOf(bubblePalette.accent.copy(alpha = 0.3f), Color.Transparent))
     }
+  val borderStroke = remember(borderBrush) { BorderStroke(width = 1.dp, brush = borderBrush) }
 
-  Box(
-    modifier =
+  val bubbleModifier =
+    remember(isUser, bubblePalette.shadow) {
       Modifier.widthIn(max = 280.dp)
         .shadow(
           elevation = if (isUser) 6.dp else 4.dp,
           shape = ChatBubbleShape,
           spotColor = bubblePalette.shadow,
         )
-  ) {
+    }
+
+  Box(modifier = bubbleModifier) {
     Surface(
       shape = ChatBubbleShape,
       color = bubblePalette.background,
-      border = BorderStroke(width = 1.dp, brush = borderBrush),
+      border = borderStroke,
     ) {
       Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
         ChatBubbleHeader(isUser = isUser, modelName = modelName, titleColor = bubblePalette.title)
@@ -279,13 +285,19 @@ fun StatusIndicator(active: Boolean, label: String, modifier: Modifier = Modifie
       label = "glowAlpha",
     )
 
+  val indicatorModifier =
+    remember(color, glowAlpha) {
+      Modifier.size(10.dp)
+        .shadow(
+          elevation = 4.dp,
+          shape = StatusIndicatorShape,
+          spotColor = color.copy(alpha = glowAlpha),
+        )
+        .background(color, StatusIndicatorShape)
+    }
+
   Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-    Box(
-      modifier =
-        Modifier.size(10.dp)
-          .shadow(elevation = 4.dp, shape = CircleShape, spotColor = color.copy(alpha = glowAlpha))
-          .background(color, CircleShape)
-    )
+    Box(modifier = indicatorModifier)
     Spacer(modifier = Modifier.width(8.dp))
     Text(
       text = label,
@@ -719,20 +731,24 @@ fun diagnosticsCard(
       Brush.horizontalGradient(corvusColors.gradientPrimary)
     }
 
-  Box(
-    modifier =
-      modifier
-        .fillMaxWidth()
+  val cardModifier =
+    remember(corvusColors.glowPurple) {
+      Modifier.fillMaxWidth()
         .shadow(
           elevation = 4.dp,
           shape = DiagnosticsCardShape,
           spotColor = corvusColors.glowPurple.copy(alpha = 0.1f),
         )
-  ) {
+    }
+
+  val borderStroke =
+    remember(corvusColors.glassOverlay) { BorderStroke(1.dp, corvusColors.glassOverlay) }
+
+  Box(modifier = modifier.then(cardModifier)) {
     Surface(
       shape = DiagnosticsCardShape,
       color = corvusColors.glassSurface,
-      border = BorderStroke(1.dp, corvusColors.glassOverlay),
+      border = borderStroke,
     ) {
       Column(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
