@@ -358,7 +358,10 @@ impl SecurityPolicy {
             };
 
             let base = base_raw.to_ascii_lowercase();
-            let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
+            let raw_args: Vec<&str> = words.collect();
+            let args = normalize_args_for_path_checks(&raw_args).unwrap_or_else(|| {
+                raw_args.iter().map(|s| s.to_string()).collect()
+            });
             let joined_segment = cmd_part.to_ascii_lowercase();
 
             if is_high_risk_base_command(&base) || contains_high_risk_snippet(&joined_segment) {
@@ -522,16 +525,12 @@ impl SecurityPolicy {
         }
 
         let raw_args: Vec<&str> = words.collect();
-        let normalized_args = match normalize_args_for_path_checks(&raw_args) {
+        let args = match normalize_args_for_path_checks(&raw_args) {
             Some(args) => args,
             None => return false,
         };
-        let args: Vec<String> = normalized_args
-            .iter()
-            .map(|arg| arg.to_ascii_lowercase())
-            .collect();
 
-        for arg in &normalized_args {
+        for arg in &args {
             let effective_arg = Self::effective_path_arg(arg);
             if !self.is_path_argument_safe(effective_arg) {
                 return false;
@@ -575,24 +574,37 @@ impl SecurityPolicy {
         match base.as_str() {
             "find" => {
                 // find -exec and find -ok allow arbitrary command execution
-                !args.iter().any(|arg| arg == "-exec" || arg == "-ok")
+                !args.iter().any(|arg| {
+                    let l = arg.to_ascii_lowercase();
+                    l == "-exec" || l == "-ok" || l == "-execdir" || l == "-okdir"
+                })
             }
             "git" => {
                 // git config, alias, and -c can be used to set dangerous options
                 // (e.g. git config core.editor "rm -rf /")
                 !args.iter().any(|arg| {
-                    arg == "config"
-                        || arg.starts_with("config.")
-                        || arg == "alias"
-                        || arg.starts_with("alias.")
+                    let l = arg.to_ascii_lowercase();
+                    l == "config"
+                        || l.starts_with("config.")
+                        || l == "alias"
+                        || l.starts_with("alias.")
                         || arg == "-c"
+                        || arg.starts_with("-c")
+                        || l == "--config"
+                        || l.starts_with("--config=")
                 })
             }
             "npm" | "pnpm" | "yarn" => {
                 // npm config and set can be used to set dangerous options
                 // (e.g. npm config set editor "rm -rf /")
-                !args.iter().any(|arg| arg == "config" || arg == "set")
+                !args.iter().any(|arg| {
+                    let l = arg.to_ascii_lowercase();
+                    l == "config" || l == "c" || l == "set" || l == "get"
+                })
             }
+            "cargo" => !args
+                .iter()
+                .any(|arg| arg.to_ascii_lowercase().starts_with("--config")),
             _ => true,
         }
     }
@@ -779,9 +791,10 @@ fn contains_high_risk_snippet(segment: &str) -> bool {
 
 fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
     match base {
+        "find" => args.iter().any(|arg| arg.to_ascii_lowercase() == "-delete"),
         "git" => args.first().is_some_and(|verb| {
             matches!(
-                verb.as_str(),
+                verb.to_ascii_lowercase().as_str(),
                 "commit"
                     | "push"
                     | "reset"
@@ -794,12 +807,16 @@ fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
                     | "checkout"
                     | "switch"
                     | "tag"
+                    | "clone"
+                    | "init"
             )
         }),
         "npm" | "pnpm" | "yarn" => args.first().is_some_and(|verb| {
             matches!(
-                verb.as_str(),
+                verb.to_ascii_lowercase().as_str(),
                 "install"
+                    | "i"
+                    | "ci"
                     | "add"
                     | "remove"
                     | "uninstall"
@@ -815,8 +832,20 @@ fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
         }),
         "cargo" => args.first().is_some_and(|verb| {
             matches!(
-                verb.as_str(),
-                "add" | "remove" | "install" | "clean" | "publish" | "run" | "r" | "test" | "t"
+                verb.to_ascii_lowercase().as_str(),
+                "add"
+                    | "remove"
+                    | "install"
+                    | "clean"
+                    | "publish"
+                    | "run"
+                    | "r"
+                    | "test"
+                    | "t"
+                    | "build"
+                    | "b"
+                    | "check"
+                    | "c"
             )
         }),
         "touch" | "mkdir" | "mv" | "cp" | "ln" => true,
@@ -2287,4 +2316,23 @@ fn test_package_manager_risk_hardening() {
     assert_eq!(p.command_risk_level("cargo r"), CommandRiskLevel::Medium);
     assert_eq!(p.command_risk_level("cargo test"), CommandRiskLevel::Medium);
     assert_eq!(p.command_risk_level("cargo t"), CommandRiskLevel::Medium);
+    assert_eq!(p.command_risk_level("cargo build"), CommandRiskLevel::Medium);
+    assert_eq!(p.command_risk_level("cargo b"), CommandRiskLevel::Medium);
+    assert_eq!(p.command_risk_level("cargo check"), CommandRiskLevel::Medium);
+    assert_eq!(p.command_risk_level("cargo c"), CommandRiskLevel::Medium);
+
+    // is_args_safe hardening additional
+    assert!(!p.is_command_allowed("find . -execdir ls {} +"));
+    assert!(!p.is_command_allowed("find . -okdir ls {} +"));
+    assert!(p.command_risk_level("find . -delete") == CommandRiskLevel::Medium);
+
+    assert!(!p.is_command_allowed("git -c core.editor=malicious commit"));
+    assert!(!p.is_command_allowed("git --config core.editor=malicious commit"));
+    assert!(p.is_command_allowed("git -C subdir status"));
+
+    assert!(!p.is_command_allowed("npm c set editor malicious"));
+    assert!(!p.is_command_allowed("npm get user"));
+    assert!(p.command_risk_level("npm i") == CommandRiskLevel::Medium);
+
+    assert!(!p.is_command_allowed("cargo --config core.editor=malicious build"));
 }

@@ -31,3 +31,12 @@
 
 **Learning:** `SecurityPolicy` was vulnerable to path validation bypass using nested or partial quotes (e.g., `"/etc"/passwd`, `""/etc/passwd""`). The previous `strip_matching_quotes` only removed outer quotes, leaving internal quotes to disrupt prefix-based forbidden path and absolute path checks.
 **Action:** Implemented `strip_all_quotes` to normalize command arguments and paths by removing all single and double quotes. In `is_path_allowed`, `iterative_url_decode` is still applied before quote stripping so encoded quotes are exposed before later processing.
+
+## 2025-06-05 - Hardening SecurityPolicy against Flag-based Bypasses and Improving Risk Classification
+
+**Learning:** `SecurityPolicy` was vulnerable to bypasses using bundled flags (e.g., `git -cname=value`) and variants of dangerous commands (e.g., `find -execdir`). Also, some common operations like `cargo build` and `git clone` were classified as Low risk, which is inaccurate given they can execute arbitrary code (build scripts) or fetch external content. Normalizing all arguments to lowercase too early caused a loss of distinction between case-sensitive flags like `git -c` (dangerous) and `git -C` (safe path).
+**Action:**
+1. ✅ Refactored `command_risk_level` and `is_segment_valid` to pass preserved-case arguments to `is_args_safe` and `is_medium_risk_command`.
+2. ✅ Updated `is_args_safe` to block `-execdir` and `-okdir` for `find`, and bundled `-c` flags for `git`.
+3. ✅ Added `--config` to blocked flags for `git` and `cargo`.
+4. ✅ Classified `cargo build/check`, `git clone/init`, `find -delete`, and `npm i/ci` as `Medium` risk.
