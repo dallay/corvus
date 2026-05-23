@@ -160,12 +160,15 @@ fun ChatWorkspace(
       MobileBridgeUiState(platformName = content.platformName, snapshot = content.bridgeSnapshot)
     }
 
-  fun sendMessage(prompt: String) {
-    if (!bridgeState.isChatReady) return
-    if (prompt.trim().isBlank()) return
-    callbacks.onSendMessage(prompt)
-    callbacks.onQueryChange("")
-  }
+  val sendMessage: (String) -> Unit =
+    remember(bridgeState.isChatReady, callbacks) {
+      { prompt ->
+        if (bridgeState.isChatReady && prompt.trim().isNotBlank()) {
+          callbacks.onSendMessage(prompt)
+          callbacks.onQueryChange("")
+        }
+      }
+    }
 
   val displayMessages =
     remember(content.messages, state.welcomeMessage) {
@@ -181,12 +184,13 @@ fun ChatWorkspace(
       bridgeState,
       bridgeActions,
       callbacks,
+      sendMessage,
       content.showConfig,
       content.showSessionHistory,
     ) {
       ChatWorkspaceActions(
         onQueryChange = callbacks.onQueryChange,
-        onSend = ::sendMessage,
+        onSend = sendMessage,
         onToggleConfig = { callbacks.onShowConfigChange(!content.showConfig) },
         onToggleSessionHistory = {
           callbacks.onShowSessionHistoryChange(!content.showSessionHistory)
@@ -196,18 +200,31 @@ fun ChatWorkspace(
     }
 
   val uiState =
-    ChatUiState(
-      workspaceState = state,
-      bridgeState = bridgeState,
-      messages = displayMessages,
-      resumableSessions = content.resumableSessions,
-      pendingApproval = content.pendingApproval,
-      targetLabel = content.targetLabel,
-      activeSessionId = content.activeSessionId,
-      query = content.query,
-      showConfig = content.showConfig,
-      showSessionHistory = content.showSessionHistory,
-    )
+    remember(
+      state,
+      bridgeState,
+      displayMessages,
+      content.resumableSessions,
+      content.pendingApproval,
+      content.targetLabel,
+      content.activeSessionId,
+      content.query,
+      content.showConfig,
+      content.showSessionHistory,
+    ) {
+      ChatUiState(
+        workspaceState = state,
+        bridgeState = bridgeState,
+        messages = displayMessages,
+        resumableSessions = content.resumableSessions,
+        pendingApproval = content.pendingApproval,
+        targetLabel = content.targetLabel,
+        activeSessionId = content.activeSessionId,
+        query = content.query,
+        showConfig = content.showConfig,
+        showSessionHistory = content.showSessionHistory,
+      )
+    }
 
   ChatWorkspaceScreen(uiState = uiState, actions = actions, modifier = modifier)
 }

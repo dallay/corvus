@@ -507,13 +507,10 @@ private fun LazyListScope.sessionHistoryItems(
 
 @Composable
 private fun sessionHistoryItem(session: RuntimeSession, isActive: Boolean, onSwitch: () -> Unit) {
-  val style = sessionHistoryItemStyle(isActive)
+  val style = remember(isActive) { sessionHistoryItemStyle(isActive) }
+  val borderStroke = remember(style.borderColor) { BorderStroke(1.dp, style.borderColor) }
 
-  Surface(
-    shape = RoundedCornerShape(14.dp),
-    color = style.surfaceColor,
-    border = BorderStroke(1.dp, style.borderColor),
-  ) {
+  Surface(shape = RoundedCornerShape(14.dp), color = style.surfaceColor, border = borderStroke) {
     Row(
       modifier =
         Modifier.fillMaxWidth()
@@ -670,11 +667,14 @@ fun ApprovalCard(
   modifier: Modifier = Modifier,
 ) {
   val corvusColors = CorvusTheme.colors
+  val borderStroke =
+    remember(corvusColors.glassOverlay) { BorderStroke(1.dp, corvusColors.glassOverlay) }
+
   Surface(
     modifier = modifier,
     shape = RoundedCornerShape(16.dp),
     color = corvusColors.glassSurface,
-    border = BorderStroke(1.dp, corvusColors.glassOverlay),
+    border = borderStroke,
   ) {
     Column(
       modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -718,6 +718,8 @@ fun diagnosticsCard(
     remember(corvusColors.gradientPrimary) {
       Brush.horizontalGradient(corvusColors.gradientPrimary)
     }
+  val borderStroke =
+    remember(corvusColors.glassOverlay) { BorderStroke(1.dp, corvusColors.glassOverlay) }
 
   Box(
     modifier =
@@ -732,7 +734,7 @@ fun diagnosticsCard(
     Surface(
       shape = DiagnosticsCardShape,
       color = corvusColors.glassSurface,
-      border = BorderStroke(1.dp, corvusColors.glassOverlay),
+      border = borderStroke,
     ) {
       Column(
         modifier = Modifier.fillMaxWidth().padding(16.dp),

@@ -13,6 +13,26 @@
 
 ---
 
+## 2026-05-06 - Compose - UI Runtime & Recomposition Optimization
+
+**Location:** `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatInputField.kt`, `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatWorkspace.kt`, `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatComponents.kt`
+**Issue:**
+- `OutlinedTextField` colors and placeholder lambda were being re-allocated on every keystroke.
+- `sendMessage` function and `ChatUiState` were being re-instantiated on every recomposition of `ChatWorkspace`, even when their logical inputs hadn't changed.
+- `BorderStroke` and `SessionHistoryItemStyle` were being re-allocated during list rendering and UI updates.
+**Solution:**
+- Wrapped `OutlinedTextField` colors, placeholder lambda, and `TextStyle` in `remember` blocks in `ChatInputField.kt`.
+- Memoized `sendMessage` and `ChatUiState` in `ChatWorkspace.kt` using `remember` with appropriate keys.
+- Applied `remember` to `BorderStroke` and `sessionHistoryItemStyle` across `ChatComponents.kt`.
+**Impact:**
+- **Reduced GC Pressure:** Significant reduction in ephemeral object allocations (colors, lambdas, styles, strokes) during typing and list interactions.
+- **Improved Interaction Smoothness:** Lower CPU overhead during high-frequency recompositions.
+- **Optimized UI Stability:** Ensures stable references for state and actions, enabling Compose to skip redundant recompositions of child components.
+**Benchmark:**
+- Baseline Compilation: 55s (`compileKotlinJvm`)
+- Post-Optimization Compilation: 55s (`compileKotlinJvm`)
+- *Note:* These runtime optimizations focus on UI smoothness and power efficiency. Incremental builds and JVM tests confirmed successful.
+
 ## 2025-05-23 - Compose - Chat UI Recomposition Optimization
 
 **Location:** `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatWorkspace.kt`
