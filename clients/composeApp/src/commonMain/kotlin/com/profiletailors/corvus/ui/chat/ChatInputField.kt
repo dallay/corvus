@@ -63,25 +63,32 @@ fun ChatInputField(props: ChatInputFieldProps, modifier: Modifier = Modifier) {
       color = corvusColors.glassSurface,
       border = BorderStroke(1.dp, corvusColors.glassOverlay),
     ) {
+      val textFieldColors =
+        OutlinedTextFieldDefaults.colors(
+          focusedBorderColor = Color.Transparent,
+          unfocusedBorderColor = Color.Transparent,
+          focusedTextColor = colors.onSurface,
+          unfocusedTextColor = colors.onSurface,
+          disabledBorderColor = Color.Transparent,
+          disabledTextColor = colors.onSurfaceVariant,
+        )
+      val textStyle = remember { TextStyle(fontFamily = FontFamily.SansSerif) }
+      val placeholderLabel =
+        remember(props.placeholder, colors.onSurfaceVariant) {
+          @Composable {
+            Text(text = props.placeholder, color = colors.onSurfaceVariant.copy(alpha = 0.6f))
+          }
+        }
+
       OutlinedTextField(
         value = props.value,
         onValueChange = props.onValueChange,
         modifier = Modifier.fillMaxWidth(),
         enabled = props.enabled,
-        placeholder = {
-          Text(text = props.placeholder, color = colors.onSurfaceVariant.copy(alpha = 0.6f))
-        },
-        colors =
-          OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = Color.Transparent,
-            unfocusedBorderColor = Color.Transparent,
-            focusedTextColor = colors.onSurface,
-            unfocusedTextColor = colors.onSurface,
-            disabledBorderColor = Color.Transparent,
-            disabledTextColor = colors.onSurfaceVariant,
-          ),
+        placeholder = placeholderLabel,
+        colors = textFieldColors,
         maxLines = 4,
-        textStyle = TextStyle(fontFamily = FontFamily.SansSerif),
+        textStyle = textStyle,
       )
     }
 
