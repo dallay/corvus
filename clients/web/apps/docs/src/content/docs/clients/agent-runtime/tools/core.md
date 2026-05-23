@@ -3,7 +3,7 @@ title: Core Tools
 description: Reference for system command execution and filesystem tools in Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-05-06
+lastReviewed: 2026-05-13
 appliesTo: main
 docType: reference
 ---
@@ -15,6 +15,7 @@ Core tools provide the foundation for agent autonomy, allowing interaction with 
 Searches workspace files for literal or regex matches and returns both human-readable output and structured match data.
 
 - **Security Tier:** Read-Only (Safe).
+- **Plan Mode:** ✅ Safe for Plan Mode (`--plan`).
 - **Execution:** Native runtime tool with optional literal-query index narrowing and mandatory live verification against current file contents.
 - **Current limitation:** Regex correctness is supported, but indexed candidate narrowing does **not** support regex in v1. Regex planning falls back with `query_regex_not_supported` to discovery plus live verification.
 - **Rollout evidence:** See the dedicated [`code_search` rollout page](code-search.md) for measured shell-vs-native results, fallback labels, and recommendation guidance.
@@ -44,6 +45,7 @@ See the dedicated [`code_search` page](code-search.md) for the full parameter co
 Claude-style parity tool for workspace-safe file pattern discovery.
 
 - **Security Tier:** Read-Only (Safe).
+- **Plan Mode:** ✅ Safe for Plan Mode (`--plan`).
 - **Execution:** Native runtime tool backed by workspace discovery metadata helpers.
 - **Contract:** Requires `pattern`; optionally scopes traversal with a workspace-relative `path`.
 - **Compatibility alias:** `glob`
@@ -56,6 +58,7 @@ Claude-style parity tool for workspace-safe file pattern discovery.
 Claude-style parity content search backed by the same Corvus search internals used by `code_search`.
 
 - **Security Tier:** Read-Only (Safe).
+- **Plan Mode:** ✅ Safe for Plan Mode (`--plan`).
 - **Execution:** Native runtime tool with deterministic workspace-relative outputs.
 - **Contract:** Supports `pattern`, optional `path`, optional `glob`, and `output_mode` values `content`, `files_with_matches`, or `count`.
 - **Compatibility alias:** `grep`
@@ -170,6 +173,7 @@ Executes an arbitrary shell command within the workspace directory.
 Reads the contents of a file within the workspace.
 
 - **Security Tier:** Read-Only (Safe).
+- **Plan Mode:** ✅ Safe for Plan Mode (`--plan`).
 - **Constraints:**
   - Path traversal (e.g., `../../etc/passwd`) is strictly blocked.
   - Symlinks that resolve outside the workspace boundary are rejected.

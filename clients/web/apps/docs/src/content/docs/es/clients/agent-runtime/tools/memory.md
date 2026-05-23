@@ -3,7 +3,7 @@ title: Herramientas de Memoria
 description: Referencia para herramientas de persistencia y recuperación de memoria a largo plazo en Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-13
 appliesTo: main
 docType: reference
 ---
@@ -36,6 +36,7 @@ Almacena un hecho, preferencia o nota en la memoria a largo plazo.
 Busca en el sistema de memoria información relevante basada en una consulta semántica.
 
 - **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Modo Plan:** ✅ Seguro para el Modo Plan (`--plan`).
 - **Recuperación:** Utiliza búsqueda híbrida (similitud vectorial + BM25 por palabras clave) cuando el backend lo soporta.
 
 ### Parámetros
