@@ -1,14 +1,7 @@
-# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
-name: Lint PR title
-
+name: Semantic PR
 on:
   pull_request_target:
     types: [opened, edited, synchronize]
-
-permissions:
-  pull-requests: write
-
 jobs:
-  lint:
-    uses: dallay/common-actions/.github/workflows/semantic-pr.yml@6ecd716dcfb6a9e8a9c494d1eac210cc1d73d75f # v2.0.0
-    secrets: inherit
+  main:
+    uses: dallay/common-actions/.github/workflows/semantic-pull-request.yml@v2.0.0
