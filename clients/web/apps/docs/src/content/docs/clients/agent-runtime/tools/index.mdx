@@ -3,7 +3,7 @@ title: Tools Reference
 description: Overview of the Corvus Agent tool system, security model, and registration.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-05-06
+lastReviewed: 2026-05-20
 appliesTo: main
 docType: reference
 ---
@@ -22,7 +22,7 @@ Built-in tools are organized into six primary categories:
 - [**Web Tools**](web.md) — Web browsing (`browser`), search (`web_search_tool`), structured API calls (`http_request`), and read-only fetch parity (`WebFetch`).
 - [**Memory Tools**](memory.md) — Long-term persistence and retrieval of facts and preferences (`memory_store`, `memory_recall`).
 - [**Automation Tools**](automation.md) — Multi-agent delegation (`delegate`), managed app integrations (`composio`), Git repository management, scheduled tasks (Cron/Schedule), and notifications (`pushover`).
-- [**Media Tools**](media.md) — Vision-related capabilities including screen capture and image metadata extraction.
+- [**Media Tools**](media.md) — Vision and document-related capabilities including screen capture, image metadata extraction, and PDF inspection (`pdf_inspect`).
 - [**Hardware Tools**](hardware.md) — Board discovery (`hardware_board_info`), memory introspection (`hardware_memory_read`), and peripheral control (`gpio_write`, `arduino_upload`).
 
 ## Security Model
@@ -31,7 +31,7 @@ Every tool execution passes through the `SecurityPolicy` layer. Tools are classi
 
 ### Read-Only (Safe)
 These tools do not modify the system or external state. They are generally allowed even in low-autonomy modes.
-- *Examples:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `hardware_board_info`.
+- *Examples:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `pdf_inspect`, `hardware_board_info`.
 
 ## Claude-style parity mapping
 

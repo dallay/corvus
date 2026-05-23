@@ -113,3 +113,13 @@ All three identified issues have been fixed:
 - Improved `cron_runs` and `cron_update` parameter documentation in `automation.md` (en/es).
 **Validation:** Results of `make docs-check` and `make docs-build` passed (84 pages built).
 **Notes:** Maintaining bilingual parity between root (English) and `es/` directory.
+
+## 2026-05-20 - PDF Inspection Tool Documentation - Complete
+
+**Verification:** Verified implementation of `pdf_inspect` tool in `clients/agent-runtime/src/tools/pdf_inspect.rs`.
+**Changes:**
+- Added `pdf_inspect` documentation to `clients/agent-runtime/tools/media.md` (en/es).
+- Updated `clients/agent-runtime/tools/index.mdx` (en/es) to include `pdf_inspect` in Media category and Read-Only tier.
+- Updated `lastReviewed` dates to 2026-05-20 for affected files.
+**Validation:** Results of `make docs-web-check` and `make docs-web-build` passed.
+**Notes:** `pdf_inspect` is a native tool requiring the `pdf-inspect` feature flag. It is classified as Read-Only (Safe) as it only extracts information from files within the workspace.

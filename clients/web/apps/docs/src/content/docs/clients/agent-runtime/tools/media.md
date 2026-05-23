@@ -3,12 +3,12 @@ title: Media Tools
 description: Reference for vision and image-related tools in Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-20
 appliesTo: main
 docType: reference
 ---
 
-Media tools provide the agent with visual capabilities, allowing it to "see" the host environment and process image files.
+Media tools provide the agent with visual capabilities, allowing it to "see" the host environment and process image and document files.
 
 ## `screenshot`
 
@@ -26,6 +26,23 @@ Captures a screenshot of the current screen or a specific region.
 | :--- | :--- | :--- |
 | `filename` | `string` | Optional filename. Saved in the workspace. |
 | `region` | `string` | (macOS only) `selection` for interactive crop, `window` for front window. |
+
+---
+
+## `pdf_inspect`
+
+Inspect, classify, and extract text from a PDF file.
+
+- **Security Tier:** Read-Only (Safe).
+- **Execution:** Native runtime tool (requires `pdf-inspect` feature flag).
+- **Capabilities:** Detects whether the PDF is text-based, scanned, image-based, or mixed, and converts extractable text to Markdown.
+
+### Parameters
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `path` | `string` | **Required.** Relative path to the PDF file within the workspace. |
+| `extract_text` | `boolean` | Whether to extract and convert text to Markdown (default: true). Set to `false` for metadata-only classification. |
 
 ---
 
