@@ -196,18 +196,31 @@ fun ChatWorkspace(
     }
 
   val uiState =
-    ChatUiState(
-      workspaceState = state,
-      bridgeState = bridgeState,
-      messages = displayMessages,
-      resumableSessions = content.resumableSessions,
-      pendingApproval = content.pendingApproval,
-      targetLabel = content.targetLabel,
-      activeSessionId = content.activeSessionId,
-      query = content.query,
-      showConfig = content.showConfig,
-      showSessionHistory = content.showSessionHistory,
-    )
+    remember(
+      state,
+      bridgeState,
+      displayMessages,
+      content.resumableSessions,
+      content.pendingApproval,
+      content.targetLabel,
+      content.activeSessionId,
+      content.query,
+      content.showConfig,
+      content.showSessionHistory,
+    ) {
+      ChatUiState(
+        workspaceState = state,
+        bridgeState = bridgeState,
+        messages = displayMessages,
+        resumableSessions = content.resumableSessions,
+        pendingApproval = content.pendingApproval,
+        targetLabel = content.targetLabel,
+        activeSessionId = content.activeSessionId,
+        query = content.query,
+        showConfig = content.showConfig,
+        showSessionHistory = content.showSessionHistory,
+      )
+    }
 
   ChatWorkspaceScreen(uiState = uiState, actions = actions, modifier = modifier)
 }

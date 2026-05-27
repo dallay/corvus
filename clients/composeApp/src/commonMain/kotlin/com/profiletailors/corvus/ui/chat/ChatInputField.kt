@@ -69,7 +69,9 @@ fun ChatInputField(props: ChatInputFieldProps, modifier: Modifier = Modifier) {
         modifier = Modifier.fillMaxWidth(),
         enabled = props.enabled,
         placeholder = {
-          Text(text = props.placeholder, color = colors.onSurfaceVariant.copy(alpha = 0.6f))
+          val placeholderColor =
+            remember(colors.onSurfaceVariant) { colors.onSurfaceVariant.copy(alpha = 0.6f) }
+          Text(text = props.placeholder, color = placeholderColor)
         },
         colors =
           OutlinedTextFieldDefaults.colors(
