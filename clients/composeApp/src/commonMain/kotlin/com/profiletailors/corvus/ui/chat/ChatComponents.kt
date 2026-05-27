@@ -315,18 +315,24 @@ fun ChatHeader(
     horizontalArrangement = Arrangement.SpaceBetween,
     verticalAlignment = Alignment.CenterVertically,
   ) {
+    val onBackground = MaterialTheme.colorScheme.onBackground
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val statusText =
+      remember(bridgeState, showConfig) {
+        if (showConfig) bridgeStateHeadline(bridgeState) else bridgeStateDescription(bridgeState)
+      }
+
     Column {
       Text(
         text = modelName,
         style = MaterialTheme.typography.headlineSmall,
         fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onBackground,
+        color = onBackground,
       )
       Text(
-        text =
-          if (showConfig) bridgeStateHeadline(bridgeState) else bridgeStateDescription(bridgeState),
+        text = statusText,
         style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = onSurfaceVariant,
       )
     }
 
@@ -607,21 +613,24 @@ internal fun truncateSessionId(sessionId: String): String =
 
 @Composable
 fun BridgeStatusCard(bridgeState: MobileBridgeUiState, modifier: Modifier = Modifier) {
-  val description = bridgeStateDescription(bridgeState)
-  val recovery = bridgeStateRecovery(bridgeState)
-  val details = buildList {
-    add(description)
-    if (description != recovery) {
-      add(recovery)
+  val (title, subtitle, details) =
+    remember(bridgeState) {
+      val description = bridgeStateDescription(bridgeState)
+      val recovery = bridgeStateRecovery(bridgeState)
+      val detailLines = buildList {
+        add(description)
+        if (description != recovery) {
+          add(recovery)
+        }
+      }
+      Triple(
+        onboardingStateLabel(bridgeState.onboardingState),
+        bridgeStateHeadline(bridgeState),
+        detailLines,
+      )
     }
-  }
 
-  diagnosticsCard(
-    title = onboardingStateLabel(bridgeState.onboardingState),
-    subtitle = bridgeStateHeadline(bridgeState),
-    details = details,
-    modifier = modifier,
-  )
+  diagnosticsCard(title = title, subtitle = subtitle, details = details, modifier = modifier)
 }
 
 @Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
@@ -756,12 +765,9 @@ fun diagnosticsCard(
           style = MaterialTheme.typography.bodySmall,
           color = colors.onSurfaceVariant,
         )
+        val detailColor = remember(colors.onSurface) { colors.onSurface.copy(alpha = 0.7f) }
         details.forEach { line ->
-          Text(
-            text = "- $line",
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.onSurface.copy(alpha = 0.7f),
-          )
+          Text(text = "- $line", style = MaterialTheme.typography.bodySmall, color = detailColor)
         }
       }
     }
