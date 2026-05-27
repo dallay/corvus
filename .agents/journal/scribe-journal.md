@@ -113,3 +113,21 @@ All three identified issues have been fixed:
 - Improved `cron_runs` and `cron_update` parameter documentation in `automation.md` (en/es).
 **Validation:** Results of `make docs-check` and `make docs-build` passed (84 pages built).
 **Notes:** Maintaining bilingual parity between root (English) and `es/` directory.
+
+## 2026-05-12 - Media Tools Update & Hardware Audit - Complete
+
+**Verification:**
+- Verified `pdf_inspect` implementation in `clients/agent-runtime/src/tools/pdf_inspect.rs`.
+- Audited hardware tools implementation in `clients/agent-runtime/src/tools/` and `clients/agent-runtime/src/peripherals/`.
+- Confirmed that `hardware_board_info`, `hardware_capabilities`, `hardware_memory_map`, `hardware_memory_read`, `gpio_read`, `gpio_write`, and `arduino_upload` are all implemented and correctly documented in `hardware.md`.
+
+**Changes:**
+- Added `pdf_inspect` tool section to `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/media.md` (en/es).
+- Updated `lastReviewed` date to `2026-05-12` in `media.md` (en/es).
+
+**Validation:**
+- `astro check` — ✅ PASSED.
+- `node scripts/validate-docs-metadata.mjs` — ✅ PASSED for affected files.
+- Manual verification of bilingual parity for the new `pdf_inspect` section.
+
+**Notes:** Bilingual parity maintained. `pdf_inspect` is classified as Read-Only (Safe).
