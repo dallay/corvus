@@ -575,7 +575,9 @@ impl SecurityPolicy {
         match base.as_str() {
             "find" => {
                 // find -exec and find -ok allow arbitrary command execution
-                !args.iter().any(|arg| arg == "-exec" || arg == "-ok")
+                !args.iter().any(|arg| {
+                    arg == "-exec" || arg == "-ok" || arg == "-execdir" || arg == "-okdir"
+                })
             }
             "git" => {
                 // git config, alias, and -c can be used to set dangerous options
@@ -586,6 +588,8 @@ impl SecurityPolicy {
                         || arg == "alias"
                         || arg.starts_with("alias.")
                         || arg == "-c"
+                        || arg == "--exec-path"
+                        || arg.starts_with("--exec-path=")
                 })
             }
             "npm" | "pnpm" | "yarn" => {
@@ -779,7 +783,7 @@ fn contains_high_risk_snippet(segment: &str) -> bool {
 
 fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
     match base {
-        "git" => args.first().is_some_and(|verb| {
+        "git" => args.iter().any(|verb| {
             matches!(
                 verb.as_str(),
                 "commit"
@@ -794,9 +798,13 @@ fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
                     | "checkout"
                     | "switch"
                     | "tag"
+                    | "clone"
+                    | "pull"
+                    | "fetch"
+                    | "init"
             )
         }),
-        "npm" | "pnpm" | "yarn" => args.first().is_some_and(|verb| {
+        "npm" | "pnpm" | "yarn" => args.iter().any(|verb| {
             matches!(
                 verb.as_str(),
                 "install"
@@ -811,14 +819,31 @@ fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
                     | "t"
                     | "it"
                     | "cit"
+                    | "ci"
+                    | "init"
+                    | "link"
             )
         }),
-        "cargo" => args.first().is_some_and(|verb| {
+        "cargo" => args.iter().any(|verb| {
             matches!(
                 verb.as_str(),
-                "add" | "remove" | "install" | "clean" | "publish" | "run" | "r" | "test" | "t"
+                "add"
+                    | "remove"
+                    | "install"
+                    | "clean"
+                    | "publish"
+                    | "run"
+                    | "r"
+                    | "test"
+                    | "t"
+                    | "build"
+                    | "check"
+                    | "update"
+                    | "init"
+                    | "new"
             )
         }),
+        "find" => args.iter().any(|arg| arg == "-delete"),
         "touch" | "mkdir" | "mv" | "cp" | "ln" => true,
         _ => false,
     }
@@ -865,6 +890,9 @@ fn normalize_arg_for_path_checks(token: &str) -> Option<String> {
 
 /// Check whether `expanded` path starts with any of the forbidden paths.
 fn iterative_url_decode(input: &str) -> String {
+    if !input.contains('%') {
+        return input.to_string();
+    }
     let mut decoded = input.to_string();
     for _ in 0..10 {
         let next = urlencoding::decode(decoded.as_str()).unwrap_or_else(|_| decoded.clone().into());

@@ -31,3 +31,15 @@
 
 **Learning:** `SecurityPolicy` was vulnerable to path validation bypass using nested or partial quotes (e.g., `"/etc"/passwd`, `""/etc/passwd""`). The previous `strip_matching_quotes` only removed outer quotes, leaving internal quotes to disrupt prefix-based forbidden path and absolute path checks.
 **Action:** Implemented `strip_all_quotes` to normalize command arguments and paths by removing all single and double quotes. In `is_path_allowed`, `iterative_url_decode` is still applied before quote stripping so encoded quotes are exposed before later processing.
+
+## 2025-05-30 - Hardening Verb Detection and Blocking Execution Redirection
+
+**Learning:**
+1. `is_medium_risk_command` was vulnerable to bypass when subcommands were preceded by global flags (e.g., `git -C path commit`). Only checking the first argument was insufficient.
+2. `git --exec-path` and `find -execdir`/`-okdir` provided vectors for unauthorized code execution or redirection that were not fully covered by existing blocked lists.
+3. `iterative_url_decode` was incurring unnecessary overhead on a hot path by attempting decoding even when no encoding (`%`) was present.
+
+**Action:**
+1. ✅ Refactored `is_medium_risk_command` to use `args.iter().any()` for verb detection, ensuring subcommands are flagged regardless of their position relative to flags.
+2. ✅ Expanded `is_args_safe` blocked list for `git` (`--exec-path`) and `find` (`-execdir`, `-okdir`).
+3. ✅ Added early return to `iterative_url_decode` when input contains no `%` character, reducing allocations and CPU cycles.
