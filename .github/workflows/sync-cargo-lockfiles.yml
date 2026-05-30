@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: 🔐 Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -56,7 +56,7 @@ jobs:
               output.write(f"channel={channel}\n")
 
       - name: 🦀 Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: ${{ steps.rust-channel.outputs.channel }}
 

@@ -10,5 +10,5 @@ jobs:
     permissions:
       actions: write
       contents: read
-    uses: dallay/common-actions/.github/workflows/cleanup-cache.yml@6ecd716dcfb6a9e8a9c494d1eac210cc1d73d75f # v2.0.0
+    uses: dallay/common-actions/.github/workflows/cleanup-cache.yml@74665f58fde40f4999fb56022bd05626f6d72076 # v2.1.0
     secrets: inherit
