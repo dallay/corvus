@@ -44,3 +44,21 @@ Extracts metadata from an image file and optionally returns it as base64 for pro
 | :--- | :--- | :--- |
 | `path` | `string` | **Required.** Path to the image file. |
 | `include_base64` | `boolean` | Include the full image data in the output. Default: `false`. |
+
+---
+
+## `pdf_inspect`
+
+Inspect, classify, and extract text from a PDF file.
+
+- **Security Tier:** Read-Only (Safe).
+- **Requirements:** Requires the `pdf-inspect` feature flag enabled during compilation.
+- **Constraints:** Path-sandboxed to the workspace; maximum file size 50 MB.
+- **Behavior:** Detects whether the PDF is text-based, scanned, image-based, or mixed. Converts extractable text to Markdown.
+
+### Parameters
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `path` | `string` | **Required.** Relative path to the PDF file within the workspace. |
+| `extract_text` | `boolean` | Whether to extract and convert text to Markdown. Default: `true`. |

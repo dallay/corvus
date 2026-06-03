@@ -113,3 +113,13 @@ All three identified issues have been fixed:
 - Improved `cron_runs` and `cron_update` parameter documentation in `automation.md` (en/es).
 **Validation:** Results of `make docs-check` and `make docs-build` passed (84 pages built).
 **Notes:** Maintaining bilingual parity between root (English) and `es/` directory.
+
+## 2026-06-03 - PDF Inspection Support & Policy Sync - Complete
+
+**Verification:** Verified `pdf_inspect` implementation in `clients/agent-runtime/src/tools/pdf_inspect.rs`.
+**Changes:**
+- Added `pdf_inspect` to `PLAN_MODE_SAFE_TOOLS` in `clients/agent-runtime/src/security/policy.rs`.
+- Updated `tools/index.mdx` (en/es) to include PDF inspection in Media Tools category.
+- Added `pdf_inspect` documentation to `tools/media.md` (en/es) with parameters, security tier (Read-Only), and constraints (50MB limit).
+**Validation:** `node scripts/validate-docs-metadata.mjs` passed for 4 files. Manual verification of bilingual parity.
+**Notes:** Synchronized code and documentation for the new `pdf_inspect` tool.

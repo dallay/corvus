@@ -44,3 +44,21 @@ Extrae metadatos de un archivo de imagen y, opcionalmente, lo devuelve como base
 | :--- | :--- | :--- |
 | `path` | `string` | **Requerido.** Ruta al archivo de imagen. |
 | `include_base64` | `boolean` | Incluir los datos completos de la imagen en la salida. Por defecto: `false`. |
+
+---
+
+## `pdf_inspect`
+
+Inspecciona, clasifica y extrae texto de un archivo PDF.
+
+- **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Requisitos:** Requiere el feature flag `pdf-inspect` habilitado durante la compilación.
+- **Restricciones:** Sandboxing de ruta al workspace; tamaño máximo de archivo 50 MB.
+- **Comportamiento:** Detecta si el PDF está basado en texto, escaneado, basado en imágenes o es mixto. Convierte el texto extraíble a Markdown.
+
+### Parámetros
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `path` | `string` | **Requerido.** Ruta relativa al archivo PDF dentro del workspace. |
+| `extract_text` | `boolean` | Indica si se debe extraer y convertir el texto a Markdown. Por defecto: `true`. |
