@@ -31,3 +31,8 @@
 
 **Learning:** `SecurityPolicy` was vulnerable to path validation bypass using nested or partial quotes (e.g., `"/etc"/passwd`, `""/etc/passwd""`). The previous `strip_matching_quotes` only removed outer quotes, leaving internal quotes to disrupt prefix-based forbidden path and absolute path checks.
 **Action:** Implemented `strip_all_quotes` to normalize command arguments and paths by removing all single and double quotes. In `is_path_allowed`, `iterative_url_decode` is still applied before quote stripping so encoded quotes are exposed before later processing.
+
+## 2025-06-01 - Optimizing SecurityPolicy and Fixing Case-Sensitive Bypasses
+
+**Learning:** Mandatory global lowercasing of command arguments for security validation caused both false positives (e.g., blocking `git -C` because it was treated as `git -c`) and security gaps (e.g., missing joined flags like `git -cconfig=value`). It also introduced unnecessary $O(N)$ string allocations for every command execution.
+**Action:** Transitioned to passing case-preserving arguments to `is_args_safe`. Implemented case-insensitive checks for subcommands and case-sensitive prefix matching for sensitive flags (like `git -c`). This improves performance by avoiding allocations in the common path and increases security by correctly identifying complex flag forms.

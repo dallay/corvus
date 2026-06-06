@@ -526,11 +526,6 @@ impl SecurityPolicy {
             Some(args) => args,
             None => return false,
         };
-        let args: Vec<String> = normalized_args
-            .iter()
-            .map(|arg| arg.to_ascii_lowercase())
-            .collect();
-
         for arg in &normalized_args {
             let effective_arg = Self::effective_path_arg(arg);
             if !self.is_path_argument_safe(effective_arg) {
@@ -538,7 +533,7 @@ impl SecurityPolicy {
             }
         }
 
-        if !self.is_args_safe(base_raw, &args) {
+        if !self.is_args_safe(base_raw, &normalized_args) {
             return false;
         }
 
@@ -575,23 +570,31 @@ impl SecurityPolicy {
         match base.as_str() {
             "find" => {
                 // find -exec and find -ok allow arbitrary command execution
-                !args.iter().any(|arg| arg == "-exec" || arg == "-ok")
+                !args.iter().any(|arg| {
+                    let l = arg.to_ascii_lowercase();
+                    l == "-exec" || l == "-ok"
+                })
             }
             "git" => {
                 // git config, alias, and -c can be used to set dangerous options
                 // (e.g. git config core.editor "rm -rf /")
                 !args.iter().any(|arg| {
-                    arg == "config"
-                        || arg.starts_with("config.")
-                        || arg == "alias"
-                        || arg.starts_with("alias.")
+                    let l = arg.to_ascii_lowercase();
+                    l == "config"
+                        || l.starts_with("config.")
+                        || l == "alias"
+                        || l.starts_with("alias.")
                         || arg == "-c"
+                        || arg.starts_with("-c")
                 })
             }
             "npm" | "pnpm" | "yarn" => {
                 // npm config and set can be used to set dangerous options
                 // (e.g. npm config set editor "rm -rf /")
-                !args.iter().any(|arg| arg == "config" || arg == "set")
+                !args.iter().any(|arg| {
+                    let l = arg.to_ascii_lowercase();
+                    l == "config" || l == "set"
+                })
             }
             _ => true,
         }
