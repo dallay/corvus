@@ -3,7 +3,7 @@ title: Referencia de Herramientas
 description: Descripción general del sistema de herramientas de Corvus Agent, modelo de seguridad y registro.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-05-06
+lastReviewed: 2026-06-10
 appliesTo: main
 docType: reference
 ---
@@ -22,7 +22,7 @@ Las herramientas integradas se organizan en seis categorías principales:
 - [**Herramientas Web**](web.md) — Navegación web (`browser`), búsqueda (`web_search_tool`), llamadas estructuradas a APIs (`http_request`) y fetch de solo lectura con paridad (`WebFetch`).
 - [**Herramientas de Memoria**](memory.md) — Persistencia a largo plazo y recuperación de hechos y preferencias (`memory_store`, `memory_recall`).
 - [**Herramientas de Automatización**](automation.md) — Delegación multi-agente (`delegate`), integraciones de aplicaciones gestionadas (`composio`), gestión de repositorios Git, tareas programadas (Cron/Schedule) y notificaciones (`pushover`).
-- [**Herramientas Multimedia**](media.md) — Capacidades relacionadas con la visión, incluyendo captura de pantalla y extracción de metadatos de imágenes.
+- [**Herramientas Multimedia**](media.md) — Capacidades relacionadas con la visión, incluyendo captura de pantalla, extracción de metadatos de imágenes e inspección de PDF.
 - [**Herramientas de Hardware**](hardware.md) — Descubrimiento de placas (`hardware_board_info`), introspección de memoria (`hardware_memory_read`) y control de periféricos (`gpio_write`, `arduino_upload`).
 
 ## Modelo de Seguridad
@@ -31,7 +31,11 @@ Cada ejecución de herramienta pasa por la capa de `SecurityPolicy`. Las herrami
 
 ### Solo Lectura (Seguras)
 Estas herramientas no modifican el sistema ni el estado externo. Generalmente están permitidas incluso en modos de baja autonomía.
-- *Ejemplos:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `hardware_board_info`.
+- *Ejemplos:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `pdf_inspect`, `hardware_board_info`.
+
+:::note[Modo de Plan]
+En el [Modo de Plan](../../../guides/cli-reference.md#modo-de-plan-plan-mode), Corvus restringe la ejecución de herramientas a una lista específica de herramientas seguras.
+:::
 
 ## Mapeo de paridad estilo Claude
 

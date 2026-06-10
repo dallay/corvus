@@ -113,3 +113,15 @@ All three identified issues have been fixed:
 - Improved `cron_runs` and `cron_update` parameter documentation in `automation.md` (en/es).
 **Validation:** Results of `make docs-check` and `make docs-build` passed (84 pages built).
 **Notes:** Maintaining bilingual parity between root (English) and `es/` directory.
+
+## 2026-06-10 - PDF Inspection & Plan Mode Documentation - Complete
+
+**Verification:** Verified `pdf_inspect.rs` for tool contract and `policy.rs` for Plan Mode allowlist and security logic.
+**Changes:**
+- Updated `media.md` (en/es) with `pdf_inspect` tool documentation.
+- Updated `cli-reference.md` (en/es) with Plan Mode (`--plan`) details and allowed tools list.
+- Updated `runtime-sandbox-isolation.md` (en/es) to include Plan Mode as the third security layer.
+- Updated `index.mdx` (en/es) to categorize `pdf_inspect` and reference Plan Mode.
+- Updated all modified files' `lastReviewed` frontmatter to 2026-06-10.
+**Validation:** Results of `make docs-check` and `make docs-build` passed (84 pages built).
+**Notes:** `pdf_inspect` is not yet in the `PLAN_MODE_SAFE_TOOLS` allowlist in code, so it was excluded from the Plan Mode documentation list to maintain technical accuracy.
