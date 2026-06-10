@@ -106,3 +106,25 @@
 - Baseline Compilation: 1m 4s (`compileKotlinJvm`)
 - Post-Optimization Compilation: 1m 4s (`compileKotlinJvm`)
 - *Note:* These runtime optimizations focus on UI smoothness and interaction latency. Incremental build confirmed successful.
+
+---
+
+## 2026-05-17 - Compose - Onboarding UI Rendering & Allocation Optimization
+
+**Location:** `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/onboarding/OnboardingScreen.kt`
+**Issue:**
+- Multiple UI components in the onboarding flow were re-allocating `RoundedCornerShape` objects on every recomposition.
+- The top-level `Modifier` chain and background `Brush` (gradient) in `onboardingLayoutModifier` were being re-evaluated and re-allocated during every state change in the onboarding sequence.
+- High-frequency elements in `FuturisticProgressIndicator` and `OnboardingIconDisplay` were re-creating gradient and radial `Brush` objects on every frame or state update.
+**Solution:**
+- Defined internal constants for commonly used shapes (`OnboardingSkipButtonShape`, `OnboardingMainContentShape`, `ProgressBarShape`) to eliminate redundant allocations.
+- Wrapped the `Modifier` chain and background `Brush` in `onboardingLayoutModifier` in `remember` blocks.
+- Applied `remember` to gradient and radial `Brush` instantiations across `OnboardingIconDisplay` and `FuturisticProgressIndicator`.
+**Impact:**
+- **Reduced GC Pressure:** Significant reduction in ephemeral object allocations (shapes, brushes, modifiers) during the onboarding flow.
+- **Improved Interaction Smoothness:** Lower CPU overhead during step transitions and progress animations.
+- **Optimized Memory Usage:** Reusing shape and brush instances reduces the heap churn during UI interactions.
+**Benchmark:**
+- Compilation: Verified success with `./gradlew :composeApp:compileKotlinJvm`.
+- Quality: All checks passed with `./gradlew :composeApp:qualityCheck`.
+- *Note:* These runtime optimizations focus on UI smoothness and interaction latency during the critical first-user experience.
