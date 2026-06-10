@@ -3,7 +3,7 @@ title: CLI Reference
 description: Comprehensive guide to the Corvus Agent CLI commands and options.
 owner: team-platform
 status: canonical
-lastReviewed: 2026-05-06
+lastReviewed: 2026-06-10
 appliesTo: main
 docType: reference
 ---
@@ -103,6 +103,27 @@ Start only the gateway server (webhooks, websockets).
 ```bash
 corvus gateway --port 3001
 ```
+
+---
+
+## Plan Mode
+
+The `--plan` flag (available for `agent` and `code` commands) enables a high-integrity analysis mode where the agent can explore the environment but cannot perform side-effecting actions.
+
+When Plan Mode is active, Corvus enforces a strict allowlist of "analysis-only" tools. Any attempt to use a tool not on this list will be blocked by the security policy.
+
+### Allowed Tools in Plan Mode
+
+- `Glob` / `glob`
+- `Grep` / `grep`
+- `WebFetch` / `web_fetch`
+- `code_search`
+- `file_read`
+- `image_info`
+- `memory_recall`
+- `web_search_tool`
+
+All other tools, including `shell`, `file_write`, `git_operations`, and `delegate`, are strictly disabled.
 
 ---
 

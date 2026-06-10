@@ -3,21 +3,24 @@ title: Aislamiento del Sandbox del Runtime
 description: Modelo de seguridad, selección de backend, verificación del sidecar y expectativas de auditoría para el aislamiento del runtime en Corvus.
 owner: team-platform
 status: canonical
-lastReviewed: 2026-04-03
+lastReviewed: 2026-06-10
 appliesTo: main
 docType: guide
 ---
 
 # Aislamiento del Sandbox del Runtime
 
-Corvus usa **dos capas de seguridad** para la ejecución disparada por usuarios:
+Corvus usa **tres capas de seguridad** para la ejecución disparada por usuarios:
 
 1. **Política a nivel de aplicación** mediante `SecurityPolicy`
    - allowlists de comandos
    - restricciones de rutas
    - límites de tasa
    - clasificación de riesgo y compuertas de aprobación
-2. **Sandboxing a nivel de sistema operativo** mediante los backends `Sandbox` del runtime
+2. **Modo de Plan (solo análisis)**
+   - allowlist de herramientas de solo análisis
+   - bloqueo de efectos secundarios forzado
+3. **Sandboxing a nivel de sistema operativo** mediante los backends `Sandbox` del runtime
    - `landlock`
    - `firejail`
    - `bubblewrap`

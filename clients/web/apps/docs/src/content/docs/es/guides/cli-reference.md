@@ -3,7 +3,7 @@ title: Referencia de la CLI
 description: Guía completa de los comandos y opciones de la CLI del agente Corvus.
 owner: team-platform
 status: canonical
-lastReviewed: 2026-05-06
+lastReviewed: 2026-06-10
 appliesTo: main
 docType: reference
 ---
@@ -103,6 +103,27 @@ Inicia solo el servidor gateway (webhooks, websockets).
 ```bash
 corvus gateway --port 3001
 ```
+
+---
+
+## Modo de Plan (Plan Mode)
+
+El flag `--plan` (disponible para los comandos `agent` y `code`) habilita un modo de análisis de alta integridad donde el agente puede explorar el entorno pero no puede realizar acciones con efectos secundarios.
+
+Cuando el Modo de Plan está activo, Corvus impone una lista estricta de permitidos de herramientas de "solo análisis". Cualquier intento de utilizar una herramienta que no esté en esta lista será bloqueado por la política de seguridad.
+
+### Herramientas permitidas en el Modo de Plan
+
+- `Glob` / `glob`
+- `Grep` / `grep`
+- `WebFetch` / `web_fetch`
+- `code_search`
+- `file_read`
+- `image_info`
+- `memory_recall`
+- `web_search_tool`
+
+Todas las demás herramientas, incluidas `shell`, `file_write`, `git_operations` y `delegate`, están estrictamente deshabilitadas.
 
 ---
 

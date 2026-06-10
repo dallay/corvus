@@ -3,21 +3,24 @@ title: Runtime Sandbox Isolation
 description: Security model, backend selection, sidecar verification, and audit expectations for runtime sandbox isolation in Corvus.
 owner: team-platform
 status: canonical
-lastReviewed: 2026-04-03
+lastReviewed: 2026-06-10
 appliesTo: main
 docType: guide
 ---
 
 # Runtime Sandbox Isolation
 
-Corvus uses **two security layers** for user-triggered execution:
+Corvus uses **three security layers** for user-triggered execution:
 
 1. **Application-layer policy** via `SecurityPolicy`
    - command allowlists
    - path restrictions
    - rate limits
    - risk classification and approval gates
-2. **OS-level sandboxing** via the runtime `Sandbox` backends
+2. **Analysis-only Plan Mode**
+   - analysis-only tool allowlist
+   - enforced side-effect blocking
+3. **OS-level sandboxing** via the runtime `Sandbox` backends
    - `landlock`
    - `firejail`
    - `bubblewrap`
