@@ -538,7 +538,7 @@ impl SecurityPolicy {
             }
         }
 
-        if !self.is_args_safe(base_raw, &args) {
+        if !self.is_args_safe(base_raw, &normalized_args) {
             return false;
         }
 
@@ -575,7 +575,9 @@ impl SecurityPolicy {
         match base.as_str() {
             "find" => {
                 // find -exec and find -ok allow arbitrary command execution
-                !args.iter().any(|arg| arg == "-exec" || arg == "-ok")
+                !args
+                    .iter()
+                    .any(|arg| arg == "-exec" || arg == "-ok" || arg == "--exec" || arg == "--ok")
             }
             "git" => {
                 // git config, alias, and -c can be used to set dangerous options
@@ -586,12 +588,28 @@ impl SecurityPolicy {
                         || arg == "alias"
                         || arg.starts_with("alias.")
                         || arg == "-c"
+                        || arg.starts_with("-c")
+                        || arg == "--config"
+                        || arg.starts_with("--config=")
                 })
             }
             "npm" | "pnpm" | "yarn" => {
                 // npm config and set can be used to set dangerous options
                 // (e.g. npm config set editor "rm -rf /")
-                !args.iter().any(|arg| arg == "config" || arg == "set")
+                !args.iter().any(|arg| {
+                    arg == "config"
+                        || arg == "set"
+                        || arg == "-c"
+                        || arg.starts_with("-c")
+                        || arg == "--config"
+                        || arg.starts_with("--config=")
+                })
+            }
+            "cargo" => {
+                // cargo --config can be used to override settings
+                !args
+                    .iter()
+                    .any(|arg| arg == "--config" || arg.starts_with("--config="))
             }
             _ => true,
         }
@@ -779,11 +797,15 @@ fn contains_high_risk_snippet(segment: &str) -> bool {
 
 fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
     match base {
-        "git" => args.first().is_some_and(|verb| {
+        "git" => args.iter().any(|verb| {
             matches!(
                 verb.as_str(),
                 "commit"
                     | "push"
+                    | "pull"
+                    | "clone"
+                    | "fetch"
+                    | "init"
                     | "reset"
                     | "clean"
                     | "rebase"
@@ -796,10 +818,13 @@ fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
                     | "tag"
             )
         }),
-        "npm" | "pnpm" | "yarn" => args.first().is_some_and(|verb| {
+        "npm" | "pnpm" | "yarn" => args.iter().any(|verb| {
             matches!(
                 verb.as_str(),
                 "install"
+                    | "ci"
+                    | "link"
+                    | "init"
                     | "add"
                     | "remove"
                     | "uninstall"
@@ -813,10 +838,24 @@ fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
                     | "cit"
             )
         }),
-        "cargo" => args.first().is_some_and(|verb| {
+        "cargo" => args.iter().any(|verb| {
             matches!(
                 verb.as_str(),
-                "add" | "remove" | "install" | "clean" | "publish" | "run" | "r" | "test" | "t"
+                "build"
+                    | "check"
+                    | "update"
+                    | "init"
+                    | "new"
+                    | "fetch"
+                    | "add"
+                    | "remove"
+                    | "install"
+                    | "clean"
+                    | "publish"
+                    | "run"
+                    | "r"
+                    | "test"
+                    | "t"
             )
         }),
         "touch" | "mkdir" | "mv" | "cp" | "ln" => true,
