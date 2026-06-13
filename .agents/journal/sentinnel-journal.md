@@ -31,3 +31,23 @@
 
 **Learning:** `SecurityPolicy` was vulnerable to path validation bypass using nested or partial quotes (e.g., `"/etc"/passwd`, `""/etc/passwd""`). The previous `strip_matching_quotes` only removed outer quotes, leaving internal quotes to disrupt prefix-based forbidden path and absolute path checks.
 **Action:** Implemented `strip_all_quotes` to normalize command arguments and paths by removing all single and double quotes. In `is_path_allowed`, `iterative_url_decode` is still applied before quote stripping so encoded quotes are exposed before later processing.
+
+## 2025-06-13 - Robust Argument Validation and Risk Detection
+
+**Learning:**  risk classification was bypassable by prefixing global flags before risky subcommands (e.g., `git -C . commit` was `Low` risk because only the first argument was checked). Additionally, lowercasing arguments before safety checks prevented distinguishing between case-sensitive flags like git's `-c` (dangerous config injection) and `-C` (safe path change). Missing coverage for `--config` flags in package managers and `cargo` left config injection gaps.
+
+**Action:**
+1. ✅ Updated `is_medium_risk_command` to use `args.iter().any()` to detect risky verbs regardless of position.
+2. ✅ Modified `is_segment_valid` to pass case-preserved normalized arguments to `is_args_safe` to enable correct flag differentiation.
+3. ✅ Expanded `is_args_safe` blocklist to include `--config`, `-c`, and joined variants (e.g., `starts_with("-c")`).
+4. ✅ Added `cargo build/check/fetch` to `Medium` risk classification to account for potential code execution in build scripts.
+
+## 2025-06-13 - Robust Argument Validation and Risk Detection
+
+**Learning:** `SecurityPolicy` risk classification was bypassable by prefixing global flags before risky subcommands (e.g., `git -C . commit` was `Low` risk because only the first argument was checked). Additionally, lowercasing arguments before safety checks prevented distinguishing between case-sensitive flags like git's `-c` (dangerous config injection) and `-C` (safe path change). Missing coverage for `--config` flags in package managers and `cargo` left config injection gaps.
+
+**Action:**
+1. ✅ Updated `is_medium_risk_command` to use `args.iter().any()` to detect risky verbs regardless of position.
+2. ✅ Modified `is_segment_valid` to pass case-preserved normalized arguments to `is_args_safe` to enable correct flag differentiation.
+3. ✅ Expanded `is_args_safe` blocklist to include `--config`, `-c`, and joined variants (e.g., `starts_with("-c")`).
+4. ✅ Added `cargo build/check/fetch` to `Medium` risk classification to account for potential code execution in build scripts.
