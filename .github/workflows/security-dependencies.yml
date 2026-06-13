@@ -23,17 +23,17 @@ jobs:
       contents: read
     steps:
       - name: ✈ Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 1
 
       - name: 🦀 Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master 2026-03-04
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master 2026-03-04
         with:
           toolchain: stable
 
       - name: 📥 Install cargo-deny
-        uses: taiki-e/install-action@2dc1234c293fde032a8e34c74501c7d6403e92ae # v2.68.14
+        uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2.81.10
         with:
           tool: cargo-deny
 
@@ -50,7 +50,7 @@ jobs:
       contents: write
     steps:
       - name: ✈ Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 1
 
@@ -61,6 +61,6 @@ jobs:
           distribution: "corretto"
 
       - name: 🐘 Submit Dependency Graph
-        uses: gradle/actions/dependency-submission@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
+        uses: gradle/actions/dependency-submission@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
         with:
           gradle-version: wrapper

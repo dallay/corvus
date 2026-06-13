@@ -10,5 +10,5 @@ jobs:
     permissions:
       issues: write
       pull-requests: write
-    uses: dallay/common-actions/.github/workflows/stale.yml@6ecd716dcfb6a9e8a9c494d1eac210cc1d73d75f # v2.0.0
+    uses: dallay/common-actions/.github/workflows/stale.yml@8aaf32edb1b70941a3f8889b47af1a7fd47e3a2c # v2.2.1
     secrets: inherit
