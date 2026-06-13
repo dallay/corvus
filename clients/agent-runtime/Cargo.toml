@@ -104,7 +104,7 @@ ring = "0.17"
 prost = { version = "0.14", default-features = false }
 
 # Memory / persistence
-rusqlite = { version = "0.39", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 chrono-tz = "0.10"
 cron = "0.16"
@@ -144,9 +144,9 @@ tower-http = { version = "0.6", default-features = false, features = ["limit", "
 http-body-util = "0.1"
 
 # OpenTelemetry — OTLP trace + metrics export
-opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
-opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
-opentelemetry-otlp = { version = "0.31.1", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-client", "reqwest-rustls-webpki-roots"] }
+opentelemetry = { version = "0.32", default-features = false, features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.32.0", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-client", "reqwest-rustls-webpki-roots"] }
 
 # USB device enumeration (hardware discovery)
 nusb = { version = "0.2", default-features = false, optional = true }
@@ -223,7 +223,7 @@ panic = "abort"
 [dev-dependencies]
 tempfile = "=3.27.0"
 criterion = { version = "=0.8.2", features = ["async_tokio"] }
-wat = "=1.248.0"
+wat = "=1.252.0"
 rcgen = "0.14"
 secrecy = "0.10"
 http = "1.4.0"
