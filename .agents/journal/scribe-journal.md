@@ -91,6 +91,16 @@ All three identified issues have been fixed:
 - Glossary: "Firejail" = Linux user-space sandbox (confirmed implemented). "Landlock" = Linux kernel-level sandbox (confirmed). "Cerebro" = standalone MCP memory service client in `clients/cerebro/` (confirmed).
 - Remaining gap: `cost` command subcommands (`summary`, `history`, `reset`) exist in code but are not yet in the CLI reference doc. Low priority.
 
+## 2026-06-17 - PDF Inspect Tool Documentation & Plan Mode Enablement - Complete
+
+**Verification:** Verified `clients/agent-runtime/src/tools/pdf_inspect.rs` for tool implementation and parameters.
+**Changes:**
+- Added `pdf_inspect` to `PLAN_MODE_SAFE_TOOLS` in `clients/agent-runtime/src/security/policy.rs`.
+- Documented `pdf_inspect` in `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/media.md` (en/es).
+- Described security tier (Read-Only), Plan Mode safety, parameters, and constraints.
+**Validation:** Results of `make docs-web-check`, `make docs-web-build`, and `cargo check` in `agent-runtime`.
+**Notes:** Bilingual parity maintained. `pdf_inspect` is now available for analysis in Plan Mode.
+
 ## 2026-04-15 - CLI Reference Update - Complete
 
 **Verification:** Verified `clients/agent-runtime/src/main.rs` for `code` and `cost` command implementations.
