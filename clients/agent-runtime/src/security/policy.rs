@@ -13,6 +13,7 @@ const PLAN_MODE_SAFE_TOOLS: &[&str] = &[
     "file_read",
     "image_info",
     "memory_recall",
+    "pdf_inspect",
     "web_search_tool",
 ];
 
