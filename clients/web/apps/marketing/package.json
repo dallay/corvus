@@ -22,12 +22,12 @@
     "@fontsource-variable/space-grotesk": "catalog:",
     "@fontsource/doto": "catalog:",
     "@fontsource/space-mono": "catalog:",
-    "astro": "^6.2.1",
+    "astro": "^6.4.6",
     "sharp": "catalog:"
   },
   "devDependencies": {
     "portless": "catalog:",
     "typescript": "catalog:",
-    "vite": "8.0.10"
+    "vite": "8.0.16"
   }
 }
