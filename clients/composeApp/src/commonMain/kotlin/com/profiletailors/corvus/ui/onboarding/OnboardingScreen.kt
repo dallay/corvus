@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,6 +82,10 @@ enum class OnboardingIcon {
   SYNC,
   SESSION,
 }
+
+internal val OnboardingSkipButtonShape = RoundedCornerShape(8.dp)
+internal val OnboardingMainContentShape = RoundedCornerShape(16.dp)
+internal val ProgressBarShape = RoundedCornerShape(3.dp)
 
 object OnboardingDefaults {
   private const val STEP_INDEX_RUNTIME_AVAILABLE = 0
@@ -193,15 +198,19 @@ private fun onboardingLayoutModifier(): Modifier {
   val colors = MaterialTheme.colorScheme
   val corvusColors = CorvusTheme.colors
 
-  return Modifier.fillMaxSize()
-    .background(
-      brush =
-        Brush.verticalGradient(
-          colors = listOf(colors.background, corvusColors.glassSurface, colors.background)
-        )
-    )
-    .safeContentPadding()
-    .padding(horizontal = 24.dp, vertical = 32.dp)
+  val backgroundBrush =
+    remember(colors.background, corvusColors.glassSurface) {
+      Brush.verticalGradient(
+        colors = listOf(colors.background, corvusColors.glassSurface, colors.background)
+      )
+    }
+
+  return remember(backgroundBrush) {
+    Modifier.fillMaxSize()
+      .background(brush = backgroundBrush)
+      .safeContentPadding()
+      .padding(horizontal = 24.dp, vertical = 32.dp)
+  }
 }
 
 @Suppress("FunctionNaming") // Composable functions follow PascalCase per Compose conventions
@@ -215,7 +224,7 @@ private fun OnboardingSkipButton(onSkip: () -> Unit) {
       style = MaterialTheme.typography.labelLarge,
       color = colors.onSurfaceVariant.copy(alpha = 0.7f),
       modifier =
-        Modifier.clip(RoundedCornerShape(8.dp))
+        Modifier.clip(OnboardingSkipButtonShape)
           .clickable(role = Role.Button, onClick = onSkip)
           .background(Color.Transparent)
           .padding(8.dp),
@@ -242,7 +251,7 @@ private fun ColumnScope.OnboardingMainContent(step: OnboardingStep) {
       modifier =
         Modifier.shadow(
           elevation = 8.dp,
-          shape = RoundedCornerShape(16.dp),
+          shape = OnboardingMainContentShape,
           spotColor = corvusColors.glowPurple.copy(alpha = 0.3f),
         )
     ) {
@@ -293,7 +302,8 @@ private fun OnboardingFooter(
 @Composable
 private fun OnboardingIconDisplay(icon: OnboardingIcon) {
   val corvusColors = CorvusTheme.colors
-  val gradient = Brush.linearGradient(corvusColors.gradientPrimary)
+  val gradient =
+    remember(corvusColors.gradientPrimary) { Brush.linearGradient(corvusColors.gradientPrimary) }
 
   Box(
     modifier =
@@ -307,17 +317,11 @@ private fun OnboardingIconDisplay(icon: OnboardingIcon) {
     contentAlignment = Alignment.Center,
   ) {
     // Inner glow ring
-    Box(
-      modifier =
-        Modifier.size(100.dp)
-          .background(
-            brush =
-              Brush.radialGradient(
-                colors = listOf(Color.White.copy(alpha = 0.3f), Color.Transparent)
-              ),
-            shape = CircleShape,
-          )
-    )
+    val innerGlowGradient = remember {
+      Brush.radialGradient(colors = listOf(Color.White.copy(alpha = 0.3f), Color.Transparent))
+    }
+
+    Box(modifier = Modifier.size(100.dp).background(brush = innerGlowGradient, shape = CircleShape))
 
     // Icon or Letter
     Box(contentAlignment = Alignment.Center) {
@@ -342,6 +346,10 @@ private fun OnboardingIconDisplay(icon: OnboardingIcon) {
 @Composable
 private fun FuturisticProgressIndicator(currentStep: Int, totalSteps: Int) {
   val corvusColors = CorvusTheme.colors
+  val activeBrush =
+    remember(corvusColors.gradientPrimary) {
+      Brush.horizontalGradient(corvusColors.gradientPrimary)
+    }
 
   Row(
     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -377,22 +385,16 @@ private fun FuturisticProgressIndicator(currentStep: Int, totalSteps: Int) {
             .height(6.dp)
             .shadow(
               elevation = if (isActive) 4.dp else 0.dp,
-              shape = RoundedCornerShape(3.dp),
+              shape = ProgressBarShape,
               spotColor = corvusColors.glowPurple.copy(alpha = alpha * 0.5f),
             )
-            .clip(RoundedCornerShape(3.dp))
-            .background(
-              brush =
-                if (isActive || isCompleted) {
-                  Brush.horizontalGradient(corvusColors.gradientPrimary)
-                } else {
-                  Brush.horizontalGradient(
-                    listOf(
-                      MaterialTheme.colorScheme.outline.copy(alpha = alpha),
-                      MaterialTheme.colorScheme.outline.copy(alpha = alpha),
-                    )
-                  )
-                }
+            .clip(ProgressBarShape)
+            .then(
+              if (isActive || isCompleted) {
+                Modifier.background(brush = activeBrush)
+              } else {
+                Modifier.background(color = MaterialTheme.colorScheme.outline.copy(alpha = alpha))
+              }
             )
       )
     }
