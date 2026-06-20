@@ -4,7 +4,7 @@ on:
     types: [opened, synchronize, reopened]
 jobs:
   auto-merge:
-    uses: dallay/common-actions/.github/workflows/dependabot-auto-merge.yml@v2.0.0
+    uses: dallay/common-actions/.github/workflows/dependabot-auto-merge.yml@v2.2.1
     with:
       target: squash
       approve: true
