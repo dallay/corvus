@@ -3,7 +3,7 @@ title: Tools Reference
 description: Overview of the Corvus Agent tool system, security model, and registration.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-05-06
+lastReviewed: 2026-05-15
 appliesTo: main
 docType: reference
 ---
@@ -31,7 +31,7 @@ Every tool execution passes through the `SecurityPolicy` layer. Tools are classi
 
 ### Read-Only (Safe)
 These tools do not modify the system or external state. They are generally allowed even in low-autonomy modes.
-- *Examples:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `hardware_board_info`.
+- *Examples:* `file_read`, `Glob`, `Grep`, `WebFetch`, `memory_recall`, `web_search_tool`, `image_info`, `pdf_inspect`, `hardware_board_info`.
 
 ## Claude-style parity mapping
 

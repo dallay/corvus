@@ -3,7 +3,7 @@ title: Media Tools
 description: Reference for vision and image-related tools in Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-15
 appliesTo: main
 docType: reference
 ---
@@ -44,3 +44,23 @@ Extracts metadata from an image file and optionally returns it as base64 for pro
 | :--- | :--- | :--- |
 | `path` | `string` | **Required.** Path to the image file. |
 | `include_base64` | `boolean` | Include the full image data in the output. Default: `false`. |
+
+---
+
+## `pdf_inspect`
+
+Inspect, classify, and extract text from a PDF file. Detects whether the PDF is text-based, scanned, image-based, or mixed.
+
+- **Security Tier:** Read-Only (Safe).
+- **Functionality:** Converts extractable text to Markdown. Returns PDF type, page count, pages needing OCR, title, and Markdown content.
+- **Constraints:**
+  - Maximum file size: 50 MB.
+  - Timeout: 60 seconds.
+  - Path-sandboxed to the workspace.
+
+### Parameters
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `path` | `string` | **Required.** Relative path to the PDF file within the workspace. |
+| `extract_text` | `boolean` | Whether to extract and convert text to Markdown (default: `true`). Set to `false` for metadata-only classification. |

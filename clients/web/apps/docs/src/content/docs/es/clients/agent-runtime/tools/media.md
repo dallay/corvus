@@ -3,7 +3,7 @@ title: Herramientas Multimedia
 description: Referencia para herramientas de visión e imágenes en Corvus.
 owner: team-runtime
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-05-15
 appliesTo: main
 docType: reference
 ---
@@ -44,3 +44,23 @@ Extrae metadatos de un archivo de imagen y, opcionalmente, lo devuelve como base
 | :--- | :--- | :--- |
 | `path` | `string` | **Requerido.** Ruta al archivo de imagen. |
 | `include_base64` | `boolean` | Incluir los datos completos de la imagen en la salida. Por defecto: `false`. |
+
+---
+
+## `pdf_inspect`
+
+Inspecciona, clasifica y extrae texto de un archivo PDF. Detecta si el PDF está basado en texto, escaneado, basado en imágenes o es mixto.
+
+- **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Funcionalidad:** Convierte el texto extraíble a Markdown. Devuelve el tipo de PDF, número de páginas, páginas que necesitan OCR, título y contenido en Markdown.
+- **Restricciones:**
+  - Tamaño máximo de archivo: 50 MB.
+  - Tiempo de espera: 60 segundos.
+  - Sandboxing de ruta al workspace.
+
+### Parámetros
+
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `path` | `string` | **Requerido.** Ruta relativa al archivo PDF dentro del workspace. |
+| `extract_text` | `boolean` | Indica si se debe extraer y convertir el texto a Markdown (por defecto: `true`). Establécelo en `false` para una clasificación solo de metadatos. |

@@ -113,3 +113,14 @@ All three identified issues have been fixed:
 - Improved `cron_runs` and `cron_update` parameter documentation in `automation.md` (en/es).
 **Validation:** Results of `make docs-check` and `make docs-build` passed (84 pages built).
 **Notes:** Maintaining bilingual parity between root (English) and `es/` directory.
+
+## 2026-06-24 - PDF Inspection Tool Documentation - Complete
+
+**Verification:** Verified `clients/agent-runtime/src/tools/pdf_inspect.rs` for tool implementation details, including parameters, constraints (50MB limit, 60s timeout), and security tier (Read-Only).
+**Changes:**
+- Updated `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/media.md` (en) and `es/` counterpart.
+- Added `pdf_inspect` documentation section with parameter tables and constraints.
+- Updated `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/index.mdx` (en) and `es/` counterpart to include `pdf_inspect` in Read-Only examples.
+- Updated `lastReviewed` date to 2026-05-15 for all modified files (aligned with recent audit cycle).
+**Validation:** Results of `node scripts/validate-docs-metadata.mjs` passed for all 4 files. Bilingual parity and frontmatter integrity confirmed.
+**Notes:** Bilingual parity maintained. `pdf_inspect` is gated by the `pdf-inspect` feature flag in Rust.
