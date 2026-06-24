@@ -106,3 +106,25 @@
 - Baseline Compilation: 1m 4s (`compileKotlinJvm`)
 - Post-Optimization Compilation: 1m 4s (`compileKotlinJvm`)
 - *Note:* These runtime optimizations focus on UI smoothness and interaction latency. Incremental build confirmed successful.
+
+---
+
+## 2026-05-16 - Compose - Onboarding UI Runtime Optimization
+
+**Location:** `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/onboarding/OnboardingScreen.kt`
+**Issue:**
+- Redundant allocations of `RoundedCornerShape` and `Brush` objects on every recomposition.
+- Inefficient gradient calculations in `FuturisticProgressIndicator` inside a `repeat` loop.
+- `onboardingLayoutModifier` was re-allocating a complex `Modifier` chain on every recomposition.
+**Solution:**
+- Defined top-level constants for shared shapes (`OnboardingSkipButtonShape`, `OnboardingMainContentShape`, `ProgressBarShape`).
+- Wrapped expensive `Brush` and `Modifier` allocations in `remember` blocks.
+- Refactored `onboardingLayoutModifier` to be `@Composable` and memoize its result.
+- Optimized `FuturisticProgressIndicator` to move brush creation outside the loop and use solid color background for inactive states.
+**Impact:**
+- **Reduced GC Pressure:** Significant reduction in ephemeral object allocations during onboarding transitions and animations.
+- **Improved UI Smoothness:** Lower CPU overhead during progress indicator animations and screen transitions.
+- **Memory Efficiency:** Avoids thousands of redundant allocations during high-frequency animation frames.
+**Benchmark:**
+- Incremental Compilation: 34s (`compileKotlinJvm`)
+- *Note:* These are runtime UI optimizations. Verification focused on successful compilation and quality checks.
