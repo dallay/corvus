@@ -358,7 +358,7 @@ impl SecurityPolicy {
             };
 
             let base = base_raw.to_ascii_lowercase();
-            let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
+            let args: Vec<String> = words.map(|w| w.to_string()).collect();
             let joined_segment = cmd_part.to_ascii_lowercase();
 
             if is_high_risk_base_command(&base) || contains_high_risk_snippet(&joined_segment) {
@@ -522,16 +522,12 @@ impl SecurityPolicy {
         }
 
         let raw_args: Vec<&str> = words.collect();
-        let normalized_args = match normalize_args_for_path_checks(&raw_args) {
+        let args = match normalize_args_for_path_checks(&raw_args) {
             Some(args) => args,
             None => return false,
         };
-        let args: Vec<String> = normalized_args
-            .iter()
-            .map(|arg| arg.to_ascii_lowercase())
-            .collect();
 
-        for arg in &normalized_args {
+        for arg in &args {
             let effective_arg = Self::effective_path_arg(arg);
             if !self.is_path_argument_safe(effective_arg) {
                 return false;
@@ -575,23 +571,35 @@ impl SecurityPolicy {
         match base.as_str() {
             "find" => {
                 // find -exec and find -ok allow arbitrary command execution
-                !args.iter().any(|arg| arg == "-exec" || arg == "-ok")
-            }
-            "git" => {
-                // git config, alias, and -c can be used to set dangerous options
-                // (e.g. git config core.editor "rm -rf /")
                 !args.iter().any(|arg| {
-                    arg == "config"
-                        || arg.starts_with("config.")
-                        || arg == "alias"
-                        || arg.starts_with("alias.")
-                        || arg == "-c"
+                    let low = arg.to_ascii_lowercase();
+                    low == "-exec" || low.starts_with("-exec") || low == "-ok" || low.starts_with("-ok")
                 })
             }
-            "npm" | "pnpm" | "yarn" => {
-                // npm config and set can be used to set dangerous options
-                // (e.g. npm config set editor "rm -rf /")
-                !args.iter().any(|arg| arg == "config" || arg == "set")
+            "git" => {
+                !args.iter().any(|arg| {
+                    // git config, alias, and -c can be used to set dangerous options
+                    let low = arg.to_ascii_lowercase();
+                    low == "config"
+                        || low.starts_with("config.")
+                        || low == "alias"
+                        || low.starts_with("alias.")
+                        // Case-sensitive block for -c to allow -C
+                        || arg.starts_with("-c")
+                        || arg.starts_with("--exec-path")
+                })
+            }
+            "npm" | "pnpm" | "yarn" | "cargo" => {
+                !args.iter().any(|arg| {
+                    let low = arg.to_ascii_lowercase();
+                    low == "config"
+                        || low == "set"
+                        || low == "--config"
+                        || low.starts_with("--config=")
+                        // Case-sensitive block for -c
+                        || arg.starts_with("-c")
+                        || arg.starts_with("--exec-path")
+                })
             }
             _ => true,
         }
@@ -778,8 +786,16 @@ fn contains_high_risk_snippet(segment: &str) -> bool {
 }
 
 fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
+    // Only check the first few non-flag arguments for subcommands to avoid false positives on filenames
+    let verbs: Vec<String> = args
+        .iter()
+        .filter(|a| !a.starts_with('-'))
+        .take(2)
+        .map(|a| a.to_ascii_lowercase())
+        .collect();
+
     match base {
-        "git" => args.first().is_some_and(|verb| {
+        "git" => verbs.iter().any(|verb| {
             matches!(
                 verb.as_str(),
                 "commit"
@@ -794,9 +810,13 @@ fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
                     | "checkout"
                     | "switch"
                     | "tag"
+                    | "clone"
+                    | "pull"
+                    | "fetch"
+                    | "init"
             )
         }),
-        "npm" | "pnpm" | "yarn" => args.first().is_some_and(|verb| {
+        "npm" | "pnpm" | "yarn" => verbs.iter().any(|verb| {
             matches!(
                 verb.as_str(),
                 "install"
@@ -811,14 +831,33 @@ fn is_medium_risk_command(base: &str, args: &[String]) -> bool {
                     | "t"
                     | "it"
                     | "cit"
+                    | "ci"
+                    | "init"
+                    | "link"
             )
         }),
-        "cargo" => args.first().is_some_and(|verb| {
+        "cargo" => verbs.iter().any(|verb| {
             matches!(
                 verb.as_str(),
-                "add" | "remove" | "install" | "clean" | "publish" | "run" | "r" | "test" | "t"
+                "add"
+                    | "remove"
+                    | "install"
+                    | "clean"
+                    | "publish"
+                    | "run"
+                    | "r"
+                    | "test"
+                    | "t"
+                    | "build"
+                    | "b"
+                    | "check"
+                    | "c"
+                    | "update"
+                    | "init"
+                    | "new"
             )
         }),
+        "find" => args.iter().any(|arg| arg.to_ascii_lowercase() == "-delete"),
         "touch" | "mkdir" | "mv" | "cp" | "ln" => true,
         _ => false,
     }
