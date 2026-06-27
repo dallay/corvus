@@ -104,10 +104,10 @@ ring = "0.17"
 prost = { version = "0.14", default-features = false }
 
 # Memory / persistence
-rusqlite = { version = "0.39", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 chrono-tz = "0.10"
-cron = "0.16"
+cron = "0.17"
 
 # Cerebro MCP service client
 cerebro = { version = "0.3.0", path = "../../clients/cerebro" }
@@ -140,13 +140,13 @@ webpki-roots = "1.0.6"
 # HTTP server (gateway) — replaces raw TCP for proper HTTP/1.1 compliance
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws", "multipart"] }
 tower = { version = "0.5", default-features = false }
-tower-http = { version = "0.6", default-features = false, features = ["limit", "timeout"] }
+tower-http = { version = "0.7", default-features = false, features = ["limit", "timeout"] }
 http-body-util = "0.1"
 
 # OpenTelemetry — OTLP trace + metrics export
-opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
-opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
-opentelemetry-otlp = { version = "0.31.1", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-client", "reqwest-rustls-webpki-roots"] }
+opentelemetry = { version = "0.32", default-features = false, features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.32.0", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-client", "reqwest-rustls-webpki-roots"] }
 
 # USB device enumeration (hardware discovery)
 nusb = { version = "0.2", default-features = false, optional = true }
@@ -158,7 +158,7 @@ tokio-serial = { version = "5.4.5", default-features = false, optional = true }
 probe-rs = { version = "0.31", optional = true }
 
 # PDF extraction for datasheet RAG (optional, enable with --features rag-pdf)
-pdf-extract = { version = "0.10", optional = true }
+pdf-extract = { version = "0.12", optional = true }
 
 # PDF inspection, classification, and text extraction
 # Pinned to v0.7.0 (latest stable tag as of 2026-05-06); no LICENSE file in upstream repo —
@@ -223,7 +223,7 @@ panic = "abort"
 [dev-dependencies]
 tempfile = "=3.27.0"
 criterion = { version = "=0.8.2", features = ["async_tokio"] }
-wat = "=1.248.0"
+wat = "=1.252.0"
 rcgen = "0.14"
 secrecy = "0.10"
 http = "1.4.0"
