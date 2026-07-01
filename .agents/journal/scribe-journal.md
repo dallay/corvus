@@ -91,6 +91,23 @@ All three identified issues have been fixed:
 - Glossary: "Firejail" = Linux user-space sandbox (confirmed implemented). "Landlock" = Linux kernel-level sandbox (confirmed). "Cerebro" = standalone MCP memory service client in `clients/cerebro/` (confirmed).
 - Remaining gap: `cost` command subcommands (`summary`, `history`, `reset`) exist in code but are not yet in the CLI reference doc. Low priority.
 
+## 2026-07-01 - PDF Inspection & Parity Sync - Complete
+
+**Verification:**
+- Verified `pdf_inspect` implementation in `clients/agent-runtime/src/tools/pdf_inspect.rs`.
+- Verified `Task*` parity tools and aliases in `clients/agent-runtime/src/tools/mod.rs`.
+**Changes:**
+- Added `pdf_inspect` documentation to `media.md` (en/es), including security tier, features, constraints, and parameters.
+- Added "Mapa de nombres de paridad" (Parity naming map) to `es/clients/agent-runtime/tools/core.md` to ensure bilingual parity with the English version.
+- Updated `index.mdx` (en/es) to include `pdf_inspect` in the Read-Only (Safe) examples.
+- Updated `lastReviewed` date for `media.md` (en/es) to 2026-07-01 to satisfy metadata validation rules.
+**Validation:**
+- `make docs-check` — ✅ PASSED (astro check + biome + metadata validation).
+- `make docs-build` — ✅ PASSED (84 pages built, search index generated).
+**Notes:**
+- `pdf_inspect` is a native tool requiring the `pdf-inspect` feature flag.
+- Parity mapping ensures developers can use Claude-style tool names (`glob`, `task_create`, etc.) which are aliased to Corvus-native implementations.
+
 ## 2026-04-15 - CLI Reference Update - Complete
 
 **Verification:** Verified `clients/agent-runtime/src/main.rs` for `code` and `cost` command implementations.

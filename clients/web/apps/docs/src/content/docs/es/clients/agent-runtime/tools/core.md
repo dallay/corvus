@@ -27,6 +27,20 @@ Consulta la página dedicada de [`code_search`](code-search.md) para el contrato
 
 ---
 
+## Mapa de nombres de paridad
+
+| Herramienta canónica | Alias de compatibilidad | Superficie del runtime que lo respalda | Notas |
+| --- | --- | --- | --- |
+| `Glob` | `glob` | Helpers de discovery del workspace | Alias de paridad aditivo |
+| `Grep` | `grep` | Internals de `code_search` | `code_search` se mantiene como contrato nativo |
+| `TaskCreate` | `task_create` | Servicio de tareas persistentes | Solo disponible con backend SQLite |
+| `TaskGet` | `task_get` | Servicio de tareas persistentes | Solo disponible con backend SQLite |
+| `TaskList` | `task_list` | Servicio de tareas persistentes | Orden determinístico por created_at/id |
+| `TaskUpdate` | `task_update` | Servicio de tareas persistentes | Actualiza solo campos mutables |
+| `TaskStop` | `task_stop` | Servicio de tareas persistentes | Ruta de cancelación semántica |
+
+---
+
 ## `Glob`
 
 Herramienta de paridad estilo Claude para descubrimiento seguro de archivos por patrón dentro del workspace.
