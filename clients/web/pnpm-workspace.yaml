@@ -36,7 +36,7 @@ catalog:
   vue-tsc: 3.2.6
 
 overrides:
-  devalue: ^5.6.4
+  devalue: ^5.8.1
   lodash@>=4.17.0 <4.17.23: ^4.17.23
   minimatch: ^9.0.6
   rollup: ^4.59.0
