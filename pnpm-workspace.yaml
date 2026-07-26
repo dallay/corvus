@@ -20,7 +20,7 @@ catalog:
   '@vue/compiler-dom': 3.5.30
   '@vue/test-utils': 2.4.6
   '@vue/tsconfig': 0.9.1
-  astro: 6.1.9
+  astro: 6.4.6
   astro-vtbot: 2.1.12
   axe-core: 4.11.0
   happy-dom: 20.8.9
