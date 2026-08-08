@@ -72,7 +72,7 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
 
@@ -149,7 +149,7 @@ jobs:
           mv "$tmp_sarif" "${{ github.workspace }}/detekt.sarif.json"
 
       # Uploads results to GitHub repository using the upload-sarif action
-      - uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10
+      - uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           # Path to SARIF file relative to the root of the repository
           sarif_file: ${{ github.workspace }}/detekt.sarif.json
