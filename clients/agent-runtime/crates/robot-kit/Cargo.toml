@@ -36,7 +36,7 @@ toml = "1.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Base64 encoding (for image data)
-base64 = "0.22"
+base64 = "0.23"
 
 # Async traits
 async-trait = "0.1"
