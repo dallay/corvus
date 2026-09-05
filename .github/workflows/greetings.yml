@@ -8,5 +8,5 @@ jobs:
     permissions:
       issues: write
       pull-requests: write
-    uses: dallay/common-actions/.github/workflows/greetings.yml@6ecd716dcfb6a9e8a9c494d1eac210cc1d73d75f # v2.0.0
+    uses: dallay/common-actions/.github/workflows/greetings.yml@69060250307677655136ca88c70a2f77cb4153b2 # v2.2.4
     secrets: inherit
