@@ -36,7 +36,7 @@ toml = "1.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Base64 encoding (for image data)
-base64 = "0.22"
+base64 = "0.23"
 
 # Async traits
 async-trait = "0.1"
@@ -61,7 +61,7 @@ directories = "6.0"
 rppal = { version = "0.22", optional = true }
 
 [dev-dependencies]
-tokio-test = "=0.4.5"
+tokio-test = "=0.4.6"
 tempfile = "=3.27.0"
 
 [package.metadata.docs.rs]
